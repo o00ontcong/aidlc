@@ -45,7 +45,7 @@ describe('Start Epic → recipe materialization (built-in workspace)', () => {
     for (const wf of BUILTIN_WORKFLOWS) {
       const config = builtinWorkspace(wf);
       expect(config.pipelines.length).toBeGreaterThan(0);
-      expect(config.recipes.length).toBeGreaterThan(0);
+      expect(config.recipes.length).toBe(wf.recipes?.length ?? 0);
     }
   });
 

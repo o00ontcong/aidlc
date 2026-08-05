@@ -24,6 +24,7 @@ import {
   getBuiltinWorkflow,
   builtinClaudeCommand,
   pipelineCommandId,
+  workflowCommandPhases,
   writeBuiltinAutoReviewValidators,
   writeTwoLayerCommands,
   type BuiltinWorkflow,
@@ -394,10 +395,10 @@ function writeBuiltinClaudeCommands(
 ): void {
   const commandsDir = path.join(root, '.claude', 'commands');
   fs.mkdirSync(commandsDir, { recursive: true });
-  for (const phase of workflow.phases) {
+  for (const { pipelineId, phase } of workflowCommandPhases(workflow)) {
     // Namespaced filename (pipeline-phase) so coexisting pipelines don't
     // overwrite each other's commands; body is keyed by the bare phase id.
-    const commandFile = path.join(commandsDir, `${pipelineCommandId(workflow.pipelineId, phase.id)}.md`);
+    const commandFile = path.join(commandsDir, `${pipelineCommandId(pipelineId, phase.id)}.md`);
     if (fs.existsSync(commandFile) && !overwrite) { continue; }
     const skillBody = preset.skillContents[phase.id] ?? `# ${phase.name}\n\n${phase.description}\n`;
     fs.writeFileSync(commandFile, builtinClaudeCommand(phase, skillBody, epicRoot), 'utf8');

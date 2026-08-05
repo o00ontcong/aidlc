@@ -200,6 +200,7 @@ import {
   resolvePrimaryStack,
   builtinClaudeCommand,
   pipelineCommandId,
+  workflowCommandPhases,
   writeBuiltinAutoReviewValidators,
   BUILTIN_WORKFLOWS,
 } from './builtinPresets';
@@ -432,6 +433,8 @@ interface EpicSummaryUi {
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
+  /** Basename → absolute path (includes produces: outside epic/artifacts/). */
+  artifactPaths: Record<string, string>;
   createdAt: string;
   /** True for folders with no state.json/pipeline, synthesized from artifacts. */
   artifactsOnly?: boolean;
@@ -860,13 +863,6 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
   const done = e.stepDetails.filter((s) => s.status === 'done').length;
   const progress = Math.round((done / total) * 100);
   const epicDir = e.epicDir;
-  const artifactsDir = path.join(epicDir, 'artifacts');
-  let existingArtifacts: string[] = [];
-  if (fs.existsSync(artifactsDir)) {
-    try {
-      existingArtifacts = fs.readdirSync(artifactsDir).filter((n) => !n.startsWith('.'));
-    } catch { /* ignore */ }
-  }
   return {
     id: e.id,
     title: e.title,
@@ -913,7 +909,8 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     runId: e.runId,
     inputs: e.inputs,
     epicDir,
-    existingArtifacts,
+    existingArtifacts: e.existingArtifacts ?? [],
+    artifactPaths: e.artifactPaths ?? {},
     createdAt: e.createdAt,
     artifactsOnly: e.artifactsOnly,
     tokenUsage: e.tokenUsage
@@ -1393,6 +1390,19 @@ export class WorkspaceWebview {
       artifactsWatcher.onDidDelete(refresh, null, this.disposables);
       this.disposables.push(artifactsWatcher);
 
+      // Canonical project-context outputs live outside epic artifacts/
+      // (docs/project/context/). Watch them so the Artifact chip flips
+      // from "not produced yet" as soon as the agent writes the file.
+      const projectContextPattern = new vscode.RelativePattern(
+        vscode.Uri.file(root),
+        'docs/project/context/**',
+      );
+      const projectContextWatcher = vscode.workspace.createFileSystemWatcher(projectContextPattern);
+      projectContextWatcher.onDidChange(refresh, null, this.disposables);
+      projectContextWatcher.onDidCreate(refresh, null, this.disposables);
+      projectContextWatcher.onDidDelete(refresh, null, this.disposables);
+      this.disposables.push(projectContextWatcher);
+
       const breakdownPattern = new vscode.RelativePattern(
         vscode.Uri.file(root),
         'docs/task-breakdowns/**',
@@ -1448,6 +1458,26 @@ export class WorkspaceWebview {
    * renderer + annotron by hand.
    */
   private annotateArtifact(epicDir: string, filename: string): void {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const resolved = this.resolveArtifactAbsPath(epicDir, filename);
+    const conventional = path.join(epicDir, 'artifacts', filename);
+    // /annotate-artifact only understands docs/epics/<epic>/artifacts/<file>.
+    // For produces: outside that folder (project-context), open the file for
+    // manual edit instead of launching a loop that would look in the wrong place.
+    if (resolved && path.resolve(resolved) !== path.resolve(conventional)) {
+      void vscode.workspace.openTextDocument(resolved).then((doc) => {
+        void vscode.window.showTextDocument(doc, { preview: false });
+      });
+      void vscode.window.showInformationMessage(
+        `${filename} nằm ngoài epic artifacts/ — mở file để sửa trực tiếp. Feedback loop (/annotate-artifact) chỉ hỗ trợ artifacts trong epic.`,
+      );
+      return;
+    }
+    if (!resolved || !fs.existsSync(resolved)) {
+      void vscode.window.showInformationMessage(`Artifact chưa tồn tại: ${filename}`);
+      return;
+    }
+
     const epicId = path.basename(epicDir);
     const skillCmd = `/annotate-artifact ${epicId} ${filename}`;
     const termName = `AIDLC · Annotate: ${epicId}/${filename}`;
@@ -1463,7 +1493,6 @@ export class WorkspaceWebview {
       existing.dispose();
     }
 
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const cwd = root && fs.existsSync(root) ? root : epicDir;
     const terminal = vscode.window.createTerminal({
       name: termName,
@@ -1507,6 +1536,26 @@ export class WorkspaceWebview {
   }
 
   /**
+   * Resolve an artifact basename to an absolute path for this epic.
+   * Prefers the indexed produces:/artifacts path from listEpics; falls back
+   * to the conventional epicDir/artifacts/<file>.
+   */
+  private resolveArtifactAbsPath(epicDir: string, filename: string): string | null {
+    if (!epicDir || !filename) { return null; }
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (root) {
+      try {
+        const epic = listEpics(root, readYaml(root)).find((e) => e.epicDir === epicDir);
+        const indexed = epic?.artifactPaths?.[filename];
+        if (indexed && fs.existsSync(indexed)) { return indexed; }
+      } catch { /* fall through */ }
+    }
+    const conventional = path.join(epicDir, 'artifacts', filename);
+    if (fs.existsSync(conventional)) { return conventional; }
+    return null;
+  }
+
+  /**
    * Read-only preview of an artifact in annotron. Unlike the old "Open HTML"
    * (which opened md-to-html's static `.html` — no Mermaid), this opens the
    * `.md` directly in annotron, which renders Markdown itself (markdown-it +
@@ -1518,8 +1567,8 @@ export class WorkspaceWebview {
    * same binary the skill uses — so it needs only `node`, not `claude`.
    */
   private viewArtifactInAnnotron(epicDir: string, filename: string): void {
-    const mdPath = path.join(epicDir, 'artifacts', filename);
-    if (!fs.existsSync(mdPath)) {
+    const mdPath = this.resolveArtifactAbsPath(epicDir, filename);
+    if (!mdPath) {
       void vscode.window.showInformationMessage(`Artifact chưa tồn tại: ${filename}`);
       return;
     }
@@ -1871,17 +1920,29 @@ export class WorkspaceWebview {
       case 'revealArtifacts': {
         const epicDir = String(msg.epicDir ?? '');
         if (!epicDir) { return; }
-        const artifactsDir = path.join(epicDir, 'artifacts');
-        if (!fs.existsSync(artifactsDir)) { return; }
-        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(artifactsDir));
+        // Prefer an existing produced file's parent (covers project-context
+        // under docs/project/context/); else the conventional artifacts/.
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        let revealDir = path.join(epicDir, 'artifacts');
+        if (root) {
+          try {
+            const epic = listEpics(root, readYaml(root)).find((e) => e.epicDir === epicDir);
+            const firstPath = epic?.existingArtifacts
+              ?.map((name) => epic.artifactPaths?.[name])
+              .find((p): p is string => !!p && fs.existsSync(p));
+            if (firstPath) { revealDir = path.dirname(firstPath); }
+          } catch { /* keep default */ }
+        }
+        if (!fs.existsSync(revealDir)) { return; }
+        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(revealDir));
         return;
       }
       case 'openArtifactFile': {
         const epicDir = String(msg.epicDir ?? '');
         const filename = String(msg.filename ?? '');
         if (!epicDir || !filename) { return; }
-        const filePath = path.join(epicDir, 'artifacts', filename);
-        if (!fs.existsSync(filePath)) { return; }
+        const filePath = this.resolveArtifactAbsPath(epicDir, filename);
+        if (!filePath) { return; }
         const doc = await vscode.workspace.openTextDocument(filePath);
         await vscode.window.showTextDocument(doc, { preview: false });
         return;
@@ -2917,10 +2978,10 @@ export class WorkspaceWebview {
 
     const commandsDir = path.join(root, '.claude', 'commands');
     fs.mkdirSync(commandsDir, { recursive: true });
-    for (const phase of builtin.phases) {
+    for (const { pipelineId, phase } of workflowCommandPhases(builtin)) {
       // File is namespaced by pipeline so multiple pipelines can reuse phase
       // names without colliding; the composed body is still keyed by phase id.
-      const commandFile = path.join(commandsDir, `${pipelineCommandId(builtin.pipelineId, phase.id)}.md`);
+      const commandFile = path.join(commandsDir, `${pipelineCommandId(pipelineId, phase.id)}.md`);
       if (!fs.existsSync(commandFile)) {
         const skillBody = preset.skillContents[phase.id] ?? `# ${phase.name}\n\n${phase.description}\n`;
         fs.writeFileSync(commandFile, builtinClaudeCommand(phase, skillBody, epicRoot), 'utf8');

@@ -164,3 +164,79 @@ describe('listEpics artifacts-only fallback (no state.json)', () => {
     expect(epic.status).toBe('in_progress');
   });
 });
+
+/**
+ * project-context writes canonical files under docs/project/context/, not
+ * docs/epics/<id>/artifacts/. The Epic card must still treat those produces:
+ * paths as existing so the Artifact chip is clickable.
+ */
+describe('listEpics indexes produces: outside epic artifacts/', () => {
+  let root: string;
+  const epicId = 'PROJECT-CONTEXT-001';
+
+  const doc = {
+    state: { root: 'docs/epics' },
+    slash_commands: [{ name: '/project-context-scan-project' }],
+    pipelines: [
+      {
+        id: 'project-context',
+        steps: [
+          {
+            agent: 'aidlc-project-context-agent',
+            name: 'scan-project',
+            produces: ['docs/project/context/PROJECT-SCAN.md'],
+          },
+          {
+            agent: 'aidlc-project-context-agent',
+            name: 'model-project',
+            produces: [
+              'docs/project/context/PROJECT-CONTEXT.md',
+              'docs/project/context/ARCHITECTURE-MAP.md',
+            ],
+          },
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof listEpics>[1];
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-epicslist-pc-'));
+    const epicDir = path.join(root, 'docs', 'epics', epicId);
+    fs.mkdirSync(path.join(epicDir, 'artifacts'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'docs', 'project', 'context'), { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDir, 'state.json'),
+      JSON.stringify({
+        id: epicId,
+        title: 'Init context',
+        pipeline: 'project-context',
+        currentStep: 0,
+        status: 'in_progress',
+        stepStates: [
+          { agent: 'aidlc-project-context-agent', status: 'in_progress' },
+          { agent: 'aidlc-project-context-agent', status: 'pending' },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, 'docs', 'project', 'context', 'PROJECT-SCAN.md'),
+      '# Scan\n',
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('lists PROJECT-SCAN.md as existing with the canonical absolute path', () => {
+    const epic = listEpics(root, doc).find((e) => e.id === epicId);
+    expect(epic).toBeDefined();
+    expect(epic!.stepDetails[0].artifact).toBe('PROJECT-SCAN.md');
+    expect(epic!.existingArtifacts).toContain('PROJECT-SCAN.md');
+    expect(epic!.artifactPaths['PROJECT-SCAN.md']).toBe(
+      path.join(root, 'docs', 'project', 'context', 'PROJECT-SCAN.md'),
+    );
+    // Sibling produces not yet written stay absent.
+    expect(epic!.existingArtifacts).not.toContain('PROJECT-CONTEXT.md');
+  });
+});

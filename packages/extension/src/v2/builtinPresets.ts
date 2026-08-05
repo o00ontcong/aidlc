@@ -14,6 +14,8 @@ export {
   BUILTIN_WORKFLOWS,
   PHASES,
   pipelineCommandId,
+  commandPipelineIdForPhase,
+  workflowCommandPhases,
   workflowSlug,
   getBuiltinWorkflow,
   getBuiltinWorkflowByPipelineId,

@@ -722,7 +722,7 @@ function StepDetail({
           ) : (
             <div
               className="inline-flex w-fit items-center rounded border border-border bg-muted/50 px-2 py-0.5 font-mono text-[11px] italic text-muted-foreground opacity-70"
-              title="File not produced yet — will land in artifacts/ when this step runs"
+              title="File not produced yet — waiting for the step's produces: path on disk"
             >
               {artifactName} · not produced yet
             </div>

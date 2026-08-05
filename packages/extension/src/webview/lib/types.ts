@@ -569,6 +569,8 @@ export interface EpicSummary {
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
+  /** Basename → absolute path (includes produces: outside epic/artifacts/). */
+  artifactPaths: Record<string, string>;
   createdAt: string;
   /** True when this folder has no state.json/pipeline and the summary was
    *  synthesized from the `.md` files in its artifacts/ folder. Steps are a

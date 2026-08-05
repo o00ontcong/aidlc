@@ -81,6 +81,12 @@ interface PhaseDef {
    * (the runner falls back to "open the next index after approve").
    */
   dependsOn?: string[];
+  /** Explicit input artifacts for workflows whose gates span pipelines. */
+  requires?: string[];
+  /** Explicit output artifacts. Overrides the legacy single `artifact` path. */
+  produces?: string[];
+  /** Required text fragments checked by the runner after output creation. */
+  producesContains?: string[];
 }
 
 /**
@@ -250,6 +256,25 @@ export interface BuiltinWorkflow {
    * Parallel workflows declare a DAG via per-phase `dependsOn` arrays.
    */
   phases: PhaseDef[];
+  /** Primary pipeline phases when `phases` is the command-install union. */
+  primaryPhases?: PhaseDef[];
+  /**
+   * Extra pipelines installed atomically with this preset. For bundles,
+   * `phases` is the command-install union and `primaryPhases` defines the
+   * primary pipeline. The union's phase ids must be unique because the
+   * extension stores composed command bodies by phase id.
+   */
+  additionalPipelines?: Array<{
+    id: string;
+    name: string;
+    phases: PhaseDef[];
+  }>;
+  /**
+   * Whether phase artifact templates should be pre-seeded. Cohesive Delivery
+   * disables this: creating empty gate outputs would make cross-pipeline
+   * existence checks pass before an agent has actually produced the context.
+   */
+  seedArtifacts?: boolean;
   /**
    * Task-type recipes carved out of `phases`. Optional — workflows without
    * recipes just install the full pipeline.
@@ -400,6 +425,302 @@ const SPECKIT_RECIPES: RecipeDef[] = [
   },
 ];
 
+/**
+ * Cohesive Delivery keeps three context layers connected while allowing work
+ * packages to execute in parallel:
+ *
+ *   project-context (canonical, repo-wide)
+ *          ↓ immutable snapshot
+ *   cohesive-feature (spec, contract, package board, integration)
+ *          ↓ bounded package context        ↑ result contract
+ *   cohesive-work-package (one isolated worktree per package)
+ *
+ * The primary feature pipeline coordinates but does not perform package work.
+ * Workers cannot redefine shared contracts; integration and project-sync gates
+ * pull their results back into one feature and then the canonical context.
+ */
+const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
+  {
+    id: 'scan-project', name: 'Scan Project', persona: 'project-context-agent',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    description: 'Inventory repository structure, quality commands, boundaries, and existing documentation.',
+    inputs: 'Repository files and version-control history',
+    outputs: 'Repository scan shared by the project-context modeling steps',
+    artifact: 'PROJECT-SCAN.md', humanReview: false, autoReview: false,
+    produces: ['docs/project/context/PROJECT-SCAN.md'],
+    producesContains: ['## Repository Structure', '## Quality Commands'],
+    capabilities: ['files', 'github'],
+  },
+  {
+    id: 'model-project', name: 'Model Project', persona: 'project-context-agent',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    description: 'Build canonical architecture, domain, shared-contract, and engineering-rule context.',
+    inputs: 'PROJECT-SCAN.md and repository evidence',
+    outputs: 'Five canonical project-context documents', artifact: 'PROJECT-CONTEXT.md',
+    humanReview: false, autoReview: false, dependsOn: ['scan-project'],
+    requires: ['docs/project/context/PROJECT-SCAN.md'],
+    produces: [
+      'docs/project/context/PROJECT-CONTEXT.md',
+      'docs/project/context/ARCHITECTURE-MAP.md',
+      'docs/project/context/DOMAIN-MODEL.md',
+      'docs/project/context/SHARED-CONTRACTS.md',
+      'docs/project/context/ENGINEERING-RULES.md',
+    ],
+    capabilities: ['files', 'github'],
+  },
+  {
+    id: 'review-context', name: 'Review Context', persona: 'project-context-agent',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    description: 'Review canonical context for contradictions, missing boundaries, and unverifiable claims.',
+    inputs: 'All canonical project-context documents', outputs: 'GO/NO-GO context review',
+    artifact: 'CONTEXT-REVIEW.md', humanReview: true, autoReview: false,
+    dependsOn: ['model-project'],
+    requires: [
+      'docs/project/context/PROJECT-CONTEXT.md',
+      'docs/project/context/ARCHITECTURE-MAP.md',
+      'docs/project/context/DOMAIN-MODEL.md',
+      'docs/project/context/SHARED-CONTRACTS.md',
+      'docs/project/context/ENGINEERING-RULES.md',
+    ],
+    produces: ['docs/project/context/CONTEXT-REVIEW.md'],
+    producesContains: ['**Verdict:** GO'], capabilities: ['files', 'github'],
+  },
+  {
+    id: 'publish-context', name: 'Publish Context', persona: 'project-context-agent',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    description: 'Publish a versioned manifest that features can capture as an immutable context identity.',
+    inputs: 'Approved context review and canonical documents', outputs: 'Versioned context manifest',
+    artifact: 'CONTEXT-MANIFEST.json', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/project-context.mjs', dependsOn: ['review-context'],
+    requires: ['docs/project/context/CONTEXT-REVIEW.md'],
+    produces: ['docs/project/context/CONTEXT-MANIFEST.json'], capabilities: ['files', 'github'],
+  },
+];
+
+const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
+  {
+    id: 'capture-context', name: 'Capture Context', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Capture an immutable feature snapshot of the current canonical project context.',
+    inputs: 'Published project context manifest', outputs: 'Feature-scoped project-context snapshot',
+    artifact: 'PROJECT-CONTEXT-SNAPSHOT.md', humanReview: false, autoReview: false,
+    requires: ['docs/project/context/CONTEXT-MANIFEST.json'],
+    produces: ['docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md'],
+    producesContains: ['## Context Identity', '## Relevant Project Constraints'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'specify', name: 'Specify', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Specify one feature inside the captured project boundaries.',
+    inputs: 'Feature request and project-context snapshot', outputs: 'Testable feature specification',
+    artifact: 'SPEC.md', humanReview: false, autoReview: false, dependsOn: ['capture-context'],
+    requires: ['docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md'],
+    produces: ['docs/epics/{epic}/artifacts/SPEC.md'],
+    producesContains: ['## Functional Requirements', '## Acceptance Criteria', '## Out of Scope'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'clarify', name: 'Clarify', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Resolve ambiguity before the shared design and package boundaries are frozen.',
+    inputs: 'Feature specification and stakeholder decisions', outputs: 'Clarified specification',
+    artifact: 'SPEC.md', humanReview: true, autoReview: false, dependsOn: ['specify'],
+    requires: ['docs/epics/{epic}/artifacts/SPEC.md'],
+    produces: ['docs/epics/{epic}/artifacts/SPEC.md'], producesContains: ['## Clarifications'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'plan', name: 'Plan', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Create one integration-aware plan and identify shared-contract impact.',
+    inputs: 'Clarified spec and project-context snapshot', outputs: 'Feature implementation plan',
+    artifact: 'PLAN.md', humanReview: true, autoReview: false, dependsOn: ['clarify'],
+    requires: [
+      'docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md',
+      'docs/epics/{epic}/artifacts/SPEC.md',
+    ],
+    produces: ['docs/epics/{epic}/artifacts/PLAN.md'],
+    producesContains: ['## Shared Contract Impact', '## File Impact', '## Requirement Traceability'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'tasks-package', name: 'Package Tasks', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Partition work into dependency-aware packages with exclusive ownership and stable result contracts.',
+    inputs: 'Feature spec and plan', outputs: 'Traceable task list and machine-readable work packages',
+    artifact: 'WORK-PACKAGES.json', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/work-packages.mjs', dependsOn: ['plan'],
+    requires: ['docs/epics/{epic}/artifacts/SPEC.md', 'docs/epics/{epic}/artifacts/PLAN.md'],
+    produces: [
+      'docs/epics/{epic}/artifacts/TASKS.md',
+      'docs/epics/{epic}/artifacts/WORK-PACKAGES.json',
+    ], capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'analyze-contract', name: 'Analyze Contract', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Cross-check coverage and freeze the feature contract before parallel package work starts.',
+    inputs: 'Context snapshot, spec, plan, tasks, and work-package graph',
+    outputs: 'Coverage analysis and immutable feature contract', artifact: 'FEATURE-CONTRACT.md',
+    humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/feature-contract.mjs', dependsOn: ['tasks-package'],
+    requires: [
+      'docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md',
+      'docs/epics/{epic}/artifacts/SPEC.md',
+      'docs/epics/{epic}/artifacts/PLAN.md',
+      'docs/epics/{epic}/artifacts/TASKS.md',
+      'docs/epics/{epic}/artifacts/WORK-PACKAGES.json',
+    ],
+    produces: [
+      'docs/epics/{epic}/artifacts/ANALYSIS.md',
+      'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
+    ], capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'await-packages', name: 'Await Packages', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Track parallel workers and block integration until every required package result is valid.',
+    inputs: 'Feature contract, package graph, and worker result files',
+    outputs: 'Package results rollup and task board', artifact: 'PACKAGE-RESULTS.md',
+    humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/await-packages.mjs', dependsOn: ['analyze-contract'],
+    requires: [
+      'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
+      'docs/epics/{epic}/artifacts/WORK-PACKAGES.json',
+    ],
+    produces: [
+      'docs/epics/{epic}/artifacts/PACKAGE-RESULTS.md',
+      'docs/epics/{epic}/artifacts/TASK-BOARD.md',
+    ], capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'integrate', name: 'Integrate', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Integrate approved package branches in dependency order and record conflict decisions.',
+    inputs: 'Validated package-results rollup', outputs: 'Integration summary',
+    artifact: 'INTEGRATION-SUMMARY.md', humanReview: true, autoReview: false,
+    dependsOn: ['await-packages'], requires: ['docs/epics/{epic}/artifacts/PACKAGE-RESULTS.md'],
+    produces: ['docs/epics/{epic}/artifacts/INTEGRATION-SUMMARY.md'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'integration-context', name: 'Integration Context', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Reconstruct actual cross-package behavior after integration.',
+    inputs: 'Integration summary and integrated code', outputs: 'Post-integration context',
+    artifact: 'INTEGRATION-CONTEXT.md', humanReview: false, autoReview: false,
+    dependsOn: ['integrate'], requires: ['docs/epics/{epic}/artifacts/INTEGRATION-SUMMARY.md'],
+    produces: ['docs/epics/{epic}/artifacts/INTEGRATION-CONTEXT.md'],
+    producesContains: ['## Planned Versus Actual', '## Cross-Package Interactions', '## Remaining Risks'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'cohesion-review', name: 'Cohesion Review', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Verify the integrated feature still conforms to its frozen contract and project boundaries.',
+    inputs: 'Feature contract and integration context', outputs: 'Cohesion verdict and deviations',
+    artifact: 'COHESION-REPORT.md', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/integration-cohesion.mjs', dependsOn: ['integration-context'],
+    requires: [
+      'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
+      'docs/epics/{epic}/artifacts/INTEGRATION-CONTEXT.md',
+    ], produces: ['docs/epics/{epic}/artifacts/COHESION-REPORT.md'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'system-test', name: 'System Test', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Run project-level quality commands against the integrated feature.',
+    inputs: 'Approved cohesion report and integrated repository', outputs: 'System test report',
+    artifact: 'SYSTEM-TEST-REPORT.md', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/project-ci.mjs', dependsOn: ['cohesion-review'],
+    requires: ['docs/epics/{epic}/artifacts/COHESION-REPORT.md'],
+    produces: ['docs/epics/{epic}/artifacts/SYSTEM-TEST-REPORT.md'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'project-sync', name: 'Project Sync', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    description: 'Record project-knowledge changes and verify canonical context remains current.',
+    inputs: 'System test report and accepted integrated feature', outputs: 'Project update record',
+    artifact: 'PROJECT-UPDATE.md', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/project-context.mjs', dependsOn: ['system-test'],
+    requires: ['docs/epics/{epic}/artifacts/SYSTEM-TEST-REPORT.md'],
+    produces: ['docs/epics/{epic}/artifacts/PROJECT-UPDATE.md'],
+    producesContains: ['## Project Knowledge Changes', '## Final Feature Status'],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+];
+
+const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
+  {
+    id: 'load-package', name: 'Load Package', persona: 'cohesive-work-package-agent',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    description: 'Load exactly one approved package plus its frozen feature and project context.',
+    inputs: 'Epic id and package id', outputs: 'Bounded package-context document',
+    artifact: 'PACKAGE-CONTEXT.md', humanReview: false, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/package-context.mjs',
+    produces: ['docs/epics/{epic}/artifacts/PACKAGE-CONTEXT.md'], capabilities: ['files', 'github'],
+  },
+  {
+    id: 'prepare-worktree', name: 'Prepare Worktree', persona: 'cohesive-work-package-agent',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    description: 'Verify the package runs in its declared isolated branch and worktree.',
+    inputs: 'Package context and current git state', outputs: 'Machine-readable worktree state',
+    artifact: 'WORKTREE-STATE.json', humanReview: false, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/worktree-state.mjs', dependsOn: ['load-package'],
+    requires: ['docs/epics/{epic}/artifacts/PACKAGE-CONTEXT.md'],
+    produces: ['docs/epics/{epic}/artifacts/WORKTREE-STATE.json'], capabilities: ['files', 'github'],
+  },
+  {
+    id: 'implement-package', name: 'Implement Package', persona: 'cohesive-work-package-agent',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    description: 'Implement only the owned package surface without redefining shared contracts.',
+    inputs: 'Package context, worktree state, owned files, and allowed contracts',
+    outputs: 'Implementation state and package summary', artifact: 'PACKAGE-SUMMARY.md',
+    humanReview: true, autoReview: false, dependsOn: ['prepare-worktree'],
+    requires: [
+      'docs/epics/{epic}/artifacts/PACKAGE-CONTEXT.md',
+      'docs/epics/{epic}/artifacts/WORKTREE-STATE.json',
+    ],
+    produces: [
+      'docs/epics/{epic}/artifacts/IMPLEMENT-STATE.md',
+      'docs/epics/{epic}/artifacts/PACKAGE-SUMMARY.md',
+    ], capabilities: ['files', 'github'],
+  },
+  {
+    id: 'package-test', name: 'Package Test', persona: 'cohesive-work-package-agent',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    description: 'Run the package-specific test contract and capture evidence.',
+    inputs: 'Implementation state, package summary, and package test contract',
+    outputs: 'Package test report', artifact: 'PACKAGE-TEST-REPORT.md',
+    humanReview: false, autoReview: false, dependsOn: ['implement-package'],
+    requires: [
+      'docs/epics/{epic}/artifacts/IMPLEMENT-STATE.md',
+      'docs/epics/{epic}/artifacts/PACKAGE-SUMMARY.md',
+    ], produces: ['docs/epics/{epic}/artifacts/PACKAGE-TEST-REPORT.md'],
+    capabilities: ['files', 'github'],
+  },
+  {
+    id: 'publish-result', name: 'Publish Result', persona: 'cohesive-work-package-agent',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    description: 'Publish the stable result contract consumed by the feature coordinator.',
+    inputs: 'Package test evidence, commits, deviations, and integration notes',
+    outputs: 'Machine-readable package result', artifact: 'PACKAGE-RESULT.json',
+    humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/package-result.mjs', dependsOn: ['package-test'],
+    requires: ['docs/epics/{epic}/artifacts/PACKAGE-TEST-REPORT.md'],
+    produces: ['docs/epics/{epic}/artifacts/PACKAGE-RESULT.json'], capabilities: ['files', 'github'],
+  },
+];
+
+const COHESIVE_ALL_PHASES: PhaseDef[] = [
+  ...COHESIVE_PROJECT_CONTEXT_PHASES,
+  ...COHESIVE_FEATURE_PHASES,
+  ...COHESIVE_WORK_PACKAGE_PHASES,
+];
+
 export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
   {
     id: 'aidlc-workflow',
@@ -421,10 +742,43 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
     phases: SPECKIT_PHASES,
     recipes: SPECKIT_RECIPES,
   },
+  {
+    id: 'cohesive-delivery',
+    pipelineId: 'cohesive-feature',
+    name: 'Cohesive Delivery',
+    templatesDir: 'cohesive',
+    description:
+      'Three connected context layers with parallel package execution: canonical Project Context → coordinated Feature Contract → isolated Work Packages → cohesion review and project sync.',
+    // The extension writes commands from `phases`; the actual primary pipeline
+    // is selected via `primaryPhases`. This preserves generic installer code.
+    phases: COHESIVE_ALL_PHASES,
+    primaryPhases: COHESIVE_FEATURE_PHASES,
+    additionalPipelines: [
+      { id: 'project-context', name: 'Project Context', phases: COHESIVE_PROJECT_CONTEXT_PHASES },
+      { id: 'cohesive-work-package', name: 'Cohesive Work Package', phases: COHESIVE_WORK_PACKAGE_PHASES },
+    ],
+    seedArtifacts: false,
+  },
 ];
 
 const BUILTIN_BY_ID = new Map(BUILTIN_WORKFLOWS.map((w) => [w.id, w]));
-const BUILTIN_BY_PIPELINE_ID = new Map(BUILTIN_WORKFLOWS.map((w) => [w.pipelineId, w]));
+const BUILTIN_BY_PIPELINE_ID = new Map<string, BuiltinWorkflow>();
+for (const workflow of BUILTIN_WORKFLOWS) {
+  BUILTIN_BY_PIPELINE_ID.set(workflow.pipelineId, workflow);
+  for (const additional of workflow.additionalPipelines ?? []) {
+    // Return a pipeline-specific view. Existing extension code can therefore
+    // resolve templates/metadata for a companion pipeline without knowing
+    // that it came from a multi-pipeline preset.
+    BUILTIN_BY_PIPELINE_ID.set(additional.id, {
+      ...workflow,
+      pipelineId: additional.id,
+      name: additional.name,
+      phases: additional.phases,
+      primaryPhases: undefined,
+      additionalPipelines: undefined,
+    });
+  }
+}
 
 /**
  * Short slug used to namespace every workspace.yaml id (agent/skill/slash
@@ -490,6 +844,56 @@ export function pipelineCommandId(pipelineId: string, phaseId: string): string {
 }
 
 /**
+ * Which pipeline id owns a phase's slash command for a (possibly multi-
+ * pipeline) built-in workflow. Primary phases use `workflow.pipelineId`;
+ * companion pipeline phases use that companion's id. Without this,
+ * cohesive-delivery stamped every phase as `/cohesive-feature-<phase>`
+ * — including `scan-project` — so the Epic card showed the wrong command
+ * and agents followed the wrong namespace.
+ */
+export function commandPipelineIdForPhase(
+  workflow: BuiltinWorkflow,
+  phaseId: string,
+): string {
+  const primary = workflow.primaryPhases ?? workflow.phases;
+  if (primary.some((p) => p.id === phaseId)) {
+    return workflow.pipelineId;
+  }
+  for (const additional of workflow.additionalPipelines ?? []) {
+    if (additional.phases.some((p) => p.id === phaseId)) {
+      return additional.id;
+    }
+  }
+  return workflow.pipelineId;
+}
+
+/**
+ * Every (pipelineId, phase) pair that should get a slash command / command
+ * file for this workflow. Primary pipeline first, then companions.
+ */
+export function workflowCommandPhases(
+  workflow: BuiltinWorkflow,
+): Array<{ pipelineId: string; phase: PhaseDef }> {
+  if (!workflow.primaryPhases && !workflow.additionalPipelines?.length) {
+    return workflow.phases.map((phase) => ({
+      pipelineId: workflow.pipelineId,
+      phase,
+    }));
+  }
+  const primary = workflow.primaryPhases ?? workflow.phases;
+  const out: Array<{ pipelineId: string; phase: PhaseDef }> = primary.map((phase) => ({
+    pipelineId: workflow.pipelineId,
+    phase,
+  }));
+  for (const additional of workflow.additionalPipelines ?? []) {
+    for (const phase of additional.phases) {
+      out.push({ pipelineId: additional.id, phase });
+    }
+  }
+  return out;
+}
+
+/**
  * Filesystem root whose `templates/<dir>/…` holds the bundled agent / skill /
  * artifact markdown. This is the core package root (templates ship via core's
  * `files`), so callers that don't have their own copy — e.g. the CLI — can do
@@ -515,12 +919,13 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
   const workflowDir = path.join(extensionPath, 'templates', workflow.templatesDir);
   const agentsDir = path.join(workflowDir, 'agents');
   const skillsDir = path.join(workflowDir, 'skills');
+  const allPhases = workflow.phases;
 
   // Compose the per-phase slash-command body (persona + phase work) for
   // every phase. Used by the `.claude/commands/<phase>.md` writer; not
   // emitted as a workspace.yaml skill entry.
   const skillContents: Record<string, string> = {};
-  for (const phase of workflow.phases) {
+  for (const phase of allPhases) {
     const personaPath = path.join(agentsDir, `${phase.persona}.md`);
     const persona = fs.existsSync(personaPath)
       ? fs.readFileSync(personaPath, 'utf8')
@@ -560,7 +965,7 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
   // Aggregate phase ids per persona so each agent's `skills:` array
   // lists every phase that runs as that persona.
   const phasesByPersona = new Map<string, PhaseDef[]>();
-  for (const phase of workflow.phases) {
+  for (const phase of allPhases) {
     const list = phasesByPersona.get(phase.persona) ?? [];
     list.push(phase);
     phasesByPersona.set(phase.persona, list);
@@ -600,7 +1005,7 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
   // One workspace.yaml skill entry per *unique skill file* across all phases,
   // pointing at the global file globalDefaultsInstaller writes.
   const skillEntries = new Map<string, Record<string, unknown>>();
-  for (const p of workflow.phases) {
+  for (const p of allPhases) {
     for (const file of p.skillFiles) {
       const id = skillIdFor(file);
       if (!skillEntries.has(id)) {
@@ -610,14 +1015,20 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
   }
   const skills: Array<Record<string, unknown>> = Array.from(skillEntries.values());
 
-  const slashCommands: Array<Record<string, unknown>> = workflow.phases.map((p) => ({
-    name: `/${pipelineCommandId(workflow.pipelineId, p.id)}`,
-    agent: `aidlc-${p.persona}`,
-  }));
+  // Commands are namespaced by the pipeline that owns each phase — not the
+  // bundle's primary pipelineId — so companion pipelines (project-context,
+  // cohesive-work-package) get `/project-context-scan-project` rather than
+  // the misleading `/cohesive-feature-scan-project`.
+  const slashCommands: Array<Record<string, unknown>> = workflowCommandPhases(workflow).map(
+    ({ pipelineId, phase }) => ({
+      name: `/${pipelineCommandId(pipelineId, phase.id)}`,
+      agent: `aidlc-${phase.persona}`,
+    }),
+  );
 
-  const pipeline = {
-    id: workflow.pipelineId,
-    steps: workflow.phases.map((p) => {
+  const buildPipeline = (pipelineId: string, phases: PhaseDef[]) => ({
+    id: pipelineId,
+    steps: phases.map((p) => {
       // Default artifact path uses the conventional epic root (`docs/epics`).
       // Users who set `state.root` to something else can edit `produces:`
       // post-install — the runner / UI both honor whatever's on the step.
@@ -629,11 +1040,14 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
         agent: `aidlc-${p.persona}`,
         skills: skillIdsOf(p),
         enabled: true,
-        requires: [],
-        produces: producesPath ? [producesPath] : [],
+        requires: p.requires ?? [],
+        produces: p.produces ?? (producesPath ? [producesPath] : []),
         human_review: p.humanReview,
         auto_review: p.autoReview,
       };
+      if (p.producesContains && p.producesContains.length > 0) {
+        step.produces_contains = p.producesContains;
+      }
       if (p.dependsOn && p.dependsOn.length > 0) {
         // Deps reference phase ids (step.name), not personas — multiple
         // steps backed by the same persona stay distinct in the DAG
@@ -646,7 +1060,13 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
       return step;
     }),
     on_failure: 'stop' as const,
-  };
+  });
+
+  const pipelines = [
+    buildPipeline(workflow.pipelineId, workflow.primaryPhases ?? workflow.phases),
+    ...(workflow.additionalPipelines ?? []).map((pipeline) =>
+      buildPipeline(pipeline.id, pipeline.phases)),
+  ];
 
   return {
     formatVersion: 1,
@@ -661,7 +1081,7 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
       skills,
       environment: {},
       slash_commands: slashCommands,
-      pipelines: [pipeline],
+      pipelines,
       // Task-type recipes draw from the pipeline we just composed, so a
       // freshly-applied preset can `assemblePipeline` right away.
       recipes: (workflow.recipes ?? []).map((r) => ({
@@ -723,12 +1143,13 @@ export { PHASES };
  * workflow's `phases` array — no file I/O needed.
  */
 export function getBuiltinPipelineSummary(workflow: BuiltinWorkflow) {
+  const phases = workflow.primaryPhases ?? workflow.phases;
   return {
     id: workflow.pipelineId,
     name: workflow.name,
     builtin: true as const,
     on_failure: 'stop' as const,
-    steps: workflow.phases.map((p) => ({
+    steps: phases.map((p) => ({
       // `name` = phase id (slash command + display label); `agent` =
       // persona file (aidlc-po, aidlc-qa, …); `skills` = phase-scoped
       // skill list. Mirrors what `loadBuiltinPreset` writes into
@@ -737,8 +1158,9 @@ export function getBuiltinPipelineSummary(workflow: BuiltinWorkflow) {
       agent: `aidlc-${p.persona}`,
       skills: p.skillFiles.map((f) => `aidlc-${f}`),
       enabled: true,
-      produces: [] as string[],
-      requires: [] as string[],
+      produces: p.produces ?? (artifactPathFor(p) ? [artifactPathFor(p)!] : []),
+      requires: p.requires ?? [],
+      ...(p.producesContains ? { produces_contains: p.producesContains } : {}),
       depends_on: p.dependsOn ?? [],
       human_review: p.humanReview,
       auto_review: p.autoReview,
@@ -885,10 +1307,14 @@ export function builtinClaudeCommand(
   skillBody: string,
   epicRoot: string,
 ): string {
+  const explicitOutputs = phase.produces?.map((output) =>
+    output.replaceAll('{epic}', '$ARGUMENTS')) ?? [];
   const isFilePath = !phase.artifact.includes('<') && !phase.artifact.includes('>');
-  const artifactInstruction = isFilePath
-    ? `3. Write your output to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.artifact}\`. The AIDLC validator checks for this file when the step is marked done.`
-    : `3. Complete the work (${phase.artifact}), then write a summary to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.id.toUpperCase()}-SUMMARY.md\` so the AIDLC validator has a file to check.`;
+  const artifactInstruction = explicitOutputs.length > 0
+    ? `3. Produce every declared output below. These paths are pipeline gates; do not create placeholders or report completion before their contents are valid:\n${explicitOutputs.map((output) => `   - \`${output}\``).join('\n')}`
+    : isFilePath
+      ? `3. Write your output to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.artifact}\`. The AIDLC validator checks for this file when the step is marked done.`
+      : `3. Complete the work (${phase.artifact}), then write a summary to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.id.toUpperCase()}-SUMMARY.md\` so the AIDLC validator has a file to check.`;
 
   return `---
 description: ${phase.description}
@@ -985,6 +1411,7 @@ export function getBuiltinArtifactTemplates(
   workflow: BuiltinWorkflow,
   options: ArtifactTemplateOptions = {},
 ): Record<string, string> {
+  if (workflow.seedArtifacts === false) { return {}; }
   const artifactsDir = path.join(extensionPath, 'templates', workflow.templatesDir, 'artifacts');
   const stacks = options.stacks ?? null;
   const lookupKeys = options.lookupKeys ?? deriveLookupKeys(stacks);
@@ -1068,8 +1495,25 @@ export function writeBuiltinAutoReviewValidators(
   root: string,
   workflow: BuiltinWorkflow,
 ): void {
+  const workflowValidatorDir = path.join(
+    extensionPath, 'templates', workflow.templatesDir, 'validators');
+
+  // Bundle-local validators may share helper modules (for example lib.mjs).
+  // Copy all support modules first, non-destructively, so referenced runners
+  // remain importable after the preset is installed by the extension.
+  if (fs.existsSync(workflowValidatorDir)) {
+    for (const entry of fs.readdirSync(workflowValidatorDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.mjs')) { continue; }
+      const supportDest = path.join(root, '.aidlc', 'validators', entry.name);
+      if (fs.existsSync(supportDest)) { continue; }
+      fs.mkdirSync(path.dirname(supportDest), { recursive: true });
+      fs.copyFileSync(path.join(workflowValidatorDir, entry.name), supportDest);
+    }
+  }
+
   const seen = new Set<string>();
-  for (const phase of workflow.phases) {
+  const allPhases = workflow.phases;
+  for (const phase of allPhases) {
     if (!phase.autoReview || !phase.autoReviewRunner) { continue; }
     const rel = phase.autoReviewRunner;
     // Only scaffold project-relative runner paths we own; leave absolute or

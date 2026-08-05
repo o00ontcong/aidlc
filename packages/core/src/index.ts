@@ -177,6 +177,8 @@ export {
   BUILTIN_WORKFLOWS,
   PHASES,
   pipelineCommandId,
+  commandPipelineIdForPhase,
+  workflowCommandPhases,
   builtinTemplatesRoot,
   workflowSlug,
   getBuiltinWorkflow,

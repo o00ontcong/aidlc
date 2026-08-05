@@ -102,6 +102,17 @@ export interface EpicSummary {
   /** Absolute path to the epic dir (for opening artifacts/). */
   epicDir: string;
   /**
+   * Basenames of artifacts that currently exist on disk — both under
+   * `epicDir/artifacts/` and any resolved pipeline `produces:` path
+   * (e.g. `docs/project/context/PROJECT-SCAN.md` for project-context).
+   */
+  existingArtifacts: string[];
+  /**
+   * Basename → absolute path for every entry in `existingArtifacts`.
+   * Lets Open / Preview open files that live outside `epicDir/artifacts/`.
+   */
+  artifactPaths: Record<string, string>;
+  /**
    * True when this folder has no `state.json` / pipeline binding and the
    * summary was synthesized purely from the `.md` files in its `artifacts/`
    * folder — mirrors cf-aidlc-dashboard's `pipelineId: 'artifacts'` fallback.
@@ -109,6 +120,59 @@ export interface EpicSummary {
    * artifact's own frontmatter `status:` field, not a run-state machine.
    */
   artifactsOnly?: boolean;
+}
+
+/**
+ * Index on-disk artifacts for an epic: basename → absolute path.
+ *
+ * Covers the conventional `epicDir/artifacts/` folder **and** every resolved
+ * pipeline `produces:` path. Needed for pipelines like `project-context`
+ * whose canonical outputs live under `docs/project/context/` rather than
+ * the epic's artifacts folder — without this, the Epic card keeps showing
+ * "PROJECT-SCAN.md · not produced yet" even after the agent wrote the file.
+ */
+export function collectArtifactIndex(args: {
+  workspaceRoot: string;
+  epicDir: string;
+  epicId: string;
+  inputs?: Record<string, string>;
+  pipelineCfg?: PipelineConfig | null;
+}): { existingArtifacts: string[]; artifactPaths: Record<string, string> } {
+  const paths: Record<string, string> = {};
+
+  const artifactsDir = path.join(args.epicDir, 'artifacts');
+  if (fs.existsSync(artifactsDir)) {
+    try {
+      for (const name of fs.readdirSync(artifactsDir).filter((n) => !n.startsWith('.'))) {
+        const abs = path.join(artifactsDir, name);
+        try {
+          if (fs.statSync(abs).isFile()) { paths[name] = abs; }
+        } catch { /* skip */ }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (args.pipelineCfg && Array.isArray(args.pipelineCfg.steps)) {
+    const context: Record<string, string> = {
+      epic: args.epicId,
+      ...(args.inputs ?? {}),
+    };
+    for (const raw of args.pipelineCfg.steps) {
+      const norm = normalizeStep(raw as PipelineStepConfig);
+      for (const template of norm.produces) {
+        const rel = resolvePath(template, context);
+        const abs = path.isAbsolute(rel) ? rel : path.join(args.workspaceRoot, rel);
+        try {
+          if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+            paths[path.basename(abs)] = abs;
+          }
+        } catch { /* skip */ }
+      }
+    }
+  }
+
+  const existingArtifacts = Object.keys(paths).sort((a, b) => a.localeCompare(b));
+  return { existingArtifacts, artifactPaths: paths };
 }
 
 const STATUS_VALUES: ReadonlyArray<EpicStatus> = ['pending', 'in_progress', 'done', 'failed'];
@@ -328,6 +392,11 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
   let createdAt = '';
   try { createdAt = fs.statSync(epicDir).mtime.toISOString(); } catch { /* leave blank */ }
 
+  const artifactPaths: Record<string, string> = {};
+  for (const filename of ordered) {
+    artifactPaths[filename] = path.join(artifactsDir, filename);
+  }
+
   return {
     id: folder,
     title: '',
@@ -344,6 +413,8 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
     inputsCount: Object.keys(inputs).length,
     statePath: '',
     epicDir,
+    existingArtifacts: ordered.slice().sort((a, b) => a.localeCompare(b)),
+    artifactPaths,
     runId: null,
     artifactsOnly: true,
   };
@@ -434,8 +505,8 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         if (norm.name) { stepNameByIdx.set(i, norm.name); }
         // Surface the produced artifact for the per-step detail panel —
         // `step.produces[0]` is the canonical artifact path on built-in
-        // pipelines (e.g. `docs/epics/{epic}/PRD.md`). The UI displays
-        // the basename and resolves the absolute path via `epic.epicDir`.
+        // pipelines. The UI displays the basename; absolute path comes from
+        // `collectArtifactIndex` (epic artifacts/ OR resolved produces:).
         const first = norm.produces[0];
         if (typeof first === 'string' && first.length > 0) {
           const basename = first.split('/').pop() ?? first;
@@ -573,6 +644,13 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     });
 
     const inputs = readInputs(epicDir);
+    const { existingArtifacts, artifactPaths } = collectArtifactIndex({
+      workspaceRoot,
+      epicDir,
+      epicId,
+      inputs,
+      pipelineCfg,
+    });
 
     // The state.json's overall status doesn't sync from the run-state
     // machine either, so when a runState is present, derive epic status
@@ -605,6 +683,8 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       inputsCount: Object.keys(inputs).length,
       statePath: stateFile,
       epicDir,
+      existingArtifacts,
+      artifactPaths,
       runId: runState ? runState.runId : null,
     });
   }
@@ -836,10 +916,14 @@ function backfillRunStateFromEpic(
     ? parsed.currentStep
     : 0;
 
-  const artifactsDir = path.join(epicsRoot(workspaceRoot, doc), epicId, 'artifacts');
-  const existingArtifacts = fs.existsSync(artifactsDir)
-    ? new Set(fs.readdirSync(artifactsDir).filter((n) => !n.startsWith('.')))
-    : new Set<string>();
+  const epicDirForLegacy = path.join(epicsRoot(workspaceRoot, doc), epicId);
+  const { artifactPaths: legacyArtifactPaths } = collectArtifactIndex({
+    workspaceRoot,
+    epicDir: epicDirForLegacy,
+    epicId,
+    inputs,
+    pipelineCfg,
+  });
 
   const steps = pipelineCfg.steps.map((raw, i) => {
     const norm = normalizeStep(raw as PipelineStepConfig);
@@ -853,12 +937,13 @@ function backfillRunStateFromEpic(
         : legacyStatus === 'failed'
         ? 'rejected'
         : 'pending';
-    // Resolve produces against the epic context, then check disk for any
-    // file whose basename matches an existing artifact.
+    // Resolve produces against the epic context, then check the full
+    // artifact index (epic artifacts/ + resolved produces paths).
     const produces = norm.produces.map((p) => resolvePath(p, context));
     const artifactsProduced = produces.filter((p) => {
+      const abs = path.isAbsolute(p) ? p : path.join(workspaceRoot, p);
       const base = path.basename(p);
-      return existingArtifacts.has(base);
+      return legacyArtifactPaths[base] === abs || fs.existsSync(abs);
     });
     return {
       stepIdx: i,
