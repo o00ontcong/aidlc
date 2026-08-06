@@ -24,7 +24,10 @@ import {
   AlertTriangle,
   ShieldCheck,
   ClipboardList,
+  HelpCircle,
   Trash2,
+  GripVertical,
+  Star,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -42,6 +45,9 @@ import { RunWithFeedbackModal } from './RunWithFeedbackModal';
 import { RequestUpdateModal } from './RequestUpdateModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
 import { postMessage } from '@/lib/bridge';
+
+/** MIME used when dragging epics between Follow / No-follow sections. */
+export const EPIC_DND_MIME = 'application/x-aidlc-epic-id';
 
 function fmtCost(c: number): string {
   if (c >= 100) return `$${c.toFixed(0)}`;
@@ -88,9 +94,24 @@ interface Props {
   epic: EpicSummary;
   agentMeta: Record<string, AgentMeta>;
   slashCommandsByAgent: Record<string, string>;
+  /** When provided, shows the follow star and enables drag between Follow / No-follow. */
+  followed?: boolean;
+  onToggleFollow?: () => void;
+  isDragging?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }
 
-export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
+export function EpicCard({
+  epic,
+  agentMeta,
+  slashCommandsByAgent,
+  followed,
+  onToggleFollow,
+  isDragging,
+  onDragStart,
+  onDragEnd,
+}: Props) {
   const [expanded, setExpanded] = useState<boolean>(false);
   const [focusedIdx, setFocusedIdx] = useState<number>(epic.currentStep ?? 0);
   const ui = epicUiStatus(epic.status);
@@ -98,9 +119,15 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
   const done = epic.stepDetails.filter((s) => s.status === 'done').length;
   const focused = total > 0 ? epic.stepDetails[focusedIdx] : null;
   const inputKeys = Object.keys(epic.inputs || {});
+  const canOrganize = typeof onToggleFollow === 'function';
 
   return (
-    <div className="group relative rounded-lg border border-border bg-card transition-all hover:border-primary/30">
+    <div
+      className={cn(
+        'group relative rounded-lg border border-border bg-card transition-all hover:border-primary/30',
+        isDragging && 'opacity-50',
+      )}
+    >
       <div
         className={cn(
           'absolute left-0 top-0 h-full w-0.5 rounded-l-lg',
@@ -112,7 +139,24 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
       />
 
       <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {canOrganize && (
+            <span
+              draggable
+              title="Drag to Follow / No-follow"
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData(EPIC_DND_MIME, epic.id);
+                e.dataTransfer.setData('text/plain', epic.id);
+                onDragStart?.();
+              }}
+              onDragEnd={() => onDragEnd?.()}
+              className="shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground active:cursor-grabbing"
+              aria-label={`Drag ${epic.id}`}
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+            </span>
+          )}
           <span className="shrink-0 font-mono text-xs font-bold text-primary">{epic.id}</span>
           <span className="truncate text-sm text-foreground">{epic.title}</span>
         </div>
@@ -147,6 +191,26 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
             </span>
           )}
           <StatusBadge status={ui} />
+          {canOrganize && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFollow();
+              }}
+              title={followed ? 'Unfollow epic' : 'Follow epic'}
+              aria-label={followed ? 'Unfollow epic' : 'Follow epic'}
+              aria-pressed={followed}
+              className={cn(
+                'rounded p-1 transition-colors hover:bg-accent',
+                followed
+                  ? 'text-primary hover:text-primary'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Star className={cn('h-3.5 w-3.5', followed && 'fill-current')} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
@@ -585,6 +649,11 @@ function StepDetail({
     return 'pending' as const;
   })();
   const m = meta ?? { name: focused.agent, description: '', inputs: '', outputs: '', artifact: '' };
+  // Prefer step-level help (built-in phase) over persona-level agent meta —
+  // one persona owns many phases with different I/O.
+  const stepInputs = focused.stepHelp?.inputs || m.inputs;
+  const stepOutputs = focused.stepHelp?.outputs || m.outputs;
+  const stepDescription = focused.stepHelp?.description || m.description;
   // Step-level artifact (from `produces[0]` on the pipeline step) wins over
   // the persona's default — one persona handles multiple phases that each
   // emit different files, so the step is the authoritative source.
@@ -609,6 +678,8 @@ function StepDetail({
     }
   })();
 
+  const canOpenStepHelp = !!focused.stepHelp;
+
   return (
     <div className={cn('rounded-md border border-border border-l-[3px] bg-surface/50 p-4', accent)}>
       <div className="flex items-baseline gap-2.5">
@@ -616,12 +687,30 @@ function StepDetail({
           Step {focusedIdx + 1}/{total}
         </span>
         <span className="flex-1 truncate text-sm font-bold text-foreground">{focused.stepName ?? m.name}</span>
+        {canOpenStepHelp && (
+          <button
+            type="button"
+            title="Open step help — command, agent, model, inputs, outputs, acceptance criteria"
+            onClick={(e) => {
+              e.stopPropagation();
+              postMessage({
+                type: 'openStepHelp',
+                pipelineId: epic.pipeline,
+                stepName: focused.stepName ?? focused.agent,
+              });
+            }}
+            className="inline-flex items-center gap-1 rounded border border-border bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+          >
+            <HelpCircle className="h-3 w-3" />
+            Help
+          </button>
+        )}
         <StatusBadge status={ui} />
       </div>
 
-      {m.description && (
+      {stepDescription && (
         <p className="mt-2 text-[11.5px] italic leading-relaxed text-muted-foreground">
-          {m.description}
+          {stepDescription}
         </p>
       )}
 
@@ -651,11 +740,18 @@ function StepDetail({
       )}
 
       <div className="mt-3 grid grid-cols-[110px_1fr] gap-x-4 gap-y-1.5 text-[11.5px]">
+        {focused.stepHelp?.model && (
+          <>
+            <DetailLabel icon={<Bot className="h-3 w-3" />} text="Model" />
+            <DetailValue>{focused.stepHelp.model}</DetailValue>
+          </>
+        )}
+
         <DetailLabel icon={<Inbox className="h-3 w-3" />} text="Input" />
-        <DetailValue empty={!m.inputs}>{m.inputs || '—'}</DetailValue>
+        <DetailValue empty={!stepInputs}>{stepInputs || '—'}</DetailValue>
 
         <DetailLabel icon={<Outdent className="h-3 w-3" />} text="Output" />
-        <DetailValue empty={!m.outputs}>{m.outputs || '—'}</DetailValue>
+        <DetailValue empty={!stepOutputs}>{stepOutputs || '—'}</DetailValue>
 
         <DetailLabel icon={<FileText className="h-3 w-3" />} text="Artifact" />
         {artifactName ? (

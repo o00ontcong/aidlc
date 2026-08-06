@@ -47,7 +47,7 @@ export interface WorkspacePreset {
   builtin?: boolean;
 }
 
-interface PhaseDef {
+export interface PhaseDef {
   id: string;
   name: string;
   persona: string;        // file under agents/
@@ -87,6 +87,33 @@ interface PhaseDef {
   produces?: string[];
   /** Required text fragments checked by the runner after output creation. */
   producesContains?: string[];
+}
+
+/** Compact step help surfaced on the Epic card + opened as Markdown. */
+export interface BuiltinStepHelp {
+  pipelineId: string;
+  phaseId: string;
+  name: string;
+  description: string;
+  persona: string;
+  agentId: string;
+  model: string;
+  inputs: string;
+  outputs: string;
+  /** Absolute or workspace-relative produce paths. */
+  produces: string[];
+  /** Absolute or workspace-relative require paths. */
+  requires: string[];
+  /** Fragments the produced artifact(s) must contain to pass gates. */
+  acceptanceCriteria: string[];
+  slashCommand: string;
+  humanReview: boolean;
+  autoReview: boolean;
+  /** Next phase in the same pipeline, when sequential. */
+  nextPhaseId?: string;
+  nextPhaseName?: string;
+  /** What the next step needs from this step's output. */
+  nextStepNeeds?: string[];
 }
 
 /**
@@ -251,6 +278,12 @@ export interface BuiltinWorkflow {
   name: string;
   templatesDir: string;
   description: string;
+  /**
+   * Optional user guide shipped with the extension (path relative to
+   * `extensionPath`, e.g. `media/guides/cohesive-delivery.md`). Surfaced as
+   * a "View guide" action on the Apply template confirmation.
+   */
+  guide?: string;
   /**
    * Phase shape for this workflow. Defaults to the sequential SDLC phases.
    * Parallel workflows declare a DAG via per-phase `dependsOn` arrays.
@@ -747,6 +780,7 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
     pipelineId: 'cohesive-feature',
     name: 'Cohesive Delivery',
     templatesDir: 'cohesive',
+    guide: 'media/guides/cohesive-delivery.md',
     description:
       'Three connected context layers with parallel package execution: canonical Project Context → coordinated Feature Contract → isolated Work Packages → cohesion review and project sync.',
     // The extension writes commands from `phases`; the actual primary pipeline
@@ -810,6 +844,163 @@ export function getBuiltinWorkflow(id: string): BuiltinWorkflow | undefined {
  */
 export function getBuiltinWorkflowByPipelineId(pipelineId: string): BuiltinWorkflow | undefined {
   return BUILTIN_BY_PIPELINE_ID.get(pipelineId);
+}
+
+/**
+ * Resolve a single phase inside a built-in pipeline (including companion
+ * pipelines like `project-context` on the cohesive-delivery bundle).
+ */
+export function getBuiltinPhase(
+  pipelineId: string,
+  phaseId: string,
+): PhaseDef | undefined {
+  const workflow = getBuiltinWorkflowByPipelineId(pipelineId);
+  if (!workflow) { return undefined; }
+  return workflow.phases.find((p) => p.id === phaseId);
+}
+
+/**
+ * Build the structured step-help payload used by the Epic card Help button
+ * and the generated Markdown guide.
+ */
+export function getBuiltinStepHelp(
+  pipelineId: string,
+  phaseId: string,
+): BuiltinStepHelp | undefined {
+  const workflow = getBuiltinWorkflowByPipelineId(pipelineId);
+  if (!workflow) { return undefined; }
+  const idx = workflow.phases.findIndex((p) => p.id === phaseId);
+  if (idx < 0) { return undefined; }
+  const phase = workflow.phases[idx]!;
+  const next = workflow.phases[idx + 1];
+  const produces = phase.produces ?? (() => {
+    const p = artifactPathFor(phase);
+    return p ? [p] : [];
+  })();
+  return {
+    pipelineId,
+    phaseId: phase.id,
+    name: phase.name,
+    description: phase.description,
+    persona: phase.persona,
+    agentId: `aidlc-${phase.persona}`,
+    model: phase.model,
+    inputs: phase.inputs,
+    outputs: phase.outputs,
+    produces,
+    requires: phase.requires ?? [],
+    acceptanceCriteria: phase.producesContains ?? [],
+    slashCommand: `/${pipelineCommandId(pipelineId, phase.id)}`,
+    humanReview: phase.humanReview,
+    autoReview: phase.autoReview,
+    nextPhaseId: next?.id,
+    nextPhaseName: next?.name,
+    nextStepNeeds: next
+      ? (next.requires && next.requires.length > 0 ? next.requires : produces)
+      : undefined,
+  };
+}
+
+/**
+ * Render a user-facing Markdown guide for one pipeline step. Opened by the
+ * Epic card Help button so operators see command / agent / model / I/O /
+ * acceptance criteria without digging through workspace.yaml.
+ */
+export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
+  const lines: string[] = [
+    `# Step help: ${help.name}`,
+    '',
+    `Pipeline \`${help.pipelineId}\` · phase \`${help.phaseId}\``,
+    '',
+    '## What this step does',
+    '',
+    help.description,
+    '',
+    '## How to run',
+    '',
+    '1. Click **Run with Claude** on the Epic card (or paste the command below into Claude).',
+    '2. Wait for the agent to finish and write the artifact(s).',
+    '3. Click **Mark step done**.',
+  ];
+  if (help.autoReview) {
+    lines.push('4. Click **Run auto-review** and fix anything it rejects.');
+  }
+  if (help.humanReview) {
+    lines.push(`${help.autoReview ? '5' : '4'}. Read the artifact, then **Approve** (or **Reject** with feedback).`);
+  }
+  lines.push(
+    '',
+    '## Command',
+    '',
+    '```text',
+    help.slashCommand,
+    '```',
+    '',
+    '## Agent',
+    '',
+    `- Persona: \`${help.persona}\``,
+    `- Agent id: \`${help.agentId}\``,
+    '',
+    '## Model',
+    '',
+    `\`${help.model}\``,
+    '',
+    '## Required inputs',
+    '',
+    help.inputs || '_None declared._',
+  );
+  if (help.requires.length > 0) {
+    lines.push('', 'Must already exist on disk:');
+    for (const r of help.requires) {
+      lines.push(`- \`${r}\``);
+    }
+  }
+  lines.push(
+    '',
+    '## Expected outputs',
+    '',
+    help.outputs || '_None declared._',
+  );
+  if (help.produces.length > 0) {
+    lines.push('', 'Files this step must produce:');
+    for (const p of help.produces) {
+      lines.push(`- \`${p}\``);
+    }
+  }
+  lines.push(
+    '',
+    '## Acceptance criteria (ready for next step)',
+    '',
+  );
+  if (help.acceptanceCriteria.length > 0) {
+    lines.push('Produced artifact(s) must contain:');
+    for (const c of help.acceptanceCriteria) {
+      lines.push(`- \`${c}\``);
+    }
+  } else {
+    lines.push(
+      'No `produces_contains` fragments are declared. The output is ready when every path under **Expected outputs** exists and the content matches the skill instructions for this phase.',
+    );
+  }
+  if (help.nextPhaseId) {
+    lines.push(
+      '',
+      `### Next step: \`${help.nextPhaseId}\`${help.nextPhaseName ? ` (${help.nextPhaseName})` : ''}`,
+      '',
+    );
+    if (help.nextStepNeeds && help.nextStepNeeds.length > 0) {
+      lines.push('The next step will require:');
+      for (const n of help.nextStepNeeds) {
+        lines.push(`- \`${n}\``);
+      }
+    } else {
+      lines.push('Advance only after this step\'s outputs above are complete and any review gates have passed.');
+    }
+  } else {
+    lines.push('', '_This is the last step in the pipeline._');
+  }
+  lines.push('');
+  return lines.join('\n');
 }
 
 /**

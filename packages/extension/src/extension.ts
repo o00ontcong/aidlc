@@ -22,6 +22,7 @@ import { registerV2WorkspaceCommands } from './v2/workspaceCommands';
 import { SidebarWebviewProvider } from './v2/sidebarWebview';
 import { WorkspaceWebview } from './v2/workspaceWebview';
 import { themeManager } from './v2/themeManager';
+import { workspaceUiPrefs } from './v2/workspaceUiPrefs';
 import { registerTokenMonitor } from './v2/tokenMonitor';
 import { registerAidlcMonitor } from './v2/aidlcMonitor';
 import { registerAstGraph } from './v2/astGraph';
@@ -69,6 +70,11 @@ export function activate(context: vscode.ExtensionContext): void {
   // Theme override manager — owns the persisted `auto|light|dark` choice
   // and broadcasts user toggles to every open webview.
   themeManager.init(context);
+
+  // Durable Workspace UI prefs (last tab, Epics follow/search) + panel serializer
+  // so reload/reveal reuses the same panel instead of spawning duplicates.
+  workspaceUiPrefs.init(context);
+  WorkspaceWebview.registerSerializer(context);
 
   // Epics-directory setting: sync VS Code setting ↔ workspace.yaml state.root.
   // On activation, read YAML → update setting. On setting change, write YAML.
@@ -218,10 +224,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // structural code context cheaply instead of grep+read sweeps.
   registerAstGraph(context, output);
 
-  // Auto-open the workspace webview so the user sees the panel immediately.
-  // No folder → Epics tab (start epic / load from folder); folder → Builder.
+  // Auto-open Workspace once — deferred so a restored panel from the serializer
+  // can reclaim first (avoids duplicate "AIDLC Workspace" tabs on reload).
   const hasFolder = (vscode.workspace.workspaceFolders ?? []).length > 0;
-  WorkspaceWebview.show(context.extensionUri, hasFolder ? 'builder' : 'epics');
+  WorkspaceWebview.scheduleAutoOpen(context.extensionUri, hasFolder ? 'builder' : 'epics');
 
   output.appendLine('Activation complete.');
 }

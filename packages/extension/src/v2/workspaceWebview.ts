@@ -208,6 +208,7 @@ import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
 import { PresetStore } from './presetStore';
+import { syncBuiltinPipelineCommands } from './presetWizards';
 import type {
   PipelineStepConfig,
   AssetScope,
@@ -226,6 +227,7 @@ import {
   type EpicSummary as CoreEpicSummary,
 } from './epicsList';
 import { themeManager } from './themeManager';
+import { workspaceUiPrefs, type EpicsViewPrefs } from './workspaceUiPrefs';
 import {
   rejectStepInlineCommand,
   rerunStepInlineCommand,
@@ -402,6 +404,16 @@ interface EpicStepDetailFull {
   feedback?: string;
   /** Token usage attributed to this step (cost + token totals). */
   tokenUsage?: EpicStepTokenUsage;
+  /** Built-in phase help for the Epic card Help button + I/O fields. */
+  stepHelp?: {
+    description: string;
+    inputs: string;
+    outputs: string;
+    model: string;
+    persona: string;
+    acceptanceCriteria: string[];
+    nextPhaseId?: string;
+  };
 }
 
 interface EpicStepTokenUsage {
@@ -496,6 +508,8 @@ interface WorkspaceState {
   epicMemoryHookEnabled: boolean;
   /** Current epics directory (relative path from project root). */
   epicsDir: string;
+  /** Persisted Epics-list UI prefs (follow/search/filter) from workspaceState. */
+  epicsViewUi?: EpicsViewPrefs;
 }
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
@@ -557,6 +571,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       testAgentTargets: [],
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
+      epicsViewUi: workspaceUiPrefs.get().epicsView,
     };
   }
 
@@ -638,6 +653,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       ...(() => { const ta = readTestAgentTargets(root); return { testAgentConfigExists: ta.exists, testAgentTargets: ta.targets }; })(),
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
+      epicsViewUi: workspaceUiPrefs.get().epicsView,
     };
   }
 
@@ -700,6 +716,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     ...(() => { const ta = readTestAgentTargets(root); return { testAgentConfigExists: ta.exists, testAgentTargets: ta.targets }; })(),
     epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
     epicsDir: epicRoot,
+    epicsViewUi: workspaceUiPrefs.get().epicsView,
   };
 }
 
@@ -906,6 +923,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
             })),
           }
         : undefined,
+      stepHelp: s.stepHelp,
     })),
     currentStep: e.currentStep,
     pipeline: e.pipeline,
@@ -1278,6 +1296,7 @@ function formatEpicMemoryMarkdown(mem: Record<string, unknown>, epicId: string):
 }
 
 export class WorkspaceWebview {
+  static readonly viewType = 'aidlc.workspace';
   static current: WorkspaceWebview | undefined;
   private disposables: vscode.Disposable[] = [];
   private currentView: WorkspaceView;
@@ -1291,7 +1310,7 @@ export class WorkspaceWebview {
       return;
     }
     const panel = vscode.window.createWebviewPanel(
-      'aidlc.workspace',
+      WorkspaceWebview.viewType,
       'AIDLC Workspace',
       column,
       {
@@ -1302,6 +1321,53 @@ export class WorkspaceWebview {
     );
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'icon.svg');
     WorkspaceWebview.current = new WorkspaceWebview(panel, extensionUri, initialView);
+  }
+
+  /**
+   * Reveal the Workspace panel without changing the active tab.
+   * Creates the panel only when it isn't open — restores lastView from prefs.
+   */
+  static reveal(extensionUri: vscode.Uri): void {
+    if (WorkspaceWebview.current) {
+      // Keep column + tab; do not refresh (avoids remounting Epics UI).
+      WorkspaceWebview.current.panel.reveal(undefined, false);
+      return;
+    }
+    const last = workspaceUiPrefs.get().lastView ?? 'builder';
+    WorkspaceWebview.show(extensionUri, last);
+  }
+
+  /** Reclaim a panel restored by VS Code after reload. */
+  static revive(panel: vscode.WebviewPanel, extensionUri: vscode.Uri): void {
+    if (WorkspaceWebview.current) {
+      // Already have a live panel — dispose the duplicate restore.
+      try { panel.dispose(); } catch { /* ignore */ }
+      return;
+    }
+    const last = workspaceUiPrefs.get().lastView ?? 'builder';
+    WorkspaceWebview.current = new WorkspaceWebview(panel, extensionUri, last);
+  }
+
+  static registerSerializer(context: vscode.ExtensionContext): void {
+    context.subscriptions.push(
+      vscode.window.registerWebviewPanelSerializer(WorkspaceWebview.viewType, {
+        async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
+          WorkspaceWebview.revive(panel, context.extensionUri);
+        },
+      }),
+    );
+  }
+
+  /**
+   * Open (or reveal) once after activation, preferring a restored panel.
+   * Deferred so {@link registerSerializer} can reclaim existing panels first.
+   */
+  static scheduleAutoOpen(extensionUri: vscode.Uri, fallbackView: WorkspaceView): void {
+    setTimeout(() => {
+      if (WorkspaceWebview.current) { return; }
+      const last = workspaceUiPrefs.get().lastView ?? fallbackView;
+      WorkspaceWebview.show(extensionUri, last);
+    }, 400);
   }
 
   /**
@@ -1435,6 +1501,7 @@ export class WorkspaceWebview {
 
   setView(view: WorkspaceView): void {
     this.currentView = view;
+    void workspaceUiPrefs.setLastView(view);
     void this.panel.webview.postMessage({ type: 'setView', view });
   }
 
@@ -1676,7 +1743,18 @@ export class WorkspaceWebview {
 
       case 'setView': {
         const v = msg.view;
-        if (v === 'builder' || v === 'epics' || v === 'analyze' || v === 'tests') { this.currentView = v; }
+        if (v === 'builder' || v === 'epics' || v === 'analyze' || v === 'tests') {
+          this.currentView = v;
+          void workspaceUiPrefs.setLastView(v);
+        }
+        return;
+      }
+
+      case 'persistEpicsUi': {
+        const raw = msg.epicsView;
+        if (!raw || typeof raw !== 'object') { return; }
+        const patch = raw as EpicsViewPrefs;
+        void workspaceUiPrefs.patchEpicsView(patch);
         return;
       }
 
@@ -2028,6 +2106,21 @@ export class WorkspaceWebview {
         if (!cmd) { return; }
         await vscode.env.clipboard.writeText(cmd);
         void vscode.window.setStatusBarMessage(`Copied ${cmd} to clipboard`, 2000);
+        return;
+      }
+      case 'openTemplateGuide': {
+        const id = String(msg.id ?? '');
+        if (!id) { return; }
+        const { openTemplateGuide } = await import('./openGuides');
+        await openTemplateGuide(this.extensionUri.fsPath, id);
+        return;
+      }
+      case 'openStepHelp': {
+        const pipelineId = String(msg.pipelineId ?? '');
+        const stepName = String(msg.stepName ?? '');
+        if (!pipelineId || !stepName) { return; }
+        const { openStepHelp } = await import('./openGuides');
+        await openStepHelp(pipelineId, stepName);
         return;
       }
 
@@ -3003,6 +3096,11 @@ export class WorkspaceWebview {
     // Drop bundled artifact templates for this workflow so the epic's
     // artifacts/ folder gets a structured starting point on the very first run.
     this.ensureWorkflowTemplates(root);
+
+    // Backfill companion-pipeline slash commands + command files (e.g.
+    // /project-context-publish-context) when the workspace still has the
+    // legacy /cohesive-feature-<phase> names for those phases.
+    syncBuiltinPipelineCommands(root, this.extensionUri.fsPath);
   }
 
   /**
@@ -3024,6 +3122,11 @@ export class WorkspaceWebview {
     // on subsequent panel refreshes.
     const doc = readYaml(root);
     if (!doc) { return; }
+
+    // Keep companion slash commands + command files in sync (project-context /
+    // cohesive-work-package). Cheap + idempotent — fixes "Unknown command"
+    // after the UI started showing /project-context-* names.
+    syncBuiltinPipelineCommands(root, this.extensionUri.fsPath);
     // Resolve the project's tech stack once: `stacks` drives `{{#if}}` block
     // rendering (secondary stacks survive), `lookupKeys` picks the most
     // specific base template (e.g. implement.web-react.md → implement.web.md →

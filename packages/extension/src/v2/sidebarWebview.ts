@@ -27,6 +27,7 @@ import {
   normalizeStep,
   resolvePath,
   discoverAssets,
+  getBuiltinWorkflow,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 import { listEpics } from './epicsList';
@@ -52,6 +53,7 @@ interface TemplateRef {
   id: string;
   name: string;
   description: string;
+  hasGuide?: boolean;
 }
 
 /** Resolved artifact path with existence check, surfaced in the run card. */
@@ -353,6 +355,10 @@ function resolveArtifact(
   return { path: resolved, exists: fs.existsSync(abs) };
 }
 
+function getBuiltinWorkflowGuide(id: string): boolean {
+  return !!getBuiltinWorkflow(id)?.guide;
+}
+
 function listTemplates(
   store: PresetStore | null,
   root: string,
@@ -363,7 +369,12 @@ function listTemplates(
     const builtinTemplates: TemplateRef[] = [];
     const projectTemplates: TemplateRef[] = [];
     for (const p of all) {
-      const ref = { id: p.id, name: p.name, description: p.description };
+      const ref: TemplateRef = {
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        hasGuide: p.builtin ? getBuiltinWorkflowGuide(p.id) : false,
+      };
       if (p.builtin) { builtinTemplates.push(ref); } else { projectTemplates.push(ref); }
     }
     return { builtinTemplates, projectTemplates };
@@ -462,6 +473,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'openBuilder':
         await vscode.commands.executeCommand('aidlc.openBuilder');
         return;
+      case 'openWorkspace':
+        // Reveal panel only — keep whatever tab the user was on (Epics, etc.).
+        WorkspaceWebview.reveal(this.extensionUri);
+        return;
       case 'openBuilderTab': {
         const tab = String(msg.tab ?? '');
         if (tab) { WorkspaceWebview.openBuilderTab(this.extensionUri, tab); }
@@ -552,6 +567,21 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           id,
           msg.skipConfirm === true,
         );
+        return;
+      }
+      case 'openTemplateGuide': {
+        const id = String(msg.id ?? '');
+        if (!id) { return; }
+        const { openTemplateGuide } = await import('./openGuides');
+        await openTemplateGuide(this.extensionUri.fsPath, id);
+        return;
+      }
+      case 'openStepHelp': {
+        const pipelineId = String(msg.pipelineId ?? '');
+        const stepName = String(msg.stepName ?? '');
+        if (!pipelineId || !stepName) { return; }
+        const { openStepHelp } = await import('./openGuides');
+        await openStepHelp(pipelineId, stepName);
         return;
       }
       case 'savePresetInline': {

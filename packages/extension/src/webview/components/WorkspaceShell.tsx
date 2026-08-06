@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FolderOpen, Plus, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, WorkspaceView } from '@/lib/types';
@@ -14,28 +14,39 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   const initial = state?.initialView ?? 'builder';
   const [view, setView] = useState<WorkspaceView>(initial);
   const [startEpicOpen, setStartEpicOpen] = useState(false);
+  const seededView = useRef(Boolean(state?.initialView));
 
   // Host can switch the view at runtime via openBuilder/openEpicsList.
   useEffect(() => {
     return onHostMessage((msg) => {
       if (msg.type === 'setView') {
         const next = msg.view;
-        if (next === 'builder' || next === 'epics' || next === 'analyze' || next === 'tests') { setView(next); }
+        if (next === 'builder' || next === 'epics' || next === 'analyze' || next === 'tests') {
+          setView(next);
+          seededView.current = true;
+        }
       }
       if (msg.type === 'openStartEpicModal') {
         setView('epics');
+        seededView.current = true;
         setStartEpicOpen(true);
       }
     });
   }, []);
 
-  // Keep view in sync if the initialView changes between state pushes.
+  // Adopt initialView only once (first state push). Later refreshes must not
+  // clobber the tab the user is on — host uses setView messages for that.
   useEffect(() => {
-    if (state?.initialView && state.initialView !== view) {
-      setView(state.initialView);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!state?.initialView || seededView.current) { return; }
+    setView(state.initialView);
+    seededView.current = true;
   }, [state?.initialView]);
+
+  const onView = (next: WorkspaceView) => {
+    setView(next);
+    seededView.current = true;
+    postMessage({ type: 'setView', view: next });
+  };
 
   if (!state) {
     return (
@@ -48,7 +59,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   if (!state.hasFolder || !state.configExists) {
     return (
       <div className="flex h-full flex-col">
-        <TopBar view={view} onView={setView} workspaceName={state.workspaceName} />
+        <TopBar view={view} onView={onView} workspaceName={state.workspaceName} />
         <div className="p-6">
           {view === 'epics' && !state.hasFolder ? (
             <NoProjectEpicsView />
@@ -115,7 +126,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar view={view} onView={setView} workspaceName={state.workspaceName} />
+      <TopBar view={view} onView={onView} workspaceName={state.workspaceName} />
       <main className="flex-1 overflow-y-auto">
         <div className="p-6">
           {view === 'builder' ? (

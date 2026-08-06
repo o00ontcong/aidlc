@@ -35,6 +35,7 @@ import {
   savePresetInlineCommand,
   applyPresetCommand,
   deletePresetCommand,
+  syncBuiltinPipelineCommands,
 } from './presetWizards';
 import { loadAllBuiltinPresets, BUILTIN_WORKFLOWS } from './builtinPresets';
 import { installWorkflowGlobalsCommand } from './installWorkflowGlobalsCommand';
@@ -297,12 +298,14 @@ export function registerV2WorkspaceCommands(
   // exactly when the prompt is ready, so executeCommand lands cleanly.
   /**
    * Ensure .claude/commands/*.md files exist so slash commands don't fail with
-   * "command not found". Uses the two-layer command model to generate both the
-   * backbone dispatcher and shortcut commands. Idempotent — skips existing files.
-   * (GH-73 Problem A)
+   * "Unknown command". Syncs built-in pipeline-namespaced commands (including
+   * companion pipelines like project-context / cohesive-work-package) from the
+   * workspace's pipelines, then emits the two-layer shortcuts. Idempotent.
+   * (GH-73 Problem A + cohesive companion command migration)
    */
   function ensureCommandFiles(root: string): void {
     try {
+      syncBuiltinPipelineCommands(root, context.extensionPath);
       writeTwoLayerCommands(root);
     } catch (err) {
       // Log but don't fail — command files might already exist or permission
@@ -337,8 +340,15 @@ export function registerV2WorkspaceCommands(
 
       ensureCommandFiles(root);
 
-      const prompt = fb
-        ? `${slash} ${id} — Update artifact per feedback: "${fb.replace(/"/g, '\\"')}"`
+      // If review-context left a NO-GO, inject Required Corrections so a plain
+      // "Run with Claude" applies fixes without manual Markdown edits.
+      let effectiveFb = fb;
+      if (!effectiveFb) {
+        effectiveFb = loadContextReviewFixFeedback(root) ?? '';
+      }
+
+      const prompt = effectiveFb
+        ? `${slash} ${id} — Update artifact per feedback: "${effectiveFb.replace(/"/g, '\\"')}"`
         : `${slash} ${id}`;
 
       // GH-73 Problem B: Always create fresh terminal; never reuse existing
@@ -802,5 +812,28 @@ function openGettingStartedGuide(context: vscode.ExtensionContext): void {
     () => {
       void vscode.window.showTextDocument(uri, { preview: false });
     },
+  );
+}
+
+/**
+ * If CONTEXT-REVIEW.md is NO-GO, return feedback that tells Claude to apply
+ * Required Corrections and rewrite with **Verdict:** GO.
+ */
+function loadContextReviewFixFeedback(root: string): string | undefined {
+  const reviewPath = path.join(root, 'docs', 'project', 'context', 'CONTEXT-REVIEW.md');
+  if (!fs.existsSync(reviewPath)) { return undefined; }
+  let text = '';
+  try { text = fs.readFileSync(reviewPath, 'utf8'); } catch { return undefined; }
+  if (!/\*\*Verdict:\*\*\s*NO-GO/i.test(text)) { return undefined; }
+  const correctionsMatch = text.match(
+    /##\s*Required Corrections[\s\S]*?(?=\n##\s+|\n\*\*Verdict:\*\*|\s*$)/i,
+  );
+  const corrections = correctionsMatch?.[0]?.trim()
+    ?? 'Apply every Required Correction listed in docs/project/context/CONTEXT-REVIEW.md.';
+  return (
+    'CONTEXT-REVIEW has **Verdict:** NO-GO. Apply ALL Required Corrections yourself to the ' +
+    'owning files under docs/project/context/ (do not ask the user to edit Markdown by hand). ' +
+    'Then rewrite CONTEXT-REVIEW.md ending with exactly `**Verdict:** GO`.\n\n' +
+    corrections
   );
 }

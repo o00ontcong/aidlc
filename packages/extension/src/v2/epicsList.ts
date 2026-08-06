@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { RunStateStore, normalizeStep, resolvePath, mirrorRunStateToEpic } from '@aidlc/core';
+import { RunStateStore, normalizeStep, resolvePath, mirrorRunStateToEpic, getBuiltinStepHelp, getBuiltinWorkflowByPipelineId } from '@aidlc/core';
 import type {
   RunState,
   StepStatus,
@@ -87,6 +87,16 @@ export interface EpicSummary {
     branchInfo?: { branch: string; prUrl?: string };
     /** Token usage attributed to this step (filled by `enrichEpicsWithUsage`). */
     tokenUsage?: StepUsage;
+    /** Built-in phase help (command / model / I/O / acceptance) when available. */
+    stepHelp?: {
+      description: string;
+      inputs: string;
+      outputs: string;
+      model: string;
+      persona: string;
+      acceptanceCriteria: string[];
+      nextPhaseId?: string;
+    };
   }>;
   /** Aggregate token usage for the epic (filled by `enrichEpicsWithUsage`). */
   tokenUsage?: EpicUsage;
@@ -576,19 +586,18 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       if (namespaced && slashNames.has(namespaced)) { return namespaced; }
       const bare = `/${stepName}`;
       if (slashNames.has(bare)) { return bare; }
-      // A recipe-assembled epic runs on a per-epic pipeline (e.g. `SWIFT-142`),
-      // but the command files are only generated for the recipe's *source*
-      // pipeline (`/sdlc-parallel-full-implement`). The source command reads the
-      // epic id from its argument, so it works for the assembled epic too — find
-      // it by trying each known pipeline id + this exact step name (exact match
-      // avoids `plan` resolving to `test-plan`).
-      for (const pid of allPipelineIds) {
-        if (pid === pipelineId) { continue; }
-        const cand = `/${pid}-${stepName}`;
-        if (slashNames.has(cand)) { return cand; }
+      // Built-in companion pipelines (e.g. project-context next to cohesive-feature)
+      // must keep their own prefix — never steal `/cohesive-feature-<phase>` when
+      // the epic is on `project-context`. Recipe-assembled pipelines are not in
+      // the builtin map, so they still fall back to the source pipeline command.
+      const isBuiltinPipeline = !!(pipelineId && getBuiltinWorkflowByPipelineId(pipelineId));
+      if (!isBuiltinPipeline) {
+        for (const pid of allPipelineIds) {
+          if (pid === pipelineId) { continue; }
+          const cand = `/${pid}-${stepName}`;
+          if (slashNames.has(cand)) { return cand; }
+        }
       }
-      // Prefer namespaced as the default when the pipeline id is known and the
-      // table has neither (fresh build before re-apply); else fall back to bare.
       return namespaced || bare;
     };
 
@@ -637,10 +646,15 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         ? parseBranchInfoFromSummary(path.join(epicDir, 'artifacts', 'IMPLEMENT-SUMMARY.md'))
         : undefined;
 
+      const stepName = stepNameByIdx.get(i);
+      const help = pipelineId && stepName
+        ? getBuiltinStepHelp(pipelineId, stepName)
+        : undefined;
+
       return {
         agent,
-        name: stepNameByIdx.get(i),
-        slashCommand: slashForStep(stepNameByIdx.get(i)),
+        name: stepName,
+        slashCommand: slashForStep(stepName),
         artifact: artifactForStep,
         artifactExists: artifactForStep ? existingArtifacts.includes(artifactForStep) : false,
         status: displayStatus,
@@ -657,6 +671,17 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         rejectCount,
         feedback: runFeedbackByIdx.get(i),
         ...(branchInfo && { branchInfo }),
+        ...(help && {
+          stepHelp: {
+            description: help.description,
+            inputs: help.inputs,
+            outputs: help.outputs,
+            model: help.model,
+            persona: help.persona,
+            acceptanceCriteria: help.acceptanceCriteria,
+            nextPhaseId: help.nextPhaseId,
+          },
+        }),
       };
     });
 

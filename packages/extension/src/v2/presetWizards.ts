@@ -22,6 +22,8 @@ import { PresetStore, type WorkspacePreset } from './presetStore';
 import {
   isBuiltinPreset,
   getBuiltinWorkflow,
+  BUILTIN_WORKFLOWS,
+  loadBuiltinPreset,
   builtinClaudeCommand,
   pipelineCommandId,
   workflowCommandPhases,
@@ -250,6 +252,9 @@ export async function applyPresetCommand(
   if (builtin) {
     const epicRoot = readEpicRootFrom(root);
     writeBuiltinClaudeCommands(root, builtin, preset, epicRoot, false);
+    // Migrate legacy /cohesive-feature-<companion-phase> slash names + fill any
+    // missing companion command files (project-context / work-package).
+    syncBuiltinPipelineCommands(root, extensionPath);
     // Scaffold the JS auto-review runner(s) the workflow references so
     // auto-review can load them — otherwise "Mark step done" crashes with a
     // missing-module error (issue #27).
@@ -392,9 +397,10 @@ function writeBuiltinClaudeCommands(
   preset: WorkspacePreset,
   epicRoot: string,
   overwrite: boolean,
-): void {
+): string[] {
   const commandsDir = path.join(root, '.claude', 'commands');
   fs.mkdirSync(commandsDir, { recursive: true });
+  const written: string[] = [];
   for (const { pipelineId, phase } of workflowCommandPhases(workflow)) {
     // Namespaced filename (pipeline-phase) so coexisting pipelines don't
     // overwrite each other's commands; body is keyed by the bare phase id.
@@ -402,6 +408,7 @@ function writeBuiltinClaudeCommands(
     if (fs.existsSync(commandFile) && !overwrite) { continue; }
     const skillBody = preset.skillContents[phase.id] ?? `# ${phase.name}\n\n${phase.description}\n`;
     fs.writeFileSync(commandFile, builtinClaudeCommand(phase, skillBody, epicRoot), 'utf8');
+    written.push(commandFile);
   }
 
   // GH-71: also emit the pipeline-agnostic two-layer command set — the fixed
@@ -410,6 +417,109 @@ function writeBuiltinClaudeCommands(
   // pipeline binding, so they're written once (not per pipeline) and left
   // alongside the namespaced files above for back-compat. Idempotent.
   writeTwoLayerCommands(root, { epicRoot, overwrite });
+  return written;
+}
+
+/**
+ * Ensure every built-in pipeline present in workspace.yaml has:
+ *   1. correctly namespaced `.claude/commands/<pipelineId>-<phase>.md` files
+ *   2. matching `slash_commands` entries in workspace.yaml
+ *
+ * Fixes installs that predated companion-pipeline command namespacing
+ * (everything was stamped `/cohesive-feature-<phase>`, including
+ * `scan-project` / `publish-context` / work-package phases). Without this,
+ * the Epic card shows `/project-context-publish-context` but Claude reports
+ * "Unknown command".
+ *
+ * Safe to call on every Run with Claude — only writes missing files and
+ * appends/renames slash_commands entries; never clobbers hand-edited bodies.
+ */
+export function syncBuiltinPipelineCommands(
+  root: string,
+  extensionPath: string,
+): { commandsWritten: string[]; slashAdded: string[]; slashRenamed: string[] } {
+  const doc = readYaml(root);
+  const empty = { commandsWritten: [] as string[], slashAdded: [] as string[], slashRenamed: [] as string[] };
+  if (!doc) { return empty; }
+
+  const pipelineIds = new Set(doc.pipelines.map((p) => String(p.id)));
+  const epicRoot = readEpicRootFrom(root);
+  const commandsWritten: string[] = [];
+  const slashAdded: string[] = [];
+  const slashRenamed: string[] = [];
+  let yamlDirty = false;
+
+  type YamlSlashCmd = YamlDocument['slash_commands'][number];
+
+  for (const workflow of BUILTIN_WORKFLOWS) {
+    const ownsPipeline = [
+      workflow.pipelineId,
+      ...(workflow.additionalPipelines ?? []).map((a) => a.id),
+    ].some((id) => pipelineIds.has(id));
+    if (!ownsPipeline) { continue; }
+
+    let preset: WorkspacePreset;
+    try {
+      preset = loadBuiltinPreset(extensionPath, workflow);
+    } catch {
+      continue;
+    }
+
+    commandsWritten.push(
+      ...writeBuiltinClaudeCommands(root, workflow, preset, epicRoot, false),
+    );
+
+    // Expected slash command per phase for this bundle.
+    const expectedByPhase = new Map<string, { name: string; agent: string; pipelineId: string }>();
+    for (const { pipelineId, phase } of workflowCommandPhases(workflow)) {
+      expectedByPhase.set(phase.id, {
+        name: `/${pipelineCommandId(pipelineId, phase.id)}`,
+        agent: `aidlc-${phase.persona}`,
+        pipelineId,
+      });
+    }
+
+    const byName = new Map(
+      doc.slash_commands.map((c, i) => [String((c as { name?: unknown }).name ?? ''), i]),
+    );
+
+    for (const [phaseId, expected] of expectedByPhase) {
+      if (byName.has(expected.name)) { continue; }
+
+      // Legacy mis-prefix: companion phases were registered under the primary
+      // pipeline id (e.g. /cohesive-feature-publish-context). Rename in place.
+      const legacyName = `/${workflow.pipelineId}-${phaseId}`;
+      const legacyIdx = byName.get(legacyName);
+      if (
+        legacyIdx !== undefined
+        && expected.pipelineId !== workflow.pipelineId
+        && legacyName !== expected.name
+      ) {
+        const entry = doc.slash_commands[legacyIdx] as Record<string, unknown>;
+        entry.name = expected.name;
+        entry.agent = expected.agent;
+        slashRenamed.push(`${legacyName} → ${expected.name}`);
+        byName.delete(legacyName);
+        byName.set(expected.name, legacyIdx);
+        yamlDirty = true;
+        continue;
+      }
+
+      doc.slash_commands.push({
+        name: expected.name,
+        agent: expected.agent,
+      } as unknown as YamlSlashCmd);
+      slashAdded.push(expected.name);
+      byName.set(expected.name, doc.slash_commands.length - 1);
+      yamlDirty = true;
+    }
+  }
+
+  if (yamlDirty) {
+    writeYaml(root, doc);
+  }
+
+  return { commandsWritten, slashAdded, slashRenamed };
 }
 
 interface MergeReport {

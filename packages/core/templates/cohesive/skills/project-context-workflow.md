@@ -92,10 +92,18 @@ Review the five context documents against repository evidence. Write `CONTEXT-RE
 - Contradictions and stale documentation.
 - Missing context that would make feature planning unsafe.
 - Over-specific rules that are not supported by evidence.
-- Required corrections.
-- `**Verdict:** GO` only when the context is safe to publish; otherwise `**Verdict:** NO-GO`.
+- Required corrections (if any were applied or remain).
+- `**Verdict:** GO` or `**Verdict:** NO-GO` (exact markdown emphasis required).
 
-Do not publish a manifest on NO-GO. Correct the owning context artifact first.
+### Auto-fix (do not ask the user to edit by hand)
+
+When you find fixable issues — wrong claim, missing `**inference**` label, over-specific rule, naming drift, missing caveat — **apply the corrections yourself** to the owning file(s) under `docs/project/context/` in this same step, then re-check.
+
+- Mechanical edits (drop unsupported claim, label inference, broaden a note, quote source ambiguity) → apply → write `**Verdict:** GO`.
+- If a previous `CONTEXT-REVIEW.md` already lists `## Required Corrections` with `**Verdict:** NO-GO`, apply those corrections first, then rewrite the review with `**Verdict:** GO`.
+- Use `**Verdict:** NO-GO` only when a **human product/architecture decision** is required that you cannot infer from repository evidence. Even then, leave precise Required Corrections so a rerun can finish without manual file editing once the human answers in chat.
+
+Do not publish a manifest on NO-GO. Do not stop after listing corrections without applying the mechanical ones.
 
 ## Phase: `publish-context`
 

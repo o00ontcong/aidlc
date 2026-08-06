@@ -283,6 +283,9 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
     saveRun(root, next);
     notifyStepTransition(next, stepIdx);
   } catch (err) {
+    if (await offerApplyContextReviewCorrections(root, state, pipeline, stepIdx, err)) {
+      return;
+    }
     surfaceRunError(err);
   }
 }
@@ -848,4 +851,99 @@ function surfaceRunError(err: unknown): void {
   }
   const msg = err instanceof Error ? err.message : String(err);
   void vscode.window.showErrorMessage(`AIDLC: ${msg}`);
+}
+
+/**
+ * When `review-context` is blocked on missing `**Verdict:** GO`, offer to
+ * re-run Claude with the Required Corrections as feedback so the agent
+ * applies fixes — the user should not edit context Markdown by hand.
+ */
+async function offerApplyContextReviewCorrections(
+  root: string,
+  state: RunState,
+  pipeline: PipelineConfig,
+  stepIdx: number,
+  err: unknown,
+): Promise<boolean> {
+  if (!(err instanceof PipelineRunError) || !err.missing?.length) { return false; }
+  const missingGo = err.missing.some((m) => /\*\*Verdict:\*\*\s*GO/i.test(m) || m.includes('**Verdict:** GO'));
+  if (!missingGo) { return false; }
+
+  const reviewPath = path.join(root, 'docs', 'project', 'context', 'CONTEXT-REVIEW.md');
+  let reviewText = '';
+  try { reviewText = fs.readFileSync(reviewPath, 'utf8'); } catch { /* optional */ }
+
+  const feedback = buildContextReviewFixFeedback(reviewText);
+  const slash = resolveSlashForStep(root, pipeline, state.steps[stepIdx]?.agent, stepIdx);
+
+  const choice = await vscode.window.showErrorMessage(
+    'Review is not GO yet. Claude can apply the Required Corrections to the context files — you do not need to edit them by hand.',
+    'Apply corrections & Run',
+    'Open CONTEXT-REVIEW.md',
+  );
+  if (choice === 'Open CONTEXT-REVIEW.md') {
+    if (fs.existsSync(reviewPath)) {
+      const doc = await vscode.workspace.openTextDocument(reviewPath);
+      await vscode.window.showTextDocument(doc, { preview: true });
+    }
+    return true;
+  }
+  if (choice !== 'Apply corrections & Run') {
+    return false;
+  }
+  if (!slash) {
+    void vscode.window.showWarningMessage(
+      'AIDLC: could not resolve the step slash command. Use Help on the step card, then Run with Claude.',
+    );
+    return true;
+  }
+
+  await vscode.commands.executeCommand(
+    'aidlc.runStepWithFeedback',
+    slash,
+    state.runId,
+    feedback,
+  );
+  void vscode.window.showInformationMessage(
+    'Running review-context again with Required Corrections as feedback. When Claude finishes with **Verdict:** GO, click Mark step done.',
+  );
+  return true;
+}
+
+function buildContextReviewFixFeedback(reviewText: string): string {
+  const correctionsMatch = reviewText.match(
+    /##\s*Required Corrections[\s\S]*?(?=\n##\s+|\n\*\*Verdict:\*\*|\s*$)/i,
+  );
+  const corrections = correctionsMatch?.[0]?.trim()
+    ?? 'Apply every Required Correction listed in docs/project/context/CONTEXT-REVIEW.md.';
+  return (
+    'CONTEXT-REVIEW has **Verdict:** NO-GO (or is missing GO). ' +
+    'Apply ALL Required Corrections yourself to the owning files under docs/project/context/ ' +
+    '(do not ask the user to edit Markdown by hand). Then rewrite CONTEXT-REVIEW.md ending with exactly `**Verdict:** GO`.\n\n' +
+    corrections
+  );
+}
+
+function resolveSlashForStep(
+  root: string,
+  pipeline: PipelineConfig,
+  agent: string | undefined,
+  stepIdx: number,
+): string | undefined {
+  const doc = readYaml(root);
+  const raw = pipeline.steps[stepIdx];
+  const stepName = raw && typeof raw === 'object' && typeof (raw as { name?: unknown }).name === 'string'
+    ? (raw as { name: string }).name
+    : undefined;
+  const namespaced = stepName ? `/${pipeline.id}-${stepName}` : undefined;
+  const slashCmds = Array.isArray(doc?.slash_commands)
+    ? (doc!.slash_commands as Array<{ name?: unknown; agent?: unknown }>)
+    : [];
+  const byName = new Set(slashCmds.map((c) => String(c.name ?? '')));
+  if (namespaced && byName.has(namespaced)) { return namespaced; }
+  if (agent) {
+    const hit = slashCmds.find((c) => String(c.agent ?? '') === agent && typeof c.name === 'string');
+    if (hit?.name) { return String(hit.name); }
+  }
+  return namespaced;
 }

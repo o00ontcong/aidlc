@@ -9,7 +9,6 @@ import {
   FolderOpen,
   Beaker,
   FileCode2,
-  Play,
   X,
   Sparkles,
   Diamond,
@@ -135,11 +134,11 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
               <>
                 <button
                   type="button"
-                  onClick={() => postMessage({ type: 'requestStartEpic' })}
+                  onClick={() => postMessage({ type: 'openWorkspace' })}
                   className="flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold uppercase tracking-wider text-primary-foreground transition-colors hover:bg-primary/90"
                 >
-                  <Play className="h-3.5 w-3.5" />
-                  <span>Start Epic</span>
+                  <Layers className="h-3.5 w-3.5" />
+                  <span>Open Workspace</span>
                   <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
                 </button>
 
@@ -682,6 +681,12 @@ function WorkflowsSection({
               This project already has <span className="font-mono">.aidlc/workspace.yaml</span>.
               Overwrite with template <span className="font-mono">{pendingApply.id}</span>?
             </>
+          }
+          secondaryLabel={pendingApply.hasGuide ? 'View guide' : undefined}
+          onSecondary={
+            pendingApply.hasGuide
+              ? () => postMessage({ type: 'openTemplateGuide', id: pendingApply.id })
+              : undefined
           }
           onConfirm={() =>
             postMessage({ type: 'applyTemplate', id: pendingApply.id, skipConfirm: true })

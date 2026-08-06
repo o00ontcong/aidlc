@@ -78,6 +78,8 @@ export interface TemplateRef {
   id: string;
   name: string;
   description: string;
+  /** True when the built-in preset ships a user guide Markdown file. */
+  hasGuide?: boolean;
 }
 
 export interface PipelineRef {
@@ -554,6 +556,16 @@ export interface EpicStepDetailFull {
   feedback?: string;
   /** Token usage attributed to this step. */
   tokenUsage?: StepUsage;
+  /** Built-in phase metadata for Help + Input/Output when agent meta is empty. */
+  stepHelp?: {
+    description: string;
+    inputs: string;
+    outputs: string;
+    model: string;
+    persona: string;
+    acceptanceCriteria: string[];
+    nextPhaseId?: string;
+  };
 }
 
 export interface EpicSummary {
@@ -633,6 +645,14 @@ export interface WorkspaceState {
   epicMemoryHookEnabled?: boolean;
   /** Current epics directory (relative path from project root). */
   epicsDir: string;
+  /** Persisted Epics-list UI prefs from extension workspaceState. */
+  epicsViewUi?: {
+    filter?: EpicFilter;
+    search?: string;
+    followOpen?: boolean;
+    noFollowOpen?: boolean;
+    followedIds?: string[];
+  };
 }
 
 export interface TestAgentTarget {

@@ -183,6 +183,9 @@ export {
   workflowSlug,
   getBuiltinWorkflow,
   getBuiltinWorkflowByPipelineId,
+  getBuiltinPhase,
+  getBuiltinStepHelp,
+  renderBuiltinStepHelpMarkdown,
   getBuiltinPipelineSummary,
   getSdlcBuiltinPipelineSummary,
   getAllBuiltinPipelineSummaries,
@@ -200,7 +203,14 @@ export {
   BUILTIN_PRESET_IDS,
   isBuiltinPreset,
 } from './presets/builtinWorkflows';
-export type { BuiltinWorkflow, WorkspacePreset as BuiltinWorkspacePreset, WorkspaceRecipe, ArtifactTemplateOptions } from './presets/builtinWorkflows';
+export type {
+  BuiltinWorkflow,
+  PhaseDef,
+  BuiltinStepHelp,
+  WorkspacePreset as BuiltinWorkspacePreset,
+  WorkspaceRecipe,
+  ArtifactTemplateOptions,
+} from './presets/builtinWorkflows';
 
 // Global ~/.claude install of built-in agent/skill files (shared by ext + CLI).
 export {

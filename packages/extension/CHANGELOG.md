@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.4.5
+
+### Fixed
+
+- fix(cohesive): **backfill all 21 pipeline-namespaced slash commands** — installs that still had everything under `/cohesive-feature-*` (including `scan-project` / `publish-context` / work-package phases) now get `/project-context-*` and `/cohesive-work-package-*` command files + `workspace.yaml` entries. Fixes Claude `Unknown command: /project-context-publish-context`. Sync runs on panel refresh and every **Run with Claude**.
+
+## 3.4.4
+
+### Fixed
+
+- fix(cohesive): `review-context` skill now **applies mechanical Required Corrections itself** and rewrites `**Verdict:** GO` — users are not asked to edit context Markdown by hand.
+- fix(help): Mark step done on missing GO offers **Apply corrections & Run**, which re-launches Claude with the Required Corrections as feedback.
+- fix(help): plain **Run with Claude** on a NO-GO review auto-injects those corrections as feedback.
+- fix(ui): project-context step commands no longer resolve to `/cohesive-feature-…` (companion pipelines keep their own slash prefix).
+
+## 3.4.3
+
+### Fixed
+
+- fix(help): step **Help** opens a single Markdown preview from a temp file — no more twin Untitled edit tabs, and no stale preview from a previous step (e.g. Scan Project when opening Model Project).
+
+## 3.4.2
+
+### Added
+
+- feat(help): **View guide** on the Apply template overwrite dialog opens the Cohesive Delivery workflow Markdown guide.
+- feat(help): **Help** on each Epic step card opens a Markdown guide for that step — what it does, slash command, agent/model, required inputs, expected outputs, and acceptance criteria for the next step.
+- feat(help): step cards now surface built-in phase **Model / Input / Output** (no longer blank `—` for cohesive personas that own many phases).
+
 ## 3.4.1
 
 ### Fixed
