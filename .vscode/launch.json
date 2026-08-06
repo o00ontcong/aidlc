@@ -8,13 +8,30 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/packages/extension",
         "--disable-extension=hueanmy.aidlc",
+        "--disable-extension=o00ontcong.aidlc-o00ontcong",
         "${workspaceFolder}"
       ],
       "outFiles": [
         "${workspaceFolder}/packages/extension/out/**/*.js",
         "${workspaceFolder}/packages/core/dist/**/*.js"
       ],
-      "preLaunchTask": "pnpm: compile-all"
+      "preLaunchTask": "compile-extension"
+    },
+    {
+      "name": "Run AIDLC on vn-stock-vectorbt-bot",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/packages/extension",
+        "--disable-extension=hueanmy.aidlc",
+        "--disable-extension=o00ontcong.aidlc-o00ontcong",
+        "${env:HOME}/Project/personal/vn-stock-vectorbt-bot"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/packages/extension/out/**/*.js",
+        "${workspaceFolder}/packages/core/dist/**/*.js"
+      ],
+      "preLaunchTask": "compile-extension"
     }
   ]
 }

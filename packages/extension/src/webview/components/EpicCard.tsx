@@ -275,7 +275,7 @@ export function EpicCard({ epic, agentMeta, slashCommandsByAgent }: Props) {
  * description when no such file exists.
  */
 function EpicDescription({ epic }: { epic: EpicSummary }) {
-  const reqFile = epic.existingArtifacts.find((f) =>
+  const reqFile = (epic.existingArtifacts ?? []).find((f) =>
     /init.?requirements?.*\.md$/i.test(f),
   );
   if (reqFile) {
@@ -589,7 +589,11 @@ function StepDetail({
   // the persona's default — one persona handles multiple phases that each
   // emit different files, so the step is the authoritative source.
   const artifactName = focused.artifact || m.artifact || '';
-  const artifactExists = artifactName ? epic.existingArtifacts.includes(artifactName) : false;
+  // Prefer host-computed per-step flag (covers produces: outside epic/artifacts/).
+  // Fall back to epic.existingArtifacts for older host payloads.
+  const artifactExists = focused.artifactExists === true
+    || (!!artifactName && (epic.existingArtifacts ?? []).includes(artifactName))
+    || (!!artifactName && !!epic.artifactPaths?.[artifactName]);
   const [artifactMenuOpen, setArtifactMenuOpen] = useState(false);
 
   const accent = (() => {

@@ -2,9 +2,12 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "pnpm: compile-all",
+      "label": "compile-extension",
       "type": "shell",
-      "command": "pnpm -r compile",
+      "command": "npx tsc -p ../core && npm run copy:templates && npm run copy:tools && npm run copy:annotron && npx tsc -p ./ && npx vite build",
+      "options": {
+        "cwd": "${workspaceFolder}/packages/extension"
+      },
       "group": {
         "kind": "build",
         "isDefault": true
@@ -16,9 +19,26 @@
       }
     },
     {
+      "label": "pnpm: compile-all",
+      "type": "shell",
+      "command": "npx tsc -p ../core && npm run copy:templates && npm run copy:tools && npm run copy:annotron && npx tsc -p ./ && npx vite build",
+      "options": {
+        "cwd": "${workspaceFolder}/packages/extension"
+      },
+      "group": "build",
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
+    {
       "label": "pnpm: watch-extension",
       "type": "shell",
-      "command": "pnpm --filter ./packages/extension watch",
+      "command": "npx tsc -p ./ --watch",
+      "options": {
+        "cwd": "${workspaceFolder}/packages/extension"
+      },
       "isBackground": true,
       "problemMatcher": ["$tsc-watch"],
       "presentation": {

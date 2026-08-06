@@ -232,6 +232,7 @@ describe('listEpics indexes produces: outside epic artifacts/', () => {
     const epic = listEpics(root, doc).find((e) => e.id === epicId);
     expect(epic).toBeDefined();
     expect(epic!.stepDetails[0].artifact).toBe('PROJECT-SCAN.md');
+    expect(epic!.stepDetails[0].artifactExists).toBe(true);
     expect(epic!.existingArtifacts).toContain('PROJECT-SCAN.md');
     expect(epic!.artifactPaths['PROJECT-SCAN.md']).toBe(
       path.join(root, 'docs', 'project', 'context', 'PROJECT-SCAN.md'),

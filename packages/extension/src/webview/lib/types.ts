@@ -532,6 +532,8 @@ export interface EpicStepDetailFull {
    *  expects to see written by this step (e.g. `PRD.md`). Falls back to
    *  the agent meta artifact when the step doesn't declare one. */
   artifact?: string;
+  /** Host-computed: true when `artifact` exists on disk right now. */
+  artifactExists?: boolean;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;

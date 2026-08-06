@@ -52,6 +52,8 @@ export interface EpicSummary {
     /** Basename of the first `produces:` path — surfaced as the step's
      *  artifact label on the Epic detail panel. */
     artifact?: string;
+    /** True when `artifact` exists on disk (epic artifacts/ or produces: path). */
+    artifactExists?: boolean;
     status: EpicStatus;
     startedAt: string | null;
     finishedAt: string | null;
@@ -140,17 +142,27 @@ export function collectArtifactIndex(args: {
 }): { existingArtifacts: string[]; artifactPaths: Record<string, string> } {
   const paths: Record<string, string> = {};
 
-  const artifactsDir = path.join(args.epicDir, 'artifacts');
-  if (fs.existsSync(artifactsDir)) {
+  const addFile = (abs: string): void => {
     try {
-      for (const name of fs.readdirSync(artifactsDir).filter((n) => !n.startsWith('.'))) {
-        const abs = path.join(artifactsDir, name);
-        try {
-          if (fs.statSync(abs).isFile()) { paths[name] = abs; }
-        } catch { /* skip */ }
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+        paths[path.basename(abs)] = abs;
+      }
+    } catch { /* skip */ }
+  };
+
+  const addDir = (dir: string): void => {
+    if (!fs.existsSync(dir)) { return; }
+    try {
+      for (const name of fs.readdirSync(dir).filter((n) => !n.startsWith('.'))) {
+        addFile(path.join(dir, name));
       }
     } catch { /* ignore */ }
-  }
+  };
+
+  // Conventional epic artifacts folder.
+  addDir(path.join(args.epicDir, 'artifacts'));
+  // Canonical project-context outputs (outside epicDir).
+  addDir(path.join(args.workspaceRoot, 'docs', 'project', 'context'));
 
   if (args.pipelineCfg && Array.isArray(args.pipelineCfg.steps)) {
     const context: Record<string, string> = {
@@ -162,11 +174,7 @@ export function collectArtifactIndex(args: {
       for (const template of norm.produces) {
         const rel = resolvePath(template, context);
         const abs = path.isAbsolute(rel) ? rel : path.join(args.workspaceRoot, rel);
-        try {
-          if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
-            paths[path.basename(abs)] = abs;
-          }
-        } catch { /* skip */ }
+        addFile(abs);
       }
     }
   }
@@ -585,6 +593,14 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     };
 
     const annotationHistory = readAnnotationHistory(path.join(epicDir, 'artifacts'));
+    const inputs = readInputs(epicDir);
+    const { existingArtifacts, artifactPaths } = collectArtifactIndex({
+      workspaceRoot,
+      epicDir,
+      epicId,
+      inputs,
+      pipelineCfg,
+    });
 
     const stepDetails = stepStatesRaw.map((s, i) => {
       const agent = typeof s.agent === 'string' ? s.agent : '';
@@ -625,7 +641,8 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         agent,
         name: stepNameByIdx.get(i),
         slashCommand: slashForStep(stepNameByIdx.get(i)),
-        artifact: stepArtifactByIdx.get(i),
+        artifact: artifactForStep,
+        artifactExists: artifactForStep ? existingArtifacts.includes(artifactForStep) : false,
         status: displayStatus,
         startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,
         finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,
@@ -641,15 +658,6 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         feedback: runFeedbackByIdx.get(i),
         ...(branchInfo && { branchInfo }),
       };
-    });
-
-    const inputs = readInputs(epicDir);
-    const { existingArtifacts, artifactPaths } = collectArtifactIndex({
-      workspaceRoot,
-      epicDir,
-      epicId,
-      inputs,
-      pipelineCfg,
     });
 
     // The state.json's overall status doesn't sync from the run-state

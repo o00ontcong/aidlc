@@ -381,9 +381,12 @@ interface EpicStepDetailFull {
   agent: string;
   /** Optional phase id (= slash command name) for built-in pipelines. */
   stepName?: string;
+  slashCommand?: string;
   /** Step's artifact filename (basename of `produces[0]`). Empty when the
    *  step's output is a non-file artifact (branch / tag). */
   artifact?: string;
+  /** Host-computed: true when `artifact` exists on disk right now. */
+  artifactExists?: boolean;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;
@@ -875,6 +878,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       stepName: s.name,
       slashCommand: s.slashCommand,
       artifact: s.artifact,
+      artifactExists: s.artifactExists,
       status: s.status,
       runStatus: s.runStatus,
       isCurrentRunStep: s.isCurrentRunStep,
