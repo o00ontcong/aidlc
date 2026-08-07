@@ -25,6 +25,11 @@ import { RunStateStore } from './RunStateStore';
 import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
 import { seedCharterArtifacts } from '../epics/charterArtifacts';
+import {
+  alignmentDescriptionFromSeed,
+  buildAlignmentSeedFile,
+  type AlignmentSeedInput,
+} from '../epics/alignmentArtifacts';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
@@ -153,6 +158,12 @@ export interface ScaffoldEpicArgs {
    * `aidlc.autopilot.enabled` setting.
    */
   enableAutopilot?: boolean;
+  /**
+   * Charter alignment seed for `cohesive-feature`: writes `ALIGNMENT.md`
+   * (serves G-x + feature-only narrower constraints). Replaces per-epic
+   * GOALS/ARCHITECTURE/TECH thinking seeds.
+   */
+  alignmentSeed?: Omit<AlignmentSeedInput, 'epicId'>;
 }
 
 export interface ScaffoldEpicResult {
@@ -210,10 +221,25 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     }
   }
 
+  // Charter alignment seed (cohesive-feature): human-selected Goals + scope
+  // before agents run. Overwrites a stub ALIGNMENT.md from templates if present.
+  if (args.alignmentSeed) {
+    const body = buildAlignmentSeedFile({ epicId, ...args.alignmentSeed });
+    fs.writeFileSync(
+      path.join(artifactsDir, 'ALIGNMENT.md'),
+      body.endsWith('\n') ? body : `${body}\n`,
+      'utf8',
+    );
+  }
+
+  const resolvedDescription = args.alignmentSeed
+    ? (description.trim() || alignmentDescriptionFromSeed({ epicId, ...args.alignmentSeed }))
+    : description;
+
   const initialState = {
     id: epicId,
     title,
-    description,
+    description: resolvedDescription,
     pipeline: target.kind === 'pipeline' ? target.id : null,
     agent: target.kind === 'agent' ? target.id : null,
     agents,
@@ -250,7 +276,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
       workspaceRoot,
       epicDir,
       epicId,
-      description || title || epicId,
+      resolvedDescription || title || epicId,
     );
     fs.writeFileSync(
       path.join(epicDir, 'context.json'),

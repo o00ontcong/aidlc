@@ -39,26 +39,51 @@ describe('Cohesive Delivery built-in bundle', () => {
     ]);
     expect(config.agents).toHaveLength(3);
     expect(config.skills).toHaveLength(3);
-    expect(config.slash_commands).toHaveLength(24);
+    expect(config.slash_commands).toHaveLength(26);
     const slashNames = config.slash_commands.map((c) => c.name);
     expect(slashNames).toContain('/project-context-define-charter');
     expect(slashNames).toContain('/project-context-scan-project');
     expect(slashNames).toContain('/project-context-check-drift');
     expect(slashNames).toContain('/project-context-project-rules-sync');
     expect(slashNames).toContain('/cohesive-feature-capture-context');
+    expect(slashNames).toContain('/cohesive-feature-open-pr');
+    expect(slashNames).toContain('/cohesive-feature-await-merge');
     expect(slashNames).toContain('/cohesive-work-package-load-package');
     expect(slashNames).not.toContain('/cohesive-feature-scan-project');
+    expect(slashNames).not.toContain('/cohesive-work-package-open-pr');
 
     const project = config.pipelines.find((pipeline) => pipeline.id === 'project-context')!;
     const feature = config.pipelines.find((pipeline) => pipeline.id === 'cohesive-feature')!;
     const worker = config.pipelines.find((pipeline) => pipeline.id === 'cohesive-work-package')!;
     expect(project.steps).toHaveLength(7);
-    expect(feature.steps).toHaveLength(12);
+    expect(feature.steps).toHaveLength(14);
     expect(worker.steps).toHaveLength(5);
 
     expect(feature.steps[0].requires).toContain('docs/project/context/CONTEXT-MANIFEST.json');
-    expect(feature.steps[4].produces).toContain('docs/epics/{epic}/artifacts/WORK-PACKAGES.json');
-    expect(feature.steps[4].auto_review_runner).toBe('.aidlc/validators/work-packages.mjs');
+    const specify = feature.steps.find((s) => s.name === 'specify')!;
+    expect(specify.requires).toContain('docs/project/charter/CHARTER.json');
+    expect(specify.requires).toContain('docs/epics/{epic}/artifacts/ALIGNMENT.md');
+    expect(specify.auto_review_runner).toBe('.aidlc/validators/charter-alignment.mjs');
+
+    const ids = feature.steps.map((s) => s.name);
+    const systemTest = ids.indexOf('system-test');
+    const openPr = ids.indexOf('open-pr');
+    const awaitMerge = ids.indexOf('await-merge');
+    const projectSync = ids.indexOf('project-sync');
+    expect(systemTest).toBeGreaterThan(-1);
+    expect(openPr).toBe(systemTest + 1);
+    expect(awaitMerge).toBe(openPr + 1);
+    expect(projectSync).toBe(awaitMerge + 1);
+    expect(feature.steps[projectSync].depends_on).toContain('await-merge');
+    expect(feature.steps[openPr].auto_review_runner).toBe('.aidlc/validators/ship.mjs');
+
+    const workerIds = worker.steps.map((s) => s.name);
+    expect(workerIds).not.toContain('open-pr');
+    expect(workerIds).not.toContain('await-merge');
+
+    const tasksPackage = feature.steps.find((s) => s.name === 'tasks-package')!;
+    expect(tasksPackage.produces).toContain('docs/epics/{epic}/artifacts/WORK-PACKAGES.json');
+    expect(tasksPackage.auto_review_runner).toBe('.aidlc/validators/work-packages.mjs');
     expect(worker.steps[0].auto_review_runner).toBe('.aidlc/validators/package-context.mjs');
   });
 
@@ -72,7 +97,8 @@ describe('Cohesive Delivery built-in bundle', () => {
     expect(worker?.phases.map((phase) => phase.id)).toEqual([
       'load-package', 'prepare-worktree', 'implement-package', 'package-test', 'publish-result',
     ]);
-    expect(getBuiltinPipelineSummary(workflow).steps).toHaveLength(12);
+    expect(getBuiltinPipelineSummary(workflow).steps).toHaveLength(14);
+    expect(worker?.phases.map((phase) => phase.id)).not.toContain('open-pr');
   });
 
   it('does not pre-seed gate outputs with empty artifact templates', () => {
@@ -98,6 +124,7 @@ describe('Cohesive Delivery built-in bundle', () => {
       'work-packages.mjs', 'feature-contract.mjs',
       'await-packages.mjs', 'integration-cohesion.mjs', 'project-ci.mjs',
       'package-context.mjs', 'worktree-state.mjs', 'package-result.mjs',
+      'charter-alignment.mjs', 'ship.mjs',
     ]) {
       expect(fs.existsSync(path.join(validators, file)), file).toBe(true);
     }

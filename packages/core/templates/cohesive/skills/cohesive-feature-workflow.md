@@ -1,11 +1,11 @@
 ---
 name: cohesive-feature-workflow
-description: Coordinate a cohesive feature from project-context snapshot through specification, work-package execution, integration, verification, and project sync.
+description: Coordinate a cohesive feature from charter alignment through specification, packages, integration, system test, one feature PR, and post-merge project sync.
 ---
 
 # Cohesive Feature Workflow
 
-You are the Feature Coordinator. You own the common feature goal and the integrity of every artifact from specification through final integration.
+You are the Feature Coordinator. You own the common feature goal and the integrity of every artifact from specification through ship and project sync.
 
 ## Phase resolution
 
@@ -16,11 +16,14 @@ You are the Feature Coordinator. You own the common feature goal and the integri
 
 ## Non-negotiable rules
 
+- Inherit Goals / Architecture / Tech from `docs/project/charter/` — never invent project-level Goals, Architecture, or Tech at the epic.
+- `ALIGNMENT.md` declares which charter Goals this feature serves; constraints may only be **narrower** than the charter.
 - `SPEC.md`, `PLAN.md`, `TASKS.md`, and `FEATURE-CONTRACT.md` are the common source of truth for all work packages.
 - A work package may execute approved work but may not redefine feature scope or shared contracts.
 - Group tightly coupled tasks into one work package. Parallelism is allowed only across independent packages.
 - Never let two parallel packages own the same file scope or shared contract change.
-- Do not consider the feature complete when packages finish; integration, cohesion review, system test, and project sync remain mandatory.
+- Do not consider the feature complete when packages finish; integration, cohesion review, system test, **open-pr / await-merge**, and project sync remain mandatory.
+- Ship is **one PR per feature** after system-test. Packages never open PRs or merge `main`.
 - Feature artifacts live in `docs/epics/$0/artifacts/`.
 
 ## Phase: `capture-context`
@@ -41,13 +44,15 @@ Do not silently update canonical project context here.
 
 ## Phase: `specify`
 
-Read feature intent from `state.json` title/description and `inputs.json`. If intent is empty, stop and request a meaningful brief.
+Require `docs/project/charter/CHARTER.json` and `ALIGNMENT.md`. If charter is missing, stop with a clear error asking to run project-context `define-charter` first.
+
+Read feature intent from `ALIGNMENT.md` (Serves Goals + Feature Contribution), `state.json`, and `inputs.json`.
 
 Write `SPEC.md` with:
 
-- Overview and common feature goal.
+- Overview tied to the Goals listed in `ALIGNMENT.md` (do not invent new project Goals).
 - User scenarios including failure/edge paths.
-- `## Functional Requirements` with stable `$0-FRNN` IDs.
+- `## Functional Requirements` with stable `$0-FRNN` IDs. **Every FR must include `Serves: G-x`** (one or more Goals from ALIGNMENT / CHARTER).
 - Non-functional requirements with stable `$0-NFRNN` IDs and measurable targets.
 - `## Acceptance Criteria` with stable `$0-ACNN` IDs.
 - Compatibility with current project behavior/contracts.
@@ -66,10 +71,10 @@ Describe what/why, not libraries or implementation details.
 
 ## Phase: `plan`
 
-Read the context snapshot and clarified spec. Write `PLAN.md` with:
+Read the charter, `ALIGNMENT.md`, context snapshot, and clarified spec. Write `PLAN.md` with:
 
-- Technical approach and why it fits current project patterns.
-- Architecture/components and dependency direction.
+- Technical approach and why it fits current project patterns **and TECH-POLICY**.
+- Architecture/components and dependency direction (respect ARCHITECTURE-PRINCIPLES / INV-x).
 - Data model/migrations where applicable.
 - APIs/interfaces/events and error behavior.
 - `## Shared Contract Impact`: unchanged/used/changed/new, owner and consumers.
@@ -77,8 +82,11 @@ Read the context snapshot and clarified spec. Write `PLAN.md` with:
 - Security, observability, and testing strategy.
 - `## File Impact` with path/glob, ownership, new/modified/removed.
 - `## Requirement Traceability` mapping every FR/NFR to plan sections.
+- `## Charter Conformance`: table/list covering **every INV-x** — how this plan complies (or points to an approved VR).
 - ADR required/not required.
 - Risks and open technical decisions.
+
+If the plan would use forbidden tech from TECH-POLICY, stop and file `variance-requests/VR-xxx.md` instead of sneaking it in.
 
 Return to Specify/Clarify if the requested behavior is still ambiguous.
 
@@ -89,11 +97,15 @@ Create `TASKS.md`. Every task must contain:
 - Stable `$0-TNN` ID and name.
 - Concrete work.
 - Dependencies.
+- `Implements: FR-x` (at least one functional requirement).
+- `AC:` task-level acceptance criteria (not only spec-level AC).
 - Requirements/plan sections implemented.
 - Expected files/modules.
 - Shared contracts used or changed.
 - Done condition and tests.
 - Parallel-safety note.
+
+Respect `CHARTER.json` `deliveryBudget` (`maxTasksPerPackage`, `maxFilesPerPackage`) when grouping packages.
 
 Then group tasks into cohesive work packages and write `WORK-PACKAGES.json`:
 
@@ -144,7 +156,9 @@ On GO, write `FEATURE-CONTRACT.md` with:
 
 - Feature identity, goal, project-context revision and base commit.
 - Feature-contract revision.
+- Charter revision/hash captured in the snapshot (`**Charter Hash:**`).
 - Invariants all packages must preserve.
+- `## Charter Invariants` listing INV-x from the charter that apply to this feature.
 - Frozen architecture decisions.
 - Shared contracts with owners and allowed mutation policy.
 - Domain vocabulary.
@@ -204,7 +218,7 @@ Inspect the actual integrated diff, not only package prose. Write `INTEGRATION-C
 
 ## Phase: `cohesion-review`
 
-Review Project Context, Feature Contract, integrated code, tests, and Integration Context. Write `COHESION-REPORT.md` covering:
+Review Project Context, Feature Contract, charter invariants, integrated code, tests, and Integration Context. Write `COHESION-REPORT.md` covering:
 
 - Duplicate or competing abstractions.
 - Naming and convention consistency.
@@ -214,13 +228,14 @@ Review Project Context, Feature Contract, integrated code, tests, and Integratio
 - Cross-package error handling and observability.
 - Complete requirement-to-test traceability.
 - Whether the result is one coherent vertical feature.
+- Per-invariant status (`INV-x` OK / VIOLATED). Any `VIOLATED` without an approved `variance-requests/VR-*.md` is **NO-GO**.
 - `**Verdict:** GO|NO-GO`.
 
 Never issue GO merely because packages individually passed.
 
 ## Phase: `system-test`
 
-Read exact commands from `docs/project/context/ENGINEERING-RULES.md` and repository configuration. Execute applicable lint, typecheck, unit, integration/regression, and build commands.
+Read exact commands from `docs/project/context/ENGINEERING-RULES.md`, `.aidlc/cohesive-ci.json`, and `CHARTER.json` `requiredQualityGates`. Fail closed if a required gate has no runnable command.
 
 Write `SYSTEM-TEST-REPORT.md` with:
 
@@ -232,9 +247,33 @@ Write `SYSTEM-TEST-REPORT.md` with:
 
 Do not claim a command passed if it was not run.
 
+## Phase: `open-pr`
+
+After system-test GO, open **exactly one** pull request for the whole feature:
+
+- Head branch: `feature/$0` (the integration branch from `integrate`).
+- Base branch: `shipPolicy.defaultBranch` from CHARTER.json (usually `main`).
+- Do **not** open per-package PRs.
+
+Write `PR-LINK.md` with:
+
+- `**URL:**` PR URL (or `(none)` only if `shipPolicy.allowLocalMergeWithHumanOnly` is enabled).
+- `**Base:**` default branch.
+- `**Head:**` `feature/$0`.
+- `**Status:**` open.
+
+## Phase: `await-merge`
+
+Human merge gate. You must **not** merge into the default branch.
+
+- Wait for human approval / merge (AI review tools may assist if `allowAiAssistReview`).
+- Update `PR-LINK.md`: `**Status:**` approved|merged, and `**Merged By:**` human when merged.
+- If `allowLocalMergeWithHumanOnly` is set and there is no remote PR, require `**Local Human Approval:**` yes instead of a URL.
+- Never set `Merged By: agent`.
+
 ## Phase: `project-sync`
 
-Update canonical project context only from the final integrated code and approved decisions:
+Run **only after** await-merge (PR merged or local human approval). Update **Reality** (`docs/project/context/*`) only:
 
 - Architecture map when boundaries or flows changed.
 - Domain model when vocabulary/invariants changed.
@@ -242,10 +281,12 @@ Update canonical project context only from the final integrated code and approve
 - Engineering rules only for an explicitly approved new convention.
 - ADRs when a durable architecture decision was introduced.
 
+**Never** edit `docs/project/charter/**` or `docs/project/conventions/**`. Intent changes require a human amendment + rules-sync.
+
 Write `PROJECT-UPDATE.md` with:
 
 - `## Project Knowledge Changes` listing each canonical file changed or why no change was needed.
-- Feature/integration commit.
+- Feature/integration commit and PR reference.
 - Context revision before/after.
 - Follow-up risks or debt.
 - `## Final Feature Status` with GO/NO-GO and rationale.
