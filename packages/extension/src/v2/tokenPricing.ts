@@ -19,11 +19,16 @@ export interface ModelPrice {
 }
 
 export const PRICING: Record<string, ModelPrice> = {
-  // Opus 4.5+ — reduced pricing. Must be listed before 'claude-opus-4' so the
-  // prefix-substring match hits the more specific entries first.
+  // Newest first so prefix-substring match hits the most specific id.
+  // Opus 5 / 4.8 / 4.7… share $5/$25 pricing.
+  'claude-opus-5':     { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
+  'claude-opus-4-8':   { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
   'claude-opus-4-7':   { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
   'claude-opus-4-6':   { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
   'claude-opus-4-5':   { in:  5.0, out: 25.0, cr: 0.50, cw_5m:  6.25, cw_1h: 10.0 },
+  // Sonnet 5 uses Sonnet-class pricing; keep before generic 'claude-sonnet-4'.
+  'claude-sonnet-5':   { in:  3.0, out: 15.0, cr: 0.30, cw_5m:  3.75, cw_1h:  6.0 },
+  'claude-sonnet-4-6': { in:  3.0, out: 15.0, cr: 0.30, cw_5m:  3.75, cw_1h:  6.0 },
   // Legacy Opus 4 / 4.1
   'claude-opus-4':     { in: 15.0, out: 75.0, cr: 1.50, cw_5m: 18.75, cw_1h: 30.0 },
   'claude-sonnet-4':   { in:  3.0, out: 15.0, cr: 0.30, cw_5m:  3.75, cw_1h:  6.0 },

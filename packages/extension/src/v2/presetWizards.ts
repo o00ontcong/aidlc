@@ -152,8 +152,8 @@ export async function applyPresetCommand(
   store: PresetStore,
   extensionPath: string,
   presetId?: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _skipConfirm = false,
+  /** True when the sidebar "Overwrite & apply" confirm already ran. */
+  overwrite = false,
 ): Promise<void> {
   const root = requireRoot('Apply Preset');
   if (!root) { return; }
@@ -196,45 +196,50 @@ export async function applyPresetCommand(
   // Built-in presets reference agent + skill files in `~/.claude/` written
   // by `globalDefaultsInstaller`. Nothing is pre-installed at activation —
   // ask before dropping ~18 files into the user's global Claude folder so
-  // they understand what's happening.
+  // they understand what's happening. Overwrite re-installs so skill bodies
+  // (e.g. define-charter Mode A) refresh even when already present.
   const builtinWorkflow = getBuiltinWorkflow(preset.id);
-  if (builtinWorkflow && !isWorkflowGloballyInstalled(extensionPath, builtinWorkflow.id)) {
-    const choice = await vscode.window.showInformationMessage(
-      `Template "${builtinWorkflow.name}" needs to install its agents + skills into ` +
-        '~/.claude/agents and ~/.claude/skills so workspace.yaml can resolve them. ' +
-        'Install now?',
-      { modal: false },
-      'Install', 'Cancel',
-    );
-    if (choice !== 'Install') {
-      void vscode.window.showInformationMessage(
-        'AIDLC: apply cancelled. Run "AIDLC: Install Workflow Globals" later to install on demand.',
+  if (builtinWorkflow) {
+    const already = isWorkflowGloballyInstalled(extensionPath, builtinWorkflow.id);
+    if (!already || overwrite) {
+      if (!already) {
+        const choice = await vscode.window.showInformationMessage(
+          `Template "${builtinWorkflow.name}" needs to install its agents + skills into ` +
+            '~/.claude/agents and ~/.claude/skills so workspace.yaml can resolve them. ' +
+            'Install now?',
+          { modal: false },
+          'Install', 'Cancel',
+        );
+        if (choice !== 'Install') {
+          void vscode.window.showInformationMessage(
+            'AIDLC: apply cancelled. Run "AIDLC: Install Workflow Globals" later to install on demand.',
+          );
+          return;
+        }
+      }
+      installWorkflowGlobalsByIds(
+        extensionPath,
+        [builtinWorkflow.id],
+        undefined,
+        resolveTechStackForRoot(root),
       );
-      return;
     }
-    installWorkflowGlobalsByIds(
-      extensionPath,
-      [builtinWorkflow.id],
-      undefined,
-      resolveTechStackForRoot(root),
-    );
   }
 
   const existing = readYaml(root);
   const workspaceName = vscode.workspace.workspaceFolders?.[0]?.name ?? path.basename(root);
 
-  // Apply path splits on whether workspace.yaml already exists:
-  //  - No yaml yet → fresh write of the preset (skill files included).
-  //  - Yaml exists → merge-append: keep every user-owned entry, add the
-  //    preset's new agents / skills / pipelines / slash-commands. Removal
-  //    is the X button on each workflow, not "Overwrite". This is the
-  //    non-destructive default the user asked for.
+  // Apply path:
+  //  - No yaml yet → fresh write of the preset.
+  //  - Yaml exists + overwrite (sidebar "Overwrite & apply") → replace matching
+  //    builtin pipelines/agents from the preset (fixes stale project-context).
+  //  - Yaml exists + soft apply → merge-append only; never clobber user edits.
   let result: { written: string[]; skipped: string[] };
   let mergeReport: MergeReport | undefined;
   if (!existing) {
     result = PresetStore.applyTo(root, preset, workspaceName, { overwrite: false });
   } else {
-    mergeReport = mergePresetIntoYaml(root, existing, preset);
+    mergeReport = mergePresetIntoYaml(root, existing, preset, { overwritePipelines: overwrite });
     result = { written: mergeReport.changed ? [path.join(root, '.aidlc', 'workspace.yaml')] : [], skipped: [] };
   }
 
@@ -246,12 +251,10 @@ export async function applyPresetCommand(
 
   // For built-in workflows, also drop `.claude/commands/<slug>-<phase>.md`
   // so the Claude Code slash commands work without an extra manual step.
-  // Merge mode never overwrites existing command files — users can edit
-  // their own commands and the apply won't clobber them.
   const builtin = getBuiltinWorkflow(preset.id);
   if (builtin) {
     const epicRoot = readEpicRootFrom(root);
-    writeBuiltinClaudeCommands(root, builtin, preset, epicRoot, false);
+    writeBuiltinClaudeCommands(root, builtin, preset, epicRoot, overwrite);
     // Migrate legacy /cohesive-feature-<companion-phase> slash names + fill any
     // missing companion command files (project-context / work-package).
     syncBuiltinPipelineCommands(root, extensionPath);
@@ -263,7 +266,8 @@ export async function applyPresetCommand(
 
   if (mergeReport && !mergeReport.changed) {
     void vscode.window.showInformationMessage(
-      `\`${preset.id}\` already in workspace.yaml — nothing to add.`,
+      `\`${preset.id}\` already in workspace.yaml — nothing to add.`
+      + (overwrite ? ' (pipelines already matched the template.)' : ''),
     );
     return;
   }
@@ -275,9 +279,12 @@ export async function applyPresetCommand(
     return;
   }
 
+  const upgraded = mergeReport?.upgradedPipelines?.length
+    ? ` Upgraded pipelines: ${mergeReport.upgradedPipelines.join(', ')}.`
+    : '';
   void vscode.window
     .showInformationMessage(
-      `Applied preset \`${preset.id}\` (${result.written.length} files written).`,
+      `Applied preset \`${preset.id}\` (${result.written.length} files written).${upgraded}`,
       'Open Builder',
     )
     .then((choice) => {
@@ -528,6 +535,8 @@ interface MergeReport {
   addedSkills: string[];
   addedPipelines: string[];
   addedSlashCommands: string[];
+  upgradedPipelines: string[];
+  upgradedAgents: string[];
 }
 
 /**
@@ -539,22 +548,31 @@ interface MergeReport {
  *  - The preset's pipeline is appended unchanged (full step config: name,
  *    skills, depends_on, produces, etc.) when its id isn't already in the
  *    workspace. Existing pipelines with the same id are left alone so the
- *    user's tweaks survive.
+ *    user's tweaks survive — unless `overwritePipelines` is true (sidebar
+ *    "Overwrite & apply"), in which case matching pipeline/agent ids are
+ *    replaced with the preset versions (needed to upgrade stale
+ *    `project-context` 4-step → 7-step).
  *  - When nothing changed (preset already fully merged), `changed: false`
  *    — caller surfaces that to the user instead of "applied".
  */
-function mergePresetIntoYaml(root: string, doc: YamlDocument, preset: WorkspacePreset): MergeReport {
+export function mergePresetIntoYaml(
+  root: string,
+  doc: YamlDocument,
+  preset: WorkspacePreset,
+  opts: { overwritePipelines?: boolean } = {},
+): MergeReport {
   const report: MergeReport = {
     changed: false,
     addedAgents: [],
     addedSkills: [],
     addedPipelines: [],
     addedSlashCommands: [],
+    upgradedPipelines: [],
+    upgradedAgents: [],
   };
+  const overwrite = opts.overwritePipelines === true;
 
-  const existingAgentIds = new Set(doc.agents.map((a) => String(a.id)));
   const existingSkillIds = new Set(doc.skills.map((s) => String(s.id)));
-  const existingPipelineIds = new Set(doc.pipelines.map((p) => String(p.id)));
   const existingCmdNames = new Set(doc.slash_commands.map((c) => String(c.name)));
 
   type YamlAgent = YamlDocument['agents'][number];
@@ -564,9 +582,13 @@ function mergePresetIntoYaml(root: string, doc: YamlDocument, preset: WorkspaceP
 
   for (const a of (preset.workspace.agents as Array<Record<string, unknown>>) ?? []) {
     const id = String(a.id);
-    if (!existingAgentIds.has(id)) {
+    const idx = doc.agents.findIndex((x) => String(x.id) === id);
+    if (idx < 0) {
       doc.agents.push(a as unknown as YamlAgent);
       report.addedAgents.push(id);
+    } else if (overwrite) {
+      doc.agents[idx] = a as unknown as YamlAgent;
+      report.upgradedAgents.push(id);
     }
   }
   for (const s of (preset.workspace.skills as Array<Record<string, unknown>>) ?? []) {
@@ -585,9 +607,13 @@ function mergePresetIntoYaml(root: string, doc: YamlDocument, preset: WorkspaceP
   }
   for (const p of (preset.workspace.pipelines as Array<Record<string, unknown>>) ?? []) {
     const id = String(p.id);
-    if (!existingPipelineIds.has(id)) {
+    const idx = doc.pipelines.findIndex((x) => String(x.id) === id);
+    if (idx < 0) {
       doc.pipelines.push(p as unknown as YamlPipeline);
       report.addedPipelines.push(id);
+    } else if (overwrite) {
+      doc.pipelines[idx] = p as unknown as YamlPipeline;
+      report.upgradedPipelines.push(id);
     }
   }
 
@@ -595,7 +621,9 @@ function mergePresetIntoYaml(root: string, doc: YamlDocument, preset: WorkspaceP
     report.addedAgents.length > 0 ||
     report.addedSkills.length > 0 ||
     report.addedPipelines.length > 0 ||
-    report.addedSlashCommands.length > 0;
+    report.addedSlashCommands.length > 0 ||
+    report.upgradedPipelines.length > 0 ||
+    report.upgradedAgents.length > 0;
 
   if (report.changed) {
     writeYaml(root, doc);

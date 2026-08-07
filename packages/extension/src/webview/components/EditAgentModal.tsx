@@ -8,7 +8,8 @@ const CAP_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 const MODELS = [
   { value: 'claude-sonnet-5', label: 'claude-sonnet-5', hint: 'Balanced (recommended default)' },
-  { value: 'claude-opus-4-8', label: 'claude-opus-4-8', hint: 'Most capable, slower' },
+  { value: 'claude-opus-5', label: 'claude-opus-5', hint: 'Most capable (latest Opus)' },
+  { value: 'claude-opus-4-8', label: 'claude-opus-4-8', hint: 'Previous Opus generation' },
   { value: 'claude-haiku-4-5-20251001', label: 'claude-haiku-4-5', hint: 'Fastest, cheapest' },
 ];
 

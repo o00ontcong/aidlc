@@ -317,8 +317,9 @@ async function pickSkillSource(): Promise<SkillSource | undefined> {
 
 const MODEL_CHOICES = [
   { label: 'claude-sonnet-5', description: 'Balanced (recommended default)', value: 'claude-sonnet-5' },
-  { label: 'claude-opus-4-8',   description: 'Most capable, slower', value: 'claude-opus-4-8' },
-  { label: 'claude-haiku-4-5',  description: 'Fastest, cheapest', value: 'claude-haiku-4-5-20251001' },
+  { label: 'claude-opus-5', description: 'Most capable (latest Opus)', value: 'claude-opus-5' },
+  { label: 'claude-opus-4-8', description: 'Previous Opus generation', value: 'claude-opus-4-8' },
+  { label: 'claude-haiku-4-5', description: 'Fastest, cheapest', value: 'claude-haiku-4-5-20251001' },
 ];
 
 export async function addAgentCommand(): Promise<void> {

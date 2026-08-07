@@ -36,6 +36,14 @@ describe('builtin step help', () => {
     expect(md).toContain('## Repository Structure');
   });
 
+  it('renders define-charter Mode A interview steps in help markdown', () => {
+    const help = getBuiltinStepHelp('project-context', 'define-charter')!;
+    const md = renderBuiltinStepHelpMarkdown(help);
+    expect(md).toContain('one question at a time');
+    expect(md).toContain('CHARTER-DISCOVERY.md');
+    expect(md).toContain('/project-context-define-charter');
+  });
+
   it('cohesive-delivery ships a user guide path', () => {
     expect(getBuiltinWorkflow('cohesive-delivery')?.guide).toBe(
       'media/guides/cohesive-delivery.md',

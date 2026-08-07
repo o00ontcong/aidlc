@@ -1,7 +1,7 @@
 ---
 name: Designer
 description: Senior Product Designer agent. Owns UI/UX design, information architecture, and design system integration across web, mobile, and desktop.
-model: claude-opus-4-7
+model: claude-opus-5
 tools: [files, figma, artifact-design, core-business]
 ---
 

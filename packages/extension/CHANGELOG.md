@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.4.8
+
+### Changed
+
+- chore(models): bump built-in agent defaults to current Claude IDs — reasoning roles `claude-opus-5`, implement/QA/work-package `claude-sonnet-5`. Agent picker adds Opus 5; token pricing covers Opus 5 / Sonnet 5.
+
+## 3.4.7
+
+### Fixed
+
+- fix(cohesive): **Overwrite & apply now replaces matching pipelines/agents** from the template (was merge-only, so stale `project-context` stayed at 4 steps). Also refreshes `~/.claude` skills and Claude command files on overwrite.
+
 ## 3.4.6
 
 ### Added

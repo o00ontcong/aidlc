@@ -10,7 +10,7 @@ Tài liệu này dành cho người mới đã cài AIDLC extension và đang m�
 flowchart TB
   subgraph setup ["Setup một lần"]
     A[Cài Cohesive Delivery] --> B[Start Epic: project-context]
-    B --> C[Hoàn tất 4 step → CONTEXT-MANIFEST.json]
+    B --> C[Hoàn tất 7 step → CONTEXT-MANIFEST + rules sync]
   end
 
   subgraph feature ["Mỗi feature"]
@@ -78,14 +78,15 @@ stateDiagram-v2
 3. Trong nhóm **Common**, chọn **Cohesive Delivery**.
 4. Nếu project đã có `.aidlc/workspace.yaml`, UI sẽ hiện hộp thoại **Apply template**:
    - Nhấn **View guide** để mở file Markdown hướng dẫn workflow (storyboard + checklist).
-   - Nhấn **Overwrite & apply**.
-   - Implementation hiện tại merge thêm các thành phần chưa có và giữ lại workflow cũ có ID khác.
+   - Nhấn **Overwrite & apply** — **thay** các pipeline/agent trùng id từ template
+     (vd. nâng `project-context` 4-step cũ → 7-step) và refresh skill trong `~/.claude/`.
+     Pipeline id khác (custom) được giữ nguyên.
 5. Khi VS Code hỏi cài agents và skills vào `~/.claude/`, nhấn **Install**.
-6. Chờ thông báo **Applied preset `cohesive-delivery`**.
+6. Chờ thông báo **Applied preset `cohesive-delivery`** (có thể kèm “Upgraded pipelines: …”).
 7. Có thể chọn **Open Builder** để mở Workspace Builder.
 8. Mở tab **Workflows** và kiểm tra có đủ ba pipeline:
 
-   - `project-context` — 4 steps;
+   - `project-context` — 7 steps (define-charter → scan → model → check-drift → review → publish → project-rules-sync);
    - `cohesive-feature` — 12 steps;
    - `cohesive-work-package` — 5 steps.
 
@@ -135,7 +136,10 @@ sequenceDiagram
 
 > **Quan trọng:** hãy tạo các run của Cohesive Delivery bằng nút **Start Epic**. Không dùng nút **Run** trực tiếp trên Pipeline card, vì `Start Epic` mới tạo đầy đủ `state.json`, `inputs.json` và thư mục artifacts mà các workflow này cần.
 
-> **Artifact chip:** khi file đã có trên disk đúng path `produces:`, chip Artifact trên Epic card chuyển từ *not produced yet* sang nút mở file. Với `project-context`, path là `docs/project/context/…`, không nằm trong `docs/epics/<id>/artifacts/`.
+> **Artifact chip:** khi file đã có trên disk đúng path `produces:`, chip Artifact trên Epic card chuyển từ *not produced yet* sang nút mở file. Với `project-context`:
+> - scan/model/review/publish → `docs/project/context/…` (không nằm trong `docs/epics/<id>/artifacts/`);
+> - `define-charter` → `docs/epics/<id>/artifacts/CHARTER-DISCOVERY.md` + `docs/project/charter/…`;
+> - `project-rules-sync` → `CLAUDE.md`, `AGENTS.md`, `.cursor/rules/aidlc-charter.mdc` (chip hiện file đầu tiên).
 
 ## 3. Khởi tạo Project Context
 
@@ -477,7 +481,7 @@ Storyboard end-to-end (cùng nội dung checklist các mục trên, dạng sơ �
 ```mermaid
 flowchart TB
   A[Apply Cohesive Delivery] --> B[Start Epic: project-context]
-  B --> C[4 step → CONTEXT-MANIFEST.json]
+  B --> C[7 step → CONTEXT-MANIFEST + rules sync]
   C --> D[Start Epic: cohesive-feature]
   D --> E[Chạy đến analyze-contract]
   E --> F[Tạm dừng tại await-packages]

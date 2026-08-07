@@ -679,7 +679,10 @@ function WorkflowsSection({
           message={
             <>
               This project already has <span className="font-mono">.aidlc/workspace.yaml</span>.
-              Overwrite with template <span className="font-mono">{pendingApply.id}</span>?
+              Overwrite matching pipelines/agents from template{' '}
+              <span className="font-mono">{pendingApply.id}</span>?
+              {' '}(e.g. upgrade stale <span className="font-mono">project-context</span> steps.)
+              Other custom pipelines are kept.
             </>
           }
           secondaryLabel={pendingApply.hasGuide ? 'View guide' : undefined}

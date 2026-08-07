@@ -134,7 +134,7 @@ const PHASES: PhaseDef[] = [
     // command body) — the Plan phase runs it up front when the gate rule fires
     // (≥3 open questions, or any high-impact one), then writes the confirmed
     // choices into PRD.md's `## Discovery decisions` section. It is NOT a phase.
-    id: 'plan', name: 'Plan', persona: 'po', skillFiles: ['prd', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'plan', name: 'Plan', persona: 'po', skillFiles: ['prd', 'discovery-gate'], model: 'claude-opus-5',
     description: 'Scaffold the epic and write the PRD.',
     inputs: 'Jira ticket, business context, Figma designs',
     outputs: 'Epic doc + PRD with measurable acceptance criteria',
@@ -146,7 +146,7 @@ const PHASES: PhaseDef[] = [
     // GH-77: Prototype phase — propose UI visually (multiple options) before design.
     // Reads PRD (incl. Discovery decisions) to generate UI variants.
     // Uses discovery-gate for method selection + option choice (like #76).
-    id: 'prototype', name: 'Prototype', persona: 'designer', skillFiles: ['prototype', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'prototype', name: 'Prototype', persona: 'designer', skillFiles: ['prototype', 'discovery-gate'], model: 'claude-opus-5',
     description: 'Propose the UI visually with multiple design options.',
     inputs: 'PRD + discovery decisions, user preference for design method',
     outputs: 'UI prototype options (HTML) + PROTOTYPE.md with chosen option',
@@ -160,7 +160,7 @@ const PHASES: PhaseDef[] = [
     // writing the implementation plan (approach, boundaries, which files, edge
     // cases), it runs the gate instead of asking inline, then finishes
     // TECH-DESIGN.md from the answers.
-    id: 'design', name: 'Design', persona: 'tech-lead', skillFiles: ['tech-design', 'discovery-gate'], model: 'claude-opus-4-7',
+    id: 'design', name: 'Design', persona: 'tech-lead', skillFiles: ['tech-design', 'discovery-gate'], model: 'claude-opus-5',
     description: 'Design the implementation approach.',
     inputs: 'PRD, prototype, existing code, dependency graph',
     outputs: 'Architecture, API contract, DI plan, file impact list',
@@ -170,7 +170,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['prototype'],
   },
   {
-    id: 'test-plan', name: 'Test Plan', persona: 'qa', skillFiles: ['test-plan'], model: 'claude-sonnet-4-6',
+    id: 'test-plan', name: 'Test Plan', persona: 'qa', skillFiles: ['test-plan'], model: 'claude-sonnet-5',
     description: 'Plan how the feature will be verified.',
     inputs: 'PRD acceptance criteria, tech design, ITS / device matrix',
     outputs: 'Test cases (UT / UI / integration / performance), device matrix',
@@ -180,7 +180,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['prototype'],
   },
   {
-    id: 'implement', name: 'Implement', persona: 'developer', skillFiles: ['implement', 'unit-test'], model: 'claude-sonnet-4-6',
+    id: 'implement', name: 'Implement', persona: 'developer', skillFiles: ['implement', 'unit-test'], model: 'claude-sonnet-5',
     description: 'Build the feature on a feature branch and write its unit tests.',
     inputs: 'Tech design, test plan, project coding rules',
     outputs: 'Code + unit tests on feature branch, PR opened',
@@ -192,7 +192,7 @@ const PHASES: PhaseDef[] = [
   },
   {
     id: 'generate-test-cases', name: 'Generate Test Cases', persona: 'qa',
-    skillFiles: ['generate-test-cases'], model: 'claude-sonnet-4-6',
+    skillFiles: ['generate-test-cases'], model: 'claude-sonnet-5',
     description: 'Concrete, executable test cases derived from the test plan.',
     inputs: 'Test plan, acceptance criteria',
     outputs: 'Executable test cases (UI/IT scripts, fixtures, data) + TEST-CASES.md',
@@ -202,7 +202,7 @@ const PHASES: PhaseDef[] = [
     dependsOn: ['test-plan'],
   },
   {
-    id: 'execute-test', name: 'Execute Test', persona: 'qa', skillFiles: ['execute-test', 'test-report'], model: 'claude-sonnet-4-6',
+    id: 'execute-test', name: 'Execute Test', persona: 'qa', skillFiles: ['execute-test', 'test-report'], model: 'claude-sonnet-5',
     description: 'Run the test cases and write the test report.',
     inputs: 'Feature branch, test plan, test cases, UAT environment',
     outputs: 'Test execution + TEST-REPORT with pass/fail, defects, go/no-go',
@@ -372,7 +372,7 @@ const SDLC_RECIPES: RecipeDef[] = [
  */
 const SPECKIT_PHASES: PhaseDef[] = [
   {
-    id: 'specify', name: 'Specify', persona: 'analyst', skillFiles: ['specify'], model: 'claude-opus-4-7',
+    id: 'specify', name: 'Specify', persona: 'analyst', skillFiles: ['specify'], model: 'claude-opus-5',
     description: 'Turn a feature description into a structured, testable spec.',
     inputs: 'Feature description, business context, Jira ticket, Figma designs',
     outputs: 'SPEC.md — user scenarios, functional requirements, testable acceptance criteria',
@@ -381,7 +381,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     capabilities: ['jira', 'figma', 'core-business', 'web'],
   },
   {
-    id: 'clarify', name: 'Clarify', persona: 'analyst', skillFiles: ['clarify'], model: 'claude-opus-4-7',
+    id: 'clarify', name: 'Clarify', persona: 'analyst', skillFiles: ['clarify'], model: 'claude-opus-5',
     description: 'Surface and resolve underspecified areas of the spec.',
     inputs: 'SPEC.md, open questions',
     outputs: 'SPEC.md updated with a Clarifications section (Q/A pairs resolved)',
@@ -395,7 +395,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     // collide with the SDLC bundle's globals (developer/qa/tech-lead/implement).
     // Global install keys files by source filename, so a bare `tech-lead.md`
     // here would overwrite SDLC's when both workflows are installed.
-    id: 'plan', name: 'Plan', persona: 'speckit-tech-lead', skillFiles: ['plan'], model: 'claude-opus-4-7',
+    id: 'plan', name: 'Plan', persona: 'speckit-tech-lead', skillFiles: ['plan'], model: 'claude-opus-5',
     description: 'Derive the technical implementation plan from the spec.',
     inputs: 'SPEC.md, existing code, dependency graph, constitution (workspace standard)',
     outputs: 'PLAN.md — architecture, data model, contracts, tech choices honoring the constitution',
@@ -405,7 +405,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['clarify'],
   },
   {
-    id: 'tasks', name: 'Tasks', persona: 'speckit-tech-lead', skillFiles: ['tasks'], model: 'claude-sonnet-4-6',
+    id: 'tasks', name: 'Tasks', persona: 'speckit-tech-lead', skillFiles: ['tasks'], model: 'claude-sonnet-5',
     description: 'Break the plan into an ordered, dependency-aware task list.',
     inputs: 'PLAN.md, SPEC.md acceptance criteria',
     outputs: 'TASKS.md — numbered tasks with dependencies, each traceable to a requirement',
@@ -415,7 +415,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['plan'],
   },
   {
-    id: 'analyze', name: 'Analyze', persona: 'speckit-qa', skillFiles: ['analyze'], model: 'claude-sonnet-4-6',
+    id: 'analyze', name: 'Analyze', persona: 'speckit-qa', skillFiles: ['analyze'], model: 'claude-sonnet-5',
     description: 'Cross-check spec ↔ plan ↔ tasks for consistency and coverage before build.',
     inputs: 'SPEC.md, PLAN.md, TASKS.md',
     outputs: 'ANALYSIS.md — coverage matrix, gaps, contradictions, go/no-go',
@@ -425,7 +425,7 @@ const SPECKIT_PHASES: PhaseDef[] = [
     dependsOn: ['tasks'],
   },
   {
-    id: 'implement', name: 'Implement', persona: 'speckit-developer', skillFiles: ['speckit-implement'], model: 'claude-sonnet-4-6',
+    id: 'implement', name: 'Implement', persona: 'speckit-developer', skillFiles: ['speckit-implement'], model: 'claude-sonnet-5',
     description: 'Execute the task list on a feature branch.',
     inputs: 'TASKS.md, PLAN.md, SPEC.md, project coding rules',
     outputs: 'Code on feature branch, PR opened, tasks checked off',
@@ -475,7 +475,7 @@ const SPECKIT_RECIPES: RecipeDef[] = [
 const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   {
     id: 'define-charter', name: 'Define Charter', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description:
       'Interview the human 1:1 from the Start Epic idea (Description), then finalize '
       + 'NORTH-STAR, ARCHITECTURE-PRINCIPLES, TECH-POLICY, CHARTER.json, and CONVENTIONS.md. '
@@ -497,7 +497,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
   {
     id: 'scan-project', name: 'Scan Project', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description: 'Inventory repository structure, quality commands, boundaries, and existing documentation.',
     inputs: 'Repository files and version-control history',
     outputs: 'Repository scan shared by the project-context modeling steps',
@@ -510,7 +510,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
   {
     id: 'model-project', name: 'Model Project', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description: 'Build canonical architecture, domain, shared-contract, and engineering-rule context.',
     inputs: 'PROJECT-SCAN.md and repository evidence',
     outputs: 'Five canonical project-context documents', artifact: 'PROJECT-CONTEXT.md',
@@ -527,7 +527,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
   {
     id: 'check-drift', name: 'Check Drift', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description:
       'Compare Reality (context docs) to Intent (charter); record per-invariant findings without rewriting the charter.',
     inputs: 'Charter Intent and modeled project context',
@@ -546,7 +546,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
   {
     id: 'review-context', name: 'Review Context', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description: 'Review canonical context for contradictions, missing boundaries, and unverifiable claims.',
     inputs: 'All canonical project-context documents and drift report', outputs: 'GO/NO-GO context review',
     artifact: 'CONTEXT-REVIEW.md', humanReview: true, autoReview: false,
@@ -564,7 +564,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
   {
     id: 'publish-context', name: 'Publish Context', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description: 'Publish a versioned manifest that features can capture as an immutable context identity.',
     inputs: 'Approved context review and canonical documents', outputs: 'Versioned context manifest',
     artifact: 'CONTEXT-MANIFEST.json', humanReview: true, autoReview: true,
@@ -574,7 +574,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
   {
     id: 'project-rules-sync', name: 'Project Rules Sync', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description:
       'Project charter + conventions into CLAUDE.md, AGENTS.md, and .cursor/rules/aidlc-charter.mdc with revision markers.',
     inputs: 'Published context manifest, CHARTER.json, and CONVENTIONS.md',
@@ -599,7 +599,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
 const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   {
     id: 'capture-context', name: 'Capture Context', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Capture an immutable feature snapshot of the current canonical project context.',
     inputs: 'Published project context manifest', outputs: 'Feature-scoped project-context snapshot',
     artifact: 'PROJECT-CONTEXT-SNAPSHOT.md', humanReview: false, autoReview: false,
@@ -610,7 +610,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'specify', name: 'Specify', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Specify one feature inside the captured project boundaries, inheriting charter Goals.',
     inputs: 'Feature request, ALIGNMENT, charter, and project-context snapshot',
     outputs: 'Testable feature specification with Serves: G-x on every FR',
@@ -627,7 +627,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'clarify', name: 'Clarify', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Resolve ambiguity before the shared design and package boundaries are frozen.',
     inputs: 'Feature specification and stakeholder decisions', outputs: 'Clarified specification',
     artifact: 'SPEC.md', humanReview: true, autoReview: false, dependsOn: ['specify'],
@@ -637,7 +637,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'plan', name: 'Plan', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Create one integration-aware plan with charter conformance for every INV-x.',
     inputs: 'Clarified spec, ALIGNMENT, charter, and project-context snapshot',
     outputs: 'Feature implementation plan',
@@ -660,7 +660,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'tasks-package', name: 'Package Tasks', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Partition work into dependency-aware packages with exclusive ownership and stable result contracts.',
     inputs: 'Feature spec and plan', outputs: 'Traceable task list and machine-readable work packages',
     artifact: 'WORK-PACKAGES.json', humanReview: true, autoReview: true,
@@ -673,7 +673,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'analyze-contract', name: 'Analyze Contract', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Cross-check coverage and freeze the feature contract before parallel package work starts.',
     inputs: 'Context snapshot, spec, plan, tasks, and work-package graph',
     outputs: 'Coverage analysis and immutable feature contract', artifact: 'FEATURE-CONTRACT.md',
@@ -693,7 +693,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'await-packages', name: 'Await Packages', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Track parallel workers and block integration until every required package result is valid.',
     inputs: 'Feature contract, package graph, and worker result files',
     outputs: 'Package results rollup and task board', artifact: 'PACKAGE-RESULTS.md',
@@ -710,7 +710,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'integrate', name: 'Integrate', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Integrate approved package branches in dependency order and record conflict decisions.',
     inputs: 'Validated package-results rollup', outputs: 'Integration summary',
     artifact: 'INTEGRATION-SUMMARY.md', humanReview: true, autoReview: false,
@@ -720,7 +720,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'integration-context', name: 'Integration Context', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Reconstruct actual cross-package behavior after integration.',
     inputs: 'Integration summary and integrated code', outputs: 'Post-integration context',
     artifact: 'INTEGRATION-CONTEXT.md', humanReview: false, autoReview: false,
@@ -731,7 +731,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'cohesion-review', name: 'Cohesion Review', persona: 'cohesive-reviewer-agent',
-    skillFiles: ['cohesive-reviewer-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-reviewer-workflow'], model: 'claude-opus-5',
     description: 'Independent read-only review that the integrated feature still conforms to its frozen contract and project boundaries.',
     inputs: 'Feature contract and integration context', outputs: 'Cohesion verdict and deviations',
     artifact: 'COHESION-REPORT.md', humanReview: true, autoReview: true,
@@ -744,7 +744,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'system-test', name: 'System Test', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Run project-level quality commands against the integrated feature.',
     inputs: 'Approved cohesion report and integrated repository', outputs: 'System test report',
     artifact: 'SYSTEM-TEST-REPORT.md', humanReview: true, autoReview: true,
@@ -755,7 +755,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'open-pr', name: 'Open PR', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Open exactly one pull request for the feature (feature/$0 → defaultBranch). Packages never open PRs.',
     inputs: 'Passed system test and integrated feature branch', outputs: 'PR link record',
     artifact: 'PR-LINK.md', humanReview: false, autoReview: true,
@@ -767,7 +767,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'await-merge', name: 'Await Merge', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'Human-only merge gate: wait for PR approval/merge. Agents must not merge the default branch.',
     inputs: 'Open feature PR', outputs: 'Merged (or human-approved local) ship record',
     artifact: 'PR-LINK.md', humanReview: true, autoReview: true,
@@ -779,7 +779,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'project-sync', name: 'Project Sync', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
     description: 'After merge: update Reality (context) only. Never edit charter Intent or conventions.',
     inputs: 'Merged feature and system test evidence', outputs: 'Project update record',
     artifact: 'PROJECT-UPDATE.md', humanReview: true, autoReview: true,
@@ -797,7 +797,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
 const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
   {
     id: 'load-package', name: 'Load Package', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
     description: 'Load exactly one approved package plus its frozen feature and project context.',
     inputs: 'Epic id and package id', outputs: 'Bounded package-context document',
     artifact: 'PACKAGE-CONTEXT.md', humanReview: false, autoReview: true,
@@ -806,7 +806,7 @@ const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
   },
   {
     id: 'prepare-worktree', name: 'Prepare Worktree', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
     description: 'Verify the package runs in its declared isolated branch and worktree.',
     inputs: 'Package context and current git state', outputs: 'Machine-readable worktree state',
     artifact: 'WORKTREE-STATE.json', humanReview: false, autoReview: true,
@@ -816,7 +816,7 @@ const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
   },
   {
     id: 'package-test-plan', name: 'Package Test Plan', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
     description: 'Write failing tests for the package acceptance criteria before implementation.',
     inputs: 'Package context, worktree state, and task AC',
     outputs: 'Failing-test plan and red-test evidence', artifact: 'PACKAGE-TEST-PLAN.md',
@@ -831,7 +831,7 @@ const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
   },
   {
     id: 'implement-package', name: 'Implement Package', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
     description: 'Implement only the owned package surface without redefining shared contracts.',
     inputs: 'Package context, failing tests, worktree state, owned files, and allowed contracts',
     outputs: 'Implementation state, package summary, and reviewable diff', artifact: 'PACKAGE-SUMMARY.md',
@@ -850,7 +850,7 @@ const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
   },
   {
     id: 'package-test', name: 'Package Test', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
     description: 'Run the package-specific test contract and capture evidence.',
     inputs: 'Implementation state, package summary, and package test contract',
     outputs: 'Package test report', artifact: 'PACKAGE-TEST-REPORT.md',
@@ -864,7 +864,7 @@ const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
   },
   {
     id: 'package-review', name: 'Package Review', persona: 'cohesive-reviewer-agent',
-    skillFiles: ['cohesive-reviewer-workflow'], model: 'claude-opus-4-7',
+    skillFiles: ['cohesive-reviewer-workflow'], model: 'claude-opus-5',
     description: 'Independent read-only review of the package diff, tests, and charter conformance.',
     inputs: 'Review diff, test report, package context', outputs: 'Package review verdict',
     artifact: 'PACKAGE-REVIEW.md', humanReview: true, autoReview: true,
@@ -878,7 +878,7 @@ const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
   },
   {
     id: 'publish-result', name: 'Publish Result', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-4-6',
+    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
     description: 'Publish the stable result contract consumed by the feature coordinator.',
     inputs: 'Package test evidence, review verdict, commits, deviations, and integration notes',
     outputs: 'Machine-readable package result', artifact: 'PACKAGE-RESULT.json',
@@ -1062,15 +1062,31 @@ export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
     '',
     '## How to run',
     '',
-    '1. Click **Run with Claude** on the Epic card (or paste the command below into Claude).',
-    '2. Wait for the agent to finish and write the artifact(s).',
-    '3. Click **Mark step done**.',
   ];
+
+  const defineCharterHelp = help.pipelineId === 'project-context' && help.phaseId === 'define-charter';
+  if (defineCharterHelp) {
+    lines.push(
+      '1. Click **Run with Claude** (or paste the command below).',
+      '2. Answer the agent **one question at a time** in the terminal (Mode A interview from the Start Epic **Project idea**).',
+      '3. Confirm Goals / non-goals / INV / tech policy; the agent writes `CHARTER-DISCOVERY.md` then drafts the charter files.',
+      '4. Click **Mark step done**.',
+    );
+  } else {
+    lines.push(
+      '1. Click **Run with Claude** on the Epic card (or paste the command below into Claude).',
+      '2. Wait for the agent to finish and write the artifact(s).',
+      '3. Click **Mark step done**.',
+    );
+  }
+
+  let stepNum = defineCharterHelp ? 5 : 4;
   if (help.autoReview) {
-    lines.push('4. Click **Run auto-review** and fix anything it rejects.');
+    lines.push(`${stepNum}. Click **Run auto-review** and fix anything it rejects.`);
+    stepNum += 1;
   }
   if (help.humanReview) {
-    lines.push(`${help.autoReview ? '5' : '4'}. Read the artifact, then **Approve** (or **Reject** with feedback).`);
+    lines.push(`${stepNum}. Read the artifact, then **Approve** (or **Reject** with feedback).`);
   }
   lines.push(
     '',
