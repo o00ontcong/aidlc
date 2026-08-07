@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { AgentMeta, ExtraProject, PipelineSummary, RecipeSummary } from '@/lib/types';
+import type { AgentMeta, CharterSnapshot, ExtraProject, PipelineSummary, RecipeSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
@@ -42,6 +42,12 @@ export interface StartEpicDraft {
   description: string;
   inputs: Record<string, string>;
   extraProjects?: ExtraProject[];
+  /** Selected charter goal ids (G-x) when starting a cohesive feature. */
+  selectedGoals?: string[];
+  /** Narrower-only feature constraints (hint: may not loosen charter). */
+  featureConstraints?: string;
+  /** Explicit WHAT / Scope for ALIGNMENT seed. */
+  whatScope?: string;
 }
 
 interface Props {
@@ -55,6 +61,8 @@ interface Props {
   workspaceName: string;
   /** When false (no folder open), the user must add at least one project. */
   hasFolder?: boolean;
+  /** Project charter — required before cohesive-feature starts. */
+  charter?: CharterSnapshot | null;
   onSubmit: (draft: StartEpicDraft) => void;
   onClose: () => void;
 }
@@ -67,6 +75,13 @@ interface Props {
  * current {@link Suggestion}.
  */
 type Selection = { kind: 'auto' } | { kind: 'pipeline'; id: string };
+
+function isCohesiveFeatureTarget(selected: Selection, pipelines: PipelineSummary[]): boolean {
+  if (selected.kind !== 'pipeline') return false;
+  const p = pipelines.find((x) => x.id === selected.id);
+  const id = p?.id ?? selected.id;
+  return id === 'cohesive-feature' || id.startsWith('cohesive-feature');
+}
 
 interface Suggestion {
   recipeId: string;
@@ -86,6 +101,7 @@ export function StartEpicModal({
   isFirstEpic,
   workspaceName,
   hasFolder = true,
+  charter,
   onSubmit,
   onClose,
 }: Props) {
@@ -101,6 +117,9 @@ export function StartEpicModal({
   const [epicId, setEpicId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [whatScope, setWhatScope] = useState('');
+  const [featureConstraints, setFeatureConstraints] = useState('');
+  const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const idInputRef = useRef<HTMLInputElement>(null);
   // Extra projects (GH-67)
@@ -468,7 +487,13 @@ export function StartEpicModal({
   const projectError = !hasFolder && extraProjects.length === 0
     ? 'Add at least one project to start an epic'
     : null;
-  const error = idError || targetError || projectError;
+  const cohesiveFeature = isCohesiveFeatureTarget(selected, pipelines);
+  const charterError = cohesiveFeature && !charter?.present
+    ? 'Charter required — run project-context (define-charter) before starting a cohesive feature'
+    : cohesiveFeature && selectedGoals.length === 0 && (charter?.goals?.length ?? 0) > 0
+      ? 'Select at least one Goal from the charter'
+      : null;
+  const error = idError || targetError || projectError || charterError;
 
   const submit = () => {
     if (error) { return; }
@@ -477,6 +502,9 @@ export function StartEpicModal({
       const v = (inputs[cap] ?? '').trim();
       if (v) { cleanInputs[cap] = v; }
     }
+    if (selectedGoals.length) cleanInputs.selected_goals = selectedGoals.join(',');
+    if (whatScope.trim()) cleanInputs.what_scope = whatScope.trim();
+    if (featureConstraints.trim()) cleanInputs.feature_constraints = featureConstraints.trim();
     const target = selected.kind === 'auto'
       ? { kind: 'recipe' as const, id: effectiveRecipeId! }
       : { kind: 'pipeline' as const, id: selected.id };
@@ -487,8 +515,15 @@ export function StartEpicModal({
       description: description.trim(),
       inputs: cleanInputs,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
+      selectedGoals: selectedGoals.length ? selectedGoals : undefined,
+      featureConstraints: featureConstraints.trim() || undefined,
+      whatScope: whatScope.trim() || undefined,
     });
     onClose();
+  };
+
+  const toggleGoal = (id: string) => {
+    setSelectedGoals((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]));
   };
 
   const [localEpicsDir, setLocalEpicsDir] = useState(epicsDir);
@@ -852,6 +887,76 @@ export function StartEpicModal({
             </div>
           )}
         </div>
+
+        {cohesiveFeature && (
+          <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3">
+            <div className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+              Charter alignment
+            </div>
+            {!charter?.present ? (
+              <p className="text-[11px] text-destructive">
+                No CHARTER.json found. Run <strong>project-context</strong> (define-charter) first,
+                then start this feature epic.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <div className="mb-1 text-[11px] text-muted-foreground">
+                    Goals this feature serves (multi-select)
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(charter.goals ?? []).map((g) => {
+                      const on = selectedGoals.includes(g.id);
+                      return (
+                        <button
+                          key={g.id}
+                          type="button"
+                          onClick={() => toggleGoal(g.id)}
+                          className={cn(
+                            'rounded-full border px-2.5 py-1 text-[11px] transition-colors',
+                            on
+                              ? 'border-primary bg-primary/15 font-semibold text-primary'
+                              : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+                          )}
+                          title={g.metric || g.title}
+                        >
+                          <span className="font-mono">{g.id}</span>
+                          {g.title ? ` · ${g.title}` : ''}
+                        </button>
+                      );
+                    })}
+                    {(charter.goals ?? []).length === 0 && (
+                      <span className="text-[11px] text-muted-foreground">Charter has no goals yet.</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] text-muted-foreground">WHAT / Scope</label>
+                  <textarea
+                    value={whatScope}
+                    onChange={(e) => setWhatScope(e.target.value)}
+                    rows={2}
+                    placeholder="What this feature delivers and where it stops"
+                    className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] text-muted-foreground">
+                    Feature constraints{' '}
+                    <span className="font-normal italic">(narrower than charter only — never loosen)</span>
+                  </label>
+                  <textarea
+                    value={featureConstraints}
+                    onChange={(e) => setFeatureConstraints(e.target.value)}
+                    rows={2}
+                    placeholder="Optional tighter constraints for this feature only"
+                    className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-1.5 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {capabilities.length > 0 && (
           <div>

@@ -228,6 +228,7 @@ import {
 } from './epicsList';
 import { themeManager } from './themeManager';
 import { workspaceUiPrefs, type EpicsViewPrefs } from './workspaceUiPrefs';
+import { readCharterSnapshot, readDiffIgnore } from './charterUi';
 import {
   rejectStepInlineCommand,
   rerunStepInlineCommand,
@@ -455,6 +456,9 @@ interface EpicSummaryUi {
   artifactsOnly?: boolean;
   /** Aggregate token usage for the epic. */
   tokenUsage?: EpicTokenUsage;
+  alignment?: { goals: string[]; status?: 'aligned' | 'variance' | 'stale' };
+  ship?: { prUrl?: string; status?: 'open' | 'approved' | 'merged'; head?: string; base?: string };
+  reviewDiff?: string;
 }
 
 interface RequirementRunSummary {
@@ -510,6 +514,8 @@ interface WorkspaceState {
   epicsDir: string;
   /** Persisted Epics-list UI prefs (follow/search/filter) from workspaceState. */
   epicsViewUi?: EpicsViewPrefs;
+  charter?: ReturnType<typeof readCharterSnapshot>;
+  diffIgnore?: string[];
 }
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
@@ -572,6 +578,8 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
       epicsViewUi: workspaceUiPrefs.get().epicsView,
+      charter: { present: false, goals: [], invariants: [], techRules: [] },
+      diffIgnore: [],
     };
   }
 
@@ -654,6 +662,8 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
       epicsViewUi: workspaceUiPrefs.get().epicsView,
+      charter: readCharterSnapshot(root),
+      diffIgnore: readDiffIgnore(root),
     };
   }
 
@@ -717,6 +727,8 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
     epicsDir: epicRoot,
     epicsViewUi: workspaceUiPrefs.get().epicsView,
+    charter: readCharterSnapshot(root),
+    diffIgnore: readDiffIgnore(root),
   };
 }
 
@@ -938,6 +950,9 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     tokenUsage: e.tokenUsage
       ? { total: e.tokenUsage.total, hasOverlap: e.tokenUsage.hasOverlap }
       : undefined,
+    alignment: e.alignment,
+    ship: e.ship,
+    reviewDiff: e.reviewDiff,
   };
 }
 
@@ -1964,6 +1979,26 @@ export class WorkspaceWebview {
         const yp = path.join(root, WORKSPACE_DIR, WORKSPACE_FILENAME);
         if (!fs.existsSync(yp)) { return; }
         const doc = await vscode.workspace.openTextDocument(yp);
+        await vscode.window.showTextDocument(doc, { preview: false });
+        return;
+      }
+      case 'openPath': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const targetPathArg = String(msg.path ?? '');
+        if (!root || !targetPathArg) { return; }
+        const abs = path.isAbsolute(targetPathArg)
+          ? targetPathArg
+          : path.resolve(root, targetPathArg);
+        if (!fs.existsSync(abs)) {
+          void vscode.window.showWarningMessage(`Path not found: ${targetPathArg}`);
+          return;
+        }
+        const stat = fs.statSync(abs);
+        if (stat.isDirectory()) {
+          await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(abs));
+          return;
+        }
+        const doc = await vscode.workspace.openTextDocument(abs);
         await vscode.window.showTextDocument(doc, { preview: false });
         return;
       }

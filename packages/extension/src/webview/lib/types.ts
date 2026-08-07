@@ -568,6 +568,50 @@ export interface EpicStepDetailFull {
   };
 }
 
+/** Project-level charter snapshot for Charter Board + Start Epic. */
+export interface CharterGoal {
+  id: string;
+  title: string;
+  metric?: string;
+  status?: string;
+}
+
+export interface CharterInvariant {
+  id: string;
+  rule: string;
+  severity?: string;
+}
+
+export interface CharterTechRule {
+  id: string;
+  kind: string;
+  value: string;
+}
+
+export interface CharterSnapshot {
+  present: boolean;
+  revision?: number;
+  hash?: string;
+  goals: CharterGoal[];
+  invariants: CharterInvariant[];
+  techRules: CharterTechRule[];
+  driftSummary?: string;
+  conventionsPath?: string;
+  rulesSyncStatus?: 'fresh' | 'stale' | 'unknown';
+}
+
+export interface EpicAlignment {
+  goals: string[];
+  status?: 'aligned' | 'variance' | 'stale';
+}
+
+export interface EpicShipInfo {
+  prUrl?: string;
+  status?: 'open' | 'approved' | 'merged';
+  head?: string;
+  base?: string;
+}
+
 export interface EpicSummary {
   id: string;
   title: string;
@@ -592,6 +636,16 @@ export interface EpicSummary {
   artifactsOnly?: boolean;
   /** Aggregate token usage for the epic. */
   tokenUsage?: EpicUsage;
+  /** Feature alignment strip (Goals served + status). */
+  alignment?: EpicAlignment;
+  /** Feature-level ship info from PR-LINK.md (never for work-package). */
+  ship?: EpicShipInfo;
+  /** REVIEW-DIFF.md contents when present (diff-first human review). */
+  reviewDiff?: string;
+}
+
+export interface DiffIgnorePatterns {
+  patterns: string[];
 }
 
 export interface AgentMeta {
@@ -653,6 +707,10 @@ export interface WorkspaceState {
     noFollowOpen?: boolean;
     followedIds?: string[];
   };
+  /** Project charter for Charter Board + Start Epic goal picker. */
+  charter?: CharterSnapshot;
+  /** Display-only ignore patterns for the epic diff pane. */
+  diffIgnore?: string[];
 }
 
 export interface TestAgentTarget {

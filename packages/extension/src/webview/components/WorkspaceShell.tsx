@@ -116,6 +116,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
             isFirstEpic={state.epics.length === 0}
             workspaceName={state.workspaceName}
             hasFolder={state.hasFolder}
+            charter={state.charter}
             onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
             onClose={() => setStartEpicOpen(false)}
           />

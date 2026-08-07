@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EpicCard, EPIC_DND_MIME } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
+import { CharterBoard } from './CharterBoard';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
@@ -320,6 +321,8 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
         />
       </div>
 
+      <CharterBoard charter={state.charter} />
+
       {emptyMessage ? (
         <div className="rounded-md border border-dashed border-border bg-surface/50 p-6 text-center text-xs text-muted-foreground">
           {emptyMessage}
@@ -355,6 +358,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
                   setDragEpicId(null);
                   setDropTarget(null);
                 }}
+                diffIgnore={state.diffIgnore}
               />
             ))}
           </EpicSection>
@@ -388,6 +392,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
                   setDragEpicId(null);
                   setDropTarget(null);
                 }}
+                diffIgnore={state.diffIgnore}
               />
             ))}
           </EpicSection>
@@ -404,6 +409,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           epicsDir={state.epicsDir}
           isFirstEpic={state.epics.length === 0}
           workspaceName={state.workspaceName}
+          charter={state.charter}
           onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
           onClose={() => setStartEpicOpen(false)}
         />

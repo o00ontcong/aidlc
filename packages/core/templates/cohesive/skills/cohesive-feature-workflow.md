@@ -204,19 +204,9 @@ Inspect the actual integrated diff, not only package prose. Write `INTEGRATION-C
 
 ## Phase: `cohesion-review`
 
-Review Project Context, Feature Contract, integrated code, tests, and Integration Context. Write `COHESION-REPORT.md` covering:
+**Ownership:** `cohesive-reviewer-agent` (independent read-only reviewer — not this feature coordinator). Follow `cohesive-reviewer-workflow`. Feature agent must not author `COHESION-REPORT.md`.
 
-- Duplicate or competing abstractions.
-- Naming and convention consistency.
-- Module boundary and dependency compliance.
-- Shared contract drift.
-- Scope drift and missing behavior.
-- Cross-package error handling and observability.
-- Complete requirement-to-test traceability.
-- Whether the result is one coherent vertical feature.
-- `**Verdict:** GO|NO-GO`.
-
-Never issue GO merely because packages individually passed.
+The reviewer writes `COHESION-REPORT.md` with `**Reviewer:** cohesive-reviewer-agent` and `**Verdict:** GO|NO-GO`. Never issue GO merely because packages individually passed.
 
 ## Phase: `system-test`
 

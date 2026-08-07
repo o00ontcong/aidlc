@@ -27,6 +27,13 @@ import {
   type EpicUsage,
   type StepUsage,
 } from './epicTokenAttribution';
+import {
+  readEpicAlignment,
+  readEpicShip,
+  readReviewDiff,
+  type EpicAlignment,
+  type EpicShipInfo,
+} from './charterUi';
 
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
@@ -132,6 +139,12 @@ export interface EpicSummary {
    * artifact's own frontmatter `status:` field, not a run-state machine.
    */
   artifactsOnly?: boolean;
+  /** Feature alignment strip (Goals + status). */
+  alignment?: EpicAlignment;
+  /** Feature-level ship info — never for work-package pipelines. */
+  ship?: EpicShipInfo;
+  /** REVIEW-DIFF.md text for diff-first human review. */
+  reviewDiff?: string;
 }
 
 /**
@@ -700,13 +713,14 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       ? runState.currentStepIdx
       : (typeof parsed.currentStep === 'number' ? parsed.currentStep : 0);
 
+    const pipeline = typeof parsed.pipeline === 'string' ? parsed.pipeline : null;
     epics.push({
       id: epicId,
       title: typeof parsed.title === 'string' ? parsed.title : '',
       description: typeof parsed.description === 'string' ? parsed.description : '',
       status: epicStatus,
       createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
-      pipeline: typeof parsed.pipeline === 'string' ? parsed.pipeline : null,
+      pipeline,
       agent: typeof parsed.agent === 'string' ? parsed.agent : null,
       agents: Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],
       currentStep,
@@ -719,6 +733,9 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       existingArtifacts,
       artifactPaths,
       runId: runState ? runState.runId : null,
+      alignment: readEpicAlignment(epicDir),
+      ship: readEpicShip(epicDir, pipeline),
+      reviewDiff: readReviewDiff(epicDir),
     });
   }
 
