@@ -129,6 +129,9 @@ export function mirrorRunStateToEpic(
   fs.writeFileSync(stateFile, JSON.stringify(next, null, 2) + '\n', 'utf8');
 }
 
+/** Minimum length for project-context Start Epic Description (`idea`). */
+export const MIN_PROJECT_CONTEXT_IDEA_CHARS = 20;
+
 export interface ScaffoldEpicArgs {
   workspaceRoot: string;
   /** Raw workspace doc (for `state.root`). Pass null to default `docs/epics`. */
@@ -150,6 +153,12 @@ export interface ScaffoldEpicArgs {
    * to `<workspaceRoot>/.aidlc`.
    */
   aidlcDir?: string;
+  /**
+   * Root of cohesive charter templates (`…/templates/cohesive/artifacts`).
+   * The VS Code extension must pass its own copy — esbuild sets `__dirname`
+   * to the extension `out/` folder, not `@aidlc/core`.
+   */
+  charterTemplatesRoot?: string;
   /**
    * aidlc-autopilot (experimental / "coming soon"): when true, collect epic
    * context and generate a recommended plan (`context.json` +
@@ -216,8 +225,19 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     }
 
     // Project-context bootstrap: seed Intent + Conventions once under docs/project/.
+    // Description is the human's project idea — define-charter interviews from it.
     if (target.id === 'project-context') {
-      seedCharterArtifacts(workspaceRoot);
+      const idea = description.trim();
+      if (idea.length < MIN_PROJECT_CONTEXT_IDEA_CHARS) {
+        throw new EpicScaffoldError(
+          `project-context requires a Description (project idea) of at least `
+          + `${MIN_PROJECT_CONTEXT_IDEA_CHARS} characters — AI will interview you `
+          + `in define-charter to finalize Goals, principles, and tech policy.`,
+        );
+      }
+      seedCharterArtifacts(workspaceRoot, {
+        templatesRoot: args.charterTemplatesRoot,
+      });
     }
   }
 
@@ -261,6 +281,13 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const persistedInputs: Record<string, unknown> = { ...inputs };
   if (extraProjects && extraProjects.length > 0) {
     persistedInputs.extra_projects = extraProjects;
+  }
+  // Always mirror Description → idea for project-context (define-charter seed).
+  if (target.kind === 'pipeline' && target.id === 'project-context') {
+    const idea = (typeof persistedInputs.idea === 'string' && persistedInputs.idea.trim())
+      ? String(persistedInputs.idea).trim()
+      : description.trim();
+    persistedInputs.idea = idea;
   }
   fs.writeFileSync(
     path.join(epicDir, 'inputs.json'),

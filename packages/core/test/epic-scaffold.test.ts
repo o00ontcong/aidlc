@@ -190,12 +190,13 @@ describe('scaffoldEpic — on-disk layout', () => {
         },
       ],
     };
+    const idea = 'AIDLC monorepo: agents deliver features with human approve gates and a clear charter.';
     scaffoldEpic({
       workspaceRoot: root,
       doc: null,
       epicId: 'CTX-1',
       title: 'Project context',
-      description: 'bootstrap charter',
+      description: idea,
       target: { kind: 'pipeline', id: 'project-context' },
       agents: ['project-context-agent'],
       inputs: {},
@@ -203,5 +204,40 @@ describe('scaffoldEpic — on-disk layout', () => {
     });
     expect(fs.existsSync(path.join(root, 'docs/project/charter/CHARTER.json'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'docs/project/conventions/CONVENTIONS.md'))).toBe(true);
+    const inputs = JSON.parse(
+      fs.readFileSync(path.join(root, 'docs/epics', 'CTX-1', 'inputs.json'), 'utf8'),
+    );
+    expect(inputs.idea).toBe(idea);
+  });
+
+  it('rejects project-context scaffold without a usable idea Description', () => {
+    const root = tmpRoot();
+    const pipeline: PipelineConfig = {
+      id: 'project-context',
+      on_failure: 'stop',
+      steps: [
+        {
+          agent: 'project-context-agent',
+          name: 'define-charter',
+          requires: [],
+          produces: ['docs/project/charter/CHARTER.json'],
+          depends_on: [],
+          human_review: true,
+          auto_review: false,
+          enabled: true,
+        },
+      ],
+    };
+    expect(() => scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'CTX-2',
+      title: 'Project context',
+      description: 'too short',
+      target: { kind: 'pipeline', id: 'project-context' },
+      agents: ['project-context-agent'],
+      inputs: {},
+      pipeline,
+    })).toThrow(/Description \(project idea\)/i);
   });
 });

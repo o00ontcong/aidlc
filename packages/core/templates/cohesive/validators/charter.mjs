@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {
-  currentStepName, exists, formatError, pass, readJson, readText, reject,
+  artifactDir, currentStepName, exists, formatError, inputsFor, pass, readJson, readText, reject,
 } from './lib.mjs';
 
 const MD_FILES = ['NORTH-STAR.md', 'ARCHITECTURE-PRINCIPLES.md', 'TECH-POLICY.md'];
+const MIN_IDEA_CHARS = 20;
 
 function sha256Text(text) {
   return `sha256:${crypto.createHash('sha256').update(text).digest('hex')}`;
@@ -109,6 +110,40 @@ function validateDriftCoverage(workspaceRoot, charter, problems) {
   }
 }
 
+/**
+ * define-charter Mode A: idea from Start Epic + 1:1 interview log must exist.
+ * Bootstrap templates alone are not enough to pass this step.
+ */
+function validateDefineCharterInterview(workspaceRoot, runId, problems) {
+  if (!runId) {
+    problems.push('define-charter requires run id to load inputs.json and CHARTER-DISCOVERY.md');
+    return;
+  }
+
+  const inputs = inputsFor(workspaceRoot, runId);
+  const idea = typeof inputs.idea === 'string' ? inputs.idea.trim() : '';
+  if (idea.length < MIN_IDEA_CHARS) {
+    problems.push(
+      `inputs.json must include idea (≥${MIN_IDEA_CHARS} chars) from the Start Epic Description`,
+    );
+  }
+
+  const discoveryFile = path.join(artifactDir(workspaceRoot, runId), 'CHARTER-DISCOVERY.md');
+  if (!exists(discoveryFile)) {
+    problems.push(
+      'artifacts/CHARTER-DISCOVERY.md is missing — complete the 1:1 define-charter interview first',
+    );
+    return;
+  }
+
+  const discovery = readText(discoveryFile);
+  if (!/##\s*Discovery decisions/i.test(discovery)) {
+    problems.push('CHARTER-DISCOVERY.md must include ## Discovery decisions summarizing confirmed Intent');
+  } else if (!/##\s*Discovery decisions[\s\S]{40,}/i.test(discovery)) {
+    problems.push('## Discovery decisions is too thin — record confirmed Goals, INV-x, and T-x');
+  }
+}
+
 export default async function charter(ctx) {
   try {
     const problems = [];
@@ -117,6 +152,12 @@ export default async function charter(ctx) {
     const checkDrift = /check-drift/i.test(step)
       || /check.drift/i.test(ctx.step?.agent ?? '')
       || ctx.paths?.produces?.some?.((p) => String(p).includes('DRIFT-REPORT'));
+    const defineCharter = /define-charter/i.test(step)
+      || ctx.paths?.produces?.some?.((p) => String(p).includes('CHARTER-DISCOVERY'));
+
+    if (defineCharter) {
+      validateDefineCharterInterview(ctx.workspaceRoot, ctx.state?.runId, problems);
+    }
 
     if (checkDrift && charter) {
       validateDriftCoverage(ctx.workspaceRoot, charter, problems);
@@ -128,7 +169,9 @@ export default async function charter(ctx) {
     return pass(
       checkDrift
         ? `Charter revision ${charter.revision} is consistent and drift report covers all invariants.`
-        : `Charter revision ${charter.revision} is consistent (hash, ids, metrics, conventions).`,
+        : defineCharter
+          ? `Charter revision ${charter.revision} is consistent; idea + CHARTER-DISCOVERY interview recorded.`
+          : `Charter revision ${charter.revision} is consistent (hash, ids, metrics, conventions).`,
     );
   } catch (error) {
     return reject(`Charter validator failed: ${formatError(error)}`);

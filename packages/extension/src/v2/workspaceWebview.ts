@@ -3580,6 +3580,12 @@ export class WorkspaceWebview {
         inputs,
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
+        charterTemplatesRoot: path.join(
+          this.extensionUri.fsPath,
+          'templates',
+          'cohesive',
+          'artifacts',
+        ),
         // aidlc-autopilot is experimental / "coming soon": off unless the user
         // opts in via the `aidlc.autopilot.enabled` setting.
         enableAutopilot: vscode.workspace

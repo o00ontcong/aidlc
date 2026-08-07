@@ -168,22 +168,33 @@ flowchart LR
 
    - **Epic id:** `PROJECT-CONTEXT-001`
    - **Title:** `Initialize project context`
-   - **Description:** mô tả ngắn project và mục tiêu quét context.
+   - **Description (Project idea — bắt buộc):** mô tả ý tưởng / bối cảnh project
+     (product là gì, ai dùng, ràng buộc thô). Đây là **seed**, chưa phải charter.
 
-4. Nhấn **Start epic** — scaffold seeds `docs/project/charter/*` + `CONVENTIONS.md` once if missing.
+4. Nhấn **Start epic** — scaffold ghi `idea` vào `inputs.json` và seed
+   `docs/project/charter/*` + `CONVENTIONS.md` once if missing.
 5. Mở Epic card `PROJECT-CONTEXT-001`.
 
 ### 3.2 Chạy các step
 
 Chạy lần lượt:
 
-1. `define-charter` (human) — finalize Intent + conventions; auto-review `charter.mjs`
+1. `define-charter` (human + AI 1:1) — **Run with Claude**; agent đọc `idea`, hỏi từng
+   câu trong terminal, ghi `CHARTER-DISCOVERY.md`, rồi draft charter; auto-review
+   `charter.mjs`; **Approve**
 2. `scan-project`
 3. `model-project`
 4. `check-drift` — Reality vs Intent per `INV-x`
 5. `review-context`
 6. `publish-context`
 7. `project-rules-sync` — project markers into `CLAUDE.md`, `AGENTS.md`, `.cursor/rules/aidlc-charter.mdc`
+
+Tại `define-charter`:
+
+1. Nhấn **Run with Claude** (`/project-context-define-charter`).
+2. Trả lời lần lượt trong terminal (Goals + metric, non-goals, INV, tech policy, quality, ship).
+3. Kiểm tra `CHARTER-DISCOVERY.md` có `## Discovery decisions` và các file charter.
+4. **Mark step done** → **Run auto-review** → **Approve**.
 
 Tại `review-context`:
 

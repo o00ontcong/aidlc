@@ -27,15 +27,49 @@ You are the Project Context Curator. Execute exactly the current pipeline phase;
 
 ## Phase: `define-charter`
 
-Human owns this phase. Ensure seeded files exist (or create from templates if missing), then help the human finalize:
+Human owns Intent. The Start Epic **Description** is only a seed idea — **not** the charter.
+You interview the human **1:1 in this terminal chat** (Mode A), then write durable Intent files.
+
+### 0. Load the idea
+
+1. Read `docs/epics/$0/inputs.json` → field `idea` (required; copied from Description at Start Epic).
+2. Also read `docs/epics/$0/state.json` `description` if `idea` is missing (legacy).
+3. Ensure seeded templates exist under `docs/project/charter/**` and `docs/project/conventions/CONVENTIONS.md` (create from templates if missing). Treat seed content as **placeholders**, not approved Intent.
+4. Create or open `docs/epics/$0/artifacts/CHARTER-DISCOVERY.md` as the working Q&A log.
+
+### 1. Interview 1:1 (chat — do not batch a form)
+
+Ask **one question at a time**. Wait for the human reply before the next question.
+Skip a topic only when the idea already answers it clearly; still confirm that interpretation in one short check.
+
+Cover these topics (in order; stop early only if the human has already confirmed every required field):
+
+1. **Product / outcome** — what success looks like in measurable terms → Goals `G-x` + **metric** each
+2. **Non-goals** — what you will deliberately not do
+3. **Boundaries / invariants** — modules or paths that must not be casually changed → `INV-x` + severity (`advisory` until baseline is clean, else `blocking`) + protected paths
+4. **Tech policy** — must-use / forbidden / allowed tools and patterns → `T-x`
+5. **Quality bar** — required gates (test / lint / typecheck / …)
+6. **Ship policy** — default branch, PR-required, forbid agent merge to default
+
+Rules:
+- **Never invent Goals, invariants, or tech rules the human did not confirm.**
+- Prefer concrete options when the human is stuck ("A / B / C, or Other?").
+- After each answer, append to `CHARTER-DISCOVERY.md` under `## Qn: …` with the question, human answer, and your paraphrase.
+- When Intent is complete, write `## Discovery decisions` summarizing confirmed Goals, non-goals, INV-x, T-x, quality gates, and ship policy.
+
+### 2. Write Intent from confirmed decisions
+
+Only after `## Discovery decisions` is written, update:
 
 - `docs/project/charter/NORTH-STAR.md` — goals `G-x` with metrics + non-goals
-- `docs/project/charter/ARCHITECTURE-PRINCIPLES.md` — invariants `INV-x` (severity `advisory`|`blocking`) + protected paths
-- `docs/project/charter/TECH-POLICY.md` — tech rules `T-x` (must-use / forbidden / allowed)
+- `docs/project/charter/ARCHITECTURE-PRINCIPLES.md` — invariants `INV-x` + protected paths
+- `docs/project/charter/TECH-POLICY.md` — tech rules `T-x`
 - `docs/project/charter/CHARTER.json` — machine-readable mirror: `revision`, `hash` of the three Markdown files (byte-concat in that order), `goals`, `nonGoals`, `invariants`, `techRules`, `protectedPaths`, `deliveryBudget`, `requiredQualityGates`, `shipPolicy`
 - `docs/project/conventions/CONVENTIONS.md` — how the repo must work (commands, style, commit/PR)
 
-After human edits, recompute `CHARTER.json.hash` so it matches the three Markdown files. Do not invent goals the human did not approve. Bootstrap invariants should stay `advisory` until baseline drift is cleaned up.
+Recompute `CHARTER.json.hash` so it matches the three Markdown files. Bootstrap invariants that were never discussed stay `advisory` until baseline drift is cleaned up.
+
+Tell the human: review the charter files, then **Mark step done** → auto-review → **Approve**.
 
 ## Phase: `scan-project`
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.4.6
+
+### Added
+
+- feat(cohesive): **project-context Mode A** — Start Epic Description is a required **Project idea**; `define-charter` interviews the human 1:1 in the Claude terminal, logs `CHARTER-DISCOVERY.md`, then drafts charter Intent (no invented Goals).
+
+### Fixed
+
+- fix(cohesive): **Charter template missing** when scaffolding `project-context` from the bundled extension — resolve templates via `extensionPath` + multi-candidate `__dirname`, and skip reading templates when Intent files already exist.
+
 ## 3.4.5
 
 ### Fixed

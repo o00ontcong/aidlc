@@ -96,7 +96,20 @@ export interface SyncProjectRulesResult {
 
 /** Resolve bundled charter templates (packages/core/templates/…). */
 export function defaultCharterTemplatesDir(): string {
-  return path.join(__dirname, '..', '..', 'templates', 'cohesive', 'artifacts');
+  // Core layout: dist/epics → ../../templates/cohesive/artifacts
+  // Extension bundle (esbuild out/extension.js): out → ../templates/cohesive/artifacts
+  // Extension root (if __dirname is already extensionPath): ./templates/...
+  const candidates = [
+    path.join(__dirname, '..', '..', 'templates', 'cohesive', 'artifacts'),
+    path.join(__dirname, '..', 'templates', 'cohesive', 'artifacts'),
+    path.join(__dirname, 'templates', 'cohesive', 'artifacts'),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'charter', 'NORTH-STAR.md'))) {
+      return dir;
+    }
+  }
+  return candidates[0]!;
 }
 
 export function sha256Text(text: string | Buffer): string {
@@ -204,8 +217,14 @@ export function seedCharterArtifacts(
 
   const charterDir = path.join(workspaceRoot, CHARTER_REL_DIR);
   for (const name of CHARTER_MD_FILES) {
+    const abs = path.join(charterDir, name);
+    const rel = path.relative(workspaceRoot, abs);
+    if (fs.existsSync(abs)) {
+      skipped.push(rel);
+      continue;
+    }
     writeIfAbsent(
-      path.join(charterDir, name),
+      abs,
       readTemplate(templatesRoot, ['charter', name]),
       seeded,
       skipped,
@@ -213,21 +232,37 @@ export function seedCharterArtifacts(
     );
   }
 
-  writeIfAbsent(
-    path.join(workspaceRoot, CONVENTIONS_REL),
-    readTemplate(templatesRoot, ['conventions', 'CONVENTIONS.md']),
-    seeded,
-    skipped,
-    workspaceRoot,
-  );
+  {
+    const abs = path.join(workspaceRoot, CONVENTIONS_REL);
+    const rel = path.relative(workspaceRoot, abs);
+    if (fs.existsSync(abs)) {
+      skipped.push(rel);
+    } else {
+      writeIfAbsent(
+        abs,
+        readTemplate(templatesRoot, ['conventions', 'CONVENTIONS.md']),
+        seeded,
+        skipped,
+        workspaceRoot,
+      );
+    }
+  }
 
-  writeIfAbsent(
-    path.join(workspaceRoot, DRIFT_REPORT_REL),
-    readTemplate(templatesRoot, ['conformance', 'DRIFT-REPORT.md']),
-    seeded,
-    skipped,
-    workspaceRoot,
-  );
+  {
+    const abs = path.join(workspaceRoot, DRIFT_REPORT_REL);
+    const rel = path.relative(workspaceRoot, abs);
+    if (fs.existsSync(abs)) {
+      skipped.push(rel);
+    } else {
+      writeIfAbsent(
+        abs,
+        readTemplate(templatesRoot, ['conformance', 'DRIFT-REPORT.md']),
+        seeded,
+        skipped,
+        workspaceRoot,
+      );
+    }
+  }
 
   const charterJsonAbs = path.join(workspaceRoot, CHARTER_JSON_REL);
   let hash: string;

@@ -69,6 +69,17 @@ describe('seedCharterArtifacts', () => {
     expect(second.seeded).toEqual([]);
     expect(second.skipped.length).toBeGreaterThan(0);
   });
+
+  it('skips existing Intent files without requiring templates on disk', () => {
+    const root = tmp();
+    seedCharterArtifacts(root, { templatesRoot: defaultCharterTemplatesDir() });
+    // Broken templatesRoot must not throw when every seed target already exists.
+    const again = seedCharterArtifacts(root, {
+      templatesRoot: path.join(root, 'missing-templates'),
+    });
+    expect(again.seeded).toEqual([]);
+    expect(again.skipped.length).toBeGreaterThan(0);
+  });
 });
 
 describe('syncProjectRules', () => {
@@ -93,16 +104,50 @@ describe('syncProjectRules', () => {
 });
 
 describe('charter.mjs validator', () => {
+  function writeDefineCharterEpic(root: string, runId: string, idea: string) {
+    const epic = path.join(root, 'docs', 'epics', runId);
+    fs.mkdirSync(path.join(epic, 'artifacts'), { recursive: true });
+    fs.writeFileSync(
+      path.join(epic, 'inputs.json'),
+      `${JSON.stringify({ idea }, null, 2)}\n`,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(epic, 'artifacts', 'CHARTER-DISCOVERY.md'),
+      [
+        '# Charter discovery',
+        '',
+        '## Q1: Measurable outcome?',
+        '',
+        '- Human: Ship cohesive features with approve gates.',
+        '',
+        '## Discovery decisions',
+        '',
+        '- G-1 Deliver cohesive, reviewable change — metric: every feature has human Approve before merge',
+        '- INV-1 Feature work inherits charter goals (advisory)',
+        '- T-1 MUST-USE repository package manager',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+  }
+
   it('passes define-charter shape and rejects hash drift', async () => {
     const runner = await loadRunner(CHARTER_VALIDATOR);
     const root = tmp();
     seedCharterArtifacts(root, { templatesRoot: defaultCharterTemplatesDir() });
+    writeDefineCharterEpic(
+      root,
+      'CTX-1',
+      'AIDLC monorepo workspace for agent-driven SDLC with human approve gates.',
+    );
 
     const passVerdict = await runner({
       workspaceRoot: root,
       pipeline: { steps: [{ name: 'define-charter' }] },
-      state: { currentStepIdx: 0 },
+      state: { currentStepIdx: 0, runId: 'CTX-1' },
       step: { stepIdx: 0 },
+      paths: { produces: ['docs/epics/CTX-1/artifacts/CHARTER-DISCOVERY.md'] },
     });
     expect(passVerdict.decision).toBe('pass');
 
@@ -114,11 +159,32 @@ describe('charter.mjs validator', () => {
     const rejectVerdict = await runner({
       workspaceRoot: root,
       pipeline: { steps: [{ name: 'define-charter' }] },
-      state: { currentStepIdx: 0 },
+      state: { currentStepIdx: 0, runId: 'CTX-1' },
       step: { stepIdx: 0 },
+      paths: { produces: ['docs/epics/CTX-1/artifacts/CHARTER-DISCOVERY.md'] },
     });
     expect(rejectVerdict.decision).toBe('reject');
     expect(rejectVerdict.reason).toMatch(/hash mismatch/i);
+  });
+
+  it('rejects define-charter without idea or CHARTER-DISCOVERY interview', async () => {
+    const runner = await loadRunner(CHARTER_VALIDATOR);
+    const root = tmp();
+    seedCharterArtifacts(root, { templatesRoot: defaultCharterTemplatesDir() });
+    const epic = path.join(root, 'docs', 'epics', 'CTX-EMPTY');
+    fs.mkdirSync(path.join(epic, 'artifacts'), { recursive: true });
+    fs.writeFileSync(path.join(epic, 'inputs.json'), '{}\n', 'utf8');
+
+    const verdict = await runner({
+      workspaceRoot: root,
+      pipeline: { steps: [{ name: 'define-charter' }] },
+      state: { currentStepIdx: 0, runId: 'CTX-EMPTY' },
+      step: { stepIdx: 0 },
+      paths: { produces: ['docs/epics/CTX-EMPTY/artifacts/CHARTER-DISCOVERY.md'] },
+    });
+    expect(verdict.decision).toBe('reject');
+    expect(verdict.reason).toMatch(/idea/i);
+    expect(verdict.reason).toMatch(/CHARTER-DISCOVERY/i);
   });
 
   it('requires DRIFT-REPORT coverage for each INV-x on check-drift', async () => {
@@ -161,6 +227,11 @@ describe('charter.mjs validator', () => {
     const root = tmp();
     seedCharterArtifacts(root, { templatesRoot: defaultCharterTemplatesDir() });
     fs.rmSync(path.join(root, CONVENTIONS_REL));
+    writeDefineCharterEpic(
+      root,
+      'CTX-DUP',
+      'AIDLC monorepo workspace for agent-driven SDLC with human approve gates.',
+    );
 
     const doc = readCharterJson(root);
     doc.goals.push({ ...doc.goals[0]!, id: 'G-1' });
@@ -173,8 +244,9 @@ describe('charter.mjs validator', () => {
     const verdict = await runner({
       workspaceRoot: root,
       pipeline: { steps: [{ name: 'define-charter' }] },
-      state: { currentStepIdx: 0 },
+      state: { currentStepIdx: 0, runId: 'CTX-DUP' },
       step: { stepIdx: 0 },
+      paths: { produces: ['docs/epics/CTX-DUP/artifacts/CHARTER-DISCOVERY.md'] },
     });
     expect(verdict.decision).toBe('reject');
     expect(verdict.reason).toMatch(/CONVENTIONS\.md/);

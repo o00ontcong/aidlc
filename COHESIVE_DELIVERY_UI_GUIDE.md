@@ -162,7 +162,8 @@ flowchart LR
 
    - **Epic id:** `PROJECT-CONTEXT-001`
    - **Title:** `Initialize project context`
-   - **Description:** mô tả ngắn project và mục tiêu quét context.
+   - **Description (Project idea — bắt buộc):** ý tưởng / bối cảnh project (seed cho
+     interview `define-charter`, chưa phải charter).
 
 4. Nhấn **Start epic**.
 5. Mở Epic card `PROJECT-CONTEXT-001`.
@@ -171,10 +172,11 @@ flowchart LR
 
 Chạy lần lượt:
 
-1. `scan-project`
-2. `model-project`
-3. `review-context`
-4. `publish-context`
+1. `define-charter` — Run with Claude; AI hỏi 1:1 từ `idea`; ghi `CHARTER-DISCOVERY.md` + charter; Approve
+2. `scan-project`
+3. `model-project`
+4. `review-context`
+5. `publish-context`
 
 Tại `review-context`:
 

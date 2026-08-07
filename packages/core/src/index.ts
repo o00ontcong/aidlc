@@ -61,6 +61,7 @@ export {
   mapStepStatusToEpic,
   epicsRoot,
   EpicScaffoldError,
+  MIN_PROJECT_CONTEXT_IDEA_CHARS,
 } from './runs/EpicScaffold';
 export type {
   EpicStatus,

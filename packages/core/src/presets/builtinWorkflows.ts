@@ -477,18 +477,22 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
     id: 'define-charter', name: 'Define Charter', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
     description:
-      'Human-owned Intent: finalize NORTH-STAR, ARCHITECTURE-PRINCIPLES, TECH-POLICY, CHARTER.json, and CONVENTIONS.md.',
-    inputs: 'Seeded charter templates under docs/project/charter and conventions',
-    outputs: 'Validated project charter and conventions',
+      'Interview the human 1:1 from the Start Epic idea (Description), then finalize '
+      + 'NORTH-STAR, ARCHITECTURE-PRINCIPLES, TECH-POLICY, CHARTER.json, and CONVENTIONS.md. '
+      + 'Do not invent Goals the human did not confirm.',
+    inputs: 'inputs.json idea (from Description) + seeded charter templates',
+    outputs: 'CHARTER-DISCOVERY.md Q&A log + validated project charter and conventions',
     artifact: 'CHARTER.json', humanReview: true, autoReview: true,
     autoReviewRunner: '.aidlc/validators/charter.mjs',
     produces: [
+      'docs/epics/{epic}/artifacts/CHARTER-DISCOVERY.md',
       'docs/project/charter/NORTH-STAR.md',
       'docs/project/charter/ARCHITECTURE-PRINCIPLES.md',
       'docs/project/charter/TECH-POLICY.md',
       'docs/project/charter/CHARTER.json',
       'docs/project/conventions/CONVENTIONS.md',
     ],
+    producesContains: ['## Discovery decisions'],
     capabilities: ['files', 'github'],
   },
   {

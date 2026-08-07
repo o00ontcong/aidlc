@@ -83,6 +83,16 @@ function isCohesiveFeatureTarget(selected: Selection, pipelines: PipelineSummary
   return id === 'cohesive-feature' || id.startsWith('cohesive-feature');
 }
 
+function isProjectContextTarget(selected: Selection, pipelines: PipelineSummary[]): boolean {
+  if (selected.kind !== 'pipeline') return false;
+  const p = pipelines.find((x) => x.id === selected.id);
+  const id = p?.id ?? selected.id;
+  return id === 'project-context' || id.startsWith('project-context');
+}
+
+/** Keep in sync with MIN_PROJECT_CONTEXT_IDEA_CHARS in @aidlc/core EpicScaffold. */
+const MIN_PROJECT_CONTEXT_IDEA_CHARS = 20;
+
 interface Suggestion {
   recipeId: string;
   confidence: 'high' | 'medium' | 'low';
@@ -488,12 +498,16 @@ export function StartEpicModal({
     ? 'Add at least one project to start an epic'
     : null;
   const cohesiveFeature = isCohesiveFeatureTarget(selected, pipelines);
+  const projectContext = isProjectContextTarget(selected, pipelines);
+  const ideaError = projectContext && description.trim().length < MIN_PROJECT_CONTEXT_IDEA_CHARS
+    ? `Project idea required — describe the project in Description (≥${MIN_PROJECT_CONTEXT_IDEA_CHARS} chars); AI will interview you in define-charter`
+    : null;
   const charterError = cohesiveFeature && !charter?.present
     ? 'Charter required — run project-context (define-charter) before starting a cohesive feature'
     : cohesiveFeature && selectedGoals.length === 0 && (charter?.goals?.length ?? 0) > 0
       ? 'Select at least one Goal from the charter'
       : null;
-  const error = idError || targetError || projectError || charterError;
+  const error = idError || targetError || projectError || ideaError || charterError;
 
   const submit = () => {
     if (error) { return; }
@@ -505,6 +519,7 @@ export function StartEpicModal({
     if (selectedGoals.length) cleanInputs.selected_goals = selectedGoals.join(',');
     if (whatScope.trim()) cleanInputs.what_scope = whatScope.trim();
     if (featureConstraints.trim()) cleanInputs.feature_constraints = featureConstraints.trim();
+    if (projectContext && description.trim()) cleanInputs.idea = description.trim();
     const target = selected.kind === 'auto'
       ? { kind: 'recipe' as const, id: effectiveRecipeId! }
       : { kind: 'pipeline' as const, id: selected.id };
@@ -776,7 +791,17 @@ export function StartEpicModal({
         <div>
           <div className="mb-1 flex items-baseline justify-between gap-2">
             <label className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-              Description / requirement <span className="font-normal normal-case tracking-normal text-muted-foreground/80">(optional)</span>
+              {projectContext ? (
+                <>
+                  Project idea{' '}
+                  <span className="font-normal normal-case tracking-normal text-primary/90">(required)</span>
+                </>
+              ) : (
+                <>
+                  Description / requirement{' '}
+                  <span className="font-normal normal-case tracking-normal text-muted-foreground/80">(optional)</span>
+                </>
+              )}
             </label>
             <div className="flex items-center gap-1">
               <button
@@ -812,6 +837,12 @@ export function StartEpicModal({
               ))}
             </div>
           </div>
+          {projectContext && (
+            <p className="mb-1.5 text-[10.5px] text-muted-foreground">
+              Seed the project idea here. In <span className="font-medium text-foreground">define-charter</span>,
+              Claude interviews you 1:1 in the terminal to finalize Goals, principles, and tech policy.
+            </p>
+          )}
           {loadSource && (
             <div className="mb-1.5 flex items-center gap-1.5">
               <input
@@ -860,7 +891,9 @@ export function StartEpicModal({
           <textarea
             value={description}
             onChange={(e) => { setDescription(e.target.value); if (suggestion) { setSuggestion(null); } }}
-            placeholder="Paste a requirement / PRD, or load it from a file. The text is snapshotted into the epic at submit time."
+            placeholder={projectContext
+              ? 'e.g. Monorepo delivery workspace: agents run SDLC with human approve gates; need clear Goals and architecture boundaries…'
+              : 'Paste a requirement / PRD, or load it from a file. The text is snapshotted into the epic at submit time.'}
             rows={5}
             disabled={!hasWorkflows}
             className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
