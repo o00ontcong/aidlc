@@ -123,3 +123,128 @@ export function formatError(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function charterPath(workspaceRoot) {
+  return path.join(workspaceRoot, 'docs', 'project', 'charter', 'CHARTER.json');
+}
+
+/** Load CHARTER.json when present; return null if missing. */
+export function loadCharter(workspaceRoot) {
+  const file = charterPath(workspaceRoot);
+  if (!exists(file)) return null;
+  return readJson(file);
+}
+
+export function requireCharter(workspaceRoot) {
+  const charter = loadCharter(workspaceRoot);
+  if (!charter) {
+    throw new Error(
+      'docs/project/charter/CHARTER.json is missing. Run project-context define-charter (slice 1) before feature alignment.',
+    );
+  }
+  return charter;
+}
+
+export function goalIdsFromCharter(charter) {
+  return new Set(
+    (charter?.goals ?? [])
+      .map((g) => g?.id)
+      .filter((id) => typeof id === 'string' && /^G-\d+$/.test(id)),
+  );
+}
+
+export function invariantIdsFromCharter(charter) {
+  return (charter?.invariants ?? [])
+    .map((inv) => inv?.id)
+    .filter((id) => typeof id === 'string' && /^INV-\d+$/.test(id));
+}
+
+export function forbiddenTechFromCharter(charter) {
+  return (charter?.techRules ?? [])
+    .filter((rule) => rule?.kind === 'forbidden' && typeof rule?.value === 'string')
+    .map((rule) => ({ id: rule.id, value: String(rule.value).toLowerCase() }));
+}
+
+export function parseServesGoalsFromAlignment(text) {
+  const section = text.match(/##\s*Serves Goals\s*\n([\s\S]*?)(?=\n##\s|\n*$)/i)?.[1] ?? '';
+  return [...new Set([...section.matchAll(/\b(G-\d+)\b/g)].map((m) => m[1]))];
+}
+
+export function frIdsFromSpec(text) {
+  return [...new Set(text.match(/\b(?:[A-Z][A-Z0-9_-]*-)?FR\d{2,}\b/g) ?? [])];
+}
+
+/** Map FR id → Serves goal ids from SPEC.md (FR line + Serves within next 3 lines). */
+export function frServesMap(specText) {
+  const map = new Map();
+  const lines = specText.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const frMatch = lines[i].match(/\b((?:[A-Z][A-Z0-9_-]*-)?FR\d{2,})\b/);
+    if (!frMatch) continue;
+    if (!map.has(frMatch[1])) map.set(frMatch[1], []);
+    const window = lines.slice(i, i + 4).join('\n');
+    const goals = [...window.matchAll(/Serves:\s*([^\n]+)/gi)]
+      .flatMap((m) => [...m[1].matchAll(/\b(G-\d+)\b/g)].map((x) => x[1]));
+    if (goals.length) {
+      map.set(frMatch[1], [...new Set([...(map.get(frMatch[1]) ?? []), ...goals])]);
+    }
+  }
+  return map;
+}
+
+export function approvedVarianceIds(artifactsDir) {
+  const dir = path.join(artifactsDir, 'variance-requests');
+  if (!exists(dir)) return new Set();
+  const approved = new Set();
+  for (const name of fs.readdirSync(dir)) {
+    if (!/^VR-\d+\.md$/i.test(name)) continue;
+    const text = readText(path.join(dir, name));
+    if (/\*\*Status:\*\*\s*APPROVED\b/i.test(text) || /\*\*Verdict:\*\*\s*APPROVED\b/i.test(text)) {
+      approved.add(name.replace(/\.md$/i, '').toUpperCase());
+      for (const inv of text.matchAll(/\b(INV-\d+)\b/g)) approved.add(inv[1]);
+    }
+  }
+  return approved;
+}
+
+export function fieldFromMarkdown(text, label) {
+  const re = new RegExp(`\\*\\*${label}:\\*\\*\\s*([^\\r\\n]+)`, 'i');
+  return text.match(re)?.[1]?.trim() ?? '';
+}
+
+export function gitDiffNameOnly(workspaceRoot, baseRef = 'HEAD') {
+  try {
+    const out = execFileSync('git', ['diff', '--name-only', baseRef], {
+      cwd: workspaceRoot,
+      encoding: 'utf8',
+      timeout: 15_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function gitDiffNameOnlyStagedAndUnstaged(workspaceRoot) {
+  const files = new Set();
+  for (const args of [
+    ['diff', '--name-only'],
+    ['diff', '--name-only', '--cached'],
+    ['diff', '--name-only', 'HEAD'],
+  ]) {
+    try {
+      const out = execFileSync('git', args, {
+        cwd: workspaceRoot,
+        encoding: 'utf8',
+        timeout: 15_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      for (const line of out.split(/\r?\n/)) {
+        const f = line.trim();
+        if (f) files.add(f.replaceAll('\\', '/'));
+      }
+    } catch { /* ignore */ }
+  }
+  return [...files];
+}
+

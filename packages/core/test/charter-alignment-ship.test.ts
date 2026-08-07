@@ -1,0 +1,504 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
+import { execFileSync } from 'child_process';
+
+import {
+  BUILTIN_WORKFLOWS,
+  buildAlignmentSeedFile,
+  getBuiltinWorkflowByPipelineId,
+  scaffoldEpic,
+  type PipelineConfig,
+} from '../src';
+
+const VALIDATORS = path.join(__dirname, '..', 'templates', 'cohesive', 'validators');
+
+type Verdict = { decision: 'pass' | 'reject'; reason: string };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Runner = (ctx: any) => Promise<Verdict>;
+
+async function loadRunner(name: string): Promise<Runner> {
+  const mod = await import(pathToFileURL(path.join(VALIDATORS, name)).href);
+  return mod.default;
+}
+
+function writeCharter(root: string, overrides: Record<string, unknown> = {}) {
+  const dir = path.join(root, 'docs', 'project', 'charter');
+  fs.mkdirSync(dir, { recursive: true });
+  const charter = {
+    revision: 1,
+    hash: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    goals: [
+      { id: 'G-1', title: 'Ship safely', metric: '0 sev-1', status: 'active' },
+      { id: 'G-2', title: 'Keep cohesion', metric: 'contract frozen', status: 'active' },
+    ],
+    nonGoals: [],
+    invariants: [
+      { id: 'INV-1', rule: 'No cross-package contract rewrite', scope: ['packages/**'], severity: 'blocking' },
+    ],
+    techRules: [
+      { id: 'T-1', kind: 'forbidden', value: 'moment', reason: 'use luxon' },
+    ],
+    protectedPaths: [],
+    deliveryBudget: { maxFilesPerPackage: 12, maxTasksPerPackage: 6 },
+    requiredQualityGates: ['test', 'lint'],
+    shipPolicy: {
+      requirePullRequest: true,
+      forbidAgentMergeToDefaultBranch: true,
+      defaultBranch: 'main',
+      allowAiAssistReview: true,
+    },
+    ...overrides,
+  };
+  fs.writeFileSync(path.join(dir, 'CHARTER.json'), JSON.stringify(charter, null, 2) + '\n');
+  return charter;
+}
+
+function epicArtifacts(root: string, epic = 'FEAT-1') {
+  const dir = path.join(root, 'docs', 'epics', epic, 'artifacts');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+describe('alignmentArtifacts + EpicScaffold seed', () => {
+  it('builds ALIGNMENT.md with Serves Goals and narrower constraints', () => {
+    const md = buildAlignmentSeedFile({
+      epicId: 'FEAT-1',
+      servesGoals: ['G-1', 'G-2'],
+      scope: 'Add ship gate after system-test',
+      featureConstraints: 'Only touch cohesive-feature pipeline',
+    });
+    expect(md).toContain('## Serves Goals');
+    expect(md).toContain('- G-1');
+    expect(md).toContain('- G-2');
+    expect(md).toContain('Add ship gate after system-test');
+    expect(md).toContain('Only touch cohesive-feature pipeline');
+  });
+
+  it('scaffoldEpic writes ALIGNMENT.md when alignmentSeed is provided', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-align-scaffold-'));
+    const pipeline: PipelineConfig = {
+      id: 'cohesive-feature',
+      on_failure: 'stop',
+      steps: [
+        {
+          agent: 'aidlc-cohesive-feature-agent', name: 'capture-context',
+          requires: [], produces: ['SNAP.md'], depends_on: [],
+          human_review: false, auto_review: false, enabled: true,
+        },
+      ],
+    };
+    try {
+      scaffoldEpic({
+        workspaceRoot: root,
+        doc: { state: { root: 'docs/epics' } },
+        epicId: 'FEAT-1',
+        title: 'Ship',
+        description: '',
+        target: { kind: 'pipeline', id: 'cohesive-feature' },
+        agents: ['aidlc-cohesive-feature-agent'],
+        inputs: {},
+        pipeline,
+        alignmentSeed: {
+          servesGoals: ['G-1'],
+          scope: 'Feature PR after system-test',
+          featureConstraints: '',
+        },
+      });
+      const alignment = fs.readFileSync(
+        path.join(root, 'docs/epics/FEAT-1/artifacts/ALIGNMENT.md'),
+        'utf8',
+      );
+      expect(alignment).toContain('G-1');
+      expect(alignment).toContain('Feature PR after system-test');
+      const state = JSON.parse(
+        fs.readFileSync(path.join(root, 'docs/epics/FEAT-1/state.json'), 'utf8'),
+      );
+      expect(state.description).toContain('Feature PR after system-test');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('ship phase placement', () => {
+  it('places open-pr / await-merge on cohesive-feature after system-test, not on work-package', () => {
+    const feature = getBuiltinWorkflowByPipelineId('cohesive-feature')!;
+    const worker = getBuiltinWorkflowByPipelineId('cohesive-work-package')!;
+    const ids = feature.phases.map((p) => p.id);
+    expect(ids.indexOf('open-pr')).toBe(ids.indexOf('system-test') + 1);
+    expect(ids.indexOf('await-merge')).toBe(ids.indexOf('open-pr') + 1);
+    expect(ids.indexOf('project-sync')).toBe(ids.indexOf('await-merge') + 1);
+
+    const openPr = feature.phases.find((p) => p.id === 'open-pr')!;
+    expect(openPr.dependsOn).toEqual(['system-test']);
+    expect(openPr.autoReviewRunner).toBe('.aidlc/validators/ship.mjs');
+
+    const sync = feature.phases.find((p) => p.id === 'project-sync')!;
+    expect(sync.dependsOn).toEqual(['await-merge']);
+
+    expect(worker.phases.map((p) => p.id)).not.toContain('open-pr');
+    expect(worker.phases.map((p) => p.id)).not.toContain('await-merge');
+
+    const bundle = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
+    expect(bundle.primaryPhases!.some((p) => p.id === 'open-pr')).toBe(true);
+    const wp = bundle.additionalPipelines!.find((p) => p.id === 'cohesive-work-package')!;
+    expect(wp.phases.some((p) => p.id === 'open-pr')).toBe(false);
+  });
+});
+
+describe('charter-alignment.mjs', () => {
+  let root: string;
+  let runner: Runner;
+
+  beforeEach(async () => {
+    runner = await loadRunner('charter-alignment.mjs');
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-charter-align-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const ctx = (stepName = 'specify') => ({
+    workspaceRoot: root,
+    state: { runId: 'FEAT-1', currentStepIdx: 0 },
+    step: { stepIdx: 0 },
+    pipeline: { steps: [{ name: stepName, agent: 'aidlc-cohesive-feature-agent' }] },
+  });
+
+  it('rejects when CHARTER.json is missing', async () => {
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(path.join(artifacts, 'ALIGNMENT.md'), '## Serves Goals\n- G-1\n');
+    fs.writeFileSync(path.join(artifacts, 'SPEC.md'), '- FEAT-1-FR01 Serves: G-1\n');
+    const v = await runner(ctx());
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/CHARTER\.json is missing/);
+  });
+
+  it('passes when every FR Serves a declared Goal', async () => {
+    writeCharter(root);
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(
+      path.join(artifacts, 'ALIGNMENT.md'),
+      buildAlignmentSeedFile({
+        epicId: 'FEAT-1',
+        servesGoals: ['G-1'],
+        scope: 'Ship gate',
+        featureConstraints: '',
+      }),
+    );
+    fs.writeFileSync(
+      path.join(artifacts, 'SPEC.md'),
+      '## Functional Requirements\n- FEAT-1-FR01 Add PR gate\n  Serves: G-1\n',
+    );
+    const v = await runner(ctx('specify'));
+    expect(v.decision).toBe('pass');
+  });
+
+  it('rejects FR missing Serves and orphan declared Goals', async () => {
+    writeCharter(root);
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(
+      path.join(artifacts, 'ALIGNMENT.md'),
+      '## Serves Goals\n- G-1\n- G-2\n\n## Feature Contribution\nX\n',
+    );
+    fs.writeFileSync(
+      path.join(artifacts, 'SPEC.md'),
+      '## Functional Requirements\n- FEAT-1-FR01 no serves line\n',
+    );
+    const v = await runner(ctx('specify'));
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/missing Serves/);
+    expect(v.reason).toMatch(/G-2/);
+  });
+
+  it('plan phase requires Charter Conformance covering INV-x', async () => {
+    writeCharter(root);
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(
+      path.join(artifacts, 'ALIGNMENT.md'),
+      '## Serves Goals\n- G-1\n\n## Feature Contribution\nX\n',
+    );
+    fs.writeFileSync(
+      path.join(artifacts, 'SPEC.md'),
+      '## Functional Requirements\n- FEAT-1-FR01 Serves: G-1\n',
+    );
+    fs.writeFileSync(
+      path.join(artifacts, 'PLAN.md'),
+      '## Shared Contract Impact\nNone\n\n## File Impact\nX\n\n## Requirement Traceability\nFR01\n',
+    );
+    const v = await runner(ctx('plan'));
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/Charter Conformance/);
+
+    fs.writeFileSync(
+      path.join(artifacts, 'PLAN.md'),
+      '## Charter Conformance\n| INV-1 | respected via ownedPaths |\n\n## Shared Contract Impact\nNone\n',
+    );
+    const v2 = await runner(ctx('plan'));
+    expect(v2.decision).toBe('pass');
+  });
+
+  it('rejects forbidden tech in PLAN without approved VR', async () => {
+    writeCharter(root);
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(path.join(artifacts, 'ALIGNMENT.md'), '## Serves Goals\n- G-1\n');
+    fs.writeFileSync(path.join(artifacts, 'SPEC.md'), '- FEAT-1-FR01 Serves: G-1\n');
+    fs.writeFileSync(
+      path.join(artifacts, 'PLAN.md'),
+      '## Charter Conformance\nINV-1 ok\n\nWe will use moment for dates.\n',
+    );
+    const v = await runner(ctx('plan'));
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/forbidden tech/);
+  });
+});
+
+describe('ship.mjs', () => {
+  let root: string;
+  let runner: Runner;
+
+  beforeEach(async () => {
+    runner = await loadRunner('ship.mjs');
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-ship-'));
+    writeCharter(root);
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const ctx = (stepName: string) => ({
+    workspaceRoot: root,
+    state: { runId: 'FEAT-1', currentStepIdx: 0 },
+    step: { stepIdx: 0 },
+    pipeline: { steps: [{ name: stepName }] },
+  });
+
+  it('open-pr requires PR-LINK with head feature/$0', async () => {
+    const artifacts = epicArtifacts(root);
+    const v0 = await runner(ctx('open-pr'));
+    expect(v0.decision).toBe('reject');
+    expect(v0.reason).toMatch(/PR-LINK/);
+
+    fs.writeFileSync(
+      path.join(artifacts, 'PR-LINK.md'),
+      '**URL:** https://example.com/pr/1\n**Base:** main\n**Head:** feature/WRONG\n**Status:** open\n',
+    );
+    const v1 = await runner(ctx('open-pr'));
+    expect(v1.decision).toBe('reject');
+    expect(v1.reason).toMatch(/feature\/FEAT-1/);
+
+    fs.writeFileSync(
+      path.join(artifacts, 'PR-LINK.md'),
+      '**URL:** https://example.com/pr/1\n**Base:** main\n**Head:** feature/FEAT-1\n**Status:** open\n',
+    );
+    const v2 = await runner(ctx('open-pr'));
+    expect(v2.decision).toBe('pass');
+  });
+
+  it('await-merge forbids agent merge and supports local human escape hatch', async () => {
+    writeCharter(root, {
+      shipPolicy: {
+        requirePullRequest: true,
+        forbidAgentMergeToDefaultBranch: true,
+        defaultBranch: 'main',
+        allowLocalMergeWithHumanOnly: true,
+      },
+    });
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(
+      path.join(artifacts, 'PR-LINK.md'),
+      '**URL:** (none)\n**Base:** main\n**Head:** feature/FEAT-1\n**Status:** merged\n**Merged By:** agent\n',
+    );
+    const v = await runner(ctx('await-merge'));
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/Agent merge|forbidden/i);
+
+    fs.writeFileSync(
+      path.join(artifacts, 'PR-LINK.md'),
+      '**URL:** (none)\n**Base:** main\n**Head:** feature/FEAT-1\n**Status:** approved\n**Local Human Approval:** yes\n',
+    );
+    const v2 = await runner(ctx('await-merge'));
+    expect(v2.decision).toBe('pass');
+  });
+});
+
+describe('extended cohesive validators', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-ext-val-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('work-packages requires Implements/AC and enforces deliveryBudget', async () => {
+    const runner = await loadRunner('work-packages.mjs');
+    writeCharter(root, { deliveryBudget: { maxTasksPerPackage: 1, maxFilesPerPackage: 2 } });
+    execFileSync('git', ['init'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@example.com'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'README'), 'x');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: root });
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(
+      path.join(artifacts, 'TASKS.md'),
+      '## FEAT-1-T01 Task one\nImplements: FEAT-1-FR01\nAC: works\n\n## FEAT-1-T02 Task two\nImplements: FEAT-1-FR01\nAC: works\n',
+    );
+    fs.writeFileSync(
+      path.join(artifacts, 'WORK-PACKAGES.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        feature: 'FEAT-1',
+        projectContextRevision: 1,
+        featureContractRevision: 1,
+        featureContractHash: 'pending',
+        baseCommit: sha,
+        packages: [{
+          id: 'WP-01',
+          name: 'Too many tasks',
+          runId: 'FEAT-1-WP-01',
+          status: 'ready',
+          dependsOn: [],
+          tasks: ['FEAT-1-T01', 'FEAT-1-T02'],
+          writeScope: ['a/**', 'b/**', 'c/**'],
+          acceptanceCriteria: ['FEAT-1-AC01'],
+        }],
+      }, null, 2),
+    );
+
+    const v = await runner({
+      workspaceRoot: root,
+      state: { runId: 'FEAT-1' },
+    });
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/maxTasksPerPackage|maxFilesPerPackage/);
+  });
+
+  it('feature-contract requires Charter Invariants and rejects stale charterHash', async () => {
+    const runner = await loadRunner('feature-contract.mjs');
+    const charter = writeCharter(root);
+    execFileSync('git', ['init'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@example.com'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'README'), 'x');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: root });
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+
+    const artifacts = epicArtifacts(root);
+    const contractBody = [
+      '# Feature Contract',
+      '**Status:** FROZEN',
+      '**Contract Hash:** pending',
+      '',
+      '## Goal',
+      'Ship',
+      '## Invariants',
+      '- keep boundaries',
+      '## Charter Invariants',
+      '- INV-1',
+      '## Shared Contracts',
+      '- none',
+      '## Definition of Done',
+      '- tests',
+      '## Change Request Protocol',
+      '- file CR',
+    ].join('\n');
+    // Compute hash the same way as the validator (pending normalized)
+    const crypto = await import('node:crypto');
+    const normalized = contractBody.replace(
+      /\*\*Contract Hash:\*\*\s*[^\r\n]*/i,
+      '**Contract Hash:** pending',
+    );
+    const hash = `sha256:${crypto.createHash('sha256').update(normalized).digest('hex')}`;
+    const contract = contractBody.replace('**Contract Hash:** pending', `**Contract Hash:** ${hash}`);
+    fs.writeFileSync(path.join(artifacts, 'FEATURE-CONTRACT.md'), contract + '\n');
+    fs.writeFileSync(path.join(artifacts, 'ANALYSIS.md'), '**Verdict:** GO\n');
+    fs.writeFileSync(
+      path.join(artifacts, 'PROJECT-CONTEXT-SNAPSHOT.md'),
+      `**Charter Hash:** sha256:${'b'.repeat(64)}\n`,
+    );
+    fs.writeFileSync(
+      path.join(artifacts, 'WORK-PACKAGES.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        feature: 'FEAT-1',
+        projectContextRevision: 1,
+        featureContractRevision: 1,
+        featureContractHash: hash,
+        baseCommit: sha,
+        packages: [],
+      }, null, 2),
+    );
+
+    const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/stale charterHash/);
+    void charter;
+  });
+
+  it('integration-cohesion NO-GO on INV VIOLATED without approved VR', async () => {
+    const runner = await loadRunner('integration-cohesion.mjs');
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(
+      path.join(artifacts, 'COHESION-REPORT.md'),
+      'Duplicate ok\nContract ok\nTraceability ok\nVertical ok\nINV-1 VIOLATED in shared module\n**Verdict:** GO\n',
+    );
+    fs.writeFileSync(
+      path.join(artifacts, 'INTEGRATION-CONTEXT.md'),
+      '## Planned Versus Actual\nx\n## Cross-Package Interactions\nx\n## Remaining Risks\nx\nWP-01 done\n',
+    );
+    fs.writeFileSync(
+      path.join(artifacts, 'WORK-PACKAGES.json'),
+      JSON.stringify({ packages: [{ id: 'WP-01' }] }),
+    );
+    const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/INV-1.*VIOLATED|NO-GO/);
+  });
+
+  it('project-ci fail-closed when requiredQualityGates missing', async () => {
+    const runner = await loadRunner('project-ci.mjs');
+    writeCharter(root, { requiredQualityGates: ['test', 'lint', 'typecheck'] });
+    fs.writeFileSync(
+      path.join(root, 'package.json'),
+      JSON.stringify({ scripts: { test: 'echo test' } }),
+    );
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(path.join(artifacts, 'SYSTEM-TEST-REPORT.md'), '**Verdict:** GO\n');
+    const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/requiredQualityGates missing/);
+    expect(v.reason).toMatch(/lint|typecheck/);
+  });
+
+  it('project-context project-sync rejects charter/convention diffs', async () => {
+    const runner = await loadRunner('project-context.mjs');
+    execFileSync('git', ['init'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@example.com'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    fs.mkdirSync(path.join(root, 'docs/project/context'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'docs/project/charter'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs/project/charter/NORTH-STAR.md'), 'old\n');
+    fs.writeFileSync(path.join(root, 'README'), 'x');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'docs/project/charter/NORTH-STAR.md'), 'tampered\n');
+
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(
+      path.join(artifacts, 'PR-LINK.md'),
+      '**URL:** https://example.com/pr/1\n**Base:** main\n**Head:** feature/FEAT-1\n**Status:** merged\n**Merged By:** human\n',
+    );
+
+    const v = await runner({
+      workspaceRoot: root,
+      state: { runId: 'FEAT-1', currentStepIdx: 0 },
+      step: { stepIdx: 0 },
+      pipeline: { steps: [{ name: 'project-sync' }] },
+    });
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/charter/);
+  });
+});

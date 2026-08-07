@@ -79,6 +79,16 @@ export type {
 } from './epics/PlanGenerator';
 
 export {
+  ALIGNMENT_FILE,
+  buildAlignmentSeedFile,
+  alignmentDescriptionFromSeed,
+  parseServesGoals,
+  alignmentPath,
+  alignmentExists,
+} from './epics/alignmentArtifacts';
+export type { AlignmentSeedInput } from './epics/alignmentArtifacts';
+
+export {
   WorkspaceLoader,
   WorkspaceNotFoundError,
   WorkspaceParseError,

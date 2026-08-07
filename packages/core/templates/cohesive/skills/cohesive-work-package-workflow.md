@@ -35,6 +35,8 @@ The worker run id must match `<feature_id>-<package_id>`.
 - Do not edit another worker's run artifacts.
 - Work only in the package worktree after it is prepared.
 - If the contract is insufficient, create a Change Request and stop affected work.
+- Stay on `feature/<feature>-WP-x`. **Do not open a PR. Do not merge the default branch.** Ship (`open-pr` / `await-merge`) belongs to the feature coordinator after system-test.
+- Do not touch `docs/project/charter/**` or `docs/project/conventions/**`.
 
 ## Phase: `load-package`
 

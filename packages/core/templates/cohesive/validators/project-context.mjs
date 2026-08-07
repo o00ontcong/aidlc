@@ -1,7 +1,8 @@
 import path from 'node:path';
 import {
-  exists, formatError, fullCommitExists, hasPlaceholder, markdownHasGo,
-  pass, readJson, readText, reject, sha256File,
+  artifactDir, currentStepName, exists, fieldFromMarkdown, formatError,
+  fullCommitExists, gitDiffNameOnlyStagedAndUnstaged, hasPlaceholder,
+  markdownHasGo, pass, readJson, readText, reject, sha256File,
 } from './lib.mjs';
 
 const REQUIRED = [
@@ -12,8 +13,68 @@ const REQUIRED = [
   'ENGINEERING-RULES.md',
 ];
 
+function isProjectSync(ctx) {
+  const name = currentStepName(ctx).toLowerCase();
+  return name === 'project-sync' || name.includes('project-sync') || name.includes('project sync');
+}
+
+function assertNoIntentEdits(workspaceRoot) {
+  const files = gitDiffNameOnlyStagedAndUnstaged(workspaceRoot);
+  const problems = [];
+  for (const file of files) {
+    const norm = file.replaceAll('\\', '/');
+    if (norm.startsWith('docs/project/charter/') || norm === 'docs/project/charter') {
+      problems.push(`project-sync must not modify Intent charter path: ${norm}`);
+    }
+    if (norm.startsWith('docs/project/conventions/') || norm === 'docs/project/conventions') {
+      problems.push(`project-sync must not self-edit conventions: ${norm}`);
+    }
+  }
+  return problems;
+}
+
+function assertMergedBeforeSync(workspaceRoot, runId) {
+  const prFile = path.join(artifactDir(workspaceRoot, runId), 'PR-LINK.md');
+  if (!exists(prFile)) {
+    return ['project-sync requires PR-LINK.md (ship must complete before Reality sync)'];
+  }
+  const text = readText(prFile);
+  const status = fieldFromMarkdown(text, 'Status').toLowerCase();
+  const local = /\*\*Local Human Approval:\*\*\s*(yes|approved|true)\b/i.test(text);
+  if (!['merged', 'approved'].includes(status) && !local) {
+    return ['project-sync must run only after PR merge/approval (or local human approval escape hatch)'];
+  }
+  return [];
+}
+
 export default async function projectContext(ctx) {
   try {
+    if (isProjectSync(ctx)) {
+      const problems = [
+        ...assertMergedBeforeSync(ctx.workspaceRoot, ctx.state.runId),
+        ...assertNoIntentEdits(ctx.workspaceRoot),
+      ];
+      // Still verify manifest integrity when present
+      const root = path.join(ctx.workspaceRoot, 'docs', 'project', 'context');
+      const manifestFile = path.join(root, 'CONTEXT-MANIFEST.json');
+      if (exists(manifestFile)) {
+        const manifest = readJson(manifestFile);
+        for (const name of REQUIRED) {
+          const file = path.join(root, name);
+          if (!exists(file)) continue;
+          const actual = sha256File(file).toLowerCase();
+          const declared = manifest.artifacts?.[name]?.toLowerCase?.();
+          if (declared && actual !== declared) {
+            problems.push(`${name} hash mismatch after sync (${declared} != ${actual})`);
+          }
+        }
+      }
+      if (problems.length) {
+        return reject(`Project sync rejected:\n- ${[...new Set(problems)].join('\n- ')}`);
+      }
+      return pass('Project sync does not touch charter/conventions and ship gate is satisfied.');
+    }
+
     const root = path.join(ctx.workspaceRoot, 'docs', 'project', 'context');
     const reviewFile = path.join(root, 'CONTEXT-REVIEW.md');
     const manifestFile = path.join(root, 'CONTEXT-MANIFEST.json');
@@ -51,4 +112,3 @@ export default async function projectContext(ctx) {
     return reject(`Project context validator failed: ${formatError(error)}`);
   }
 }
-

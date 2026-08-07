@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
-  artifactDir, formatError, markdownHasGo, pass, readJson, readText, reject,
+  approvedVarianceIds, artifactDir, formatError, markdownHasGo, pass, readJson,
+  readText, reject,
 } from './lib.mjs';
 
 export default async function integrationCohesion(ctx) {
@@ -18,10 +19,22 @@ export default async function integrationCohesion(ctx) {
     for (const section of ['## Planned Versus Actual', '## Cross-Package Interactions', '## Remaining Risks']) {
       if (!integration.includes(section)) problems.push(`integration context is missing ${section}`);
     }
+
+    // INV-x VIOLATED without approved VR → NO-GO
+    const approved = approvedVarianceIds(artifacts);
+    const violated = [...report.matchAll(/\b(INV-\d+)\b[^\n]*\bVIOLATED\b/gi)]
+      .map((m) => m[1].toUpperCase());
+    const violatedAlt = [...report.matchAll(/\bVIOLATED\b[^\n]*\b(INV-\d+)\b/gi)]
+      .map((m) => m[1].toUpperCase());
+    for (const inv of new Set([...violated, ...violatedAlt])) {
+      if (!approved.has(inv)) {
+        problems.push(`${inv} is VIOLATED without an approved variance request → NO-GO`);
+      }
+    }
+
     if (problems.length) return reject(`Integrated feature is not proven cohesive:\n- ${problems.join('\n- ')}`);
     return pass(`Cohesion review covers all ${manifest.packages.length} work packages and issued GO.`);
   } catch (error) {
     return reject(`Integration-cohesion validator failed: ${formatError(error)}`);
   }
 }
-

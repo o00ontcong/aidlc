@@ -1,32 +1,52 @@
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import {
-  artifactDir, exists, formatError, markdownHasGo, pass, readJson, readText, reject,
+  artifactDir, exists, formatError, loadCharter, markdownHasGo, pass, readJson,
+  readText, reject,
 } from './lib.mjs';
+
+function resolveCommands(workspaceRoot) {
+  const configFile = path.join(workspaceRoot, '.aidlc', 'cohesive-ci.json');
+  if (exists(configFile)) {
+    const config = readJson(configFile);
+    return Array.isArray(config.commands) ? config.commands : [];
+  }
+  // Derive conservative project checks when no explicit config exists.
+  const packageFile = path.join(workspaceRoot, 'package.json');
+  const commands = [];
+  if (exists(packageFile)) {
+    const scripts = readJson(packageFile).scripts ?? {};
+    const runner = exists(path.join(workspaceRoot, 'pnpm-lock.yaml'))
+      ? 'pnpm' : exists(path.join(workspaceRoot, 'yarn.lock')) ? 'yarn' : 'npm run';
+    for (const name of ['lint', 'typecheck', 'test', 'build']) {
+      if (typeof scripts[name] !== 'string') continue;
+      const command = runner === 'yarn' ? `yarn ${name}` : `${runner} ${name}`;
+      commands.push({ name, command, timeoutMs: 300_000 });
+    }
+  }
+  return commands;
+}
 
 export default async function projectCi(ctx) {
   try {
-    const configFile = path.join(ctx.workspaceRoot, '.aidlc', 'cohesive-ci.json');
-    let commands = [];
-    if (exists(configFile)) {
-      const config = readJson(configFile);
-      commands = Array.isArray(config.commands) ? config.commands : [];
-    } else {
-      // A built-in preset must work immediately after extension installation.
-      // Derive conservative project checks when no explicit config exists;
-      // users can still pin exact commands in `.aidlc/cohesive-ci.json`.
-      const packageFile = path.join(ctx.workspaceRoot, 'package.json');
-      if (exists(packageFile)) {
-        const scripts = readJson(packageFile).scripts ?? {};
-        const runner = exists(path.join(ctx.workspaceRoot, 'pnpm-lock.yaml'))
-          ? 'pnpm' : exists(path.join(ctx.workspaceRoot, 'yarn.lock')) ? 'yarn' : 'npm run';
-        for (const name of ['lint', 'typecheck', 'test', 'build']) {
-          if (typeof scripts[name] !== 'string') continue;
-          const command = runner === 'yarn' ? `yarn ${name}` : `${runner} ${name}`;
-          commands.push({ name, command, timeoutMs: 300_000 });
-        }
+    const charter = loadCharter(ctx.workspaceRoot);
+    const requiredGates = Array.isArray(charter?.requiredQualityGates)
+      ? charter.requiredQualityGates.map((g) => String(g).toLowerCase())
+      : [];
+
+    let commands = resolveCommands(ctx.workspaceRoot);
+
+    if (requiredGates.length) {
+      const present = new Set(commands.map((c) => String(c?.name ?? '').toLowerCase()));
+      const missing = requiredGates.filter((g) => !present.has(g));
+      if (missing.length) {
+        return reject(
+          `Fail-closed quality gates: CHARTER.json requiredQualityGates missing command(s): ${missing.join(', ')}. `
+          + 'Add them to .aidlc/cohesive-ci.json or package.json scripts.',
+        );
       }
     }
+
     if (!commands.length) {
       return reject('No project CI commands found. Add .aidlc/cohesive-ci.json or package scripts for lint/typecheck/test/build.');
     }

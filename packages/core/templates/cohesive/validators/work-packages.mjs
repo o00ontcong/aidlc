@@ -1,8 +1,24 @@
 import path from 'node:path';
 import {
-  artifactDir, formatError, fullCommitExists, pass, readJson, readText, reject,
-  scopesOverlap, taskIdsFromMarkdown,
+  artifactDir, formatError, fullCommitExists, loadCharter, pass, readJson,
+  readText, reject, scopesOverlap, taskIdsFromMarkdown,
 } from './lib.mjs';
+
+function taskBlocks(taskText) {
+  // Split on headings or bullets that introduce a task id.
+  const ids = taskIdsFromMarkdown(taskText);
+  const blocks = new Map();
+  for (const id of ids) {
+    const idx = taskText.indexOf(id);
+    if (idx < 0) continue;
+    const nextCandidates = ids
+      .map((other) => (other === id ? -1 : taskText.indexOf(other, idx + id.length)))
+      .filter((n) => n > idx);
+    const end = nextCandidates.length ? Math.min(...nextCandidates) : taskText.length;
+    blocks.set(id, taskText.slice(idx, end));
+  }
+  return blocks;
+}
 
 export default async function workPackages(ctx) {
   try {
@@ -12,6 +28,7 @@ export default async function workPackages(ctx) {
     const taskIds = taskIdsFromMarkdown(taskText);
     const packages = Array.isArray(manifest.packages) ? manifest.packages : [];
     const problems = [];
+    const charter = loadCharter(ctx.workspaceRoot);
 
     if (manifest.schemaVersion !== 1) problems.push('schemaVersion must be 1');
     if (manifest.feature !== ctx.state.runId) problems.push('manifest feature must equal the feature run id');
@@ -19,6 +36,17 @@ export default async function workPackages(ctx) {
     if (!Number.isInteger(manifest.featureContractRevision) || manifest.featureContractRevision < 1) problems.push('featureContractRevision must be a positive integer');
     if (!fullCommitExists(ctx.workspaceRoot, manifest.baseCommit)) problems.push('baseCommit is missing or invalid');
     if (!packages.length) problems.push('at least one cohesive work package is required');
+
+    const blocks = taskBlocks(taskText);
+    for (const id of taskIds) {
+      const block = blocks.get(id) ?? '';
+      if (!/Implements:\s*[^\n]*\b(?:[A-Z][A-Z0-9_-]*-)?FR\d{2,}\b/i.test(block)) {
+        problems.push(`${id} is missing Implements: FR-x`);
+      }
+      if (!/\bAC:\s*\S/i.test(block) && !/\*\*AC:\*\*\s*\S/i.test(block)) {
+        problems.push(`${id} is missing AC: (task-level acceptance criteria)`);
+      }
+    }
 
     const packageIds = new Set();
     const assignmentCount = new Map(taskIds.map((id) => [id, 0]));
@@ -34,6 +62,25 @@ export default async function workPackages(ctx) {
       for (const task of pkg.tasks ?? []) {
         if (!assignmentCount.has(task)) problems.push(`${pkg.id} references unknown task ${task}`);
         else assignmentCount.set(task, assignmentCount.get(task) + 1);
+      }
+
+      if (charter?.deliveryBudget) {
+        const maxTasks = charter.deliveryBudget.maxTasksPerPackage;
+        const maxFiles = charter.deliveryBudget.maxFilesPerPackage;
+        if (Number.isInteger(maxTasks) && (pkg.tasks?.length ?? 0) > maxTasks) {
+          problems.push(`${pkg.id} exceeds deliveryBudget.maxTasksPerPackage (${pkg.tasks.length} > ${maxTasks})`);
+        }
+        if (Number.isInteger(maxFiles)) {
+          const fileCount = Array.isArray(pkg.ownedPaths)
+            ? pkg.ownedPaths.length
+            : Array.isArray(pkg.writeScope)
+              ? pkg.writeScope.length
+              : 0;
+          // writeScope globs are a proxy when ownedPaths is absent
+          if (fileCount > maxFiles) {
+            problems.push(`${pkg.id} exceeds deliveryBudget.maxFilesPerPackage (${fileCount} > ${maxFiles})`);
+          }
+        }
       }
     }
     for (const [id, count] of assignmentCount) {
