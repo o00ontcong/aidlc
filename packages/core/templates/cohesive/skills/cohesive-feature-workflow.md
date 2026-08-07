@@ -218,7 +218,9 @@ Inspect the actual integrated diff, not only package prose. Write `INTEGRATION-C
 
 ## Phase: `cohesion-review`
 
-Review Project Context, Feature Contract, charter invariants, integrated code, tests, and Integration Context. Write `COHESION-REPORT.md` covering:
+**Ownership:** `cohesive-reviewer-agent` (independent read-only reviewer — not this feature coordinator). Follow `cohesive-reviewer-workflow`. Feature agent must not author `COHESION-REPORT.md`.
+
+The reviewer writes `COHESION-REPORT.md` covering:
 
 - Duplicate or competing abstractions.
 - Naming and convention consistency.
@@ -229,6 +231,7 @@ Review Project Context, Feature Contract, charter invariants, integrated code, t
 - Complete requirement-to-test traceability.
 - Whether the result is one coherent vertical feature.
 - Per-invariant status (`INV-x` OK / VIOLATED). Any `VIOLATED` without an approved `variance-requests/VR-*.md` is **NO-GO**.
+- `**Reviewer:** cohesive-reviewer-agent`
 - `**Verdict:** GO|NO-GO`.
 
 Never issue GO merely because packages individually passed.

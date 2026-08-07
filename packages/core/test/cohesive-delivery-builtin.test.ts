@@ -37,9 +37,9 @@ describe('Cohesive Delivery built-in bundle', () => {
       'project-context',
       'cohesive-work-package',
     ]);
-    expect(config.agents).toHaveLength(3);
-    expect(config.skills).toHaveLength(3);
-    expect(config.slash_commands).toHaveLength(26);
+    expect(config.agents).toHaveLength(4);
+    expect(config.skills).toHaveLength(4);
+    expect(config.slash_commands).toHaveLength(28);
     const slashNames = config.slash_commands.map((c) => c.name);
     expect(slashNames).toContain('/project-context-define-charter');
     expect(slashNames).toContain('/project-context-scan-project');
@@ -49,6 +49,8 @@ describe('Cohesive Delivery built-in bundle', () => {
     expect(slashNames).toContain('/cohesive-feature-open-pr');
     expect(slashNames).toContain('/cohesive-feature-await-merge');
     expect(slashNames).toContain('/cohesive-work-package-load-package');
+    expect(slashNames).toContain('/cohesive-work-package-package-test-plan');
+    expect(slashNames).toContain('/cohesive-work-package-package-review');
     expect(slashNames).not.toContain('/cohesive-feature-scan-project');
     expect(slashNames).not.toContain('/cohesive-work-package-open-pr');
 
@@ -57,7 +59,7 @@ describe('Cohesive Delivery built-in bundle', () => {
     const worker = config.pipelines.find((pipeline) => pipeline.id === 'cohesive-work-package')!;
     expect(project.steps).toHaveLength(7);
     expect(feature.steps).toHaveLength(14);
-    expect(worker.steps).toHaveLength(5);
+    expect(worker.steps).toHaveLength(7);
 
     expect(feature.steps[0].requires).toContain('docs/project/context/CONTEXT-MANIFEST.json');
     const specify = feature.steps.find((s) => s.name === 'specify')!;
@@ -85,6 +87,12 @@ describe('Cohesive Delivery built-in bundle', () => {
     expect(tasksPackage.produces).toContain('docs/epics/{epic}/artifacts/WORK-PACKAGES.json');
     expect(tasksPackage.auto_review_runner).toBe('.aidlc/validators/work-packages.mjs');
     expect(worker.steps[0].auto_review_runner).toBe('.aidlc/validators/package-context.mjs');
+
+    const cohesion = feature.steps.find((s) => s.name === 'cohesion-review')!;
+    expect(cohesion.agent).toBe('aidlc-cohesive-reviewer-agent');
+
+    const shipOnPackage = worker.steps.some((s) => s.name === 'open-pr' || s.name === 'await-merge');
+    expect(shipOnPackage).toBe(false);
   });
 
   it('keeps companion pipeline lookup compatible with existing extension code', () => {
@@ -95,10 +103,37 @@ describe('Cohesive Delivery built-in bundle', () => {
       'review-context', 'publish-context', 'project-rules-sync',
     ]);
     expect(worker?.phases.map((phase) => phase.id)).toEqual([
-      'load-package', 'prepare-worktree', 'implement-package', 'package-test', 'publish-result',
+      'load-package',
+      'prepare-worktree',
+      'package-test-plan',
+      'implement-package',
+      'package-test',
+      'package-review',
+      'publish-result',
     ]);
     expect(getBuiltinPipelineSummary(workflow).steps).toHaveLength(14);
     expect(worker?.phases.map((phase) => phase.id)).not.toContain('open-pr');
+  });
+
+  it('orders package-test-plan before implement and review before publish', () => {
+    const worker = getBuiltinWorkflowByPipelineId('cohesive-work-package')!;
+    const ids = worker.phases.map((p) => p.id);
+    expect(ids.indexOf('package-test-plan')).toBeLessThan(ids.indexOf('implement-package'));
+    expect(ids.indexOf('implement-package')).toBeLessThan(ids.indexOf('package-test'));
+    expect(ids.indexOf('package-test')).toBeLessThan(ids.indexOf('package-review'));
+    expect(ids.indexOf('package-review')).toBeLessThan(ids.indexOf('publish-result'));
+
+    const testPlan = worker.phases.find((p) => p.id === 'package-test-plan')!;
+    expect(testPlan.producesContains).toContain('## Failing Tests');
+
+    const implement = worker.phases.find((p) => p.id === 'implement-package')!;
+    expect(implement.dependsOn).toContain('package-test-plan');
+    expect(implement.produces).toContain('docs/epics/{epic}/artifacts/REVIEW-DIFF.md');
+    expect(implement.autoReviewRunner).toBe('.aidlc/validators/diff-review.mjs');
+
+    const review = worker.phases.find((p) => p.id === 'package-review')!;
+    expect(review.persona).toBe('cohesive-reviewer-agent');
+    expect(review.autoReviewRunner).toBe('.aidlc/validators/package-review.mjs');
   });
 
   it('does not pre-seed gate outputs with empty artifact templates', () => {
@@ -125,6 +160,7 @@ describe('Cohesive Delivery built-in bundle', () => {
       'await-packages.mjs', 'integration-cohesion.mjs', 'project-ci.mjs',
       'package-context.mjs', 'worktree-state.mjs', 'package-result.mjs',
       'charter-alignment.mjs', 'ship.mjs',
+      'diff-review.mjs', 'package-review.mjs',
     ]) {
       expect(fs.existsSync(path.join(validators, file)), file).toBe(true);
     }

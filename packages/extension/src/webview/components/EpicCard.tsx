@@ -44,7 +44,31 @@ import { RerunModal } from './RerunModal';
 import { RunWithFeedbackModal } from './RunWithFeedbackModal';
 import { RequestUpdateModal } from './RequestUpdateModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
+import { AlignmentStrip } from './AlignmentStrip';
+import { DiffPane } from './DiffPane';
+import { ShipStrip } from './ShipStrip';
 import { postMessage } from '@/lib/bridge';
+
+function isFeaturePipeline(pipeline: string | null): boolean {
+  if (!pipeline) return false;
+  return pipeline === 'cohesive-feature' || pipeline.startsWith('cohesive-feature');
+}
+
+function isPackagePipeline(pipeline: string | null): boolean {
+  if (!pipeline) return false;
+  return pipeline === 'cohesive-work-package' || pipeline.includes('work-package');
+}
+
+function isCodeHumanReviewStep(step: EpicStepDetailFull | null): boolean {
+  if (!step?.stepHasHumanReview) return false;
+  const name = (step.stepName ?? step.agent ?? '').toLowerCase();
+  return (
+    name.includes('implement')
+    || name.includes('package-review')
+    || name.includes('review-diff')
+    || !!step.artifact?.toLowerCase().includes('review-diff')
+  );
+}
 
 /** MIME used when dragging epics between Follow / No-follow sections. */
 export const EPIC_DND_MIME = 'application/x-aidlc-epic-id';
@@ -100,6 +124,8 @@ interface Props {
   isDragging?: boolean;
   onDragStart?: () => void;
   onDragEnd?: () => void;
+  /** Patterns from `.aidlc/diffignore` for display-only filtering. */
+  diffIgnore?: string[];
 }
 
 export function EpicCard({
@@ -111,6 +137,7 @@ export function EpicCard({
   isDragging,
   onDragStart,
   onDragEnd,
+  diffIgnore,
 }: Props) {
   const [expanded, setExpanded] = useState<boolean>(false);
   const [focusedIdx, setFocusedIdx] = useState<number>(epic.currentStep ?? 0);
@@ -223,6 +250,21 @@ export function EpicCard({
           </button>
         </div>
       </div>
+
+      {!isPackagePipeline(epic.pipeline) && (
+        <>
+          <AlignmentStrip alignment={epic.alignment} />
+          <ShipStrip ship={epic.ship} isFeatureEpic={isFeaturePipeline(epic.pipeline)} />
+        </>
+      )}
+
+      {expanded && focused && isCodeHumanReviewStep(focused) && (
+        <DiffPane
+          diffText={epic.reviewDiff}
+          diffIgnore={diffIgnore}
+          stepLabel={focused.stepName ?? focused.agent}
+        />
+      )}
 
       {expanded && (
         <div className="space-y-4 border-t border-border px-5 py-4">

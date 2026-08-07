@@ -37,6 +37,20 @@ The worker run id must match `<feature_id>-<package_id>`.
 - If the contract is insufficient, create a Change Request and stop affected work.
 - Stay on `feature/<feature>-WP-x`. **Do not open a PR. Do not merge the default branch.** Ship (`open-pr` / `await-merge`) belongs to the feature coordinator after system-test.
 - Do not touch `docs/project/charter/**` or `docs/project/conventions/**`.
+- Treat `ownedPaths` and `writeScope` as the same boundary (prefer `ownedPaths` when present).
+
+## Prompt contract (every implement step)
+
+```text
+Implement the tasks listed in this package according to PLAN.md and TASKS.md.
+- Only modify files in ownedPaths. Do not touch protectedPaths or docs/project/charter/**.
+- Follow package-test-plan: failing tests first, then implementation until green.
+- Run requiredQualityGates (test, lint, typecheck) before finishing.
+- Produce REVIEW-DIFF.md summarizing the real git diff.
+- Stay on feature/$FEATURE-WP-x. Do not open a PR. Do not merge defaultBranch.
+  Ship (open-pr / await-merge) belongs to the feature coordinator after system-test.
+- If you must violate an invariant: stop and file variance-requests/VR-xxx.md instead.
+```
 
 ## Phase: `load-package`
 
@@ -95,20 +109,40 @@ Create the branch/worktree if safe. Write `WORKTREE-STATE.json`:
 }
 ```
 
-## Phase: `implement-package`
+## Phase: `package-test-plan`
 
 - Read `PACKAGE-CONTEXT.md` and `WORKTREE-STATE.json`.
+- Inside the package worktree, write **failing** tests that encode each assigned task's AC.
+- Commit the red tests before any implementation commit when practical.
+- Do not implement production code in this phase.
+
+Write `PACKAGE-TEST-PLAN.md` with:
+
+- `## Failing Tests` — list each failing test file/case and the AC it covers.
+- Exact commands that currently fail (exit codes).
+- Optional `**Test commit:** <full-sha>` for the failing-test commit.
+
+## Phase: `implement-package`
+
+- Read `PACKAGE-CONTEXT.md`, `WORKTREE-STATE.json`, and `PACKAGE-TEST-PLAN.md`.
 - Perform all Git and code operations inside the package worktree.
-- Execute package tasks in dependency order.
-- Write tests alongside each behavior change.
+- Execute package tasks in dependency order **after** failing tests exist.
 - Keep commits small and traceable to task IDs.
-- Check that changed files remain within write scope.
+- Check that changed files remain within `ownedPaths` / `writeScope`.
+- Never touch `protectedPaths` or `docs/project/charter/**` without an approved VR.
+- Do not open a PR. Do not merge `defaultBranch`.
 
 Maintain `IMPLEMENT-STATE.md` with a table:
 
 `task → status → files → tests → commit → deviation`
 
 Write `PACKAGE-SUMMARY.md` with implemented behavior, task completion, commits, files, contract observations, deviations, and remaining work.
+
+Write `REVIEW-DIFF.md` summarizing the **real** git diff (`git diff` / `git diff --name-only` vs package base). Include:
+
+- Changed file list
+- High-signal hunks (or pointers)
+- Confirmation that every changed path is inside ownedPaths / writeScope
 
 ### Change request
 
@@ -123,11 +157,17 @@ If implementation requires changing a read-only contract, architecture decision,
 
 Inside the worktree, run:
 
-- Tests required by every assigned task.
+- Tests required by every assigned task (the previously failing suite must now pass).
 - Package-level tests.
 - Applicable lint/typecheck checks.
 
-Write `PACKAGE-TEST-REPORT.md` with exact commands, exit codes, task/AC coverage, failures/skips, and `**Verdict:** GO|NO-GO`.
+When `PACKAGE-TEST-PLAN.md` records a `**Test commit:**`, verify that commit precedes implementation commits (ancestor / earlier in history).
+
+Write `PACKAGE-TEST-REPORT.md` with exact commands, exit codes, task/AC coverage, failures/skips, test-first ordering note, and `**Verdict:** GO|NO-GO`.
+
+## Phase: `package-review`
+
+Owned by `cohesive-reviewer-agent` (see reviewer skill). Package engineer does not self-review this gate.
 
 ## Phase: `publish-result`
 
@@ -162,8 +202,10 @@ Write `PACKAGE-RESULT.json`:
 
 Allowed final statuses: `done`, `deferred`, `failed`, `change_requested`.
 
-- `done` requires all assigned tasks completed and package tests GO.
+- `done` requires all assigned tasks completed, package tests GO, and package-review GO.
 - `deferred` requires explicit reasons per task.
 - `change_requested` requires `CHANGE-REQUEST.md`.
 - Never report a commit, test, or file that cannot be verified.
+- Never open a PR or merge into `defaultBranch` from this pipeline — ship is feature-level only.
+- Set `openedPullRequest` / `mergedDefaultBranch` only if true (validators reject when true).
 
