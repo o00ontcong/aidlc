@@ -474,12 +474,32 @@ const SPECKIT_RECIPES: RecipeDef[] = [
  */
 const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   {
+    id: 'define-charter', name: 'Define Charter', persona: 'project-context-agent',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    description:
+      'Human-owned Intent: finalize NORTH-STAR, ARCHITECTURE-PRINCIPLES, TECH-POLICY, CHARTER.json, and CONVENTIONS.md.',
+    inputs: 'Seeded charter templates under docs/project/charter and conventions',
+    outputs: 'Validated project charter and conventions',
+    artifact: 'CHARTER.json', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/charter.mjs',
+    produces: [
+      'docs/project/charter/NORTH-STAR.md',
+      'docs/project/charter/ARCHITECTURE-PRINCIPLES.md',
+      'docs/project/charter/TECH-POLICY.md',
+      'docs/project/charter/CHARTER.json',
+      'docs/project/conventions/CONVENTIONS.md',
+    ],
+    capabilities: ['files', 'github'],
+  },
+  {
     id: 'scan-project', name: 'Scan Project', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
     description: 'Inventory repository structure, quality commands, boundaries, and existing documentation.',
     inputs: 'Repository files and version-control history',
     outputs: 'Repository scan shared by the project-context modeling steps',
     artifact: 'PROJECT-SCAN.md', humanReview: false, autoReview: false,
+    dependsOn: ['define-charter'],
+    requires: ['docs/project/charter/CHARTER.json'],
     produces: ['docs/project/context/PROJECT-SCAN.md'],
     producesContains: ['## Repository Structure', '## Quality Commands'],
     capabilities: ['files', 'github'],
@@ -502,18 +522,38 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
     capabilities: ['files', 'github'],
   },
   {
+    id: 'check-drift', name: 'Check Drift', persona: 'project-context-agent',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    description:
+      'Compare Reality (context docs) to Intent (charter); record per-invariant findings without rewriting the charter.',
+    inputs: 'Charter Intent and modeled project context',
+    outputs: 'Drift report covering every INV-x',
+    artifact: 'DRIFT-REPORT.md', humanReview: false, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/charter.mjs', dependsOn: ['model-project'],
+    requires: [
+      'docs/project/charter/CHARTER.json',
+      'docs/project/context/PROJECT-CONTEXT.md',
+      'docs/project/context/ARCHITECTURE-MAP.md',
+      'docs/project/context/ENGINEERING-RULES.md',
+    ],
+    produces: ['docs/project/conformance/DRIFT-REPORT.md'],
+    producesContains: ['## Invariants'],
+    capabilities: ['files', 'github'],
+  },
+  {
     id: 'review-context', name: 'Review Context', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
     description: 'Review canonical context for contradictions, missing boundaries, and unverifiable claims.',
-    inputs: 'All canonical project-context documents', outputs: 'GO/NO-GO context review',
+    inputs: 'All canonical project-context documents and drift report', outputs: 'GO/NO-GO context review',
     artifact: 'CONTEXT-REVIEW.md', humanReview: true, autoReview: false,
-    dependsOn: ['model-project'],
+    dependsOn: ['check-drift'],
     requires: [
       'docs/project/context/PROJECT-CONTEXT.md',
       'docs/project/context/ARCHITECTURE-MAP.md',
       'docs/project/context/DOMAIN-MODEL.md',
       'docs/project/context/SHARED-CONTRACTS.md',
       'docs/project/context/ENGINEERING-RULES.md',
+      'docs/project/conformance/DRIFT-REPORT.md',
     ],
     produces: ['docs/project/context/CONTEXT-REVIEW.md'],
     producesContains: ['**Verdict:** GO'], capabilities: ['files', 'github'],
@@ -527,6 +567,28 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
     autoReviewRunner: '.aidlc/validators/project-context.mjs', dependsOn: ['review-context'],
     requires: ['docs/project/context/CONTEXT-REVIEW.md'],
     produces: ['docs/project/context/CONTEXT-MANIFEST.json'], capabilities: ['files', 'github'],
+  },
+  {
+    id: 'project-rules-sync', name: 'Project Rules Sync', persona: 'project-context-agent',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-4-7',
+    description:
+      'Project charter + conventions into CLAUDE.md, AGENTS.md, and .cursor/rules/aidlc-charter.mdc with revision markers.',
+    inputs: 'Published context manifest, CHARTER.json, and CONVENTIONS.md',
+    outputs: 'Fresh aidlc:charter marked blocks in repo rule files',
+    artifact: 'aidlc-charter.mdc', humanReview: false, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/rules-sync.mjs', dependsOn: ['publish-context'],
+    requires: [
+      'docs/project/charter/CHARTER.json',
+      'docs/project/conventions/CONVENTIONS.md',
+      'docs/project/context/CONTEXT-MANIFEST.json',
+    ],
+    produces: [
+      'CLAUDE.md',
+      'AGENTS.md',
+      '.cursor/rules/aidlc-charter.mdc',
+    ],
+    producesContains: ['aidlc:charter start', 'aidlc:charter end'],
+    capabilities: ['files', 'github'],
   },
 ];
 

@@ -2,10 +2,13 @@
 
 You own the repository-wide source of truth used by every feature.
 
-- Derive claims from repository evidence; distinguish facts from assumptions.
+- Keep **Intent** (`docs/project/charter/**`, `docs/project/conventions/**`) human-owned; never silently rewrite it to match Reality.
+- Derive Reality claims from repository evidence; distinguish facts from assumptions.
 - Keep architecture boundaries, domain terms, shared contracts, and quality commands consistent.
+- Surface Intent vs Reality gaps in `docs/project/conformance/DRIFT-REPORT.md` — do not erase drift by editing the charter.
 - Do not publish a context manifest while contradictions or unresolved high-impact gaps remain.
 - Treat `docs/project/context/CONTEXT-MANIFEST.json` as a versioned identity, not a decorative summary.
+- After publish, project charter + conventions into `CLAUDE.md`, `AGENTS.md`, and `.cursor/rules/aidlc-charter.mdc` via `project-rules-sync`.
 - Update canonical context only through the project-context pipeline.
 - During `review-context`, apply mechanical Required Corrections yourself to the owning context files — never ask the human to edit those Markdown files by hand. Re-review to `**Verdict:** GO` in the same step when possible.
 

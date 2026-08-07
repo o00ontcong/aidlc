@@ -23,20 +23,23 @@ describe('cohesive companion command files', () => {
     for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('expects 21 distinct pipeline-namespaced command ids (no cohesive-feature-scan-project)', () => {
+  it('expects 24 distinct pipeline-namespaced command ids (no cohesive-feature-scan-project)', () => {
     const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
     const pairs = workflowCommandPhases(workflow);
-    expect(pairs).toHaveLength(21);
+    expect(pairs).toHaveLength(24);
 
     const ids = pairs.map(({ pipelineId, phase }) => pipelineCommandId(pipelineId, phase.id));
+    expect(ids).toContain('project-context-define-charter');
     expect(ids).toContain('project-context-publish-context');
     expect(ids).toContain('project-context-scan-project');
+    expect(ids).toContain('project-context-check-drift');
+    expect(ids).toContain('project-context-project-rules-sync');
     expect(ids).toContain('cohesive-work-package-load-package');
     expect(ids).toContain('cohesive-feature-capture-context');
     expect(ids).not.toContain('cohesive-feature-scan-project');
     expect(ids).not.toContain('cohesive-feature-publish-context');
     expect(ids).not.toContain('cohesive-feature-load-package');
-    expect(new Set(ids).size).toBe(21);
+    expect(new Set(ids).size).toBe(24);
   });
 
   it('loadBuiltinPreset has skill content for every cohesive phase', () => {
@@ -47,7 +50,7 @@ describe('cohesive companion command files', () => {
     }
   });
 
-  it('can materialize all 21 command files into an empty .claude/commands', () => {
+  it('can materialize all 24 command files into an empty .claude/commands', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-cmds-'));
     tempRoots.push(root);
     const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
@@ -64,8 +67,10 @@ describe('cohesive companion command files', () => {
 
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
     expect(files).toContain('project-context-publish-context.md');
+    expect(files).toContain('project-context-define-charter.md');
+    expect(files).toContain('project-context-project-rules-sync.md');
     expect(files).toContain('cohesive-work-package-publish-result.md');
-    expect(files.filter((f) => f.startsWith('project-context-'))).toHaveLength(4);
+    expect(files.filter((f) => f.startsWith('project-context-'))).toHaveLength(7);
     expect(files.filter((f) => f.startsWith('cohesive-work-package-'))).toHaveLength(5);
     expect(files.filter((f) => f.startsWith('cohesive-feature-'))).toHaveLength(12);
   });

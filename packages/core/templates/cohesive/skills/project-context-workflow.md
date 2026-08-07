@@ -1,6 +1,6 @@
 ---
 name: project-context-workflow
-description: Build, review, and publish the canonical project context consumed by cohesive feature delivery.
+description: Build, review, and publish the canonical project charter + context consumed by cohesive feature delivery.
 ---
 
 # Project Context Workflow
@@ -20,8 +20,22 @@ You are the Project Context Curator. Execute exactly the current pipeline phase;
 - Label an inference as an inference. Never present a folder name alone as proof of an architecture rule.
 - Record exceptions and legacy areas instead of forcing them into a clean but false model.
 - Do not modify application source code in this pipeline.
-- Canonical outputs live under `docs/project/context/`.
+- **Intent** lives under `docs/project/charter/**` and `docs/project/conventions/**` — human-owned; agents must not silently rewrite Intent to match Reality.
+- **Reality** lives under `docs/project/context/**` — agent-scanned description of the repo as it is.
+- **Conformance** lives under `docs/project/conformance/**` — drift and amendments.
 - Do not create placeholder-only artifacts.
+
+## Phase: `define-charter`
+
+Human owns this phase. Ensure seeded files exist (or create from templates if missing), then help the human finalize:
+
+- `docs/project/charter/NORTH-STAR.md` — goals `G-x` with metrics + non-goals
+- `docs/project/charter/ARCHITECTURE-PRINCIPLES.md` — invariants `INV-x` (severity `advisory`|`blocking`) + protected paths
+- `docs/project/charter/TECH-POLICY.md` — tech rules `T-x` (must-use / forbidden / allowed)
+- `docs/project/charter/CHARTER.json` — machine-readable mirror: `revision`, `hash` of the three Markdown files (byte-concat in that order), `goals`, `nonGoals`, `invariants`, `techRules`, `protectedPaths`, `deliveryBudget`, `requiredQualityGates`, `shipPolicy`
+- `docs/project/conventions/CONVENTIONS.md` — how the repo must work (commands, style, commit/PR)
+
+After human edits, recompute `CHARTER.json.hash` so it matches the three Markdown files. Do not invent goals the human did not approve. Bootstrap invariants should stay `advisory` until baseline drift is cleaned up.
 
 ## Phase: `scan-project`
 
@@ -84,9 +98,22 @@ Read `PROJECT-SCAN.md` and the evidence it references. Produce all of:
 - Definition of Done.
 - Exact quality commands inherited from `PROJECT-SCAN.md`.
 
+## Phase: `check-drift`
+
+Compare Reality (`docs/project/context/*`) to Intent (`docs/project/charter/*` + `CONVENTIONS.md`).
+
+Write `docs/project/conformance/DRIFT-REPORT.md` with:
+
+- Charter revision and generation timestamp
+- A section for **every** `INV-x` in `CHARTER.json` (heading must include the id)
+- Status per invariant: `ALIGNED` | `DRIFT` | `UNKNOWN` | `VIOLATED`
+- Evidence paths; do **not** edit charter files to remove drift
+
+First bootstrap may list many advisory findings — that is expected.
+
 ## Phase: `review-context`
 
-Review the five context documents against repository evidence. Write `CONTEXT-REVIEW.md` containing:
+Review the five context documents against repository evidence (and note drift). Write `CONTEXT-REVIEW.md` containing:
 
 - Evidence coverage table: context claim → source file/code/config.
 - Contradictions and stale documentation.
@@ -103,7 +130,7 @@ When you find fixable issues — wrong claim, missing `**inference**` label, ove
 - If a previous `CONTEXT-REVIEW.md` already lists `## Required Corrections` with `**Verdict:** NO-GO`, apply those corrections first, then rewrite the review with `**Verdict:** GO`.
 - Use `**Verdict:** NO-GO` only when a **human product/architecture decision** is required that you cannot infer from repository evidence. Even then, leave precise Required Corrections so a rerun can finish without manual file editing once the human answers in chat.
 
-Do not publish a manifest on NO-GO. Do not stop after listing corrections without applying the mechanical ones.
+Do not publish a manifest on NO-GO. Do not stop after listing corrections without applying the mechanical ones. Do not “fix” drift by editing the charter.
 
 ## Phase: `publish-context`
 
@@ -117,6 +144,8 @@ Write `docs/project/context/CONTEXT-MANIFEST.json` using this schema:
   "revision": 1,
   "sourceCommit": "full-git-sha",
   "generatedAt": "ISO-8601",
+  "charterRevision": 1,
+  "charterHash": "sha256:...",
   "artifacts": {
     "PROJECT-CONTEXT.md": "sha256:...",
     "ARCHITECTURE-MAP.md": "sha256:...",
@@ -128,7 +157,30 @@ Write `docs/project/context/CONTEXT-MANIFEST.json` using this schema:
 ```
 
 - Increment `revision` when replacing an existing published context.
+- Copy `charterRevision` / `charterHash` from current `CHARTER.json`.
 - Use the current repository commit as `sourceCommit`.
 - Hash the exact bytes of every listed artifact with SHA-256.
 - Never invent hashes.
 
+## Phase: `project-rules-sync`
+
+Project Intent outward so every agent (Cursor, Claude Code, AIDLC) sees the same law.
+
+Update (create if missing) marked blocks in:
+
+- `CLAUDE.md`
+- `AGENTS.md`
+- `.cursor/rules/aidlc-charter.mdc`
+
+Exact marker format:
+
+```markdown
+<!-- aidlc:charter start · revision N · sha256:… -->
+…short G-x / INV-x / T-x / protectedPaths / quality gates / ship policy…
+…CONVENTIONS summary (test/lint/typecheck, style, ship)…
+<!-- aidlc:charter end -->
+```
+
+- One-way only: charter + conventions → rule files.
+- `revision` and `sha256` in the start marker **must** match current `CHARTER.json`.
+- Replace an existing `aidlc:charter` block in place; leave unrelated file content intact.

@@ -24,6 +24,7 @@ import { startRun } from './PipelineRunner';
 import { RunStateStore } from './RunStateStore';
 import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
+import { seedCharterArtifacts } from '../epics/charterArtifacts';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
@@ -201,6 +202,11 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
           fs.copyFileSync(src, dest);
         }
       }
+    }
+
+    // Project-context bootstrap: seed Intent + Conventions once under docs/project/.
+    if (target.id === 'project-context') {
+      seedCharterArtifacts(workspaceRoot);
     }
   }
 

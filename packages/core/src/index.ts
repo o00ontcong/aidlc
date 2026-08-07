@@ -79,6 +79,36 @@ export type {
 } from './epics/PlanGenerator';
 
 export {
+  CHARTER_MD_FILES,
+  CHARTER_REL_DIR,
+  CHARTER_JSON_REL,
+  CONVENTIONS_REL,
+  DRIFT_REPORT_REL,
+  RULES_SYNC_TARGETS,
+  defaultCharterTemplatesDir,
+  sha256Text,
+  sha256File,
+  computeCharterMarkdownHash,
+  readCharterJson,
+  seedCharterArtifacts,
+  buildCharterRulesBlock,
+  syncProjectRules,
+  parseCharterMarker,
+} from './epics/charterArtifacts';
+export type {
+  InvariantSeverity,
+  TechRuleKind,
+  CharterGoal,
+  CharterInvariant,
+  CharterTechRule,
+  DeliveryBudget,
+  ShipPolicy,
+  CharterDocument,
+  SeedCharterResult,
+  SyncProjectRulesResult,
+} from './epics/charterArtifacts';
+
+export {
   WorkspaceLoader,
   WorkspaceNotFoundError,
   WorkspaceParseError,

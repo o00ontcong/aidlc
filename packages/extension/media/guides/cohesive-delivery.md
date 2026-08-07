@@ -85,7 +85,7 @@ stateDiagram-v2
 7. Có thể chọn **Open Builder** để mở Workspace Builder.
 8. Mở tab **Workflows** và kiểm tra có đủ ba pipeline:
 
-   - `project-context` — 4 steps;
+   - `project-context` — 7 steps (charter → scan → model → drift → review → publish → rules-sync);
    - `cohesive-feature` — 12 steps;
    - `cohesive-work-package` — 5 steps.
 
@@ -139,19 +139,25 @@ sequenceDiagram
 
 ## 3. Khởi tạo Project Context
 
-Project Context là nguồn thông tin chung về kiến trúc, domain, shared contracts và engineering rules của repository. Hãy hoàn thành pipeline này trước feature đầu tiên.
+Project Context là nguồn thông tin chung: **Intent** (charter + conventions), **Reality** (scan/model), và chiếu rule files. Hãy hoàn thành pipeline này trước feature đầu tiên.
 
 ```mermaid
 flowchart LR
-  S1[scan-project] --> S2[model-project]
-  S2 --> S3[review-context]
+  S0[define-charter] --> S1[scan-project]
+  S1 --> S2[model-project]
+  S2 --> S2b[check-drift]
+  S2b --> S3[review-context]
   S3 --> S4[publish-context]
+  S4 --> S5[project-rules-sync]
   S4 --> M[CONTEXT-MANIFEST.json]
 
+  S0 -.-> C[CHARTER.json]
   S1 -.-> P1[PROJECT-SCAN.md]
   S2 -.-> P2[5 file context]
+  S2b -.-> D[DRIFT-REPORT.md]
   S3 -.-> P3[CONTEXT-REVIEW.md]
   S4 -.-> M
+  S5 -.-> R[CLAUDE.md / AGENTS.md / .cursor/rules]
 ```
 
 ### 3.1 Tạo Project Context epic
@@ -164,17 +170,20 @@ flowchart LR
    - **Title:** `Initialize project context`
    - **Description:** mô tả ngắn project và mục tiêu quét context.
 
-4. Nhấn **Start epic**.
+4. Nhấn **Start epic** — scaffold seeds `docs/project/charter/*` + `CONVENTIONS.md` once if missing.
 5. Mở Epic card `PROJECT-CONTEXT-001`.
 
 ### 3.2 Chạy các step
 
 Chạy lần lượt:
 
-1. `scan-project`
-2. `model-project`
-3. `review-context`
-4. `publish-context`
+1. `define-charter` (human) — finalize Intent + conventions; auto-review `charter.mjs`
+2. `scan-project`
+3. `model-project`
+4. `check-drift` — Reality vs Intent per `INV-x`
+5. `review-context`
+6. `publish-context`
+7. `project-rules-sync` — project markers into `CLAUDE.md`, `AGENTS.md`, `.cursor/rules/aidlc-charter.mdc`
 
 Tại `review-context`:
 

@@ -171,4 +171,37 @@ describe('scaffoldEpic — on-disk layout', () => {
       pipeline: PIPELINE,
     })).toThrow(/already exists/);
   });
+
+  it('seeds project charter artifacts when starting project-context', () => {
+    const root = tmpRoot();
+    const pipeline: PipelineConfig = {
+      id: 'project-context',
+      on_failure: 'stop',
+      steps: [
+        {
+          agent: 'project-context-agent',
+          name: 'define-charter',
+          requires: [],
+          produces: ['docs/project/charter/CHARTER.json'],
+          depends_on: [],
+          human_review: true,
+          auto_review: false,
+          enabled: true,
+        },
+      ],
+    };
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'CTX-1',
+      title: 'Project context',
+      description: 'bootstrap charter',
+      target: { kind: 'pipeline', id: 'project-context' },
+      agents: ['project-context-agent'],
+      inputs: {},
+      pipeline,
+    });
+    expect(fs.existsSync(path.join(root, 'docs/project/charter/CHARTER.json'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'docs/project/conventions/CONVENTIONS.md'))).toBe(true);
+  });
 });

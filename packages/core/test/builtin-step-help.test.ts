@@ -6,6 +6,14 @@ import {
 } from '../src/presets/builtinWorkflows';
 
 describe('builtin step help', () => {
+  it('resolves project-context define-charter help', () => {
+    const help = getBuiltinStepHelp('project-context', 'define-charter');
+    expect(help).toBeDefined();
+    expect(help!.slashCommand).toBe('/project-context-define-charter');
+    expect(help!.nextPhaseId).toBe('scan-project');
+    expect(help!.produces.some((p) => p.includes('CHARTER.json'))).toBe(true);
+  });
+
   it('resolves project-context scan-project help', () => {
     const help = getBuiltinStepHelp('project-context', 'scan-project');
     expect(help).toBeDefined();

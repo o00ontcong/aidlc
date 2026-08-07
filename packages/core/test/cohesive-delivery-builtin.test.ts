@@ -39,9 +39,12 @@ describe('Cohesive Delivery built-in bundle', () => {
     ]);
     expect(config.agents).toHaveLength(3);
     expect(config.skills).toHaveLength(3);
-    expect(config.slash_commands).toHaveLength(21);
+    expect(config.slash_commands).toHaveLength(24);
     const slashNames = config.slash_commands.map((c) => c.name);
+    expect(slashNames).toContain('/project-context-define-charter');
     expect(slashNames).toContain('/project-context-scan-project');
+    expect(slashNames).toContain('/project-context-check-drift');
+    expect(slashNames).toContain('/project-context-project-rules-sync');
     expect(slashNames).toContain('/cohesive-feature-capture-context');
     expect(slashNames).toContain('/cohesive-work-package-load-package');
     expect(slashNames).not.toContain('/cohesive-feature-scan-project');
@@ -49,7 +52,7 @@ describe('Cohesive Delivery built-in bundle', () => {
     const project = config.pipelines.find((pipeline) => pipeline.id === 'project-context')!;
     const feature = config.pipelines.find((pipeline) => pipeline.id === 'cohesive-feature')!;
     const worker = config.pipelines.find((pipeline) => pipeline.id === 'cohesive-work-package')!;
-    expect(project.steps).toHaveLength(4);
+    expect(project.steps).toHaveLength(7);
     expect(feature.steps).toHaveLength(12);
     expect(worker.steps).toHaveLength(5);
 
@@ -63,7 +66,8 @@ describe('Cohesive Delivery built-in bundle', () => {
     const project = getBuiltinWorkflowByPipelineId('project-context');
     const worker = getBuiltinWorkflowByPipelineId('cohesive-work-package');
     expect(project?.phases.map((phase) => phase.id)).toEqual([
-      'scan-project', 'model-project', 'review-context', 'publish-context',
+      'define-charter', 'scan-project', 'model-project', 'check-drift',
+      'review-context', 'publish-context', 'project-rules-sync',
     ]);
     expect(worker?.phases.map((phase) => phase.id)).toEqual([
       'load-package', 'prepare-worktree', 'implement-package', 'package-test', 'publish-result',
@@ -90,7 +94,8 @@ describe('Cohesive Delivery built-in bundle', () => {
 
     expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned\n');
     for (const file of [
-      'project-context.mjs', 'work-packages.mjs', 'feature-contract.mjs',
+      'project-context.mjs', 'charter.mjs', 'rules-sync.mjs',
+      'work-packages.mjs', 'feature-contract.mjs',
       'await-packages.mjs', 'integration-cohesion.mjs', 'project-ci.mjs',
       'package-context.mjs', 'worktree-state.mjs', 'package-result.mjs',
     ]) {
