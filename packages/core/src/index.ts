@@ -5,6 +5,41 @@
 // VS Code API and runs identically inside the extension host, a CLI, or a
 // future test harness / cloud worker.
 
+// Redesign Wave 1. Legacy `EpicStatus` remains exported below during the
+// migration window, so the unified contract uses explicit `Unified*` aliases
+// at the package boundary rather than silently breaking existing consumers.
+export * from './epic';
+export * from './models';
+export * from './autonomy';
+export * from './artifacts';
+export * from './guide';
+export * from './capabilities';
+export * from './project';
+export * from './workflows';
+export * from './application';
+export {
+  EpicSchema as UnifiedEpicSchema,
+  EpicProfileSchema,
+  EpicStatusSchema as UnifiedEpicStatusSchema,
+  EPIC_STATUS_TRANSITIONS,
+  isValidEpicTransition,
+  type Epic as UnifiedEpic,
+  type EpicProfile,
+  type EpicStatus as UnifiedEpicStatus,
+  type EpicRun,
+  type RunEvent,
+  type Stage,
+  type Action,
+  type AutonomyPolicy,
+  type ModelProvider,
+  type ModelRequirement,
+  type ResolvedModel,
+  type ProjectFacts,
+  type ProjectRecommendation,
+  type ArtifactPolicy,
+  type Capability,
+} from './contracts';
+
 export {
   WorkspaceSchema,
   validateWorkspace,
