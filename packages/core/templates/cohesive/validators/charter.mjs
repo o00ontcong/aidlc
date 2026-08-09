@@ -144,6 +144,31 @@ function validateDefineCharterInterview(workspaceRoot, runId, problems) {
   }
 }
 
+function validateInferredExisting(workspaceRoot, runId, charter, problems) {
+  if (!runId) { problems.push('inferred-existing define-charter requires a run id'); return; }
+  const discoveryFile = path.join(artifactDir(workspaceRoot, runId), 'CHARTER-DISCOVERY.md');
+  if (!exists(discoveryFile)) { problems.push('CHARTER-DISCOVERY.md is missing'); return; }
+  const discovery = readText(discoveryFile);
+  for (const section of ['## Discovery Mode', '## Evidence Sources', '## Observed Facts', '## Discovery decisions']) {
+    if (!discovery.includes(section)) problems.push(`CHARTER-DISCOVERY.md is missing ${section}`);
+  }
+  if (!/inferred-existing|existing-project inference|existing charter reused/i.test(discovery)) {
+    problems.push('CHARTER-DISCOVERY.md does not identify inferred-existing discovery/refresh');
+  }
+  const evidence = discovery.match(/## Evidence Sources\s*\n([\s\S]*?)(?=\n##\s|$)/i)?.[1] ?? '';
+  if (!/[`/][^\n]+|^-\s+\S/m.test(evidence)) problems.push('Evidence Sources must cite repository paths');
+  if (charter?.origin === 'existing-project-inference') {
+    if (charter.status !== 'provisional' && charter.status !== 'confirmed') {
+      problems.push('inferred charter status must be provisional|confirmed');
+    }
+    for (const item of [...(charter.goals ?? []), ...(charter.invariants ?? []), ...(charter.techRules ?? [])]) {
+      if (!Array.isArray(item.sources) || !item.sources.length) problems.push(`${item.id ?? 'charter item'} is missing sources`);
+      if (!['low', 'medium', 'high'].includes(item.confidence)) problems.push(`${item.id ?? 'charter item'} is missing confidence`);
+      if (!['pending', 'confirmed'].includes(item.confirmation)) problems.push(`${item.id ?? 'charter item'} is missing confirmation`);
+    }
+  }
+}
+
 export default async function charter(ctx) {
   try {
     const problems = [];
@@ -156,7 +181,12 @@ export default async function charter(ctx) {
       || ctx.paths?.produces?.some?.((p) => String(p).includes('CHARTER-DISCOVERY'));
 
     if (defineCharter) {
-      validateDefineCharterInterview(ctx.workspaceRoot, ctx.state?.runId, problems);
+      const inputs = inputsFor(ctx.workspaceRoot, ctx.state?.runId);
+      if (inputs.context_mode === 'inferred-existing') {
+        validateInferredExisting(ctx.workspaceRoot, ctx.state?.runId, charter, problems);
+      } else {
+        validateDefineCharterInterview(ctx.workspaceRoot, ctx.state?.runId, problems);
+      }
     }
 
     if (checkDrift && charter) {
@@ -170,7 +200,7 @@ export default async function charter(ctx) {
       checkDrift
         ? `Charter revision ${charter.revision} is consistent and drift report covers all invariants.`
         : defineCharter
-          ? `Charter revision ${charter.revision} is consistent; idea + CHARTER-DISCOVERY interview recorded.`
+          ? `Charter revision ${charter.revision} is consistent; discovery evidence is recorded.`
           : `Charter revision ${charter.revision} is consistent (hash, ids, metrics, conventions).`,
     );
   } catch (error) {

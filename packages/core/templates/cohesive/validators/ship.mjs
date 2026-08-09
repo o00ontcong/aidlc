@@ -1,8 +1,37 @@
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
   artifactDir, currentStepName, exists, fieldFromMarkdown, formatError,
   loadCharter, pass, readText, reject,
 } from './lib.mjs';
+
+/**
+ * Independently confirm a claimed merge actually landed: the feature
+ * branch's tip must be a real ancestor of the base branch per git itself —
+ * a self-reported `**Status:** merged` line is written by the same
+ * autonomous agent step this gate exists to check, so it is not evidence on
+ * its own. Fetches the base branch from `origin` first, best-effort, so a
+ * merge that only exists on the remote (the common case — a human merges
+ * the PR on GitHub) becomes visible locally before checking; falls back to
+ * whatever the local ref already knows when there is no network/remote.
+ */
+function verifyBranchMergedIntoBase(workspaceRoot, headBranch, baseBranch) {
+  try {
+    execFileSync('git', ['fetch', 'origin', baseBranch], {
+      cwd: workspaceRoot, stdio: 'ignore', timeout: 20_000,
+    });
+  } catch { /* offline, no `origin` remote, or base not on the remote — fall back below */ }
+
+  for (const target of [`origin/${baseBranch}`, baseBranch]) {
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', headBranch, target], {
+        cwd: workspaceRoot, stdio: 'ignore', timeout: 10_000,
+      });
+      return true;
+    } catch { /* not (yet) an ancestor of this candidate; try the next one */ }
+  }
+  return false;
+}
 
 function defaultShipPolicy(charter) {
   return {
@@ -74,8 +103,8 @@ export default async function ship(ctx) {
     }
 
     if (phase.includes('open-pr') || phase === 'open-pr') {
-      if (!['open', 'draft', 'ready'].includes(pr.status) && pr.status) {
-        // opening phase may set open/draft; empty status is ok if URL+head present
+      if (!['open', 'draft', 'ready'].includes(pr.status)) {
+        problems.push(`open-pr has invalid or missing status ${pr.status || '(missing)'}; expected open|draft|ready`);
       }
       if (pr.status === 'merged') {
         problems.push('open-pr must not mark the PR as merged; await-merge is the human merge gate');
@@ -86,10 +115,10 @@ export default async function ship(ctx) {
     }
 
     if (phase.includes('await') || phase === 'await-merge') {
-      const doneish = ['approved', 'merged', 'done'].includes(pr.status);
+      const doneish = pr.status === 'merged';
       if (!doneish && !(policy.allowLocalMergeWithHumanOnly && pr.localHumanApproval)) {
         problems.push(
-          'await-merge requires **Status:** approved|merged (or Local Human Approval when allowLocalMergeWithHumanOnly)',
+          'await-merge requires **Status:** merged (or Local Human Approval when allowLocalMergeWithHumanOnly)',
         );
       }
       if (policy.allowLocalMergeWithHumanOnly && urlMissing && !pr.localHumanApproval && !doneish) {
@@ -99,21 +128,21 @@ export default async function ship(ctx) {
         if (pr.mergedBy === 'agent' || /\bmerged by agent\b/i.test(text)) {
           problems.push('Agent merge to defaultBranch is forbidden; only a human (or configured merge queue) may merge');
         }
-        if (pr.status === 'done' && !['approved', 'merged'].includes(pr.status) && !pr.localHumanApproval) {
-          // unreachable — kept for clarity
-        }
-        if (pr.status === 'done' && pr.mergedBy !== 'human' && !pr.localHumanApproval && !['merged', 'approved'].includes(pr.status)) {
-          problems.push('PR marked done without human approval');
-        }
+      }
+      if (doneish && !verifyBranchMergedIntoBase(ctx.workspaceRoot, expectedHead, pr.base || policy.defaultBranch)) {
+        problems.push(
+          `PR-LINK.md claims **Status:** merged but ${expectedHead} is not reachable from `
+          + `${pr.base || policy.defaultBranch} in git — fetch the base branch and confirm the merge actually landed`,
+        );
       }
     }
 
-    // project-sync gate helper: if somehow invoked, require merged/approved
+    // project-sync gate helper: if somehow invoked, require an actual merge.
     if (phase.includes('project-sync')) {
       const merged = pr.status === 'merged'
         || (policy.allowLocalMergeWithHumanOnly && pr.localHumanApproval);
-      if (!merged && pr.status !== 'approved') {
-        problems.push('project-sync requires the feature PR to be approved/merged first');
+      if (!merged) {
+        problems.push('project-sync requires the feature PR to be merged first');
       }
     }
 

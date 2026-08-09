@@ -2,6 +2,15 @@
 
 Tài liệu này dành cho người mới đã cài AIDLC extension và đang mở project cần làm việc trong VS Code hoặc Cursor.
 
+Cohesive Delivery có hai cách chạy cùng tồn tại:
+
+- **Guided**: human chạy và review từng step như các mục 2–10 bên dưới.
+- **Existing Project Autonomous Delivery**: execution profile opt-in ở level project;
+  tự chạy từ `project-context` đến review bundle, nhưng không tự merge default branch.
+
+Profile autonomous là tính năng mở rộng cho project có sẵn. Nó không đổi mặc định
+của Cohesive Delivery và không bắt buộc request đến từ Jira.
+
 ## 0. Bản đồ storyboard (nhìn nhanh)
 
 Đọc phần này trước khi làm theo checklist bên dưới. Ba lớp pipeline và thứ tự người dùng thao tác trên UI:
@@ -19,7 +28,7 @@ flowchart TB
     F --> G[Start Epic worker cho từng WP]
     G --> H[Workers chạy song song]
     H --> I[Quay lại feature: await-packages]
-    I --> J[integrate → cohesion → system-test → project-sync]
+    I --> J[integrate → cohesion → system-test → open PR → human merge → project-sync]
   end
 
   setup --> feature
@@ -87,10 +96,86 @@ stateDiagram-v2
 8. Mở tab **Workflows** và kiểm tra có đủ ba pipeline:
 
    - `project-context` — 7 steps (define-charter → scan → model → check-drift → review → publish → project-rules-sync);
-   - `cohesive-feature` — 12 steps;
-   - `cohesive-work-package` — 5 steps.
+   - `cohesive-feature` — 14 steps;
+   - `cohesive-work-package` — 7 steps.
 
 > **Lưu ý về badge:** trong một số view hiện tại, chỉ `cohesive-feature` có badge built-in. Hai pipeline còn lại có thể nằm trong nhóm **Your pipelines**. Đây chỉ là khác biệt hiển thị, không ảnh hưởng chức năng.
+
+### 1.1 Bật luồng autonomous cho project có sẵn
+
+Sau khi apply preset, profile sau được thêm vào workspace và chỉ được dùng khi
+human chủ động gọi command autonomous:
+
+```yaml
+cohesive_delivery:
+  execution_profiles:
+    existing-project-autonomous:
+      project_context: infer-or-refresh
+      review_strategy: aggregate
+      max_parallel_workers: 3
+      open_feature_pr: true
+      merge: human-only
+```
+
+Mở **Open Workspace → Epics**, rồi nhấn nút **Autonomous Delivery** ngay cạnh
+**Start Epic**. Modal này là entry point UI chính cho toàn bộ lifecycle:
+
+| Action trên UI | Khi nào dùng |
+|---|---|
+| **Start new delivery** | Bắt đầu flow A→Z cho một feature mới |
+| **Resume interrupted delivery** | Tiếp tục delivery bị dừng/lỗi từ state đã lưu |
+| **Open review summary** | Mở lại review bundle để human kiểm tra |
+| **Add review task** | Ghi yêu cầu sửa và selective rework phần bị ảnh hưởng |
+| **Edit inferred project context** | Sửa charter/context AI đã suy luận rồi refresh downstream |
+| **Complete after merge** | Sau khi human merge PR, chạy project-sync và final summary |
+
+Nếu preset thiếu hoặc còn bản cũ (ví dụ `project-context` chỉ có 4 step), modal sẽ
+hiển thị **Apply / upgrade Cohesive Delivery** thay vì bắt user tìm template ở nơi khác.
+Nút **Help & guide** trong cùng modal mở lại tài liệu này.
+
+Chọn **Start new delivery** để mở form ngay trong AIDLC. Nhập feature id, title và mô
+tả trực tiếp, hoặc nhấn **Load requirement file**. Nhấn **Start delivery** để thực thi;
+mọi lỗi khởi động sẽ hiện bằng notification và trong Output
+**AIDLC Autonomous Delivery**. Jira/GitHub chỉ là source metadata tùy chọn, không phải
+điểm bắt đầu của flow. Command Palette vẫn là đường dự phòng với command
+**AIDLC: Start Autonomous Delivery for Existing Project**.
+
+> Setting **Epic Autopilot** (`aidlc.autopilot.enabled`) là thử nghiệm pre-plan cho
+> **Start Epic** thông thường và không bật flow này. Có thể để setting đó **Off**.
+
+Hệ thống tự chạy:
+
+```mermaid
+flowchart LR
+  A[Project request] --> B[Infer or refresh project-context]
+  B --> C[Feature contract]
+  C --> D[Dependency-aware work packages]
+  D --> E[Integrate and system test]
+  E --> F[Open feature PR]
+  F --> G[HUMAN-REVIEW-SUMMARY]
+  G --> H{{Human merges}}
+  H --> I[Project sync and final summary]
+```
+
+Các human review gate trong pipeline vẫn được ghi đầy đủ vào audit trail nhưng được
+gom vào `HUMAN-REVIEW-SUMMARY.md`; chúng không bị ghi sai thành “human approved”.
+Tại review bundle, human có thể:
+
+1. Chấp nhận và merge PR bằng tay, rồi chạy **Resume Autonomous Delivery After Merge**.
+2. Chạy **Add Autonomous Delivery Review Task** để thêm yêu cầu sửa; hệ thống route
+   task và chỉ rerun context/feature/package/integration bị ảnh hưởng.
+3. Chạy **Edit and Confirm Inferred Project Context**, sửa charter đã được AI suy luận,
+   lưu file rồi xác nhận; charter tăng revision và downstream alignment được refresh.
+
+> Agent không merge default branch. `project-sync` chỉ chạy sau khi validator thấy PR
+> đã thực sự merged (hoặc local flow được human xác nhận theo policy).
+
+Nếu preset phát hiện validator đã được project customize, file custom được giữ nguyên
+và bản bundled mới được ghi dưới hậu tố `.aidlc-new`. Autonomous execution dừng cho
+đến khi human reconcile và xóa file `.aidlc-new`; guided mode vẫn có thể được dùng.
+
+Hiện tại artifact contracts của bundle dùng canonical root `docs/epics`; autonomous
+command fail-fast nếu workspace đặt `state.root` sang thư mục khác.
 
 ## 2. Cách thao tác một step
 
@@ -344,16 +429,20 @@ Chạy lần lượt:
 
 1. `load-package`
 2. `prepare-worktree`
-3. `implement-package`
-4. `package-test`
-5. `publish-result`
+3. `package-test-plan`
+4. `implement-package`
+5. `package-test`
+6. `package-review`
+7. `publish-result`
 
 Gate tương ứng:
 
 - `load-package`: auto-review;
 - `prepare-worktree`: auto-review;
+- `package-test-plan`: tạo failing-test evidence;
 - `implement-package`: human review;
 - `package-test`: artifact validation;
+- `package-review`: independent review + auto-review;
 - `publish-result`: auto-review và human review.
 
 Worker hoàn thành khi có đủ:
@@ -362,9 +451,12 @@ Worker hoàn thành khi có đủ:
 docs/epics/EPIC-123-WP-01/artifacts/
 ├── PACKAGE-CONTEXT.md
 ├── WORKTREE-STATE.json
+├── PACKAGE-TEST-PLAN.md
 ├── IMPLEMENT-STATE.md
 ├── PACKAGE-SUMMARY.md
+├── REVIEW-DIFF.md
 ├── PACKAGE-TEST-REPORT.md
+├── PACKAGE-REVIEW.md
 └── PACKAGE-RESULT.json
 ```
 
@@ -380,8 +472,8 @@ flowchart TB
   FC --> W2[Start Epic EPIC-123-WP-02]
 
   subgraph parallel ["Song song trên UI"]
-    W1 --> A1[load → prepare → implement → test → publish]
-    W2 --> A2[load → prepare → implement → test → publish]
+    W1 --> A1[load → prepare → test-plan → implement → test → review → publish]
+    W2 --> A2[load → prepare → test-plan → implement → test → review → publish]
   end
 
   A1 --> R1[PACKAGE-RESULT.json]
@@ -482,7 +574,18 @@ Sau khi `await-packages` được approve, tiếp tục trên Epic `EPIC-123`.
 4. Nhấn **Run auto-review**.
 5. Nhấn **Approve** nếu toàn bộ test pass.
 
-### 8.5 `project-sync`
+### 8.5 `open-pr`
+
+1. Agent mở đúng một feature PR từ `feature/<feature-id>` vào default branch.
+2. Validator kiểm tra head/base/status trong `PR-LINK.md`.
+3. Package workers không được mở PR riêng.
+
+### 8.6 `await-merge`
+
+Đây là human-only gate. Human review và merge PR trên Git provider; agent không được
+merge default branch. Sau merge, chạy lại step để validator xác nhận status `merged`.
+
+### 8.7 `project-sync`
 
 1. Nhấn **Run with Claude**.
 2. Kiểm tra `PROJECT-UPDATE.md` ghi lại thay đổi đối với project knowledge.
@@ -518,8 +621,10 @@ flowchart TB
   K --> L[integration-context]
   L --> M[cohesion-review]
   M --> N[system-test]
-  N --> O[project-sync]
-  O --> P[Feature hoàn thành]
+  N --> O[open-pr]
+  O --> P{{human merge}}
+  P --> Q[project-sync]
+  Q --> R[Feature hoàn thành]
 ```
 
 Thứ tự người dùng nhớ nhanh:
@@ -527,7 +632,7 @@ Thứ tự người dùng nhớ nhanh:
 1. Context trước, feature sau.
 2. Feature chạy đến contract rồi mới mở worker.
 3. Worker xong hết mới `await-packages`.
-4. Feature chỉ xong sau `project-sync`.
+4. Human merge feature PR; feature chỉ xong sau post-merge `project-sync`.
 
 ## 10. Xử lý lỗi thường gặp
 
@@ -536,6 +641,16 @@ Thứ tự người dùng nhớ nhanh:
 - Kiểm tra đã reload VS Code/Cursor sau khi cài extension.
 - Mở lại AIDLC sidebar.
 - Kiểm tra đang mở một project folder.
+
+### Không thấy nút Autonomous Delivery
+
+1. Kiểm tra footer AIDLC đang dùng extension version hỗ trợ tính năng.
+2. Mở **Open Workspace → Epics**; nút **Autonomous Delivery** nằm cạnh **Start Epic**.
+3. Nếu đang dùng bản cũ, cài lại VSIX với `--force` rồi chạy **Developer: Reload Window**.
+4. Nếu máy có hai extension AIDLC, chỉ giữ `hueanmy.aidlc`; extension cũ có thể gây
+   lỗi trùng command.
+
+Không dùng checkbox **Epic Autopilot** để thay thế: đó là tính năng pre-plan khác.
 
 ### Không thấy `project-context` hoặc `cohesive-work-package` trong nhóm built-in
 

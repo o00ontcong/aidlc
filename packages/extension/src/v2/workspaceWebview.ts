@@ -208,6 +208,17 @@ import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
 import { PresetStore } from './presetStore';
+import {
+  startAutonomousDeliveryCommand,
+  startAutonomousDeliveryFromRequest,
+  resumeAutonomousDeliveryCommand,
+  openAutonomousReviewSummaryCommand,
+  addAutonomousReviewTaskCommand,
+  editInferredProjectContextCommand,
+  resumeAutonomousAfterMergeCommand,
+} from './autonomousDeliveryCommands';
+
+const autonomousDeliveryOutput = vscode.window.createOutputChannel('AIDLC Autonomous Delivery');
 import { syncBuiltinPipelineCommands } from './presetWizards';
 import type {
   PipelineStepConfig,
@@ -1428,7 +1439,14 @@ export class WorkspaceWebview {
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
-      (msg) => this.handleMessage(msg),
+      (msg) => {
+        void this.handleMessage(msg).catch((error: unknown) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          autonomousDeliveryOutput.appendLine(`[webview:${String(msg?.type ?? 'unknown')}] ${detail}`);
+          autonomousDeliveryOutput.show(true);
+          void vscode.window.showErrorMessage(`AIDLC action failed: ${detail}`);
+        });
+      },
       null,
       this.disposables,
     );
@@ -1801,6 +1819,51 @@ export class WorkspaceWebview {
       }
       case 'savePreset':   await vscode.commands.executeCommand('aidlc.savePreset');    return;
       case 'startEpic':    await vscode.commands.executeCommand('aidlc.startEpic');     return;
+      case 'startAutonomousDelivery':
+        await startAutonomousDeliveryCommand(autonomousDeliveryOutput);
+        return;
+      case 'startAutonomousDeliveryInline': {
+        const raw = msg.request;
+        if (!raw || typeof raw !== 'object') {
+          throw new Error('Autonomous Delivery request is missing.');
+        }
+        const request = raw as {
+          id?: unknown;
+          title?: unknown;
+          description?: unknown;
+          source?: { type?: unknown; reference?: unknown };
+        };
+        await startAutonomousDeliveryFromRequest({
+          id: String(request.id ?? ''),
+          title: String(request.title ?? ''),
+          description: String(request.description ?? ''),
+          source: {
+            type: request.source?.type === 'file' ? 'file' : 'manual',
+            reference: typeof request.source?.reference === 'string'
+              ? request.source.reference
+              : undefined,
+          },
+        }, autonomousDeliveryOutput);
+        return;
+      }
+      case 'resumeAutonomousDelivery':
+        await resumeAutonomousDeliveryCommand(autonomousDeliveryOutput);
+        return;
+      case 'openAutonomousReviewSummary':
+        await openAutonomousReviewSummaryCommand();
+        return;
+      case 'addAutonomousReviewTask':
+        await addAutonomousReviewTaskCommand(autonomousDeliveryOutput);
+        return;
+      case 'editInferredProjectContext':
+        await editInferredProjectContextCommand(autonomousDeliveryOutput);
+        return;
+      case 'resumeAutonomousAfterMerge':
+        await resumeAutonomousAfterMergeCommand(autonomousDeliveryOutput);
+        return;
+      case 'applyCohesiveDelivery':
+        await vscode.commands.executeCommand('aidlc.applyPreset', 'cohesive-delivery');
+        return;
       case 'addAgent':     await vscode.commands.executeCommand('aidlc.addAgent');      return;
       case 'addSkill':     await vscode.commands.executeCommand('aidlc.addSkill');      return;
       case 'addPipeline':  await vscode.commands.executeCommand('aidlc.addPipeline');   return;

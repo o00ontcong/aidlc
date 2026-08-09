@@ -26,6 +26,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { renderTemplate } from './templateRenderer';
+import {
+  hashValidatorContent,
+  loadValidatorManifest,
+  saveValidatorManifest,
+  validatorsDirFor,
+} from './validatorManifest';
 
 /**
  * A composed preset: the workspace.yaml content + per-skill markdown. Kept
@@ -477,7 +483,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
     id: 'define-charter', name: 'Define Charter', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description:
-      'Interview the human 1:1 from the Start Epic idea (Description), then finalize '
+      'Interactively confirm Intent, or infer a provisional evidence-backed baseline for an existing project, then finalize '
       + 'NORTH-STAR, ARCHITECTURE-PRINCIPLES, TECH-POLICY, CHARTER.json, and CONVENTIONS.md. '
       + 'Do not invent Goals the human did not confirm.',
     inputs: 'inputs.json idea (from Description) + seeded charter templates',
@@ -1433,6 +1439,19 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
       environment: {},
       slash_commands: slashCommands,
       pipelines,
+      ...(workflow.id === 'cohesive-delivery' ? {
+        cohesive_delivery: {
+          execution_profiles: {
+            'existing-project-autonomous': {
+              project_context: 'infer-or-refresh',
+              review_strategy: 'aggregate',
+              max_parallel_workers: 3,
+              open_feature_pr: true,
+              merge: 'human-only',
+            },
+          },
+        },
+      } : {}),
       // Task-type recipes draw from the pipeline we just composed, so a
       // freshly-applied preset can `assemblePipeline` right away.
       recipes: (workflow.recipes ?? []).map((r) => ({
@@ -1838,8 +1857,14 @@ export default async function ci(_ctx) {
  *
  * For each distinct project-relative runner path, copies the bundled template
  * (`templates/<dir>/validators/<file>`, falling back to sdlc) when present,
- * else writes a generic passing validator. Never overwrites an existing file,
- * so a user's customized validator survives re-apply.
+ * else writes a generic passing validator. Files installed by an earlier
+ * version are upgraded when they are still byte-for-byte unchanged. A locally
+ * customized validator is preserved and the bundled replacement is written as
+ * `<name>.aidlc-new` for explicit human reconciliation — see
+ * {@link listValidatorConflicts} / {@link resolveValidatorConflict} for the
+ * CLI/extension-facing reconciliation flow, and
+ * `DeliveryOrchestrator.assertValidatorsReady` for where unresolved conflicts
+ * block autonomous execution.
  */
 export function writeBuiltinAutoReviewValidators(
   extensionPath: string,
@@ -1848,17 +1873,78 @@ export function writeBuiltinAutoReviewValidators(
 ): void {
   const workflowValidatorDir = path.join(
     extensionPath, 'templates', workflow.templatesDir, 'validators');
+  const validatorsDir = validatorsDirFor(root);
+  const manifest = loadValidatorManifest(validatorsDir);
+  const hash = hashValidatorContent;
+  const clearBundledConflict = (conflict: string, content: string): void => {
+    if (fs.existsSync(conflict) && fs.readFileSync(conflict, 'utf8') === content) {
+      fs.unlinkSync(conflict);
+    }
+  };
+  const install = (dest: string, content: string): void => {
+    const rel = path.relative(validatorsDir, dest).split(path.sep).join('/');
+    const bundledHash = hash(content);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (!fs.existsSync(dest)) {
+      fs.writeFileSync(dest, content, 'utf8');
+      manifest.files[rel] = { installedHash: bundledHash, bundledHash };
+      clearBundledConflict(`${dest}.aidlc-new`, content);
+      return;
+    }
+
+    const existing = fs.readFileSync(dest, 'utf8');
+    const existingHash = hash(existing);
+    const previous = manifest.files[rel];
+    const conflict = `${dest}.aidlc-new`;
+    if (existingHash === bundledHash) {
+      manifest.files[rel] = { installedHash: bundledHash, bundledHash };
+      clearBundledConflict(conflict, content);
+      return;
+    }
+    if (previous?.customized
+      && previous.bundledHash === bundledHash
+      && !fs.existsSync(conflict)) {
+      // Human reviewed this exact bundled revision and chose to keep the
+      // customized validator. Preserve that decision until the bundle changes.
+      manifest.files[rel] = { installedHash: existingHash, bundledHash, customized: true };
+      return;
+    }
+    const managedAndUnchanged = previous
+      ? !previous.customized && existingHash === previous.installedHash
+      : existingHash === bundledHash;
+    if (managedAndUnchanged) {
+      if (existingHash !== bundledHash) fs.writeFileSync(dest, content, 'utf8');
+      manifest.files[rel] = { installedHash: bundledHash, bundledHash };
+      clearBundledConflict(`${dest}.aidlc-new`, content);
+      return;
+    }
+
+    let recordedBundledHash = bundledHash;
+    if (!fs.existsSync(conflict)) {
+      fs.writeFileSync(conflict, content, 'utf8');
+    } else if (fs.readFileSync(conflict, 'utf8') === content) {
+      // Exact bundled conflict already pending; leave it in place.
+    } else {
+      // Human is editing an older conflict. Do not overwrite it or mark the
+      // newer bundled revision as reviewed; after reconciliation/re-apply the
+      // new revision will be offered again.
+      recordedBundledHash = previous?.bundledHash ?? bundledHash;
+    }
+    manifest.files[rel] = {
+      installedHash: existingHash,
+      bundledHash: recordedBundledHash,
+      customized: true,
+    };
+  };
 
   // Bundle-local validators may share helper modules (for example lib.mjs).
-  // Copy all support modules first, non-destructively, so referenced runners
+  // Install all support modules first so referenced runners
   // remain importable after the preset is installed by the extension.
   if (fs.existsSync(workflowValidatorDir)) {
     for (const entry of fs.readdirSync(workflowValidatorDir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith('.mjs')) { continue; }
       const supportDest = path.join(root, '.aidlc', 'validators', entry.name);
-      if (fs.existsSync(supportDest)) { continue; }
-      fs.mkdirSync(path.dirname(supportDest), { recursive: true });
-      fs.copyFileSync(path.join(workflowValidatorDir, entry.name), supportDest);
+      install(supportDest, fs.readFileSync(path.join(workflowValidatorDir, entry.name), 'utf8'));
     }
   }
 
@@ -1874,17 +1960,16 @@ export function writeBuiltinAutoReviewValidators(
     seen.add(rel);
 
     const dest = path.join(root, rel);
-    if (fs.existsSync(dest)) { continue; }
-
     const base = path.basename(rel);
     const workflowTpl = path.join(extensionPath, 'templates', workflow.templatesDir, 'validators', base);
     const fallbackTpl = path.join(extensionPath, 'templates', 'sdlc', 'validators', base);
     const tpl = fs.existsSync(workflowTpl) ? workflowTpl : fs.existsSync(fallbackTpl) ? fallbackTpl : null;
     const content = tpl ? fs.readFileSync(tpl, 'utf8') : DEFAULT_AUTO_REVIEW_VALIDATOR;
 
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.writeFileSync(dest, content, 'utf8');
+    install(dest, content);
   }
+
+  saveValidatorManifest(validatorsDir, manifest);
 }
 
 /**

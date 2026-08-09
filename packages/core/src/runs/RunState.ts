@@ -74,6 +74,10 @@ export interface StepRecord {
    * backward compat with state files written before this field existed.
    */
   history?: StepHistoryEntry[];
+  /** How a configured human gate was disposed. Omitted for legacy states. */
+  reviewDisposition?: 'human-approved' | 'deferred-to-aggregate';
+  /** Aggregate review bundle revision that owns the deferred decision. */
+  reviewBundleRevision?: number;
 }
 
 /**
@@ -113,6 +117,13 @@ export type StepHistoryEntry =
       kind: 'approve';
       at: string;
       revision: number;
+    }
+  | {
+      /** Human review was intentionally deferred to a delivery-level bundle. */
+      kind: 'aggregate_defer';
+      at: string;
+      revision: number;
+      reviewBundleRevision: number;
     }
   | {
       /**

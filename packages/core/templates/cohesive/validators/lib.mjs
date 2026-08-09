@@ -105,10 +105,57 @@ export function scopesOverlap(a, b) {
   return ra === rb || ra.startsWith(`${rb}/`) || rb.startsWith(`${ra}/`);
 }
 
-export function matchesScope(file, pattern) {
+function escapeRegExp(value) {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+}
+
+/**
+ * Match the path/glob dialect used by cohesive manifests.  Bare paths keep
+ * their historical "directory owns its descendants" behaviour; glob paths
+ * are matched segment-aware so `src/*.ts` cannot authorize
+ * `src/private/secret.json`.
+ */
+export function globMatches(file, pattern) {
   const f = String(file ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
-  const root = staticGlobRoot(pattern);
-  return !!root && (f === root || f.startsWith(`${root}/`) || pattern === f);
+  const p = String(pattern ?? '').replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '');
+  if (!f || !p) return false;
+  if (!/[?*{[]/.test(p)) return f === p || f.startsWith(`${p}/`);
+
+  let source = '';
+  for (let i = 0; i < p.length; i++) {
+    const ch = p[i];
+    if (ch === '*') {
+      if (p[i + 1] === '*') {
+        while (p[i + 1] === '*') i++;
+        if (p[i + 1] === '/') {
+          i++;
+          source += '(?:.*/)?';
+        } else {
+          source += '.*';
+        }
+      } else {
+        source += '[^/]*';
+      }
+    } else if (ch === '?') {
+      source += '[^/]';
+    } else if (ch === '{') {
+      const end = p.indexOf('}', i + 1);
+      if (end > i) {
+        const choices = p.slice(i + 1, end).split(',').map(escapeRegExp);
+        source += `(?:${choices.join('|')})`;
+        i = end;
+      } else {
+        source += '\\{';
+      }
+    } else {
+      source += escapeRegExp(ch);
+    }
+  }
+  return new RegExp(`^${source}$`).test(f);
+}
+
+export function matchesScope(file, pattern) {
+  return globMatches(file, pattern);
 }
 
 export function packageById(manifest, packageId) {
@@ -134,11 +181,14 @@ export function approvedVarianceCoversPath(workspaceRoot, featureId, filePath) {
       const text = readText(path.join(dir, name));
       const approved = /\*\*Status:\*\*\s*approved\b/i.test(text) || /\bstatus:\s*approved\b/i.test(text);
       if (!approved) continue;
-      if (text.includes(filePath) || matchesScope(filePath, filePath)) return true;
-      // Broad approved VR that lists the path root.
+      // Only explicitly labelled authorization fields grant access. Merely
+      // mentioning a protected path elsewhere in the variance rationale must
+      // not turn that path into an approved scope.
       for (const line of text.split(/\r?\n/)) {
-        const m = line.match(/`([^`]+)`/);
-        if (m && matchesScope(filePath, m[1])) return true;
+        if (!/allowed\s+(?:path|paths|scope)|approved\s+(?:path|paths|scope)|write\s*scope/i.test(line)) continue;
+        for (const match of line.matchAll(/`([^`]+)`/g)) {
+          if (matchesScope(filePath, match[1])) return true;
+        }
       }
     }
   } catch {
@@ -279,4 +329,3 @@ export function gitDiffNameOnlyStagedAndUnstaged(workspaceRoot) {
   }
   return [...files];
 }
-

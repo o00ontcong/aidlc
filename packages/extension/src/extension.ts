@@ -48,6 +48,19 @@ export function activate(context: vscode.ExtensionContext): void {
 
   output.appendLine('Activating AIDLC Flow extension');
 
+  const originalExtensionId = 'hueanmy.aidlc';
+  if (vscode.extensions.getExtension(originalExtensionId)) {
+    output.appendLine(`Original extension conflict detected: ${originalExtensionId}`);
+    void vscode.window.showWarningMessage(
+      'The original AIDLC extension is also installed and conflicts with commands/views. Disable or uninstall hueanmy.aidlc, then reload VS Code.',
+      'Show original extension',
+    ).then((action) => {
+      if (action === 'Show original extension') {
+        void vscode.commands.executeCommand('workbench.extensions.search', `@id:${originalExtensionId}`);
+      }
+    });
+  }
+
   // No auto-install of workflow agents/skills into ~/.claude/ anymore —
   // users opt in via `aidlc.installWorkflowGlobals` or via the apply-preset
   // prompt. Keeps the global Claude folder clean by default. To remove

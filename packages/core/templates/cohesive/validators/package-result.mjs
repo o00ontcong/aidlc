@@ -19,6 +19,18 @@ function isAncestor(workspaceRoot, earlier, later) {
   }
 }
 
+function changedFilesFromGit(workspaceRoot, worktree, baseCommit) {
+  try {
+    const cwd = path.resolve(workspaceRoot, worktree);
+    const out = execFileSync('git', ['diff', '--name-only', `${baseCommit}...HEAD`], {
+      cwd, encoding: 'utf8', timeout: 15_000,
+    });
+    return out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((file) => file.replaceAll('\\', '/'));
+  } catch {
+    return null;
+  }
+}
+
 export default async function packageResult(ctx) {
   try {
     const runId = ctx.state.runId;
@@ -32,6 +44,8 @@ export default async function packageResult(ctx) {
     const pkg = packageById(manifest, packageId);
     const problems = [];
     const owned = packageOwnedPaths(pkg);
+    const expectedBranch = `feature/${feature}-${packageId}`;
+    const expectedWorktree = `.aidlc/worktrees/${feature}/${packageId}`;
 
     if (result.schemaVersion !== 1) problems.push('schemaVersion must be 1');
     if (result.feature !== feature || result.package !== packageId || result.runId !== runId) problems.push('result identity does not match worker inputs/run id');
@@ -40,8 +54,13 @@ export default async function packageResult(ctx) {
     if (result.featureContractRevision !== manifest.featureContractRevision) problems.push('feature contract revision is stale');
     if (result.featureContractHash?.toLowerCase?.() !== manifest.featureContractHash?.toLowerCase?.()) problems.push('feature contract hash is stale');
     if (result.baseCommit !== manifest.baseCommit) problems.push('base commit differs from package manifest');
+    if (result.branch !== expectedBranch) problems.push(`branch must be ${expectedBranch}`);
+    if (result.worktree !== expectedWorktree) problems.push(`worktree must be ${expectedWorktree}`);
     if (!Array.isArray(result.commits)) problems.push('commits must be an array');
-    for (const sha of result.commits ?? []) if (!fullCommitExists(ctx.workspaceRoot, sha)) problems.push(`commit does not exist: ${sha}`);
+    for (const sha of result.commits ?? []) {
+      if (!fullCommitExists(ctx.workspaceRoot, sha)) problems.push(`commit does not exist: ${sha}`);
+      else if (!isAncestor(ctx.workspaceRoot, manifest.baseCommit, sha)) problems.push(`commit is not descended from package base: ${sha}`);
+    }
 
     if (result.openedPullRequest === true || result.pullRequestUrl || result.prUrl) {
       problems.push('package must not open a pull request — ship is feature-level only');
@@ -77,6 +96,15 @@ export default async function packageResult(ctx) {
         const documented = (result.deviations ?? []).some((d) => JSON.stringify(d).includes(file));
         if (!documented) problems.push(`changed file outside write scope without deviation: ${file}`);
       }
+    }
+
+    const actualChanged = changedFilesFromGit(ctx.workspaceRoot, expectedWorktree, manifest.baseCommit);
+    if (result.status === 'done' && actualChanged === null) {
+      problems.push('cannot verify changedFiles against the declared worktree');
+    } else if (actualChanged) {
+      const declaredFiles = new Set((result.changedFiles ?? []).map((file) => String(file).replaceAll('\\', '/')));
+      for (const file of actualChanged) if (!declaredFiles.has(file)) problems.push(`changedFiles omits git change: ${file}`);
+      for (const file of declaredFiles) if (!actualChanged.includes(file)) problems.push(`changedFiles contains non-git change: ${file}`);
     }
 
     const charter = readCharter(ctx.workspaceRoot);

@@ -7,6 +7,7 @@ import {
   BUILTIN_WORKFLOWS,
   loadBuiltinPreset,
   installWorkflowGlobalsByIds,
+  writeBuiltinAutoReviewValidators,
 } from '@aidlc/core';
 import { readYaml, requireYaml, writeYaml, YamlDocument } from '../yamlIO';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -102,6 +103,47 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
       // matches the brief to a recipe, then assembles a right-sized pipeline.
       const docRecipes = (Array.isArray(doc.recipes) ? doc.recipes : (doc.recipes = [])) as Array<Record<string, unknown>>;
       for (const r of ws.recipes ?? []) { addIfMissing(docRecipes, r); }
+      return doc;
+    },
+  },
+  {
+    id: 'cohesive-delivery',
+    description: 'Project context → feature contract → parallel work packages → integration → human-only merge',
+    apply(root, doc) {
+      const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === 'cohesive-delivery');
+      if (!workflow) throw new Error('Cohesive Delivery bundle is unavailable.');
+      const templatesRoot = cliTemplatesRoot();
+      installWorkflowGlobalsByIds(templatesRoot, [workflow.id]);
+      const preset = loadBuiltinPreset(templatesRoot, workflow);
+      const ws = preset.workspace as {
+        agents?: Array<Record<string, unknown>>;
+        skills?: Array<Record<string, unknown>>;
+        slash_commands?: Array<Record<string, unknown>>;
+        pipelines?: Array<Record<string, unknown>>;
+        recipes?: Array<Record<string, unknown>>;
+        cohesive_delivery?: Record<string, unknown>;
+      };
+      for (const a of ws.agents ?? []) addIfMissing(doc.agents, a);
+      for (const s of ws.skills ?? []) addIfMissing(doc.skills, s);
+      for (const p of ws.pipelines ?? []) addIfMissing(doc.pipelines, p);
+      for (const command of ws.slash_commands ?? []) {
+        if (!doc.slash_commands.some((item) => item.name === command.name)) doc.slash_commands.push(command);
+      }
+      const docRecipes = (Array.isArray(doc.recipes) ? doc.recipes : (doc.recipes = [])) as Array<Record<string, unknown>>;
+      for (const recipe of ws.recipes ?? []) addIfMissing(docRecipes, recipe);
+
+      if (ws.cohesive_delivery) {
+        const existing = doc.cohesive_delivery && typeof doc.cohesive_delivery === 'object'
+          ? doc.cohesive_delivery as Record<string, unknown>
+          : {};
+        const incomingProfiles = ws.cohesive_delivery.execution_profiles as Record<string, unknown> | undefined;
+        const existingProfiles = existing.execution_profiles && typeof existing.execution_profiles === 'object'
+          ? existing.execution_profiles as Record<string, unknown>
+          : {};
+        existing.execution_profiles = { ...(incomingProfiles ?? {}), ...existingProfiles };
+        doc.cohesive_delivery = existing;
+      }
+      writeBuiltinAutoReviewValidators(templatesRoot, root, workflow);
       return doc;
     },
   },

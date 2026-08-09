@@ -1,5 +1,47 @@
 # Changelog
 
+## 3.4.12
+
+### Fixed
+
+- fix(cohesive): validator `.aidlc-new` conflicts are no longer a dead end — add `aidlc cohesive reconcile-validators` (CLI) and a **Resolve Validator Conflicts** action (extension: diff view + keep/accept per file), and autonomous delivery's blocked-error message now offers to resolve them directly instead of requiring manual file surgery.
+- fix(runs): mirror run state into the epic's `state.json` after every autopilot/autonomous exec-loop step, not just at scaffold time — the Epics view no longer freezes at 0%/step-1 while a `run exec` or autonomous delivery run is actually progressing.
+
+### Security
+
+- fix(cohesive): `ship.mjs`'s await-merge gate now independently verifies (via `git merge-base --is-ancestor`, fetching the base branch first) that the feature branch is actually merged, instead of trusting a self-reported `**Status:** merged` line the same agent step wrote.
+
+## 3.4.11
+
+### Fixed
+
+- fix(ui): Autonomous Delivery actions now call lifecycle handlers directly instead of round-tripping through the VS Code command registry; failures surface visibly instead of leaving a silent click.
+- fix(ui): **Start new delivery** now opens an in-panel feature form with manual text or requirement-file input before execution.
+- fix(extension): warn when the legacy `o00ontcong.aidlc-o00ontcong` extension is installed because it registers conflicting AIDLC commands and views.
+
+## 3.4.10
+
+### Added
+
+- feat(ui): add a visible **Autonomous Delivery** entry point beside **Start Epic**, with UI actions for start, resume, review-summary access, review tasks, inferred-context edits, post-merge completion, preset upgrade, and help.
+
+### Changed
+
+- docs(help): document the complete autonomous UI lifecycle and clearly distinguish it from the experimental regular-epic Autopilot setting.
+
+## 3.4.9
+
+### Added
+
+- feat(cohesive): opt-in **Existing Project Autonomous Delivery** at project level. It infers or refreshes provisional project context, freezes the feature contract, dispatches dependency-aware work-package runs, integrates/tests, opens one feature PR, and produces a durable aggregate human-review bundle. Guided mode remains unchanged; Jira/GitHub are optional request sources.
+- feat(cohesive): human review tasks selectively invalidate and rerun affected context, feature, package, or integration steps. Inferred charter files can be edited and confirmed later, with revision/hash/rules refresh.
+- feat(cli/ui): add `aidlc cohesive` lifecycle commands and VS Code actions for start, resume, review tasks, inferred-context edits, and post-merge sync. Default-branch merge remains human-only.
+
+### Security
+
+- fix(cohesive): fail closed on stale worker results, mismatched Git commits/worktrees/changed files, unmerged PRs, overbroad variance scopes, and stale context manifests.
+- fix(cohesive): version bundled validators with a manifest; upgrade unchanged files automatically and preserve customized files via explicit `.aidlc-new` reconciliation.
+
 ## 3.4.8
 
 ### Changed

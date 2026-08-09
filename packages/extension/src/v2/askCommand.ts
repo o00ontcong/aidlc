@@ -40,6 +40,19 @@ ${AIDLC_KNOWLEDGE}`;
 interface QuickAnswer { keywords: string[]; answer: string; }
 const QUICK_ANSWERS: QuickAnswer[] = [
   {
+    keywords: ['autonomous delivery', 'cohesive auto', 'existing project autonomous', 'auto delivery'],
+    answer: [
+      '**Existing Project Autonomous Delivery** is an opt-in Cohesive Delivery flow for an existing project.',
+      '1. Open **Open Workspace → Epics**.',
+      '2. Click **Autonomous Delivery** next to **Start Epic**.',
+      '3. Use **Start new delivery**; AIDLC runs project-context → feature → work packages → integration/tests → PR → aggregate review.',
+      '4. At review, use **Add review task** for corrections, or merge the PR manually and choose **Complete after merge**.',
+      '',
+      'The same modal also has Resume, Open review summary, and Edit inferred project context.',
+      '**Epic Autopilot** (`aidlc.autopilot.enabled`) is a separate regular-epic pre-planning experiment and is not required.',
+    ].join('\n'),
+  },
+  {
     keywords: ['start epic', 'epic'],
     answer: [
       '**Start Epic** kicks off a unit of work:',

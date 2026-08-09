@@ -46,6 +46,15 @@ import { analyzeRequirementsCommand } from './requirementWizard';
 import { registerAskCommand } from './askCommand';
 import { insertDemoEpicCommand } from './demoEpic';
 import { loadDemoProjectCommand } from './demoProject';
+import {
+  startAutonomousDeliveryCommand,
+  resumeAutonomousDeliveryCommand,
+  openAutonomousReviewSummaryCommand,
+  addAutonomousReviewTaskCommand,
+  editInferredProjectContextCommand,
+  resumeAutonomousAfterMergeCommand,
+  reconcileValidatorConflictsCommand,
+} from './autonomousDeliveryCommands';
 import { migrateEpicStateFiles } from './epicsList';
 import {
   startPipelineRunCommand,
@@ -450,6 +459,34 @@ export function registerV2WorkspaceCommands(
     (pipelineId?: unknown) =>
       startPipelineRunCommand(typeof pipelineId === 'string' ? pipelineId : undefined),
   );
+  const startAutonomousDeliveryCmd = vscode.commands.registerCommand(
+    'aidlc.startAutonomousDelivery',
+    () => startAutonomousDeliveryCommand(output),
+  );
+  const resumeAutonomousDeliveryCmd = vscode.commands.registerCommand(
+    'aidlc.resumeAutonomousDelivery',
+    () => resumeAutonomousDeliveryCommand(output),
+  );
+  const openAutonomousReviewSummaryCmd = vscode.commands.registerCommand(
+    'aidlc.openAutonomousReviewSummary',
+    () => openAutonomousReviewSummaryCommand(),
+  );
+  const addAutonomousReviewTaskCmd = vscode.commands.registerCommand(
+    'aidlc.addAutonomousReviewTask',
+    () => addAutonomousReviewTaskCommand(output),
+  );
+  const editInferredProjectContextCmd = vscode.commands.registerCommand(
+    'aidlc.editInferredProjectContext',
+    () => editInferredProjectContextCommand(output),
+  );
+  const resumeAutonomousAfterMergeCmd = vscode.commands.registerCommand(
+    'aidlc.resumeAutonomousAfterMerge',
+    () => resumeAutonomousAfterMergeCommand(output),
+  );
+  const reconcileValidatorConflictsCmd = vscode.commands.registerCommand(
+    'aidlc.reconcileValidatorConflicts',
+    () => reconcileValidatorConflictsCommand(),
+  );
   const toStepIdx = (v: unknown): number | undefined =>
     typeof v === 'number' && Number.isInteger(v) ? v : undefined;
   const markStepDoneCmd = vscode.commands.registerCommand(
@@ -535,6 +572,13 @@ export function registerV2WorkspaceCommands(
       insertDemoEpicCmd,
       loadDemoProjectCmd,
       startRunCmd,
+      startAutonomousDeliveryCmd,
+      resumeAutonomousDeliveryCmd,
+      openAutonomousReviewSummaryCmd,
+      addAutonomousReviewTaskCmd,
+      editInferredProjectContextCmd,
+      resumeAutonomousAfterMergeCmd,
+      reconcileValidatorConflictsCmd,
       markStepDoneCmd,
       approveStepCmd,
       rejectStepCmd,

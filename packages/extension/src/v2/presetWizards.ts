@@ -537,6 +537,7 @@ interface MergeReport {
   addedSlashCommands: string[];
   upgradedPipelines: string[];
   upgradedAgents: string[];
+  addedExecutionProfiles: string[];
 }
 
 /**
@@ -569,6 +570,7 @@ export function mergePresetIntoYaml(
     addedSlashCommands: [],
     upgradedPipelines: [],
     upgradedAgents: [],
+    addedExecutionProfiles: [],
   };
   const overwrite = opts.overwritePipelines === true;
 
@@ -617,13 +619,34 @@ export function mergePresetIntoYaml(
     }
   }
 
+  const presetCohesive = preset.workspace.cohesive_delivery as Record<string, unknown> | undefined;
+  const presetProfiles = presetCohesive?.execution_profiles as Record<string, unknown> | undefined;
+  if (presetProfiles) {
+    const currentCohesive = doc.cohesive_delivery && typeof doc.cohesive_delivery === 'object'
+      ? doc.cohesive_delivery as Record<string, unknown>
+      : {};
+    const currentProfiles = currentCohesive.execution_profiles
+      && typeof currentCohesive.execution_profiles === 'object'
+      ? currentCohesive.execution_profiles as Record<string, unknown>
+      : {};
+    for (const [id, profile] of Object.entries(presetProfiles)) {
+      if (!(id in currentProfiles)) {
+        currentProfiles[id] = profile;
+        report.addedExecutionProfiles.push(id);
+      }
+    }
+    currentCohesive.execution_profiles = currentProfiles;
+    doc.cohesive_delivery = currentCohesive;
+  }
+
   report.changed =
     report.addedAgents.length > 0 ||
     report.addedSkills.length > 0 ||
     report.addedPipelines.length > 0 ||
     report.addedSlashCommands.length > 0 ||
     report.upgradedPipelines.length > 0 ||
-    report.upgradedAgents.length > 0;
+    report.upgradedAgents.length > 0 ||
+    report.addedExecutionProfiles.length > 0;
 
   if (report.changed) {
     writeYaml(root, doc);

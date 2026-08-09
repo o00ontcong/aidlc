@@ -38,8 +38,15 @@ export class DefaultRunner implements AidlcRunner {
     // --output-format stream-json --verbose: emit NDJSON events as they happen
     //   so we keep streaming text live AND get a final `result` event carrying
     //   `total_cost_usd` (claude's own accurate cost) for the budget guard.
+    // --dangerously-skip-permissions: this runner is the unattended exec loop
+    //   (aidlc-autopilot / Cohesive Delivery) — there is no TTY to answer a
+    //   tool-permission prompt, so without this flag the FIRST Write/Edit/Bash
+    //   call in any real step hangs forever waiting for an answer that can
+    //   never arrive. Same rationale as the other headless `--print` call in
+    //   the extension (workspaceWebview.ts's loadRequirementForWebview).
     const args = [
       '--print',
+      '--dangerously-skip-permissions',
       '--output-format', 'stream-json',
       '--verbose',
       '--append-system-prompt', ctx.skill,

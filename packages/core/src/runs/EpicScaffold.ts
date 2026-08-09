@@ -113,6 +113,8 @@ export function mirrorRunStateToEpic(
     feedback: s.feedback,
     autoReviewVerdict: s.autoReviewVerdict,
     history: s.history ?? [],
+    reviewDisposition: s.reviewDisposition,
+    reviewBundleRevision: s.reviewBundleRevision,
     artifactsProduced: s.artifactsProduced,
   }));
 

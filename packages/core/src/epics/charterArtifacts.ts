@@ -39,6 +39,9 @@ export interface CharterGoal {
   title: string;
   metric: string;
   status: string;
+  confidence?: 'low' | 'medium' | 'high';
+  confirmation?: 'pending' | 'confirmed';
+  sources?: string[];
 }
 
 export interface CharterInvariant {
@@ -46,6 +49,9 @@ export interface CharterInvariant {
   rule: string;
   scope: string[];
   severity: InvariantSeverity;
+  confidence?: 'low' | 'medium' | 'high';
+  confirmation?: 'pending' | 'confirmed';
+  sources?: string[];
 }
 
 export interface CharterTechRule {
@@ -53,6 +59,9 @@ export interface CharterTechRule {
   kind: TechRuleKind;
   value: string;
   reason: string;
+  confidence?: 'low' | 'medium' | 'high';
+  confirmation?: 'pending' | 'confirmed';
+  sources?: string[];
 }
 
 export interface DeliveryBudget {
@@ -65,11 +74,16 @@ export interface ShipPolicy {
   forbidAgentMergeToDefaultBranch: boolean;
   defaultBranch: string;
   allowAiAssistReview: boolean;
+  /** Explicit escape hatch for repositories without a PR provider. Defaults false. */
+  allowLocalMergeWithHumanOnly?: boolean;
 }
 
 export interface CharterDocument {
   revision: number;
   hash: string;
+  status?: 'provisional' | 'confirmed';
+  origin?: 'interactive' | 'existing-project-inference';
+  generatedAt?: string;
   goals: CharterGoal[];
   nonGoals: string[];
   invariants: CharterInvariant[];
@@ -92,6 +106,12 @@ export interface SyncProjectRulesResult {
   written: string[];
   revision: number;
   hash: string;
+}
+
+export interface RecordHumanCharterEditResult extends SyncProjectRulesResult {
+  charterPath: string;
+  status: 'provisional' | 'confirmed';
+  confirmedIds: string[];
 }
 
 /** Resolve bundled charter templates (packages/core/templates/…). */
@@ -136,6 +156,50 @@ export function computeCharterMarkdownHash(charterDir: string): string {
 export function readCharterJson(workspaceRoot: string): CharterDocument {
   const file = path.join(workspaceRoot, CHARTER_JSON_REL);
   return JSON.parse(fs.readFileSync(file, 'utf8')) as CharterDocument;
+}
+
+/**
+ * Reconcile human edits to an inferred charter. Markdown remains canonical for
+ * the charter hash; CHARTER.json remains canonical for structured policy. The
+ * caller may confirm every inferred item or only a selected set of IDs.
+ */
+export function recordHumanCharterEdit(
+  workspaceRoot: string,
+  options: { confirmIds?: string[]; confirmAll?: boolean } = {},
+): RecordHumanCharterEditResult {
+  const charterPath = path.join(workspaceRoot, CHARTER_JSON_REL);
+  if (!fs.existsSync(charterPath)) throw new Error(`Missing ${CHARTER_JSON_REL}`);
+  const charter = readCharterJson(workspaceRoot);
+  const selected = new Set(options.confirmIds ?? []);
+  const confirmAll = options.confirmAll ?? selected.size === 0;
+  const knownIds = new Set<string>();
+  const confirmedIds: string[] = [];
+  const confirm = <T extends { id: string; confirmation?: 'pending' | 'confirmed' }>(item: T): T => {
+    knownIds.add(item.id);
+    if (confirmAll || selected.has(item.id)) {
+      confirmedIds.push(item.id);
+      return { ...item, confirmation: 'confirmed' };
+    }
+    return item;
+  };
+  charter.goals = charter.goals.map(confirm);
+  charter.invariants = charter.invariants.map(confirm);
+  charter.techRules = charter.techRules.map(confirm);
+  const unknown = [...selected].filter((id) => !knownIds.has(id));
+  if (unknown.length) throw new Error(`Unknown charter item id(s): ${unknown.join(', ')}`);
+
+  charter.hash = computeCharterMarkdownHash(path.join(workspaceRoot, CHARTER_REL_DIR));
+  charter.revision = Math.max(0, Number(charter.revision) || 0) + 1;
+  charter.generatedAt = new Date().toISOString();
+  const items = [...charter.goals, ...charter.invariants, ...charter.techRules];
+  charter.status = items.every((item) => item.confirmation === 'confirmed')
+    ? 'confirmed'
+    : 'provisional';
+  const temp = `${charterPath}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify(charter, null, 2)}\n`, 'utf8');
+  fs.renameSync(temp, charterPath);
+  const synced = syncProjectRules(workspaceRoot);
+  return { ...synced, charterPath, status: charter.status, confirmedIds };
 }
 
 function readTemplate(templatesRoot: string, relParts: string[]): string {
@@ -198,6 +262,7 @@ function defaultCharterDocument(hash: string): CharterDocument {
       forbidAgentMergeToDefaultBranch: true,
       defaultBranch: 'main',
       allowAiAssistReview: true,
+      allowLocalMergeWithHumanOnly: false,
     },
   };
 }

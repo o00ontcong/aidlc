@@ -2,7 +2,7 @@ import path from 'node:path';
 import {
   artifactDir, currentStepName, exists, fieldFromMarkdown, formatError,
   fullCommitExists, gitDiffNameOnlyStagedAndUnstaged, hasPlaceholder,
-  markdownHasGo, pass, readJson, readText, reject, sha256File,
+  loadCharter, markdownHasGo, pass, readJson, readText, reject, sha256File,
 } from './lib.mjs';
 
 const REQUIRED = [
@@ -40,9 +40,11 @@ function assertMergedBeforeSync(workspaceRoot, runId) {
   }
   const text = readText(prFile);
   const status = fieldFromMarkdown(text, 'Status').toLowerCase();
-  const local = /\*\*Local Human Approval:\*\*\s*(yes|approved|true)\b/i.test(text);
-  if (!['merged', 'approved'].includes(status) && !local) {
-    return ['project-sync must run only after PR merge/approval (or local human approval escape hatch)'];
+  const policy = loadCharter(workspaceRoot)?.shipPolicy ?? {};
+  const local = policy.allowLocalMergeWithHumanOnly === true
+    && /\*\*Local Human Approval:\*\*\s*(yes|approved|true)\b/i.test(text);
+  if (status !== 'merged' && !local) {
+    return ['project-sync must run only after PR merge (or local human approval escape hatch)'];
   }
   return [];
 }
@@ -54,17 +56,28 @@ export default async function projectContext(ctx) {
         ...assertMergedBeforeSync(ctx.workspaceRoot, ctx.state.runId),
         ...assertNoIntentEdits(ctx.workspaceRoot),
       ];
-      // Still verify manifest integrity when present
+      // Project sync republishes canonical Reality, so enforce the same
+      // manifest integrity contract as publish-context rather than treating
+      // missing declarations as optional.
       const root = path.join(ctx.workspaceRoot, 'docs', 'project', 'context');
       const manifestFile = path.join(root, 'CONTEXT-MANIFEST.json');
-      if (exists(manifestFile)) {
+      if (!exists(manifestFile)) {
+        problems.push('CONTEXT-MANIFEST.json is required after project-sync');
+      } else {
         const manifest = readJson(manifestFile);
+        if (manifest.schemaVersion !== 1) problems.push('Context manifest schemaVersion must be 1');
+        if (!Number.isInteger(manifest.revision) || manifest.revision < 1) {
+          problems.push('Context manifest revision must be a positive integer');
+        }
+        if (!fullCommitExists(ctx.workspaceRoot, manifest.sourceCommit)) {
+          problems.push(`Context sourceCommit is not a repository commit: ${manifest.sourceCommit ?? '(missing)'}`);
+        }
         for (const name of REQUIRED) {
           const file = path.join(root, name);
-          if (!exists(file)) continue;
+          if (!exists(file)) { problems.push(`${name} is missing after sync`); continue; }
           const actual = sha256File(file).toLowerCase();
           const declared = manifest.artifacts?.[name]?.toLowerCase?.();
-          if (declared && actual !== declared) {
+          if (!declared || actual !== declared) {
             problems.push(`${name} hash mismatch after sync (${declared} != ${actual})`);
           }
         }

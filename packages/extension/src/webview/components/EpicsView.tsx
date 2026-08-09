@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Search, ChevronDown, Star } from 'lucide-react';
+import { Plus, Brain, FolderOpen, Pencil, Search, ChevronDown, Star, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EpicCard, EPIC_DND_MIME } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { CharterBoard } from './CharterBoard';
+import { AutonomousDeliveryModal } from './AutonomousDeliveryModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 
 const FILTERS: { id: EpicFilter; label: string }[] = [
@@ -53,6 +54,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
     () => new Set(seed.followedIds ?? []),
   );
   const [startEpicOpen, setStartEpicOpen] = useState(false);
+  const [autonomousDeliveryOpen, setAutonomousDeliveryOpen] = useState(false);
   const [dragEpicId, setDragEpicId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<'follow' | 'no-follow' | null>(null);
 
@@ -251,7 +253,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={() =>
@@ -271,6 +273,15 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           >
             <Brain className="h-3.5 w-3.5" />
             Memory auto-load: {state.epicMemoryHookEnabled ? 'On' : 'Off'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setAutonomousDeliveryOpen(true)}
+            title="Start or manage Existing Project Autonomous Delivery"
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Autonomous Delivery
           </button>
           <button
             type="button"
@@ -412,6 +423,12 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           charter={state.charter}
           onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
           onClose={() => setStartEpicOpen(false)}
+        />
+      )}
+      {autonomousDeliveryOpen && (
+        <AutonomousDeliveryModal
+          pipelines={state.pipelines}
+          onClose={() => setAutonomousDeliveryOpen(false)}
         />
       )}
     </div>

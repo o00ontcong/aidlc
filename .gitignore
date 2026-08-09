@@ -35,3 +35,7 @@ packages/extension/tools/
 packages/extension/vendor/
 .ast-graph/
 .claude/settings.json
+.claude/worktrees/
+
+# local machine-specific tool config (absolute paths, not portable)
+.codex/

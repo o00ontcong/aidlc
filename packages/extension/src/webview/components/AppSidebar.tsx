@@ -768,18 +768,19 @@ function TemplateRow({
   );
 }
 
-// The AIDLC Autopilot entry in the Common workflows. It isn't a template you
+// The Epic Autopilot entry in the Common workflows. It isn't a template you
 // apply — it's a behavior gated by the `aidlc.autopilot.enabled` setting — so
 // the row mirrors that setting: "Coming soon" (disabled look) when off, "On"
 // (active look) when enabled. Clicking either state deep-links to the setting
 // so the user can flip it. The shared concept blurb frames the feature.
 const AUTOPILOT_CONCEPT =
-  'AIDLC Autopilot\n\n' +
+  'Epic Autopilot (experimental)\n\n' +
   "Reads your project's real context — codebase, tests, spec, and design — " +
   'sizes the epic, then drafts a plan tailored to it: which agents run in ' +
   'which phases, what to clarify first, and which phases to add. A near-' +
   'superpower that stays grounded in your business and codebase, not generic ' +
-  'boilerplate.';
+  'boilerplate. This is separate from Cohesive Delivery\'s Existing Project ' +
+  'Autonomous Delivery flow.';
 
 function AutopilotRow({ enabled }: { enabled: boolean }) {
   const tip = useTooltip();
@@ -810,7 +811,7 @@ function AutopilotRow({ enabled }: { enabled: boolean }) {
     >
       <Zap className={cn('h-3 w-3 shrink-0', enabled ? 'text-primary opacity-80' : 'text-muted-foreground')} />
       <span className={cn('shrink-0 truncate font-semibold max-w-[40%]', enabled ? 'text-primary' : 'text-muted-foreground')}>
-        AIDLC Autopilot
+        Epic Autopilot
       </span>
       <span className="truncate text-muted-foreground">· Auto-plan epics from your project context</span>
       <span

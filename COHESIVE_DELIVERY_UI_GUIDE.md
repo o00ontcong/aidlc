@@ -2,6 +2,15 @@
 
 Tài liệu này dành cho người mới đã cài AIDLC extension và đang mở project cần làm việc trong VS Code hoặc Cursor.
 
+Cohesive Delivery có hai cách chạy cùng tồn tại:
+
+- **Guided**: human chạy và review từng step như các mục 2–10 bên dưới.
+- **Existing Project Autonomous Delivery**: execution profile opt-in ở level project;
+  tự chạy từ `project-context` đến review bundle, nhưng không tự merge default branch.
+
+Profile autonomous là tính năng mở rộng cho project có sẵn. Nó không đổi mặc định
+của Cohesive Delivery và không bắt buộc request đến từ Jira.
+
 ## 0. Bản đồ storyboard (nhìn nhanh)
 
 Đọc phần này trước khi làm theo checklist bên dưới. Ba lớp pipeline và thứ tự người dùng thao tác trên UI:
@@ -19,7 +28,7 @@ flowchart TB
     F --> G[Start Epic worker cho từng WP]
     G --> H[Workers chạy song song]
     H --> I[Quay lại feature: await-packages]
-    I --> J[integrate → cohesion → system-test → project-sync]
+    I --> J[integrate → cohesion → system-test → open PR → human merge → project-sync]
   end
 
   setup --> feature
@@ -87,10 +96,65 @@ stateDiagram-v2
 8. Mở tab **Workflows** và kiểm tra có đủ ba pipeline:
 
    - `project-context` — 7 steps (define-charter → scan → model → check-drift → review → publish → project-rules-sync);
-   - `cohesive-feature` — 12 steps;
-   - `cohesive-work-package` — 5 steps.
+   - `cohesive-feature` — 14 steps;
+   - `cohesive-work-package` — 7 steps.
 
 > **Lưu ý về badge:** trong một số view hiện tại, chỉ `cohesive-feature` có badge built-in. Hai pipeline còn lại có thể nằm trong nhóm **Your pipelines**. Đây chỉ là khác biệt hiển thị, không ảnh hưởng chức năng.
+
+### 1.1 Bật luồng autonomous cho project có sẵn
+
+Sau khi apply preset, profile sau được thêm vào workspace và chỉ được dùng khi
+human chủ động gọi command autonomous:
+
+```yaml
+cohesive_delivery:
+  execution_profiles:
+    existing-project-autonomous:
+      project_context: infer-or-refresh
+      review_strategy: aggregate
+      max_parallel_workers: 3
+      open_feature_pr: true
+      merge: human-only
+```
+
+Trên AIDLC sidebar, nhấn icon **Start Autonomous Delivery for Existing Project**,
+hoặc mở Command Palette và chạy command cùng tên. Nhập feature id, title và mô tả
+trực tiếp hoặc chọn một file requirement. Jira/GitHub chỉ là source metadata tùy chọn,
+không phải điểm bắt đầu của flow.
+
+Hệ thống tự chạy:
+
+```mermaid
+flowchart LR
+  A[Project request] --> B[Infer or refresh project-context]
+  B --> C[Feature contract]
+  C --> D[Dependency-aware work packages]
+  D --> E[Integrate and system test]
+  E --> F[Open feature PR]
+  F --> G[HUMAN-REVIEW-SUMMARY]
+  G --> H{{Human merges}}
+  H --> I[Project sync and final summary]
+```
+
+Các human review gate trong pipeline vẫn được ghi đầy đủ vào audit trail nhưng được
+gom vào `HUMAN-REVIEW-SUMMARY.md`; chúng không bị ghi sai thành “human approved”.
+Tại review bundle, human có thể:
+
+1. Chấp nhận và merge PR bằng tay, rồi chạy **Resume Autonomous Delivery After Merge**.
+2. Chạy **Add Autonomous Delivery Review Task** để thêm yêu cầu sửa; hệ thống route
+   task và chỉ rerun context/feature/package/integration bị ảnh hưởng.
+3. Chạy **Edit and Confirm Inferred Project Context**, sửa charter đã được AI suy luận,
+   lưu file rồi xác nhận; charter tăng revision và downstream alignment được refresh.
+
+> Agent không merge default branch. `project-sync` chỉ chạy sau khi validator thấy PR
+> đã thực sự merged (hoặc local flow được human xác nhận theo policy).
+
+Nếu preset phát hiện validator đã được project customize, file custom được giữ nguyên
+và bản bundled mới được ghi dưới hậu tố `.aidlc-new`. Autonomous execution dừng cho
+đến khi human reconcile và xóa file `.aidlc-new`; guided mode vẫn có thể được dùng.
+
+Hiện tại artifact contracts của bundle dùng canonical root `docs/epics`; autonomous
+command fail-fast nếu workspace đặt `state.root` sang thư mục khác.
 
 ## 2. Cách thao tác một step
 
@@ -143,19 +207,25 @@ sequenceDiagram
 
 ## 3. Khởi tạo Project Context
 
-Project Context là nguồn thông tin chung về kiến trúc, domain, shared contracts và engineering rules của repository. Hãy hoàn thành pipeline này trước feature đầu tiên.
+Project Context là nguồn thông tin chung: **Intent** (charter + conventions), **Reality** (scan/model), và chiếu rule files. Hãy hoàn thành pipeline này trước feature đầu tiên.
 
 ```mermaid
 flowchart LR
-  S1[scan-project] --> S2[model-project]
-  S2 --> S3[review-context]
+  S0[define-charter] --> S1[scan-project]
+  S1 --> S2[model-project]
+  S2 --> S2b[check-drift]
+  S2b --> S3[review-context]
   S3 --> S4[publish-context]
+  S4 --> S5[project-rules-sync]
   S4 --> M[CONTEXT-MANIFEST.json]
 
+  S0 -.-> C[CHARTER.json]
   S1 -.-> P1[PROJECT-SCAN.md]
   S2 -.-> P2[5 file context]
+  S2b -.-> D[DRIFT-REPORT.md]
   S3 -.-> P3[CONTEXT-REVIEW.md]
   S4 -.-> M
+  S5 -.-> R[CLAUDE.md / AGENTS.md / .cursor/rules]
 ```
 
 ### 3.1 Tạo Project Context epic
@@ -166,21 +236,33 @@ flowchart LR
 
    - **Epic id:** `PROJECT-CONTEXT-001`
    - **Title:** `Initialize project context`
-   - **Description (Project idea — bắt buộc):** ý tưởng / bối cảnh project (seed cho
-     interview `define-charter`, chưa phải charter).
+   - **Description (Project idea — bắt buộc):** mô tả ý tưởng / bối cảnh project
+     (product là gì, ai dùng, ràng buộc thô). Đây là **seed**, chưa phải charter.
 
-4. Nhấn **Start epic**.
+4. Nhấn **Start epic** — scaffold ghi `idea` vào `inputs.json` và seed
+   `docs/project/charter/*` + `CONVENTIONS.md` once if missing.
 5. Mở Epic card `PROJECT-CONTEXT-001`.
 
 ### 3.2 Chạy các step
 
 Chạy lần lượt:
 
-1. `define-charter` — Run with Claude; AI hỏi 1:1 từ `idea`; ghi `CHARTER-DISCOVERY.md` + charter; Approve
+1. `define-charter` (human + AI 1:1) — **Run with Claude**; agent đọc `idea`, hỏi từng
+   câu trong terminal, ghi `CHARTER-DISCOVERY.md`, rồi draft charter; auto-review
+   `charter.mjs`; **Approve**
 2. `scan-project`
 3. `model-project`
-4. `review-context`
-5. `publish-context`
+4. `check-drift` — Reality vs Intent per `INV-x`
+5. `review-context`
+6. `publish-context`
+7. `project-rules-sync` — project markers into `CLAUDE.md`, `AGENTS.md`, `.cursor/rules/aidlc-charter.mdc`
+
+Tại `define-charter`:
+
+1. Nhấn **Run with Claude** (`/project-context-define-charter`).
+2. Trả lời lần lượt trong terminal (Goals + metric, non-goals, INV, tech policy, quality, ship).
+3. Kiểm tra `CHARTER-DISCOVERY.md` có `## Discovery decisions` và các file charter.
+4. **Mark step done** → **Run auto-review** → **Approve**.
 
 Tại `review-context`:
 
@@ -326,16 +408,20 @@ Chạy lần lượt:
 
 1. `load-package`
 2. `prepare-worktree`
-3. `implement-package`
-4. `package-test`
-5. `publish-result`
+3. `package-test-plan`
+4. `implement-package`
+5. `package-test`
+6. `package-review`
+7. `publish-result`
 
 Gate tương ứng:
 
 - `load-package`: auto-review;
 - `prepare-worktree`: auto-review;
+- `package-test-plan`: tạo failing-test evidence;
 - `implement-package`: human review;
 - `package-test`: artifact validation;
+- `package-review`: independent review + auto-review;
 - `publish-result`: auto-review và human review.
 
 Worker hoàn thành khi có đủ:
@@ -344,9 +430,12 @@ Worker hoàn thành khi có đủ:
 docs/epics/EPIC-123-WP-01/artifacts/
 ├── PACKAGE-CONTEXT.md
 ├── WORKTREE-STATE.json
+├── PACKAGE-TEST-PLAN.md
 ├── IMPLEMENT-STATE.md
 ├── PACKAGE-SUMMARY.md
+├── REVIEW-DIFF.md
 ├── PACKAGE-TEST-REPORT.md
+├── PACKAGE-REVIEW.md
 └── PACKAGE-RESULT.json
 ```
 
@@ -362,8 +451,8 @@ flowchart TB
   FC --> W2[Start Epic EPIC-123-WP-02]
 
   subgraph parallel ["Song song trên UI"]
-    W1 --> A1[load → prepare → implement → test → publish]
-    W2 --> A2[load → prepare → implement → test → publish]
+    W1 --> A1[load → prepare → test-plan → implement → test → review → publish]
+    W2 --> A2[load → prepare → test-plan → implement → test → review → publish]
   end
 
   A1 --> R1[PACKAGE-RESULT.json]
@@ -464,7 +553,18 @@ Sau khi `await-packages` được approve, tiếp tục trên Epic `EPIC-123`.
 4. Nhấn **Run auto-review**.
 5. Nhấn **Approve** nếu toàn bộ test pass.
 
-### 8.5 `project-sync`
+### 8.5 `open-pr`
+
+1. Agent mở đúng một feature PR từ `feature/<feature-id>` vào default branch.
+2. Validator kiểm tra head/base/status trong `PR-LINK.md`.
+3. Package workers không được mở PR riêng.
+
+### 8.6 `await-merge`
+
+Đây là human-only gate. Human review và merge PR trên Git provider; agent không được
+merge default branch. Sau merge, chạy lại step để validator xác nhận status `merged`.
+
+### 8.7 `project-sync`
 
 1. Nhấn **Run with Claude**.
 2. Kiểm tra `PROJECT-UPDATE.md` ghi lại thay đổi đối với project knowledge.
@@ -500,8 +600,10 @@ flowchart TB
   K --> L[integration-context]
   L --> M[cohesion-review]
   M --> N[system-test]
-  N --> O[project-sync]
-  O --> P[Feature hoàn thành]
+  N --> O[open-pr]
+  O --> P{{human merge}}
+  P --> Q[project-sync]
+  Q --> R[Feature hoàn thành]
 ```
 
 Thứ tự người dùng nhớ nhanh:
@@ -509,7 +611,7 @@ Thứ tự người dùng nhớ nhanh:
 1. Context trước, feature sau.
 2. Feature chạy đến contract rồi mới mở worker.
 3. Worker xong hết mới `await-packages`.
-4. Feature chỉ xong sau `project-sync`.
+4. Human merge feature PR; feature chỉ xong sau post-merge `project-sync`.
 
 ## 10. Xử lý lỗi thường gặp
 

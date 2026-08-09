@@ -11,7 +11,9 @@ import {
   getBuiltinArtifactTemplates,
   getBuiltinPipelineSummary,
   getBuiltinWorkflowByPipelineId,
+  listValidatorConflicts,
   loadBuiltinPreset,
+  resolveValidatorConflict,
   validateWorkspace,
   writeBuiltinAutoReviewValidators,
 } from '../src';
@@ -154,6 +156,8 @@ describe('Cohesive Delivery built-in bundle', () => {
     writeBuiltinAutoReviewValidators(ROOT, root, workflow);
 
     expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned\n');
+    expect(fs.existsSync(path.join(validators, 'lib.mjs.aidlc-new'))).toBe(true);
+    expect(fs.existsSync(path.join(validators, '.aidlc-validator-manifest.json'))).toBe(true);
     for (const file of [
       'project-context.mjs', 'charter.mjs', 'rules-sync.mjs',
       'work-packages.mjs', 'feature-contract.mjs',
@@ -164,6 +168,61 @@ describe('Cohesive Delivery built-in bundle', () => {
     ]) {
       expect(fs.existsSync(path.join(validators, file)), file).toBe(true);
     }
+
+    const managed = path.join(validators, 'ship.mjs');
+    fs.writeFileSync(managed, '// old managed bytes\n', 'utf8');
+    const manifestPath = path.join(validators, '.aidlc-validator-manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.files['ship.mjs'].installedHash = `sha256:${require('crypto')
+      .createHash('sha256').update('// old managed bytes\n').digest('hex')}`;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    writeBuiltinAutoReviewValidators(ROOT, root, workflow);
+    expect(fs.readFileSync(managed, 'utf8')).toBe(
+      fs.readFileSync(path.join(ROOT, 'templates', 'cohesive', 'validators', 'ship.mjs'), 'utf8'),
+    );
+    expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned\n');
+
+    fs.unlinkSync(path.join(validators, 'lib.mjs.aidlc-new'));
+    writeBuiltinAutoReviewValidators(ROOT, root, workflow);
+    expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned\n');
+    expect(fs.existsSync(path.join(validators, 'lib.mjs.aidlc-new'))).toBe(false);
+  });
+
+  it('lets a human list and resolve pending validator conflicts without manual file surgery', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-cohesive-'));
+    tempRoots.push(root);
+    const validators = path.join(root, '.aidlc', 'validators');
+    fs.mkdirSync(validators, { recursive: true });
+    fs.writeFileSync(path.join(validators, 'lib.mjs'), '// user-owned lib\n', 'utf8');
+    fs.writeFileSync(path.join(validators, 'ship.mjs'), '// user-owned ship\n', 'utf8');
+    writeBuiltinAutoReviewValidators(ROOT, root, workflow);
+
+    const bundledShip = fs.readFileSync(path.join(ROOT, 'templates', 'cohesive', 'validators', 'ship.mjs'), 'utf8');
+    const conflicts = listValidatorConflicts(root);
+    expect(conflicts.map((c) => c.rel).sort()).toEqual(['lib.mjs', 'ship.mjs']);
+    const shipConflict = conflicts.find((c) => c.rel === 'ship.mjs')!;
+    expect(shipConflict.installed).toBe('// user-owned ship\n');
+    expect(shipConflict.proposed).toBe(bundledShip);
+
+    // Accept the bundled replacement for ship.mjs.
+    resolveValidatorConflict(root, 'ship.mjs', 'accept');
+    expect(fs.readFileSync(path.join(validators, 'ship.mjs'), 'utf8')).toBe(bundledShip);
+    expect(fs.existsSync(path.join(validators, 'ship.mjs.aidlc-new'))).toBe(false);
+
+    // Keep the installed lib.mjs as-is.
+    resolveValidatorConflict(root, 'lib.mjs', 'keep');
+    expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned lib\n');
+    expect(fs.existsSync(path.join(validators, 'lib.mjs.aidlc-new'))).toBe(false);
+
+    expect(listValidatorConflicts(root)).toEqual([]);
+
+    // Re-applying with no bundled change respects both resolutions: the
+    // accepted file is now managed (would auto-upgrade on a future bundle
+    // change), the kept file is remembered as reviewed-and-customized.
+    writeBuiltinAutoReviewValidators(ROOT, root, workflow);
+    expect(fs.readFileSync(path.join(validators, 'ship.mjs'), 'utf8')).toBe(bundledShip);
+    expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned lib\n');
+    expect(listValidatorConflicts(root)).toEqual([]);
   });
 
   it('tells commands to produce every explicit cross-pipeline gate output', () => {

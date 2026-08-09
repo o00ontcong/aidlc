@@ -109,6 +109,18 @@ aidlc run exec <runId>                  # spawns claude, streams output, advance
 aidlc run exec <runId> --auto-approve
 ```
 
+For an existing project using the Cohesive Delivery preset, the opt-in autonomous
+profile coordinates project context, feature planning, work packages, integration,
+testing, PR creation, and one aggregate review bundle:
+
+```sh
+aidlc preset apply cohesive-delivery
+aidlc cohesive run --id FEATURE-123 \
+  --description "Implement an auditable export workflow for authorized users."
+```
+
+This does not replace guided pipelines and never auto-merges the default branch.
+
 ### 4. Watch what's happening
 
 ```sh
@@ -151,7 +163,7 @@ aidlc ask "<question>"        # ask Claude about aidlc — setup, concepts, comm
 aidlc skill    add | list | show | remove           # 5 built-in templates
 aidlc agent    add | list | show | remove
 aidlc pipeline add | list | show | remove
-aidlc preset   apply | save | list                  # built-ins: code-review, release-notes, sdlc
+aidlc preset   apply | save | list                  # includes cohesive-delivery
 ```
 
 ### Epic inspection (mirrors the extension's epics panel)

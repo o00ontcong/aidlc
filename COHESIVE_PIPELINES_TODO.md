@@ -1,8 +1,18 @@
 # TODO — Cohesive Multi-Pipeline Workflow
 
+> Cập nhật 2026-08-08: tài liệu bên dưới là checklist của prototype workspace-local
+> ban đầu. Bundle hiện đã nằm trong core/extension và có thêm execution profile opt-in
+> `existing-project-autonomous`: tự chạy `project-context` → feature → dynamic workers
+> → integration/system-test/open PR → aggregate human review; merge vẫn human-only.
+> Xem guide canonical tại `packages/extension/media/guides/cohesive-delivery.md`.
+
 ## Trạng thái triển khai — 2026-08-05
 
 ### Đã hoàn thành
+
+- [x] Thêm project-level autonomous orchestrator có durable delivery state, dependency-aware workers, aggregate review và selective rework.
+- [x] Cho existing project tự suy luận provisional Goals/architecture/policy từ evidence, human edit/confirm sau.
+- [x] Thêm CLI + VS Code commands; đây là feature mở rộng, không thay guided mode và không phụ thuộc Jira.
 
 - [x] Thêm ba pipeline workspace-local: `project-context`, `cohesive-feature`, `cohesive-work-package`.
 - [x] Giữ nguyên pipeline `speckit-full` và run `EPIC-002`.

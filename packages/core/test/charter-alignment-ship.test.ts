@@ -319,6 +319,40 @@ describe('ship.mjs', () => {
     const v2 = await runner(ctx('await-merge'));
     expect(v2.decision).toBe('pass');
   });
+
+  it('await-merge does not trust a self-reported Status: merged without a real git merge', async () => {
+    execFileSync('git', ['init'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@example.com'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'README'), 'main\n');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: root });
+    execFileSync('git', ['branch', '-M', 'main'], { cwd: root });
+
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(
+      path.join(artifacts, 'PR-LINK.md'),
+      '**URL:** https://example.com/pr/1\n**Base:** main\n**Head:** feature/FEAT-1\n**Status:** merged\n**Merged By:** human\n',
+    );
+
+    // Feature branch exists but was never actually merged — the claimed
+    // status alone must not be trusted.
+    execFileSync('git', ['checkout', '-b', 'feature/FEAT-1'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'feature.txt'), 'unmerged work\n');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-m', 'feature work'], { cwd: root });
+
+    const rejected = await runner(ctx('await-merge'));
+    expect(rejected.decision).toBe('reject');
+    expect(rejected.reason).toMatch(/not reachable from main/);
+
+    // Actually merge it — the same claimed status is now independently verified.
+    execFileSync('git', ['checkout', 'main'], { cwd: root });
+    execFileSync('git', ['merge', '--no-ff', 'feature/FEAT-1', '-m', 'merge feature'], { cwd: root });
+
+    const accepted = await runner(ctx('await-merge'));
+    expect(accepted.decision).toBe('pass');
+  });
 });
 
 describe('extended cohesive validators', () => {

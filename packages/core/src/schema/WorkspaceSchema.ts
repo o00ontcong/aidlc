@@ -501,6 +501,23 @@ const PersistenceSchema = z.object({
 
 export type PersistenceConfig = z.infer<typeof PersistenceSchema>;
 
+// ── Cohesive Delivery execution profiles (optional) ───────────────
+
+const CohesiveExecutionProfileSchema = z.object({
+  project_context: z.enum(['interactive', 'infer-or-refresh']).default('interactive'),
+  review_strategy: z.enum(['per-step', 'aggregate']).default('per-step'),
+  max_parallel_workers: z.number().int().positive().max(32).default(3),
+  open_feature_pr: z.literal(true).default(true),
+  merge: z.literal('human-only').default('human-only'),
+});
+
+const CohesiveDeliverySchema = z.object({
+  execution_profiles: z.record(z.string().min(1), CohesiveExecutionProfileSchema).default({}),
+});
+
+export type CohesiveExecutionProfileConfig = z.infer<typeof CohesiveExecutionProfileSchema>;
+export type CohesiveDeliveryConfig = z.infer<typeof CohesiveDeliverySchema>;
+
 // ── Sidebar views (optional) ───────────────────────────────────────
 
 /**
@@ -576,6 +593,8 @@ export const WorkspaceSchema = z.object({
   state: StateSchema.optional(),
   /** Where run state is persisted (file | git). Defaults to local file. */
   persistence: PersistenceSchema.optional(),
+  /** Optional project-level execution profiles for the Cohesive Delivery bundle. */
+  cohesive_delivery: CohesiveDeliverySchema.optional(),
   sidebar: SidebarSchema.optional(),
 });
 

@@ -1,9 +1,9 @@
 {
-  "name": "aidlc",
-  "displayName": "AIDLC",
+  "name": "aidlc-o00ontcong",
+  "displayName": "AIDLC (o00ontcong)",
   "description": "AI-driven SDLC pipeline runner for VS Code. Plan → Prototype → Design ∥ Test → Implement → Release. Discovery gates for human-in-the-loop questions, prototype phase for visual UI design, requirements traceability, AIDLC Monitor with token usage & live observability. Supports Spec Kit (spec-driven development), recipe-based task classification, multi-pipeline workspaces.",
-  "version": "3.4.8",
-  "publisher": "hueanmy",
+  "version": "3.4.12",
+  "publisher": "o00ontcong",
   "license": "MIT",
   "sponsor": {
     "url": "https://github.com/sponsors/hueanmy"
@@ -164,6 +164,48 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.startAutonomousDelivery",
+        "title": "Start Autonomous Delivery for Existing Project",
+        "icon": "$(run-all)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.resumeAutonomousDelivery",
+        "title": "Resume Autonomous Delivery",
+        "icon": "$(debug-continue)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.openAutonomousReviewSummary",
+        "title": "Open Autonomous Delivery Review Summary",
+        "icon": "$(preview)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.addAutonomousReviewTask",
+        "title": "Add Autonomous Delivery Review Task",
+        "icon": "$(tasklist)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.editInferredProjectContext",
+        "title": "Edit and Confirm Inferred Project Context",
+        "icon": "$(edit)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.resumeAutonomousAfterMerge",
+        "title": "Resume Autonomous Delivery After Merge",
+        "icon": "$(git-merge)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.reconcileValidatorConflicts",
+        "title": "Resolve Validator Conflicts",
+        "icon": "$(diff)",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.analyzeRequirements",
         "title": "Analyze Requirements → Create Tasks",
         "icon": "$(list-tree)",
@@ -242,7 +284,7 @@
         "aidlc.autopilot.enabled": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "🚧 **Coming soon (experimental).** When enabled, starting an epic runs aidlc-autopilot: it collects epic context and generates a recommended plan (`context.json` + `autopilot-plan.md`) before the pipeline runs. Off by default while the feature is being tested."
+          "markdownDescription": "🚧 **Epic pre-planning experiment — unrelated to Cohesive Delivery Autonomous Delivery.** When enabled, regular Start Epic collects epic context and generates a recommended plan (`context.json` + `autopilot-plan.md`) before its selected pipeline runs. Off by default."
         },
         "aidlc.tokenMonitor.enabled": {
           "type": "boolean",
@@ -306,9 +348,14 @@
           "group": "navigation@0"
         },
         {
-          "command": "aidlc.ask",
+          "command": "aidlc.startAutonomousDelivery",
           "when": "view == aidlcSidebar",
           "group": "navigation@5"
+        },
+        {
+          "command": "aidlc.ask",
+          "when": "view == aidlcSidebar",
+          "group": "navigation@8"
         },
         {
           "command": "aidlc.openEpicsList",
@@ -432,7 +479,7 @@
     "clean:out": "rm -rf out",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package": "pnpm copy:templates && pnpm copy:tools && pnpm copy:annotron && pnpm typecheck && pnpm clean:out && pnpm bundle:webviews && pnpm bundle:prod && vsce package --no-dependencies"
+    "package": "pnpm --filter @aidlc/core build && pnpm copy:templates && pnpm copy:tools && pnpm copy:annotron && pnpm typecheck && pnpm clean:out && pnpm bundle:webviews && pnpm bundle:prod && vsce package --no-dependencies"
   },
   "dependencies": {
     "@aidlc/core": "workspace:*",

@@ -9,6 +9,26 @@ output, event streams, and a copy-paste GitHub Action.
 > `aidlc doctor` first — it checks all of that and now exits non-zero if anything
 > (including a broken skill or runner path) fails.
 
+## Existing Project Autonomous Delivery
+
+`aidlc cohesive run` is the higher-level, opt-in orchestrator for the Cohesive
+Delivery preset. Unlike `run exec`, it coordinates all three pipelines, creates
+work-package runs dynamically, defers human gates into one review bundle, and is
+resumable from `.aidlc/deliveries/<id>/state.json`.
+
+```bash
+aidlc preset apply cohesive-delivery
+aidlc cohesive run --id FEATURE-123 \
+  --description "Implement an auditable CSV export for authorized users."
+aidlc cohesive review FEATURE-123
+```
+
+The unattended portion stops at an open feature PR and aggregate human review.
+Default-branch merge remains human-only. After merge, use
+`aidlc cohesive resume-after-merge FEATURE-123` for project knowledge sync and the
+final summary. If installed validators have unresolved `.aidlc-new` upgrades, the
+autonomous run fails closed before executing any pipeline step.
+
 ## Exit codes
 
 `aidlc run exec` distinguishes *finished* from *blocked* so a CI job can branch on it:

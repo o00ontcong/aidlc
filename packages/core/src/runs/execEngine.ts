@@ -23,8 +23,21 @@ import {
 } from './PipelineRunner';
 import { runAutoReview } from './AutoReviewer';
 import { checkBudget } from './budget';
+import { mirrorRunStateToEpic } from './EpicScaffold';
 import type { RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
+
+/**
+ * Best-effort mirror of a just-saved run into its epic's `state.json` (the
+ * Epics UI reads that file, not the run state). Never lets a mirroring
+ * hiccup (e.g. workspace.yaml transiently invalid) abort real execution —
+ * this is a display side-channel, not part of the state machine.
+ */
+function mirrorEpicBestEffort(root: string, state: RunState): void {
+  try {
+    mirrorRunStateToEpic(root, state, WorkspaceLoader.load(root).config);
+  } catch { /* cosmetic sync only — never fail the run over this */ }
+}
 
 /**
  * Why the loop stopped. Callers map this to an exit code (CLI) or a final
@@ -46,6 +59,10 @@ export interface ExecOptions {
   untilIdx?: number;
   /** Auto-approve human_review steps instead of pausing at them. */
   autoApprove?: boolean;
+  /** Advance human gates while recording that review is deferred to one delivery bundle. */
+  aggregateReview?: boolean;
+  /** Revision of the aggregate bundle receiving deferred reviews. */
+  reviewBundleRevision?: number;
   /** Override the user message sent to claude (default: context pairs). */
   message?: string;
   /** Preview the current step's prompt without spawning claude, then stop. */
@@ -91,6 +108,8 @@ export interface ExecHooks {
   }): void;
   /** A human_review step was auto-approved (--auto-approve). */
   onAutoApproved?(e: { agent: string }): void;
+  /** A per-step human gate was deferred to the aggregate delivery review. */
+  onReviewDeferred?(e: { agent: string; reviewBundleRevision: number }): void;
   /** Budget verdict after a step ran. */
   onBudget?(e: {
     spent: number; limit: number; ok: boolean;
@@ -161,6 +180,15 @@ export async function runExecLoop(
       return { kind: 'error' };
     }
 
+    // Stop only after the requested step has passed every configured gate.
+    // The old post-run check could return while the target was merely
+    // awaiting auto-review, or execute the following step before noticing
+    // that the boundary had already been crossed.
+    if (untilIdx >= 0 && state.steps[untilIdx]?.status === 'approved') {
+      hooks.onUntilStop?.({ untilIdx });
+      return { kind: 'until' };
+    }
+
     const step = state.steps[state.currentStepIdx];
 
     // Auto-review gate: run the step's auto_review_runner validator headlessly.
@@ -172,6 +200,10 @@ export async function runExecLoop(
 
     // Human review — pause unless auto-approving.
     if (step.status === 'awaiting_review') {
+      if (opts.aggregateReview) {
+        await deferReviewStep(root, state, opts.reviewBundleRevision ?? 1, hooks);
+        continue;
+      }
       if (opts.autoApprove) {
         await autoApproveStep(root, state, hooks);
         continue;
@@ -215,11 +247,6 @@ export async function runExecLoop(
       hooks.onBudget?.({ spent: verdict.spent, limit: budget.max_usd, ok: true, runId });
     }
 
-    // --until boundary. `state.currentStepIdx` is the step that just ran.
-    if (untilIdx >= 0 && state.currentStepIdx >= untilIdx) {
-      hooks.onUntilStop?.({ untilIdx });
-      return { kind: 'until' };
-    }
   }
 }
 
@@ -326,6 +353,7 @@ async function execStep(
   }
 
   RunStateStore.save(root, next);
+  mirrorEpicBestEffort(root, next);
 
   const doneStep = next.steps[stepIdx];
   hooks.onStepResult?.({
@@ -368,6 +396,7 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
   }
 
   RunStateStore.save(root, next);
+  mirrorEpicBestEffort(root, next);
   hooks.onAutoReviewResult?.({
     agent: step.agent, decision: verdict.decision, reason: verdict.reason, runId,
   });
@@ -380,7 +409,44 @@ async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks):
   const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId)!;
   const next = approveStep({ state, pipeline });
   RunStateStore.save(root, next);
+  mirrorEpicBestEffort(root, next);
   hooks.onAutoApproved?.({ agent: state.steps[state.currentStepIdx].agent });
+}
+
+async function deferReviewStep(
+  root: string,
+  state: RunState,
+  reviewBundleRevision: number,
+  hooks: ExecHooks,
+): Promise<void> {
+  const ws = WorkspaceLoader.load(root);
+  const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId)!;
+  const stepIdx = state.currentStepIdx;
+  const next = approveStep({ state, pipeline });
+  const approved = next.steps[stepIdx];
+  approved.reviewDisposition = 'deferred-to-aggregate';
+  approved.reviewBundleRevision = reviewBundleRevision;
+  const history = approved.history ?? [];
+  const last = history[history.length - 1];
+  if (last?.kind === 'approve') {
+    history[history.length - 1] = {
+      kind: 'aggregate_defer',
+      at: last.at,
+      revision: last.revision,
+      reviewBundleRevision,
+    };
+  } else {
+    history.push({
+      kind: 'aggregate_defer',
+      at: new Date().toISOString(),
+      revision: approved.revision,
+      reviewBundleRevision,
+    });
+  }
+  approved.history = history;
+  RunStateStore.save(root, next);
+  mirrorEpicBestEffort(root, next);
+  hooks.onReviewDeferred?.({ agent: state.steps[stepIdx].agent, reviewBundleRevision });
 }
 
 function errMsg(err: unknown): string {

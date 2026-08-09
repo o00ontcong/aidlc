@@ -8,7 +8,7 @@ cấp epic" trong nhánh `feat/custom`.
 - [`COHESIVE_DELIVERY_UI_GUIDE.md`](COHESIVE_DELIVERY_UI_GUIDE.md): *dùng trên UI thế nào* (cập nhật sau khi triển khai).
 - [`COHESIVE_PIPELINES_TODO.md`](COHESIVE_PIPELINES_TODO.md): trạng thái triển khai.
 
-Trạng thái: **đề xuất, chưa triển khai.** Ngày: 2026-08-07.
+Trạng thái: **đã triển khai trong built-in Cohesive Delivery; autonomous execution là profile opt-in.** Cập nhật: 2026-08-08.
 
 ---
 

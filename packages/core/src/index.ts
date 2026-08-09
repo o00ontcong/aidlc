@@ -29,6 +29,8 @@ export type {
   SidebarConfig,
   SidebarView,
   WorkspaceRefIssue,
+  CohesiveExecutionProfileConfig,
+  CohesiveDeliveryConfig,
 } from './schema/WorkspaceSchema';
 
 export {
@@ -91,6 +93,7 @@ export {
   sha256File,
   computeCharterMarkdownHash,
   readCharterJson,
+  recordHumanCharterEdit,
   seedCharterArtifacts,
   buildCharterRulesBlock,
   syncProjectRules,
@@ -107,6 +110,7 @@ export type {
   CharterDocument,
   SeedCharterResult,
   SyncProjectRulesResult,
+  RecordHumanCharterEditResult,
 } from './epics/charterArtifacts';
 
 export {
@@ -118,6 +122,33 @@ export {
   alignmentExists,
 } from './epics/alignmentArtifacts';
 export type { AlignmentSeedInput } from './epics/alignmentArtifacts';
+
+export { DeliveryStateStore } from './delivery/DeliveryStateStore';
+export {
+  DEFAULT_EXISTING_PROJECT_PROFILE,
+  validateDeliveryRequest,
+} from './delivery/DeliveryTypes';
+export {
+  renderDeliveryReviewBundle,
+  deliveryReviewSummaryPath,
+  writeDeliveryReviewBundle,
+} from './delivery/DeliveryReview';
+export { DeliveryOrchestrator } from './delivery/DeliveryOrchestrator';
+export type {
+  DeliveryHooks,
+  StartDeliveryOptions,
+  AddDeliveryTaskInput,
+} from './delivery/DeliveryOrchestrator';
+export type {
+  DeliveryRequest,
+  DeliveryProfile,
+  DeliveryStatus,
+  DeliveryState,
+  DeliveryReviewTask,
+  DeliveryReviewTaskTarget,
+  DeliveryEvent,
+  DeliverySourceType,
+} from './delivery/DeliveryTypes';
 
 export {
   WorkspaceLoader,
@@ -252,6 +283,16 @@ export type {
   WorkspaceRecipe,
   ArtifactTemplateOptions,
 } from './presets/builtinWorkflows';
+
+// Human reconciliation for pending `.aidlc/validators/*.aidlc-new` upgrades
+// (see `DeliveryOrchestrator.assertValidatorsReady`, which blocks autonomous
+// execution while any are pending).
+export {
+  listValidatorConflicts,
+  resolveValidatorConflict,
+  VALIDATOR_RECONCILIATION_ERROR_PREFIX,
+} from './presets/validatorManifest';
+export type { ValidatorConflict } from './presets/validatorManifest';
 
 // Global ~/.claude install of built-in agent/skill files (shared by ext + CLI).
 export {
