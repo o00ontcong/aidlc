@@ -186,6 +186,7 @@ export type {
   DeliveryReviewTask,
   DeliveryReviewTaskTarget,
   DeliveryEvent,
+  DeliveryFailureRef,
   DeliverySourceType,
 } from './delivery/DeliveryTypes';
 
@@ -268,6 +269,8 @@ export { checkBudget } from './runs/budget';
 export type { BudgetCheckArgs, BudgetVerdict } from './runs/budget';
 export { runExecLoop } from './runs/execEngine';
 export type { ExecOutcome, ExecOptions, ExecHooks } from './runs/execEngine';
+export { recordExecutionFailure } from './runs/ExecutionFailureLog';
+export type { ExecutionFailureLog, RecordExecutionFailureInput } from './runs/ExecutionFailureLog';
 export { verifyRun } from './runs/verifyRun';
 export type { VerifyReport, StepDrift } from './runs/verifyRun';
 export { renderRunReport } from './runs/runReport';
@@ -281,6 +284,7 @@ export type {
   RunStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
+  ExecutionFailureRef,
 } from './runs/RunState';
 
 // ── Built-in workflow presets (shared by extension + CLI) ──────────

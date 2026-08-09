@@ -45,6 +45,15 @@ function progressHooks(
     onReviewDeferred: ({ agent, reviewBundleRevision }) => {
       output.appendLine(`human review deferred: ${agent} → bundle R${reviewBundleRevision}`);
     },
+    onStepFailed: ({ message, missing, failure }) => {
+      output.appendLine(`✘ ${message ?? 'Step failed.'}`);
+      if (missing?.length) output.appendLine(`Missing: ${missing.join(', ')}`);
+      if (failure) {
+        output.appendLine(`Failure code: ${failure.code}`);
+        output.appendLine(`Failure log: ${failure.logPath}`);
+        for (const command of failure.recoveryCommands) output.appendLine(`Recovery: ${command}`);
+      }
+    },
   };
 }
 
@@ -205,10 +214,26 @@ async function chooseDelivery(workspaceRoot: string): Promise<string | undefined
     return undefined;
   }
   const pick = await vscode.window.showQuickPick(
-    states.map((state) => ({ label: state.id, description: `${state.status} · review R${state.reviewRevision}` })),
+    states.map((state) => ({
+      label: state.id,
+      description: `${state.status} · review R${state.reviewRevision}${state.lastFailure ? ` · ${state.lastFailure.code}` : ''}`,
+      detail: state.lastFailure ? `Log: ${state.lastFailure.logPath} · Resume: ${state.lastFailure.resumeCommand}` : undefined,
+    })),
     { placeHolder: 'Select an autonomous delivery' },
   );
   return pick?.label;
+}
+
+async function resolveDeliveryId(
+  workspaceRoot: string,
+  requestedId?: string,
+): Promise<string | undefined> {
+  if (!requestedId) return chooseDelivery(workspaceRoot);
+  if (!DeliveryStateStore.load(workspaceRoot, requestedId)) {
+    void vscode.window.showWarningMessage(`AIDLC: Delivery "${requestedId}" was not found.`);
+    return undefined;
+  }
+  return requestedId;
 }
 
 export async function startAutonomousDeliveryCommand(output: vscode.OutputChannel): Promise<void> {
@@ -301,27 +326,33 @@ export async function startAutonomousDeliveryFromRequest(
   await runNewAutonomousDelivery(workspaceRoot, request);
 }
 
-export async function resumeAutonomousDeliveryCommand(_output: vscode.OutputChannel): Promise<void> {
+export async function resumeAutonomousDeliveryCommand(
+  _output: vscode.OutputChannel,
+  requestedId?: string,
+): Promise<void> {
   const workspaceRoot = root();
   if (!workspaceRoot) return;
-  const id = await chooseDelivery(workspaceRoot);
+  const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
   if (!(await ensureAidlcCliAvailable())) return;
   launchCliInTerminal(workspaceRoot, ['cohesive', 'resume', id], `AIDLC · Delivery: ${id}`);
 }
 
-export async function openAutonomousReviewSummaryCommand(): Promise<void> {
+export async function openAutonomousReviewSummaryCommand(requestedId?: string): Promise<void> {
   const workspaceRoot = root();
   if (!workspaceRoot) return;
-  const id = await chooseDelivery(workspaceRoot);
+  const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
   await openSummary(workspaceRoot, id);
 }
 
-export async function addAutonomousReviewTaskCommand(output: vscode.OutputChannel): Promise<void> {
+export async function addAutonomousReviewTaskCommand(
+  output: vscode.OutputChannel,
+  requestedId?: string,
+): Promise<void> {
   const workspaceRoot = root();
   if (!workspaceRoot) return;
-  const id = await chooseDelivery(workspaceRoot);
+  const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
   const title = await vscode.window.showInputBox({ title: `Add review task · ${id}`, prompt: 'Describe the requested correction.' });
   if (!title) return;
@@ -343,10 +374,13 @@ export async function addAutonomousReviewTaskCommand(output: vscode.OutputChanne
   }
 }
 
-export async function resumeAutonomousAfterMergeCommand(output: vscode.OutputChannel): Promise<void> {
+export async function resumeAutonomousAfterMergeCommand(
+  output: vscode.OutputChannel,
+  requestedId?: string,
+): Promise<void> {
   const workspaceRoot = root();
   if (!workspaceRoot) return;
-  const id = await chooseDelivery(workspaceRoot);
+  const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
   try {
     await vscode.window.withProgress({
@@ -363,10 +397,13 @@ export async function resumeAutonomousAfterMergeCommand(output: vscode.OutputCha
   }
 }
 
-export async function editInferredProjectContextCommand(output: vscode.OutputChannel): Promise<void> {
+export async function editInferredProjectContextCommand(
+  output: vscode.OutputChannel,
+  requestedId?: string,
+): Promise<void> {
   const workspaceRoot = root();
   if (!workspaceRoot) return;
-  const id = await chooseDelivery(workspaceRoot);
+  const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
   const state = DeliveryStateStore.load(workspaceRoot, id);
   if (!state?.projectContextRunId) return;
@@ -414,4 +451,78 @@ export async function editInferredProjectContextCommand(output: vscode.OutputCha
     await openSummary(workspaceRoot, id);
     void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
   }
+}
+
+/** Apply already-created review tasks without forcing the user through another picker. */
+export async function reworkAutonomousDeliveryCommand(
+  output: vscode.OutputChannel,
+  requestedId?: string,
+): Promise<void> {
+  const workspaceRoot = root();
+  if (!workspaceRoot) return;
+  const id = await resolveDeliveryId(workspaceRoot, requestedId);
+  if (!id) return;
+  try {
+    await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `Applying review tasks: ${id}`,
+      cancellable: false,
+    }, async (progress) => new DeliveryOrchestrator(workspaceRoot)
+      .rework(id, { hooks: progressHooks(output, progress) }));
+    await openSummary(workspaceRoot, id);
+  } catch (error) {
+    output.show(true);
+    await openSummary(workspaceRoot, id);
+    void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** Open the newest durable, secret-redacted execution log for one delivery. */
+export async function openAutonomousFailureLogCommand(requestedId?: string): Promise<void> {
+  const workspaceRoot = root();
+  if (!workspaceRoot) return;
+  const id = await resolveDeliveryId(workspaceRoot, requestedId);
+  if (!id) return;
+  const state = DeliveryStateStore.load(workspaceRoot, id);
+  if (!state) return;
+  const history = state.failureHistory ?? [];
+  const failure = state.lastFailure ?? history[history.length - 1];
+  if (!failure) {
+    void vscode.window.showInformationMessage(
+      state.lastError
+        ? `This legacy failure predates durable logs: ${state.lastError}`
+        : `Delivery ${id} has no recorded failures.`,
+    );
+    return;
+  }
+  const file = path.resolve(workspaceRoot, failure.logPath);
+  const relative = path.relative(workspaceRoot, file);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Refusing to open a failure log outside this workspace: ${failure.logPath}`);
+  }
+  if (!fs.existsSync(file)) {
+    void vscode.window.showWarningMessage(`Failure log is missing: ${failure.logPath}`);
+    return;
+  }
+  const doc = await vscode.workspace.openTextDocument(file);
+  await vscode.window.showTextDocument(doc, { preview: false });
+}
+
+/** User-triggered recovery terminals keep authentication and diagnostics visible and interactive. */
+export function openClaudeLoginTerminalCommand(): void {
+  const workspaceRoot = root();
+  if (!workspaceRoot) return;
+  const terminal = vscode.window.createTerminal({
+    name: 'AIDLC · Claude Login', cwd: workspaceRoot, iconPath: new vscode.ThemeIcon('key'),
+    location: vscode.TerminalLocation.Panel,
+  });
+  terminal.show(false);
+  terminal.sendText('claude /login', true);
+}
+
+export async function runAutonomousDoctorCommand(): Promise<void> {
+  const workspaceRoot = root();
+  if (!workspaceRoot) return;
+  if (!(await ensureAidlcCliAvailable())) return;
+  launchCliInTerminal(workspaceRoot, ['doctor'], 'AIDLC · Doctor');
 }

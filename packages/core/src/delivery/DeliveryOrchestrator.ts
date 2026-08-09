@@ -14,6 +14,7 @@ import {
   DEFAULT_EXISTING_PROJECT_PROFILE,
   validateDeliveryRequest,
   type DeliveryProfile,
+  type DeliveryFailureRef,
   type DeliveryRequest,
   type DeliveryReviewTask,
   type DeliveryReviewTaskTarget,
@@ -523,7 +524,33 @@ export class DeliveryOrchestrator {
       reviewBundleRevision: state.reviewRevision,
     }, hooks);
     if (!['completed', 'until'].includes(outcome.kind)) {
-      throw new Error(`Run ${runId} stopped with outcome ${outcome.kind}.`);
+      if (outcome.kind === 'error' && outcome.failure) {
+        const failure: DeliveryFailureRef = {
+          ...outcome.failure,
+          runId,
+          resumeCommand: `aidlc cohesive resume ${state.id}`,
+          recoveryCommands: [...new Set([
+            ...outcome.failure.recoveryCommands.filter((command) => !command.startsWith('aidlc run exec ')),
+            `aidlc cohesive resume ${state.id}`,
+          ])],
+        };
+        state.lastFailure = failure;
+        state.failureHistory = [...(state.failureHistory ?? []), failure];
+        event(state, 'execution-failed', `${failure.code}: ${failure.summary} (${failure.logPath})`);
+        DeliveryStateStore.save(this.workspaceRoot, state);
+        throw new Error([
+          `Run ${runId} failed at step ${failure.stepIdx ?? '?'}${failure.agent ? ` (${failure.agent})` : ''}: ${failure.summary}`,
+          `Failure log: ${failure.logPath}`,
+          `Recovery: ${failure.recoveryCommands.join(' && ')}`,
+        ].join('\n'));
+      }
+      throw new Error(`Run ${runId} stopped with outcome ${outcome.kind}. Resume with: aidlc cohesive resume ${state.id}`);
+    }
+    if (state.lastFailure?.runId === runId) {
+      event(state, 'execution-recovered', `${state.lastFailure.code}: resumed ${runId} successfully.`);
+      state.lastFailure = undefined;
+      state.lastError = undefined;
+      DeliveryStateStore.save(this.workspaceRoot, state);
     }
     return outcome;
   }

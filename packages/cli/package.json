@@ -43,6 +43,7 @@
     "clean": "rm -rf dist",
     "bundle": "esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/bundle.js --external:fsevents && rm -rf dist/templates && cp -R ../core/templates dist/templates && rm -rf dist/tools dist/vendor dist/assets && cp -R ../../tools dist/tools && mkdir -p dist/vendor && cp -R ../../vendor/annotron dist/vendor/annotron && cp -R ../extension/assets dist/assets",
     "test:redesign": "pnpm --filter @aidlc/core build && pnpm bundle && node test/redesign-cli-smoke.cjs",
+    "test:cohesive-recovery": "pnpm --filter @aidlc/core build && pnpm bundle && node test/cohesive-recovery-smoke.cjs",
     "test:clean-install": "pack_dir=$(mktemp -d) && pnpm pack --pack-destination $pack_dir >/dev/null && node test/clean-room-install-smoke.cjs $pack_dir/*.tgz",
     "prepublishOnly": "pnpm bundle"
   },

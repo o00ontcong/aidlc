@@ -112,7 +112,7 @@ export class DefaultRunner implements AidlcRunner {
       });
       proc.on('close', (code) => {
         if (buf.length) { consume(buf); } // flush any trailing partial line
-        resolve({ success: code === 0, output: finalText, costUsd });
+        resolve({ success: code === 0, output: finalText, costUsd, exitCode: code ?? 1 });
       });
     });
   }

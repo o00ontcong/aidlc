@@ -658,6 +658,54 @@ export interface AgentMeta {
   capabilities?: string[];
 }
 
+export type AutonomousDeliveryStatus =
+  | 'pending'
+  | 'project-context'
+  | 'feature-contract'
+  | 'executing-workers'
+  | 'integrating'
+  | 'awaiting-aggregate-review'
+  | 'awaiting-merge'
+  | 'project-sync'
+  | 'completed'
+  | 'blocked'
+  | 'failed';
+
+export interface AutonomousDeliveryFailureSummary {
+  id: string;
+  at: string;
+  code: string;
+  summary: string;
+  logPath: string;
+  retryable: boolean;
+  recoveryCommands: string[];
+  runId: string;
+  resumeCommand: string;
+  stepIdx?: number;
+  agent?: string;
+  /** False when this is a recovered historical failure rather than the current blocker. */
+  current: boolean;
+}
+
+/** Compact, display-safe delivery state sent from the extension host to the webview. */
+export interface AutonomousDeliverySummary {
+  id: string;
+  title: string;
+  status: AutonomousDeliveryStatus;
+  updatedAt: string;
+  reviewRevision: number;
+  workerCount: number;
+  openReviewTasks: number;
+  openBlockingTasks: number;
+  projectContextRunId?: string;
+  featureRunId?: string;
+  lastError?: string;
+  latestFailure?: AutonomousDeliveryFailureSummary;
+  failureCount: number;
+  /** The most recent event identifies special recovery phases such as post-merge sync. */
+  lastEventKind?: string;
+}
+
 export interface WorkspaceState {
   hasFolder: boolean;
   workspaceName: string;
@@ -668,6 +716,8 @@ export interface WorkspaceState {
   /** Task-type recipes for the Start-Epic modal's auto-generate path. */
   recipes: RecipeSummary[];
   epics: EpicSummary[];
+  /** Durable Cohesive Delivery states used to render direct, state-aware actions. */
+  deliveries?: AutonomousDeliverySummary[];
   /** id → display metadata (pulled from workspace.yaml) for the step-detail card. */
   agentMeta: Record<string, AgentMeta>;
   /** id → slash command string (with leading /). First wins on duplicates. */

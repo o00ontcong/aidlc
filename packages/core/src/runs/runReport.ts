@@ -131,6 +131,18 @@ export function renderRunReport(args: {
     }
   }
 
+  if (state.failureHistory?.length) {
+    lines.push('');
+    lines.push('## Execution failures');
+    lines.push('');
+    for (const failure of state.failureHistory) {
+      const status = state.lastFailure?.id === failure.id ? 'current' : 'recovered';
+      lines.push(`- ${failure.at} · \`${failure.code}\` · step ${failure.stepIdx ?? '?'} · ${status}`);
+      lines.push(`  - ${failure.summary}`);
+      lines.push(`  - Log: \`${failure.logPath}\``);
+    }
+  }
+
   lines.push('');
   return lines.join('\n');
 }

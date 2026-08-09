@@ -705,10 +705,12 @@ git diff --check
 - `pnpm --filter @aidlc/core build` và `pnpm build`: pass.
 - `pnpm --filter @aidlc/core test:concurrency`: `updateWinners=1`, `concurrentEvents=8`, `totalEvents=9`.
 - `pnpm --filter aidlc build`, `test:redesign`, `test:clean-install`: pass; unattended smoke dừng ở `external_communication`.
-- `pnpm --filter aidlc-o00ontcong test`: 8 files, 37 tests pass; `typecheck`: pass.
+- `pnpm --filter aidlc-o00ontcong test`: 8 files, 50 tests pass; `typecheck`: pass.
 - `pnpm package:extension`: pass, tạo `packages/extension/aidlc-o00ontcong-3.4.12.vsix` (131 files); `unzip -t`, fresh hard-gate invariant và canonical command manifest checks pass.
 - Cursor install smoke: `code --install-extension ... --force` pass; installed version là `o00ontcong.aidlc-o00ontcong@3.4.12`; clean-room Cursor window/Extension Host khởi động, không có activation error được quan sát trước khi UI automation bị chặn.
 - Claude interactive PTY: clean-room setup cài `.claude/commands/aidlc.md`, Claude nhận `/aidlc help`; execution bị chặn bởi external auth (`loggedIn=false`, `authMethod=none`).
+- Cohesive Delivery compatibility recovery: lỗi runner được ghi append-only và redacted dưới `.aidlc/runs/<run>/logs`, checkpoint không đổi, CLI có `cohesive logs/resume`, UI hiển thị delivery state và direct actions theo auth/doctor/log/resume, validator reconciliation, aggregate review/rework, context edit và post-merge completion. Action-matrix regression tests pass.
+- VSIX chứa recovery UI mới được build và cài lại bằng Cursor CLI `--force`; `cursor --list-extensions --show-versions` xác nhận `o00ontcong.aidlc-o00ontcong@3.4.12`.
 - `git diff --check`: pass.
 
 ## 8. Parallel dispatch matrix

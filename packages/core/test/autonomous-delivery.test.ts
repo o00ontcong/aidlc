@@ -205,6 +205,9 @@ module.exports = async (ctx) => {
   const idx = state.currentStepIdx;
   const epic = id => path.join(ctx.workspaceRoot, 'docs/epics', id, 'artifacts');
   if (state.pipelineId === 'project-context') {
+    if (!fs.existsSync(path.join(ctx.workspaceRoot, '.claude-auth-ok'))) {
+      return { success: false, output: 'Not logged in · Please run /login api_key=delivery-secret-token' };
+    }
     write(path.join(ctx.workspaceRoot, 'docs/project/context/CONTEXT-MANIFEST.json'), JSON.stringify({ revision: 1, sourceCommit: 'fixture', files: [] }, null, 2));
   } else if (state.pipelineId === 'cohesive-work-package') {
     write(path.join(epic(runId), 'PACKAGE-RESULT.json'), JSON.stringify({ status: 'done', commits: ['fixture'], tests: ['pass'], changedFiles: ['src/fixture.ts'] }, null, 2));
@@ -287,8 +290,32 @@ cohesive_delivery:
       title: 'Fixture feature',
       description: 'Deliver a deterministic fixture feature through every orchestration stage.',
     });
+    await expect(orchestrator.run('FEATURE-1')).rejects.toThrow(/claude \/login/);
+    const blocked = DeliveryStateStore.load(root, 'FEATURE-1')!;
+    expect(blocked).toMatchObject({
+      status: 'blocked',
+      lastFailure: {
+        runId: 'FEATURE-1-PROJECT-CONTEXT',
+        code: 'runner.authentication_required',
+        stepIdx: 0,
+        resumeCommand: 'aidlc cohesive resume FEATURE-1',
+      },
+    });
+    expect(RunStateStore.load(root, 'FEATURE-1-PROJECT-CONTEXT')).toMatchObject({
+      status: 'running', currentStepIdx: 0, steps: [{ status: 'awaiting_work', revision: 1 }],
+    });
+    const failureLog = fs.readFileSync(path.join(root, blocked.lastFailure!.logPath), 'utf8');
+    expect(failureLog).toContain('Not logged in');
+    expect(failureLog).toContain('[REDACTED]');
+    expect(failureLog).not.toContain('delivery-secret-token');
+
+    fs.writeFileSync(path.join(root, '.claude-auth-ok'), 'fixed\n');
     let state = await orchestrator.run('FEATURE-1');
     expect(state.status).toBe('awaiting-aggregate-review');
+    expect(state.lastFailure).toBeUndefined();
+    expect(state.failureHistory).toHaveLength(1);
+    expect(state.events.some((entry) => entry.kind === 'execution-recovered')).toBe(true);
+    expect(RunStateStore.load(root, 'FEATURE-1-PROJECT-CONTEXT')?.failureHistory).toHaveLength(1);
     expect(state.workerRunIds).toEqual(['FEATURE-1-WP-01']);
     expect(RunStateStore.load(root, 'FEATURE-1-WP-01')?.status).toBe('completed');
     expect(fs.readFileSync(path.join(root, 'docs/epics/FEATURE-1/artifacts/HUMAN-REVIEW-SUMMARY.md'), 'utf8'))

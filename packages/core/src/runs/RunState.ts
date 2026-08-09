@@ -78,6 +78,21 @@ export interface StepRecord {
   reviewDisposition?: 'human-approved' | 'deferred-to-aggregate';
   /** Aggregate review bundle revision that owns the deferred decision. */
   reviewBundleRevision?: number;
+  /** Most recent retryable execution failure for this step, if unresolved. */
+  lastFailureId?: string;
+}
+
+/** Durable, redacted pointer to one append-only execution failure log. */
+export interface ExecutionFailureRef {
+  id: string;
+  at: string;
+  code: string;
+  summary: string;
+  logPath: string;
+  retryable: boolean;
+  recoveryCommands: string[];
+  stepIdx?: number;
+  agent?: string;
 }
 
 /**
@@ -176,6 +191,10 @@ export interface RunState {
   status: RunStatus;
   /** One entry per pipeline step, length === pipeline.steps.length. */
   steps: StepRecord[];
+  /** Unresolved failure. Cleared after the same step succeeds on resume. */
+  lastFailure?: ExecutionFailureRef;
+  /** Append-only failure references retained after recovery for audit. */
+  failureHistory?: ExecutionFailureRef[];
 }
 
 /**

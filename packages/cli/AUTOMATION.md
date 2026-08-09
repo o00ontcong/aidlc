@@ -29,6 +29,22 @@ Default-branch merge remains human-only. After merge, use
 final summary. If installed validators have unresolved `.aidlc-new` upgrades, the
 autonomous run fails closed before executing any pipeline step.
 
+Execution failures are durable and retryable. A failed step stays at the same
+`currentStepIdx`; AIDLC writes redacted stdout/stderr and structured recovery
+metadata under `.aidlc/runs/<run-id>/logs/`, then links that log from delivery
+state. After fixing the cause, resume the same delivery—do not start a new one:
+
+```bash
+aidlc cohesive status FEATURE-123
+aidlc cohesive logs FEATURE-123
+claude /login                       # example recovery for runner.authentication_required
+aidlc cohesive resume FEATURE-123
+```
+
+`cohesive logs --json` exposes current and historical failures for automation.
+After a successful resume, `lastFailure` is cleared while `failureHistory` and
+the append-only log remain available for audit.
+
 ## Exit codes
 
 `aidlc run exec` distinguishes *finished* from *blocked* so a CI job can branch on it:

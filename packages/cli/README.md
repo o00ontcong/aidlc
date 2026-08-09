@@ -80,6 +80,9 @@ aidlc preset apply cohesive-delivery
 aidlc cohesive run --id FEATURE-123 --title "Add export" \
   --description "Add a CSV export with authorization and audit coverage."
 aidlc cohesive status FEATURE-123
+aidlc cohesive logs FEATURE-123
+# Fix the reported cause, then continue the same run/step:
+aidlc cohesive resume FEATURE-123
 aidlc cohesive review FEATURE-123
 aidlc cohesive add-task FEATURE-123 --title "Cover the empty result case"
 aidlc cohesive rework FEATURE-123
@@ -94,6 +97,9 @@ aidlc cohesive resume-after-merge FEATURE-123
 Requests may come from text or a file. Jira/GitHub are optional source metadata,
 not required workflow roots. State lives under `.aidlc/deliveries/<id>/`; review
 artifacts live with the feature under `docs/epics/<id>/artifacts/`.
+Failed runner output is secret-redacted and stored under
+`.aidlc/runs/<run-id>/logs/`; delivery state retains current and historical log
+references so a corrected error can resume without creating duplicate state.
 
 ### `guide` — getting-started reference
 

@@ -171,6 +171,7 @@ import {
   normalizeStep,
   discoverAssets,
   RunStateStore,
+  DeliveryStateStore,
   startRun,
   targetPath,
   validateWorkspace,
@@ -216,6 +217,11 @@ import {
   addAutonomousReviewTaskCommand,
   editInferredProjectContextCommand,
   resumeAutonomousAfterMergeCommand,
+  reworkAutonomousDeliveryCommand,
+  openAutonomousFailureLogCommand,
+  openClaudeLoginTerminalCommand,
+  runAutonomousDoctorCommand,
+  reconcileValidatorConflictsCommand,
 } from './autonomousDeliveryCommands';
 
 const autonomousDeliveryOutput = vscode.window.createOutputChannel('AIDLC Autonomous Delivery');
@@ -499,6 +505,7 @@ interface WorkspaceState {
   pipelines: PipelineSummary[];
   recipes: RecipeSummary[];
   epics: EpicSummaryUi[];
+  deliveries: AutonomousDeliverySummaryUi[];
   agentMeta: Record<string, AgentMeta>;
   slashCommandsByAgent: Record<string, string>;
   agentsCount: number;
@@ -527,6 +534,29 @@ interface WorkspaceState {
   epicsViewUi?: EpicsViewPrefs;
   charter?: ReturnType<typeof readCharterSnapshot>;
   diffIgnore?: string[];
+}
+
+interface AutonomousDeliverySummaryUi {
+  id: string;
+  title: string;
+  status: 'pending' | 'project-context' | 'feature-contract' | 'executing-workers'
+    | 'integrating' | 'awaiting-aggregate-review' | 'awaiting-merge' | 'project-sync'
+    | 'completed' | 'blocked' | 'failed';
+  updatedAt: string;
+  reviewRevision: number;
+  workerCount: number;
+  openReviewTasks: number;
+  openBlockingTasks: number;
+  projectContextRunId?: string;
+  featureRunId?: string;
+  lastError?: string;
+  latestFailure?: {
+    id: string; at: string; code: string; summary: string; logPath: string;
+    retryable: boolean; recoveryCommands: string[]; runId: string; resumeCommand: string;
+    stepIdx?: number; agent?: string; current: boolean;
+  };
+  failureCount: number;
+  lastEventKind?: string;
 }
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
@@ -575,7 +605,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       hasFolder: false,
       workspaceName: '',
       configExists: false,
-      agents: [], skills: [], pipelines: [], recipes: [], epics: [],
+      agents: [], skills: [], pipelines: [], recipes: [], epics: [], deliveries: [],
       agentMeta: {}, slashCommandsByAgent: {},
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0, epicsCount: 0,
       runIds: [],
@@ -597,6 +627,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const root = folder.uri.fsPath;
   const doc = readYaml(root);
   const discovered = discoverAssets(root);
+  const deliveries = listAutonomousDeliverySummaries(root);
 
   // agent display metadata + slash commands — only AIDLC agents have these
   // since they're declared in workspace.yaml.
@@ -658,6 +689,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       pipelines: builtinPipelines,
       recipes: getBuiltinRecipeSummaries(),
       epics,
+      deliveries,
       agentMeta, slashCommandsByAgent,
       agentsCount: agents.length,
       skillsCount: skills.length,
@@ -719,7 +751,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     hasFolder: true,
     workspaceName: folder.name,
     configExists: true,
-    agents, skills, pipelines, recipes, epics,
+    agents, skills, pipelines, recipes, epics, deliveries,
     agentMeta, slashCommandsByAgent,
     agentsCount: agents.length,
     skillsCount: skills.length,
@@ -741,6 +773,37 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     charter: readCharterSnapshot(root),
     diffIgnore: readDiffIgnore(root),
   };
+}
+
+function listAutonomousDeliverySummaries(workspaceRoot: string): AutonomousDeliverySummaryUi[] {
+  try {
+    return DeliveryStateStore.list(workspaceRoot).map((state) => {
+      const history = state.failureHistory ?? [];
+      const latest = state.lastFailure ?? history[history.length - 1];
+      const openTasks = state.reviewTasks.filter((task) => !['done', 'cancelled'].includes(task.status));
+      return {
+        id: state.id,
+        title: state.request.title,
+        status: state.status,
+        updatedAt: state.updatedAt,
+        reviewRevision: state.reviewRevision,
+        workerCount: state.workerRunIds.length,
+        openReviewTasks: openTasks.length,
+        openBlockingTasks: openTasks.filter((task) => task.severity === 'blocking').length,
+        projectContextRunId: state.projectContextRunId,
+        featureRunId: state.featureRunId,
+        lastError: state.lastError,
+        latestFailure: latest ? {
+          ...latest,
+          current: state.lastFailure?.id === latest.id,
+        } : undefined,
+        failureCount: history.length,
+        lastEventKind: state.events[state.events.length - 1]?.kind,
+      };
+    });
+  } catch {
+    return [];
+  }
 }
 
 function scanRequirementRuns(root: string): RequirementRunSummary[] {
@@ -1847,19 +1910,53 @@ export class WorkspaceWebview {
         return;
       }
       case 'resumeAutonomousDelivery':
-        await resumeAutonomousDeliveryCommand(autonomousDeliveryOutput);
+        await resumeAutonomousDeliveryCommand(
+          autonomousDeliveryOutput,
+          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
+        );
         return;
       case 'openAutonomousReviewSummary':
-        await openAutonomousReviewSummaryCommand();
+        await openAutonomousReviewSummaryCommand(
+          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
+        );
         return;
       case 'addAutonomousReviewTask':
-        await addAutonomousReviewTaskCommand(autonomousDeliveryOutput);
+        await addAutonomousReviewTaskCommand(
+          autonomousDeliveryOutput,
+          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
+        );
         return;
       case 'editInferredProjectContext':
-        await editInferredProjectContextCommand(autonomousDeliveryOutput);
+        await editInferredProjectContextCommand(
+          autonomousDeliveryOutput,
+          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
+        );
         return;
       case 'resumeAutonomousAfterMerge':
-        await resumeAutonomousAfterMergeCommand(autonomousDeliveryOutput);
+        await resumeAutonomousAfterMergeCommand(
+          autonomousDeliveryOutput,
+          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
+        );
+        return;
+      case 'reworkAutonomousDelivery':
+        await reworkAutonomousDeliveryCommand(
+          autonomousDeliveryOutput,
+          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
+        );
+        return;
+      case 'openAutonomousFailureLog':
+        await openAutonomousFailureLogCommand(
+          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
+        );
+        return;
+      case 'openClaudeLoginTerminal':
+        openClaudeLoginTerminalCommand();
+        return;
+      case 'runAutonomousDoctor':
+        await runAutonomousDoctorCommand();
+        return;
+      case 'reconcileAutonomousValidators':
+        await reconcileValidatorConflictsCommand();
         return;
       case 'applyCohesiveDelivery':
         await vscode.commands.executeCommand('aidlc.applyPreset', 'cohesive-delivery');

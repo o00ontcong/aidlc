@@ -2,7 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { autonomousDeliveryReadiness } from '../src/webview/lib/autonomousDelivery';
+import {
+  autonomousDeliveryActions,
+  autonomousDeliveryReadiness,
+} from '../src/webview/lib/autonomousDelivery';
+import type { AutonomousDeliverySummary } from '../src/webview/lib/types';
 
 const complete = [
   { id: 'project-context', steps: Array(7) },
@@ -11,6 +15,21 @@ const complete = [
 ];
 
 describe('Autonomous Delivery UI', () => {
+  const delivery = (
+    patch: Partial<AutonomousDeliverySummary>,
+  ): AutonomousDeliverySummary => ({
+    id: 'FEATURE-001',
+    title: 'Feature',
+    status: 'pending',
+    updatedAt: '2026-08-09T00:00:00.000Z',
+    reviewRevision: 1,
+    workerCount: 0,
+    openReviewTasks: 0,
+    openBlockingTasks: 0,
+    failureCount: 0,
+    ...patch,
+  });
+
   it('accepts the current three-pipeline Cohesive Delivery bundle', () => {
     expect(autonomousDeliveryReadiness(complete)).toEqual({
       ready: true,
@@ -28,6 +47,69 @@ describe('Autonomous Delivery UI', () => {
     });
   });
 
+  it('offers login, diagnostics, log and resume for an authentication failure', () => {
+    expect(autonomousDeliveryActions(delivery({
+      status: 'blocked',
+      failureCount: 1,
+      latestFailure: {
+        id: 'failure-1', at: '2026-08-09T00:00:00.000Z',
+        code: 'runner.authentication_required', summary: 'Not logged in',
+        logPath: '.aidlc/runs/run/logs/failure-1.json', retryable: true,
+        recoveryCommands: ['claude /login'], runId: 'run',
+        resumeCommand: 'aidlc cohesive resume FEATURE-001', current: true,
+      },
+    }))).toEqual(['claude-login', 'doctor', 'open-log', 'resume']);
+  });
+
+  it('offers validator reconciliation before resuming a legacy blocked delivery', () => {
+    expect(autonomousDeliveryActions(delivery({
+      status: 'blocked',
+      lastError: 'Validator reconciliation required: policy.md.aidlc-new',
+    }))).toEqual(['resolve-validators', 'resume']);
+  });
+
+  it.each([
+    'pending', 'project-context', 'feature-contract', 'executing-workers', 'integrating', 'failed',
+  ] as const)('offers direct checkpoint resume while status is %s', (status) => {
+    expect(autonomousDeliveryActions(delivery({ status }))).toEqual(['resume']);
+  });
+
+  it('offers a direct resume for a generic legacy blocker', () => {
+    expect(autonomousDeliveryActions(delivery({
+      status: 'blocked', lastError: 'Runner exited unexpectedly',
+    }))).toEqual(['resume']);
+  });
+
+  it('offers the complete aggregate-review action set including selective rework', () => {
+    expect(autonomousDeliveryActions(delivery({
+      status: 'awaiting-aggregate-review',
+      projectContextRunId: 'FEATURE-001-PROJECT-CONTEXT',
+      openReviewTasks: 2,
+      openBlockingTasks: 1,
+    }))).toEqual([
+      'open-review', 'add-review-task', 'rework', 'edit-context', 'complete-after-merge',
+    ]);
+  });
+
+  it('uses post-merge recovery instead of restarting feature execution', () => {
+    expect(autonomousDeliveryActions(delivery({
+      status: 'blocked',
+      lastEventKind: 'post-merge-blocked',
+    }))).toEqual(['complete-after-merge']);
+    expect(autonomousDeliveryActions(delivery({ status: 'project-sync' })))
+      .toEqual(['complete-after-merge']);
+  });
+
+  it('offers review and completion while waiting for a human merge', () => {
+    expect(autonomousDeliveryActions(delivery({ status: 'awaiting-merge' })))
+      .toEqual(['open-review', 'complete-after-merge']);
+  });
+
+  it('keeps completed deliveries read-only', () => {
+    expect(autonomousDeliveryActions(delivery({ status: 'completed' })))
+      .toEqual(['open-review']);
+  });
+
   it('wires every lifecycle action from the modal to a host command', () => {
     const root = path.resolve(process.cwd());
     const modal = fs.readFileSync(path.join(root, 'src/webview/components/AutonomousDeliveryModal.tsx'), 'utf8');
@@ -40,6 +122,11 @@ describe('Autonomous Delivery UI', () => {
       'addAutonomousReviewTask',
       'editInferredProjectContext',
       'resumeAutonomousAfterMerge',
+      'reworkAutonomousDelivery',
+      'openAutonomousFailureLog',
+      'openClaudeLoginTerminal',
+      'runAutonomousDoctor',
+      'reconcileAutonomousValidators',
       'applyCohesiveDelivery',
     ];
     for (const message of messages) {
@@ -48,6 +135,9 @@ describe('Autonomous Delivery UI', () => {
     }
     expect(host).toContain('await startAutonomousDeliveryFromRequest');
     expect(host).toContain('await resumeAutonomousDeliveryCommand');
+    expect(modal).toContain('postMessage({ type: message, deliveryId })');
+    expect(modal).toContain('run(action.message, delivery.id)');
+    expect(host).toContain("typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined");
     expect(host).not.toContain("case 'startAutonomousDelivery':\n        await vscode.commands.executeCommand");
   });
 });

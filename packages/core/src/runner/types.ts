@@ -48,6 +48,8 @@ export interface ClaudeCliWrapper {
 
 export interface RunnerResult {
   success: boolean;
+  /** Process exit code when the runner launches a subprocess. */
+  exitCode?: number;
   /** Final assembled output. May be empty if the runner streamed only. */
   output: string;
   /**

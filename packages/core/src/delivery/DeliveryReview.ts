@@ -159,6 +159,11 @@ export function renderDeliveryReviewBundle(workspaceRoot: string, state: Deliver
     '',
     '- Review `COHESION-REPORT.md`, `INTEGRATION-CONTEXT.md`, package review reports, and provisional charter items.',
     ...(state.lastError ? [`- Blocking error: ${state.lastError}`] : []),
+    ...(state.lastFailure ? [
+      `- Failure code: \`${state.lastFailure.code}\``,
+      `- Failure log: \`${state.lastFailure.logPath}\``,
+      `- Resume after fixing: \`${state.lastFailure.resumeCommand}\``,
+    ] : []),
     '',
     '## Human Tasks',
     '',

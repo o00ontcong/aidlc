@@ -24,8 +24,22 @@ import {
 import { runAutoReview } from './AutoReviewer';
 import { checkBudget } from './budget';
 import { mirrorRunStateToEpic } from './EpicScaffold';
-import type { RunState } from './RunState';
+import { recordExecutionFailure, type RecordExecutionFailureInput } from './ExecutionFailureLog';
+import type { ExecutionFailureRef, RunState } from './RunState';
 import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
+import type { RunnerResult } from '../runner/types';
+
+type StepExecutionResult =
+  | { success: true }
+  | { success: false; failure?: ExecutionFailureRef };
+
+const MAX_STREAM_CAPTURE = 64 * 1024;
+
+function appendCapture(current: string, chunk: string): string {
+  return current.length >= MAX_STREAM_CAPTURE
+    ? current
+    : `${current}${chunk}`.slice(0, MAX_STREAM_CAPTURE);
+}
 
 /**
  * Best-effort mirror of a just-saved run into its epic's `state.json` (the
@@ -51,7 +65,7 @@ export type ExecOutcome =
   | { kind: 'awaiting_review' }
   | { kind: 'rejected' }
   | { kind: 'budget_pause' }
-  | { kind: 'error' };
+  | { kind: 'error'; failure?: ExecutionFailureRef };
 
 /** Options controlling one exec loop. Mirrors the CLI's `run exec` flags. */
 export interface ExecOptions {
@@ -95,6 +109,7 @@ export interface ExecHooks {
   /** The runner exited non-zero, or `markStepDone` rejected the artifacts. */
   onStepFailed?(e: {
     stepIdx: number; agent: string; missing?: string[]; message?: string;
+    failure?: ExecutionFailureRef;
   }): void;
   /** Loop paused at a human_review gate. */
   onAwaitingReview?(e: { agent: string; runId: string }): void;
@@ -157,8 +172,10 @@ export async function runExecLoop(
   // mark-done is never gated).
   const initialPipeline = loadPipelineForRun(root, initialState);
   if (!initialPipeline) {
-    hooks.onRunFailed?.(`Pipeline "${initialState.pipelineId}" not found in workspace.yaml.`);
-    return { kind: 'error' };
+    const summary = `Pipeline "${initialState.pipelineId}" not found in workspace.yaml.`;
+    const failure = recordExecutionFailure(root, initialState, { code: 'runner.pipeline_missing', summary });
+    hooks.onRunFailed?.(summary);
+    return { kind: 'error', failure };
   }
   const budget = initialPipeline.budget;
 
@@ -177,7 +194,7 @@ export async function runExecLoop(
     }
     if (state.status === 'failed') {
       hooks.onRunFailed?.('Run failed.');
-      return { kind: 'error' };
+      return { kind: 'error', failure: state.lastFailure };
     }
 
     // Stop only after the requested step has passed every configured gate.
@@ -193,8 +210,8 @@ export async function runExecLoop(
 
     // Auto-review gate: run the step's auto_review_runner validator headlessly.
     if (step.status === 'awaiting_auto_review') {
-      const proceed = await runAutoReviewStep(root, runId, hooks);
-      if (!proceed) { return { kind: 'error' }; }
+      const result = await runAutoReviewStep(root, runId, hooks);
+      if (!result.success) { return { kind: 'error', failure: result.failure }; }
       continue;
     }
 
@@ -218,13 +235,17 @@ export async function runExecLoop(
     }
 
     if (step.status !== 'awaiting_work') {
-      hooks.onRunFailed?.(`Unexpected step status "${step.status}" — cannot exec.`);
-      return { kind: 'error' };
+      const summary = `Unexpected step status "${step.status}" — cannot exec.`;
+      const failure = recordExecutionFailure(root, state, {
+        code: 'runner.invalid_step_status', summary, stepIdx: state.currentStepIdx, agent: step.agent,
+      });
+      hooks.onRunFailed?.(summary);
+      return { kind: 'error', failure };
     }
 
     // Execute the current step.
-    const success = await execStep(root, state, runId, opts, hooks);
-    if (!success) { return { kind: 'error' }; }
+    const result = await execStep(root, state, runId, opts, hooks);
+    if (!result.success) { return { kind: 'error', failure: result.failure }; }
 
     // Dry-run previews a single step's prompt and never advances.
     if (opts.dryRun) { return { kind: 'dry_run' }; }
@@ -240,9 +261,19 @@ export async function runExecLoop(
           spent: verdict.spent, limit: verdict.limit, ok: false,
           exceeded: verdict.exceeded, onExceed: budget.on_exceed, runId,
         });
-        return budget.on_exceed === 'fail'
-          ? { kind: 'error' }
-          : { kind: 'budget_pause' };
+        if (budget.on_exceed === 'fail') {
+          const failed = RunStateStore.load(root, runId) ?? state;
+          const failure = recordExecutionFailure(root, failed, {
+            code: 'runner.budget_exceeded',
+            summary: `Run budget exceeded (${verdict.spent} > ${verdict.limit}).`,
+            stepIdx: state.currentStepIdx,
+            agent: state.steps[state.currentStepIdx]?.agent,
+            retryable: false,
+            recoveryCommands: [],
+          });
+          return { kind: 'error', failure };
+        }
+        return { kind: 'budget_pause' };
       }
       hooks.onBudget?.({ spent: verdict.spent, limit: budget.max_usd, ok: true, runId });
     }
@@ -262,37 +293,49 @@ async function execStep(
   runId: string,
   opts: ExecOptions,
   hooks: ExecHooks,
-): Promise<boolean> {
+): Promise<StepExecutionResult> {
   const stepIdx = state.currentStepIdx;
   const stepRec = state.steps[stepIdx];
   const agentId = stepRec.agent;
+  const fail = (input: RecordExecutionFailureInput): StepExecutionResult => {
+    const latest = RunStateStore.load(root, runId) ?? state;
+    const failure = recordExecutionFailure(root, latest, {
+      stepIdx,
+      agent: agentId,
+      ...input,
+    });
+    hooks.onStepFailed?.({
+      stepIdx,
+      agent: agentId,
+      missing: input.missing,
+      message: input.summary,
+      failure,
+    });
+    return { success: false, failure };
+  };
 
   let ws;
   try {
     ws = WorkspaceLoader.load(root);
   } catch (err) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load workspace: ${errMsg(err)}` });
-    return false;
+    return fail({ code: 'runner.workspace_invalid', summary: `Failed to load workspace: ${errMsg(err)}` });
   }
 
   const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId);
   if (!pipeline) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Pipeline "${state.pipelineId}" not found in workspace.yaml.` });
-    return false;
+    return fail({ code: 'runner.pipeline_missing', summary: `Pipeline "${state.pipelineId}" not found in workspace.yaml.` });
   }
 
   const agent = ws.config.agents.find((a) => a.id === agentId);
   if (!agent) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Agent "${agentId}" not found in workspace.yaml.` });
-    return false;
+    return fail({ code: 'runner.agent_missing', summary: `Agent "${agentId}" not found in workspace.yaml.` });
   }
 
   let skillText: string;
   try {
     skillText = loadAgentSkills(ws, agent);
   } catch (err) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
-    return false;
+    return fail({ code: 'runner.skill_load_failed', summary: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
   }
 
   const env = ws.envResolver.resolveLayered(ws.config.environment ?? {}, agent.env ?? {});
@@ -309,7 +352,7 @@ async function execStep(
       userMessage,
       env,
     });
-    return true;
+    return { success: true };
   }
 
   hooks.onStepStart?.({
@@ -318,19 +361,42 @@ async function execStep(
   });
 
   const runner = ws.runners.resolve(agent);
-  const result = await runner.run({
-    skill: skillText,
-    env,
-    args: userMessage ? [userMessage] : [],
-    workspaceRoot: root,
-    onOutput: (chunk) => hooks.onOutput?.(chunk),
-    onError: (chunk) => hooks.onErrorOutput?.(chunk),
-    claude: null,
-  });
+  let stdout = '';
+  let stderr = '';
+  let result: RunnerResult;
+  try {
+    result = await runner.run({
+      skill: skillText,
+      env,
+      args: userMessage ? [userMessage] : [],
+      workspaceRoot: root,
+      onOutput: (chunk) => {
+        stdout = appendCapture(stdout, chunk);
+        hooks.onOutput?.(chunk);
+      },
+      onError: (chunk) => {
+        stderr = appendCapture(stderr, chunk);
+        hooks.onErrorOutput?.(chunk);
+      },
+      claude: null,
+    });
+  } catch (error) {
+    return fail({
+      summary: `Step "${agentId}" runner threw: ${errMsg(error)}`,
+      detail: errMsg(error),
+      stdout,
+      stderr,
+    });
+  }
 
   if (!result.success) {
-    hooks.onStepFailed?.({ stepIdx, agent: agentId, message: `Step "${agentId}" failed (non-zero exit).` });
-    return false;
+    return fail({
+      summary: `Step "${agentId}" failed${typeof result.exitCode === 'number' ? ` with exit code ${result.exitCode}` : ' (non-zero exit)'}.`,
+      detail: result.output,
+      stdout: [stdout, result.output].filter(Boolean).join('\n'),
+      stderr,
+      exitCode: result.exitCode,
+    });
   }
 
   // markStepDone validates produces paths, then transitions.
@@ -345,12 +411,13 @@ async function execStep(
     next = markStepDone({ state: freshState, pipeline, workspaceRoot: root });
   } catch (err) {
     if (err instanceof PipelineRunError && err.missing?.length) {
-      hooks.onStepFailed?.({ stepIdx, agent: agentId, missing: err.missing });
-    } else {
-      hooks.onStepFailed?.({ stepIdx, agent: agentId, message: errMsg(err) });
+      return fail({ summary: err.message, missing: err.missing, stdout, stderr });
     }
-    return false;
+    return fail({ summary: errMsg(err), stdout, stderr });
   }
+
+  next.lastFailure = undefined;
+  next.steps[stepIdx].lastFailureId = undefined;
 
   RunStateStore.save(root, next);
   mirrorEpicBestEffort(root, next);
@@ -359,22 +426,37 @@ async function execStep(
   hooks.onStepResult?.({
     stepIdx, agent: agentId, status: doneStep.status, costUsd: result.costUsd,
   });
-  return true;
+  return { success: true };
 }
 
 /** Run the auto-review validator for the current step and submit its verdict. */
-async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks): Promise<boolean> {
+async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks): Promise<StepExecutionResult> {
   const state = RunStateStore.load(root, runId);
   if (!state) {
     hooks.onRunFailed?.(`Run "${runId}" disappeared.`);
-    return false;
-  }
-  const pipeline = loadPipelineForRun(root, state);
-  if (!pipeline) {
-    hooks.onRunFailed?.(`Pipeline "${state.pipelineId}" not found in workspace.yaml.`);
-    return false;
+    return { success: false };
   }
   const step = state.steps[state.currentStepIdx];
+  const fail = (input: RecordExecutionFailureInput): StepExecutionResult => {
+    const latest = RunStateStore.load(root, runId) ?? state;
+    const failure = recordExecutionFailure(root, latest, {
+      stepIdx: state.currentStepIdx,
+      agent: step.agent,
+      ...input,
+    });
+    hooks.onStepFailed?.({
+      stepIdx: state.currentStepIdx,
+      agent: step.agent,
+      missing: input.missing,
+      message: input.summary,
+      failure,
+    });
+    return { success: false, failure };
+  };
+  const pipeline = loadPipelineForRun(root, state);
+  if (!pipeline) {
+    return fail({ code: 'runner.pipeline_missing', summary: `Pipeline "${state.pipelineId}" not found in workspace.yaml.` });
+  }
   hooks.onAutoReviewStart?.({ agent: step.agent });
 
   let verdict;
@@ -383,24 +465,24 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
   } catch (err) {
     // Config-level failure (missing/unloadable runner). Validator errors are
     // already converted to a reject verdict inside runAutoReview.
-    hooks.onStepFailed?.({ stepIdx: state.currentStepIdx, agent: step.agent, message: `Auto-review could not run: ${errMsg(err)}` });
-    return false;
+    return fail({ code: 'runner.auto_review_failed', summary: `Auto-review could not run: ${errMsg(err)}` });
   }
 
   let next: RunState;
   try {
     next = submitAutoReviewVerdict({ state, pipeline, verdict });
   } catch (err) {
-    hooks.onStepFailed?.({ stepIdx: state.currentStepIdx, agent: step.agent, message: errMsg(err) });
-    return false;
+    return fail({ code: 'runner.auto_review_transition_failed', summary: errMsg(err) });
   }
 
+  next.lastFailure = undefined;
+  next.steps[state.currentStepIdx].lastFailureId = undefined;
   RunStateStore.save(root, next);
   mirrorEpicBestEffort(root, next);
   hooks.onAutoReviewResult?.({
     agent: step.agent, decision: verdict.decision, reason: verdict.reason, runId,
   });
-  return true;
+  return { success: true };
 }
 
 /** Auto-approve a human_review step (--auto-approve). */

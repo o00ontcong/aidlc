@@ -53,6 +53,11 @@ export interface DeliveryEvent {
   detail?: string;
 }
 
+export interface DeliveryFailureRef extends ExecutionFailureRef {
+  runId: string;
+  resumeCommand: string;
+}
+
 export interface DeliveryState {
   schemaVersion: 1;
   id: string;
@@ -69,6 +74,10 @@ export interface DeliveryState {
   createdAt: string;
   updatedAt: string;
   lastError?: string;
+  /** Current retryable execution failure, cleared once resume passes it. */
+  lastFailure?: DeliveryFailureRef;
+  /** Append-only delivery-level links to run failure logs. */
+  failureHistory?: DeliveryFailureRef[];
 }
 
 export const DEFAULT_EXISTING_PROJECT_PROFILE: DeliveryProfile = {
@@ -92,3 +101,4 @@ export function validateDeliveryRequest(request: DeliveryRequest): void {
     throw new Error(`Unsupported delivery source type "${String(request.source.type)}".`);
   }
 }
+import type { ExecutionFailureRef } from '../runs/RunState';

@@ -428,6 +428,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
       {autonomousDeliveryOpen && (
         <AutonomousDeliveryModal
           pipelines={state.pipelines}
+          deliveries={state.deliveries ?? []}
           onClose={() => setAutonomousDeliveryOpen(false)}
         />
       )}

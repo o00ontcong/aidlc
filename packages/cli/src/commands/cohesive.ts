@@ -59,6 +59,15 @@ function hooks(): DeliveryHooks {
     },
     onOutput: (chunk) => process.stdout.write(chunk),
     onErrorOutput: (chunk) => process.stderr.write(chunk),
+    onStepFailed: ({ message, missing, failure }) => {
+      console.error(chalk.red(`\n  ✘ ${message ?? 'Step failed.'}`));
+      if (missing?.length) console.error(chalk.yellow(`  Missing: ${missing.join(', ')}`));
+      if (failure) {
+        console.error(chalk.dim(`  Code: ${failure.code}`));
+        console.error(chalk.dim(`  Log: ${failure.logPath}`));
+        for (const command of failure.recoveryCommands) console.error(chalk.dim(`  Recovery: ${command}`));
+      }
+    },
   };
 }
 
@@ -164,7 +173,16 @@ export function registerCohesive(program: Command): void {
       try {
         const root = resolveWorkspaceRoot(actionCmd);
         await reconcileValidatorConflictsInteractive(root);
-        const state = await new DeliveryOrchestrator(root).run(deliveryId, { hooks: hooks() });
+        const orchestrator = new DeliveryOrchestrator(root);
+        const previous = orchestrator.load(deliveryId);
+        if (previous.lastFailure) {
+          console.log(chalk.yellow(`Retrying ${previous.lastFailure.runId} from step ${previous.lastFailure.stepIdx ?? '?'} (${previous.lastFailure.code}).`));
+          console.log(chalk.dim(`Previous log: ${previous.lastFailure.logPath}`));
+        } else if (previous.lastError) {
+          console.log(chalk.yellow(`Retrying legacy blocked delivery ${deliveryId} from its unchanged current step.`));
+          console.log(chalk.dim(`Previous error (no structured log was captured by the older version): ${previous.lastError}`));
+        }
+        const state = await orchestrator.run(deliveryId, { hooks: hooks() });
         console.log(chalk.green(`✔ Delivery ${state.id}: ${state.status}`));
       } catch (error) { reportError(error); }
     });
@@ -184,6 +202,48 @@ export function registerCohesive(program: Command): void {
           for (const state of value) console.log(`${state.id}\t${state.status}\tR${state.reviewRevision}`);
         } else {
           console.log(`${value.id} · ${value.status} · workers ${value.workerRunIds.length} · review R${value.reviewRevision}`);
+          if (value.lastFailure) {
+            console.log(chalk.red(`  ${value.lastFailure.code}: ${value.lastFailure.summary}`));
+            console.log(chalk.dim(`  Log: ${value.lastFailure.logPath}`));
+            console.log(chalk.yellow(`  Resume: ${value.lastFailure.resumeCommand}`));
+          } else if (value.lastError) {
+            console.log(chalk.red(`  Legacy error: ${value.lastError}`));
+            console.log(chalk.yellow(`  Resume: aidlc cohesive resume ${value.id}`));
+          }
+        }
+      } catch (error) { reportError(error); }
+    });
+
+  cmd.command('logs <deliveryId>')
+    .description('Show durable execution failure logs and recovery commands for a delivery')
+    .option('--json', 'Print machine-readable JSON')
+    .option('--tail <count>', 'Show only the most recent failures', '20')
+    .action((deliveryId: string, opts: { json?: boolean; tail: string }, actionCmd: Command) => {
+      try {
+        const root = resolveWorkspaceRoot(actionCmd);
+        const state = new DeliveryOrchestrator(root).load(deliveryId);
+        const tail = Number(opts.tail);
+        if (!Number.isInteger(tail) || tail < 1 || tail > 1000) throw new Error('--tail must be an integer between 1 and 1000.');
+        const failures = (state.failureHistory ?? []).slice(-tail);
+        if (opts.json) {
+          console.log(JSON.stringify({ deliveryId, current: state.lastFailure, failures, legacyError: state.lastFailure ? undefined : state.lastError }, null, 2));
+          return;
+        }
+        if (!failures.length) {
+          if (state.lastError) {
+            console.log(chalk.yellow(`Legacy error (no structured log was captured): ${state.lastError}`));
+            console.log(`Resume after fixing: aidlc cohesive resume ${deliveryId}`);
+          } else {
+            console.log(chalk.dim(`Delivery ${deliveryId} has no recorded execution failures.`));
+          }
+          return;
+        }
+        for (const failure of failures) {
+          const current = state.lastFailure?.id === failure.id ? chalk.red('current') : chalk.green('recovered');
+          console.log(`${failure.at} · ${failure.code} · ${failure.runId} · step ${failure.stepIdx ?? '?'} · ${current}`);
+          console.log(`  ${failure.summary}`);
+          console.log(chalk.dim(`  ${failure.logPath}`));
+          console.log(chalk.dim(`  ${failure.recoveryCommands.join(' && ')}`));
         }
       } catch (error) { reportError(error); }
     });
