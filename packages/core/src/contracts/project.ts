@@ -28,6 +28,8 @@ export const ProjectFactSchema = z.object({
   key: z.string().min(1),
   value: z.unknown(),
   evidence: z.array(EvidencePathSchema).default([]),
+  /** Analyzer confidence in this observed or derived fact. */
+  confidence: z.number().min(0).max(1).optional(),
 });
 export type ProjectFact = z.infer<typeof ProjectFactSchema>;
 
@@ -40,6 +42,8 @@ export const ProjectFactsSchema = z.object({
   revision: z.number().int().nonnegative(),
   /** Git commit the facts were derived from, when known — supports staleness/drift detection without an implicit refresh. */
   sourceCommit: z.string().optional(),
+  /** A setup-created project file is valid durable state but is not published analysis yet. Missing means published for backward compatibility. */
+  analysisStatus: z.enum(['uninitialized', 'published']).optional(),
   facts: z.array(ProjectFactSchema).default([]),
 });
 export type ProjectFacts = z.infer<typeof ProjectFactsSchema>;

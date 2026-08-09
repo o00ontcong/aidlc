@@ -1,0 +1,11 @@
+{
+  "name": "quick-ts-fixture",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  }
+}

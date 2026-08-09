@@ -8,11 +8,12 @@
  *      {@link createDefaultAutonomyPolicy}. (An *existing*, already-configured
  *      project may legitimately have moved its `default` off `guide`, so
  *      this is a constructor-time guarantee, not a parse-time one.)
- *   2. `external_communication` is a hard gate, even in `unattended` mode —
+ *   2. Destructive changes, default-branch merges, and external communication
+ *      are hard gates, even in `unattended` mode —
  *      enforced *twice*, independently, so neither a malformed config file
  *      nor a hand-built policy object (bypassing the schema) can weaken it:
  *        a) {@link AutonomyPolicySchema} REJECTS a parsed config that sets
- *           `gates.external_communication` to anything other than `always`
+ *           any hard gate to anything other than `always`
  *           (it may be omitted — that just means "use the hard default").
  *        b) {@link resolveGatePolicy} ignores whatever `policy.gates`
  *           contains for a hard gate and always returns `enforcement:
@@ -22,7 +23,7 @@
  */
 
 import { z } from 'zod';
-import { STAGE_IDS, type StageId } from './stageId';
+import { STAGE_IDS, StageIdSchema, type StageId } from './stageId';
 import { ActorRefSchema, IsoTimestampSchema, parseContract } from './common';
 
 // ── AutonomyMode ───────────────────────────────────────────────────
@@ -67,11 +68,10 @@ export type GateEnforcement = z.infer<typeof GateEnforcementSchema>;
 /**
  * Gate kinds that are non-negotiable: no project config and no
  * {@link AutonomyMode} — including `unattended` — can weaken these below
- * `always`. Design doc §0.7 puts exactly one gate here today; additional
- * hard gates can be appended later without a breaking change to
- * `GatePolicy`/`AutonomyPolicy`.
+ * `always`. Additional hard gates can be appended later without a breaking
+ * change to `GatePolicy`/`AutonomyPolicy`.
  */
-export const HARD_GATE_KINDS: readonly GateKind[] = ['external_communication'];
+export const HARD_GATE_KINDS: readonly GateKind[] = ['destructive_changes', 'merge_default_branch', 'external_communication'];
 
 export function isHardGate(gate: GateKind): boolean {
   return (HARD_GATE_KINDS as readonly string[]).includes(gate);
@@ -157,12 +157,32 @@ export const GateDecisionSchema = z.object({
   gate: GateKindSchema,
   outcome: GateDecisionOutcomeSchema,
   preview: GatePreviewSchema,
-  /** Present once `outcome !== 'pending'`. */
+  /** Required for a final decision so approval always identifies a human turn. */
   decidedBy: ActorRefSchema.optional(),
   decidedAt: IsoTimestampSchema.optional(),
   reason: z.string().optional(),
+}).superRefine((decision, context) => {
+  if (decision.outcome === 'pending') return;
+  if (!decision.decidedBy) context.addIssue({ code: 'custom', path: ['decidedBy'], message: 'A final gate decision requires decidedBy.' });
+  if (decision.decidedBy && decision.decidedBy.kind !== 'user') context.addIssue({ code: 'custom', path: ['decidedBy'], message: 'A final hard-gate decision must be made by a user.' });
+  if (!decision.decidedAt) context.addIssue({ code: 'custom', path: ['decidedAt'], message: 'A final gate decision requires decidedAt.' });
 });
 export type GateDecision = z.infer<typeof GateDecisionSchema>;
+
+export function parseGateDecision(raw: unknown): GateDecision {
+  return parseContract(GateDecisionSchema, raw, 'GateDecision');
+}
+
+/** Durable correlation record for a gate that paused an Epic. */
+export const PendingGateSchema = z.object({
+  id: z.string().min(1),
+  stageId: StageIdSchema,
+  actionId: z.string().min(1).optional(),
+  preview: GatePreviewSchema,
+  requestedAt: IsoTimestampSchema,
+  requestedBy: ActorRefSchema,
+});
+export type PendingGate = z.infer<typeof PendingGateSchema>;
 
 // ── Recovery policy ────────────────────────────────────────────────
 
@@ -206,18 +226,35 @@ export const AutonomyPolicySchema = z
   })
   .refine(
     (policy) => {
-      const configured = policy.gates.external_communication;
-      return configured === undefined || configured === 'always';
+      return HARD_GATE_KINDS.every((gate) => policy.gates[gate] === undefined || policy.gates[gate] === 'always');
     },
     {
       message:
-        'gates.external_communication must be "always" (or omitted) — external communication is a hard gate that unattended mode cannot bypass (design doc §0.7)',
-      path: ['gates', 'external_communication'],
+        'hard safety gates must be "always" (or omitted) and cannot be bypassed by unattended mode',
+      path: ['gates'],
     },
   );
 export type AutonomyPolicy = z.infer<typeof AutonomyPolicySchema>;
 
 export function parseAutonomyPolicy(raw: unknown): AutonomyPolicy {
+  const source: Record<string, unknown> | undefined = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : undefined;
+  if (source) {
+    const recovery = source.recovery && typeof source.recovery === 'object' && !Array.isArray(source.recovery)
+      ? source.recovery as Record<string, unknown>
+      : {};
+    return parseContract(AutonomyPolicySchema, {
+      ...source,
+      schemaVersion: source.schemaVersion ?? 1,
+      recovery: {
+        ...recovery,
+        maxAttempts: recovery.maxAttempts ?? recovery.max_attempts,
+        onValidationFailure: recovery.onValidationFailure ?? recovery.on_validation_failure,
+        onAmbiguousRequirement: recovery.onAmbiguousRequirement ?? recovery.on_ambiguous_requirement,
+      },
+    }, 'AutonomyPolicy');
+  }
   return parseContract(AutonomyPolicySchema, raw, 'AutonomyPolicy');
 }
 
@@ -227,7 +264,7 @@ export function createDefaultAutonomyPolicy(): AutonomyPolicy {
     schemaVersion: 1,
     default: 'guide',
     stages: {},
-    gates: {},
+    gates: { destructive_changes: 'always', merge_default_branch: 'always', external_communication: 'always' },
     recovery: { maxAttempts: 3, onValidationFailure: 'ask', onAmbiguousRequirement: 'ask' },
   };
 }

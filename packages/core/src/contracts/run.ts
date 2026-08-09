@@ -12,11 +12,12 @@
 
 import { z } from 'zod';
 import { StageIdSchema } from './stageId';
-import { EpicIdSchema, RunIdSchema, EventIdSchema } from './ids';
+import { EpicEventIdSchema, EpicIdSchema, RunIdSchema, EventIdSchema } from './ids';
 import { StageSchema } from './stage';
 import { EpicProfileSchema, EpicStatusSchema } from './epic';
 import { ActorRefSchema, EvidenceRefSchema, IsoTimestampSchema, parseContract } from './common';
 import { CommandNameSchema } from './command';
+import { GateDecisionSchema, GatePreviewSchema, PendingGateSchema } from './autonomy';
 
 // ── EpicRun (root, durable) ────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export const EpicRunSchema = z
     startedAt: IsoTimestampSchema,
     updatedAt: IsoTimestampSchema,
     completedAt: IsoTimestampSchema.optional(),
+    pendingGate: PendingGateSchema.optional(),
     /** Optimistic-concurrency guard, same convention as `Epic.revision`. */
     revision: z.number().int().nonnegative(),
   })
@@ -85,6 +87,12 @@ export const RunEventSchema = z.object({
   to: z.string().optional(),
   evidence: z.array(EvidenceRefSchema).default([]),
   detail: z.string().optional(),
+  gateId: z.string().optional(),
+  gatePreview: GatePreviewSchema.optional(),
+  gateDecision: GateDecisionSchema.optional(),
+  /** Projection snapshot makes an appended progress event crash-recoverable. */
+  stages: z.array(StageSchema).optional(),
+  currentStageId: StageIdSchema.optional(),
 });
 export type RunEvent = z.infer<typeof RunEventSchema>;
 
@@ -94,3 +102,21 @@ export function parseRunEvent(raw: unknown): RunEvent {
 
 /** An append-only run event log — just an array; the on-disk stream format (NDJSON, etc.) is a later wave's concern. */
 export type RunEventLog = RunEvent[];
+
+/** Audit event for Epic lifecycle transitions that happen before a Run exists. */
+export const EpicEventSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: EpicEventIdSchema,
+  at: IsoTimestampSchema,
+  actor: ActorRefSchema,
+  epicId: EpicIdSchema,
+  command: CommandNameSchema,
+  from: EpicStatusSchema.optional(),
+  to: EpicStatusSchema.optional(),
+  evidence: z.array(EvidenceRefSchema).default([]),
+  detail: z.string().optional(),
+});
+export type EpicEvent = z.infer<typeof EpicEventSchema>;
+export function parseEpicEvent(raw: unknown): EpicEvent {
+  return parseContract(EpicEventSchema, raw, 'EpicEvent');
+}

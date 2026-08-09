@@ -5,9 +5,32 @@ import {
   type CapabilityProvider,
   type CapabilityRequirement,
 } from '../contracts';
+import * as fs from 'fs';
+import * as path from 'path';
+import yaml from 'js-yaml';
 
 /** Project-local enable/disable overrides; missing values use each descriptor's default. */
 export type CapabilityPolicy = Readonly<Record<string, boolean>>;
+
+/** Durable project-local capability overrides; runtime health stays out of config. */
+export class CapabilityPolicyStore {
+  constructor(private readonly workspaceRoot: string) {}
+  file(): string { return path.join(this.workspaceRoot, '.aidlc', 'capabilities.yaml'); }
+  load(): CapabilityPolicy {
+    if (!fs.existsSync(this.file())) return {};
+    const raw = yaml.load(fs.readFileSync(this.file(), 'utf8')) as { schemaVersion?: unknown; enabled?: unknown };
+    if (raw?.schemaVersion !== 1 || !raw.enabled || typeof raw.enabled !== 'object' || Array.isArray(raw.enabled)) throw new Error(`Invalid capability policy at ${this.file()}.`);
+    const entries = Object.entries(raw.enabled as Record<string, unknown>);
+    if (entries.some(([, value]) => typeof value !== 'boolean')) throw new Error(`Capability policy values at ${this.file()} must be boolean.`);
+    return Object.fromEntries(entries) as CapabilityPolicy;
+  }
+  save(policy: CapabilityPolicy): void {
+    fs.mkdirSync(path.dirname(this.file()), { recursive: true });
+    const temp = `${this.file()}.tmp`;
+    fs.writeFileSync(temp, yaml.dump({ schemaVersion: 1, enabled: policy }, { noRefs: true }), 'utf8');
+    fs.renameSync(temp, this.file());
+  }
+}
 
 export class CapabilityNotFoundError extends Error {
   constructor(readonly capabilityId: string) {

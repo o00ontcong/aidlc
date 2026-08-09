@@ -34,7 +34,7 @@ describe('AutonomyPolicy — product decision: new projects default to guide (de
     const policy = createDefaultAutonomyPolicy();
     expect(policy.default).toBe('guide');
     expect(policy.stages).toEqual({});
-    expect(policy.gates).toEqual({});
+    expect(policy.gates).toEqual({ destructive_changes: 'always', merge_default_branch: 'always', external_communication: 'always' });
   });
 
   it('guide is a member of AUTONOMY_MODES exactly as guide|assist|auto|unattended (design doc §4)', () => {
@@ -57,6 +57,13 @@ describe('AutonomyPolicy — parse/serialize round-trip', () => {
 });
 
 describe('AutonomyPolicy — backward compatibility (new optional field does not break an older payload)', () => {
+  it('accepts the user-facing snake_case YAML shape from the redesign contract', () => {
+    const parsed = parseAutonomyPolicy({
+      default: 'assist', stages: { build: 'auto' }, gates: { external_communication: 'always' },
+      recovery: { max_attempts: 2, on_validation_failure: 'repair-and-retry', on_ambiguous_requirement: 'ask' },
+    });
+    expect(parsed).toMatchObject({ schemaVersion: 1, default: 'assist', stages: { build: 'auto' }, recovery: { maxAttempts: 2, onValidationFailure: 'repair-and-retry' } });
+  });
   it('parses a minimal older payload that predates stages/gates overrides entirely', () => {
     // Simulates a payload written before `stages`/`gates` existed on disk —
     // both are optional-with-default on the schema, so an old file with
@@ -80,11 +87,11 @@ describe('AutonomyPolicy — backward compatibility (new optional field does not
   });
 });
 
-describe('AutonomyPolicy — external_communication hard gate (design doc §0.7, §4; TODO acceptance matrix)', () => {
-  it('is the only hard gate declared today', () => {
-    expect(HARD_GATE_KINDS).toEqual(['external_communication']);
+describe('AutonomyPolicy — non-bypassable safety gates (design doc §0.7, §4; TODO acceptance matrix)', () => {
+  it('declares destructive, default-branch merge, and external communication as hard gates', () => {
+    expect(HARD_GATE_KINDS).toEqual(['destructive_changes', 'merge_default_branch', 'external_communication']);
     expect(isHardGate('external_communication')).toBe(true);
-    expect(isHardGate('destructive_changes')).toBe(false);
+    expect(isHardGate('destructive_changes')).toBe(true);
   });
 
   it('AutonomyPolicySchema REJECTS a config that weakens external_communication below always', () => {

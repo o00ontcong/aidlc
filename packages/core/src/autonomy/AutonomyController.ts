@@ -6,6 +6,7 @@ import {
   type AutonomyMode,
   type AutonomyPolicy,
   type GateDecision,
+  GateDecisionSchema,
   type GateKind,
   type GatePreview,
   type RecoveryAction,
@@ -56,10 +57,18 @@ export class AutonomyController {
     const gate = gateForSubject(subject);
     if (!gate) {
       const manualConfirmation = subject.mutation === true && (mode === 'guide' || mode === 'assist');
+      const manualGate = manualConfirmation ? 'manual_confirmation' : undefined;
       return {
         mode,
+        gate: manualGate,
         hard: false,
         requiresApproval: manualConfirmation,
+        preview: manualConfirmation ? {
+          gate: manualGate!,
+          destination: subject.destination,
+          contentSummary: subject.contentSummary,
+          mutationScope: subject.mutationScope ?? [],
+        } : undefined,
         reason: manualConfirmation ? `${mode} mode requires human confirmation before mutation.` : 'No gate applies.',
       };
     }
@@ -88,7 +97,12 @@ export class AutonomyController {
   }
 
   canProceed(evaluation: GateEvaluation, decision?: GateDecision): boolean {
-    return !evaluation.requiresApproval || decision?.outcome === 'approved';
+    if (!evaluation.requiresApproval) return true;
+    const parsed = GateDecisionSchema.safeParse(decision);
+    return parsed.success
+      && parsed.data.outcome === 'approved'
+      && parsed.data.gate === evaluation.gate
+      && JSON.stringify(parsed.data.preview) === JSON.stringify(evaluation.preview);
   }
 }
 

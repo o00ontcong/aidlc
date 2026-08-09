@@ -6,6 +6,7 @@ import * as path from 'path';
 import type { ModelDescriptor, ModelExecutionResult } from '../src/contracts';
 import {
   ClaudeCliProvider,
+  createDefaultModelProviderRegistry,
   FakeModelProvider,
   ModelProviderRegistry,
   ModelResolutionError,
@@ -31,6 +32,17 @@ function tmpRoot(): string {
 }
 
 describe('ModelProviderRegistry', () => {
+  it('creates Claude as the provider-neutral default registry entry', async () => {
+    const registry = createDefaultModelProviderRegistry({
+      adapter: {
+        async execute(): Promise<ModelExecutionResult> { return { content: '', stopReason: 'end_turn' }; },
+        async validate() { return { available: true, authenticated: true, message: 'ready' }; },
+      },
+    });
+    expect(registry.getDefault().id).toBe('claude');
+    await expect(registry.resolve({ tier: 'balanced' })).resolves.toMatchObject({ provider: 'claude' });
+  });
+
   it('resolves neutrally by tier, context, tools, latency, and cost rather than a provider-specific id', async () => {
     const registry = new ModelProviderRegistry();
     registry.register(new FakeModelProvider('alpha', [
@@ -86,11 +98,23 @@ describe('ClaudeCliProvider', () => {
     });
 
     const model = await provider.resolve({ tier: 'deep', requiresTools: true, capability: 'ast-graph' });
-    const result = await provider.execute({ resolvedModel: model, prompt: 'Review this change', toolNames: ['ast-graph'] });
+    const result = await provider.execute({
+      resolvedModel: model,
+      prompt: 'Review this change',
+      toolNames: ['ast-graph'],
+      workingDirectory: '/tmp/provider-fixture',
+      mutationAllowed: false,
+    });
 
     expect(model).toMatchObject({ provider: 'claude', modelId: 'claude-unit-deep', modelVersion: '2026.08', tier: 'deep' });
     expect(model.reason).toContain('ast-graph');
-    expect(invocations).toEqual([{ modelId: 'claude-unit-deep', prompt: 'Review this change', maxOutputTokens: undefined }]);
+    expect(invocations).toEqual([{
+      modelId: 'claude-unit-deep',
+      prompt: 'Review this change',
+      maxOutputTokens: undefined,
+      workingDirectory: '/tmp/provider-fixture',
+      mutationAllowed: false,
+    }]);
     expect(result.content).toBe('Claude response');
     expect(await provider.validateConfiguration()).toEqual([{ provider: 'claude', ok: true, code: undefined, message: 'Claude CLI test adapter is ready.' }]);
   });

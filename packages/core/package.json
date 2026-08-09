@@ -14,6 +14,7 @@
     "build": "tsc -p ./",
     "clean": "rm -rf dist",
     "test": "vitest run",
+    "test:concurrency": "pnpm build && node test/concurrency-smoke.cjs",
     "test:watch": "vitest"
   },
   "private": true,

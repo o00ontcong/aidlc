@@ -17,6 +17,10 @@ export * from './capabilities';
 export * from './project';
 export * from './workflows';
 export * from './application';
+export * from './migration';
+export * from './packs';
+export * from './validators';
+export * from './release';
 export {
   EpicSchema as UnifiedEpicSchema,
   EpicProfileSchema,

@@ -14,7 +14,11 @@ describe('AutonomyController', () => {
     });
     expect(evaluation).toMatchObject({ gate: 'external_communication', hard: true, requiresApproval: true });
     expect(controller.canProceed(evaluation)).toBe(false);
-    expect(controller.canProceed(evaluation, { gate: 'external_communication', outcome: 'approved', preview: evaluation.preview! })).toBe(true);
+    expect(controller.canProceed(evaluation, { gate: 'external_communication', outcome: 'approved', preview: evaluation.preview! })).toBe(false);
+    expect(controller.canProceed(evaluation, {
+      gate: 'external_communication', outcome: 'approved', preview: evaluation.preview!,
+      decidedBy: { kind: 'user', id: 'reviewer' }, decidedAt: '2026-08-09T00:00:00.000Z',
+    })).toBe(true);
   });
 
   it('supports per-stage mode changes without changing durable Epic state', () => {

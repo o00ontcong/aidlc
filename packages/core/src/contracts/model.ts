@@ -69,6 +69,10 @@ export const ModelExecutionRequestSchema = z.object({
   prompt: z.string(),
   toolNames: z.array(z.string()).optional(),
   maxOutputTokens: z.number().int().positive().optional(),
+  /** Workspace boundary for providers that launch a local coding agent. */
+  workingDirectory: z.string().min(1).optional(),
+  /** Provider-neutral mutation boundary decided by the autonomy controller. */
+  mutationAllowed: z.boolean().optional(),
 });
 export type ModelExecutionRequest = z.infer<typeof ModelExecutionRequestSchema>;
 

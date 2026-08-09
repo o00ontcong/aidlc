@@ -10,6 +10,8 @@ import {
   scaffoldEpic,
   EpicScaffoldError,
   stepAgentId,
+  AidlcApplication,
+  slugEpicId,
   type PipelineConfig,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -20,7 +22,7 @@ import { classifyWithLlm } from './pipeline';
 export function registerEpic(program: Command): void {
   const cmd = program
     .command('epic')
-    .description('List + inspect epics from <state.root>/<id>/state.json (mirrors the extension)');
+    .description('Unified Epic lifecycle; legacy recipe/pipeline flags remain available with deprecation guidance');
 
   // ── list ───────────────────────────────────────────────────────────────────
   cmd
@@ -29,6 +31,7 @@ export function registerEpic(program: Command): void {
     .option('--json', 'Output raw JSON')
     .option('--status <status>', 'Filter by status (pending | in_progress | done | failed)')
     .action((opts: { json?: boolean; status?: string }, actionCmd: Command) => {
+      console.error(chalk.yellow('Deprecated legacy Epic list. Use `aidlc migration preview`, then unified `aidlc epic status <id>`.'));
       const root = resolveWorkspaceRoot(actionCmd);
       const doc  = readYaml(root);
       let epics  = listEpics(root, doc);
@@ -78,9 +81,14 @@ export function registerEpic(program: Command): void {
     .alias('show')
     .description('Show full status of one epic — step pipeline, inputs, paths')
     .option('--json', 'Output raw EpicSummary JSON')
-    .action((id: string, opts: { json?: boolean }, actionCmd: Command) => {
+    .action(async (id: string, opts: { json?: boolean }, actionCmd: Command) => {
       const root  = resolveWorkspaceRoot(actionCmd);
+      if (new AidlcApplication(root).epics.load(id)) {
+        await dispatchUnified(actionCmd, 'epic.status', { epicId: id }, opts);
+        return;
+      }
       const doc   = readYaml(root);
+      console.error(chalk.yellow(`Legacy Epic ${id} detected. Run \`aidlc migration preview\` for its unified mapping.`));
       const epic  = loadEpic(root, doc, id);
 
       if (!epic) {
@@ -102,8 +110,8 @@ export function registerEpic(program: Command): void {
 
   // ── start ────────────────────────────────────────────────────────────────────
   cmd
-    .command('start <epicId>')
-    .description('Scaffold a new epic on disk (folder + artifacts + run state) — mirrors the extension\'s "Start epic"')
+    .command('start [epicId]')
+    .description('Start a unified Epic; legacy recipe/pipeline flags remain supported for one migration window')
     .option('--recipe <id>', 'assemble a right-sized pipeline from this recipe')
     .option('--pipeline <id>', 'use an existing pipeline as-is')
     .option('--brief <text...>', 'classify this requirement brief into a recipe, then assemble')
@@ -111,16 +119,40 @@ export function registerEpic(program: Command): void {
     .option('--from <pipelineId>', 'override the recipe\'s source pipeline')
     .option('--title <title>', 'epic title')
     .option('--desc <description>', 'epic description / requirement snapshot')
+    .option('--description <description>', 'unified Epic requirement snapshot')
+    .option('--type <type>', 'feature | bug | refactor | spike | maintenance')
+    .option('--profile <profile>', 'quick | standard | parallel | regulated')
+    .option('--json', 'Output typed command result JSON')
     .option('--input <kv>', 'capability input as key=value (repeatable)', collectKv, [] as string[])
-    .action((epicId: string, opts: {
+    .action(async (epicId: string | undefined, opts: {
       recipe?: string; pipeline?: string; brief?: string[]; llm?: boolean;
-      from?: string; title?: string; desc?: string; input: string[];
+      from?: string; title?: string; desc?: string; description?: string; type?: string; profile?: string; json?: boolean; input: string[];
     }, actionCmd: Command) => {
       const root = resolveWorkspaceRoot(actionCmd);
-      const doc  = requireYaml(root);
-
       const modes = [opts.recipe, opts.pipeline, opts.brief?.length ? 'brief' : undefined]
         .filter(Boolean).length;
+      if (modes === 0) {
+        if (!opts.title?.trim()) {
+          console.error(chalk.red('Unified Epic start requires --title <title>.'));
+          process.exitCode = 1;
+          return;
+        }
+        await dispatchUnified(actionCmd, 'epic.start', {
+          id: epicId ?? `EPIC-${slugEpicId(opts.title) || 'UNTITLED'}`,
+          title: opts.title,
+          description: opts.description ?? opts.desc ?? '',
+          type: opts.type,
+          profile: opts.profile,
+        }, opts);
+        return;
+      }
+      if (!epicId) {
+        console.error(chalk.red('Legacy recipe/pipeline Epic start requires <epicId>.'));
+        process.exitCode = 1;
+        return;
+      }
+      const doc  = requireYaml(root);
+      console.error(chalk.yellow('Deprecated legacy Epic start flags. Use `aidlc epic start [id] --title <title> [--profile ...]`.'));
       if (modes !== 1) {
         console.error(chalk.red('Pick exactly one of --recipe <id>, --pipeline <id>, or --brief <text>.'));
         process.exit(1);
@@ -244,6 +276,33 @@ export function registerEpic(program: Command): void {
         throw err;
       }
     });
+
+  cmd.command('run <id>')
+    .description('Compile and start the authoritative workflow run')
+    .option('--mode <mode>', 'guide | assist | auto | unattended')
+    .option('--pack <pack>', 'Workflow pack id', 'sdlc-core')
+    .option('--workflow-hash <hash>', 'Deprecated compatibility input')
+    .option('--json', 'Output typed command result JSON')
+    .action(async (id: string, opts: { mode?: string; pack: string; workflowHash?: string; json?: boolean }, actionCmd: Command) =>
+      dispatchUnified(actionCmd, 'epic.run', { epicId: id, mode: opts.mode, packId: opts.pack, workflowHash: opts.workflowHash }, opts));
+
+  for (const action of ['prepare', 'next', 'explain', 'resume', 'review', 'ship'] as const) {
+    cmd.command(`${action} <id>`)
+      .description(`${action} a unified Epic`)
+      .option('--json', 'Output typed command result JSON')
+      .action(async (id: string, opts: { json?: boolean }, actionCmd: Command) =>
+        dispatchUnified(actionCmd, `epic.${action}`, { epicId: id }, opts));
+  }
+}
+
+let unifiedCommandSequence = 0;
+async function dispatchUnified(command: Command, name: string, payload: unknown, options: { json?: boolean }): Promise<void> {
+  const app = new AidlcApplication(resolveWorkspaceRoot(command));
+  unifiedCommandSequence += 1;
+  const result = await app.bus.dispatch(app.bus.command(`cli-${Date.now()}-${unifiedCommandSequence}`, name, { kind: 'user', id: 'cli' }, payload));
+  process.exitCode = result.status === 'ok' ? 0 : result.status === 'waiting-for-user' ? 2 : result.status === 'blocked' ? 3 : 1;
+  void options;
+  console.log(JSON.stringify(result, null, 2));
 }
 
 /** Commander collector for repeatable `--input key=value` flags. */

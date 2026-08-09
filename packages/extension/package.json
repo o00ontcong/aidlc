@@ -62,6 +62,32 @@
     },
     "commands": [
       {
+        "command": "aidlc.project.analyze",
+        "title": "Analyze Project (Unified)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.project.setup",
+        "title": "Preview Project Setup (Unified)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.epic.next",
+        "title": "Run Next Epic Action (Unified)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.epic.resume",
+        "title": "Resume Epic (Unified)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.v3.open",
+        "title": "Open AIDLC Workspace",
+        "icon": "$(rocket)",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.openBuilder",
         "title": "Open Workspace Builder",
         "icon": "$(layout-panel)",

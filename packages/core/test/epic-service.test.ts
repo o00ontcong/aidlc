@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { formatEventId, type Epic, type EpicRun } from '../src/contracts';
+import { formatEpicEventId, formatEventId, type Epic, type EpicRun } from '../src/contracts';
 import {
   EpicAlreadyExistsError,
   EpicRevisionConflictError,
@@ -62,7 +62,7 @@ describe('EpicService — unified durable state', () => {
     expect(started.epic.status).toBe('running');
     expect(started.epic.activeRunId).toBe('EPIC-PRICE-ALERTS--run-001');
     expect(started.run.status).toBe('running');
-    expect(service.events(started.epic.id)).toHaveLength(1);
+    expect(service.events(started.epic.id)).toHaveLength(2);
 
     const paused = service.transition(started.epic.id, 'paused', {
       expectedRevision: started.epic.revision,
@@ -73,6 +73,7 @@ describe('EpicService — unified durable state', () => {
     expect(resumed.resumed).toBe(true);
     expect(resumed.epic.status).toBe('running');
     expect(service.events(resumed.epic.id).map((event) => [event.from, event.to])).toEqual([
+      ['draft', 'ready'],
       ['ready', 'running'],
       ['running', 'paused'],
       ['paused', 'running'],
@@ -97,6 +98,13 @@ describe('EpicService — unified durable state', () => {
       .toThrow(EpicRevisionConflictError);
   });
 
+  it('validates the complete durable Epic before the first write', () => {
+    const root = tmpRoot();
+    const service = new EpicService(root);
+    expect(() => service.create({ ...INPUT, profile: 'invalid' as Epic['profile'] })).toThrow(/Invalid Epic/);
+    expect(fs.existsSync(path.join(root, '.aidlc', 'epics', INPUT.id, 'state.json'))).toBe(false);
+  });
+
   it('recovers a state write interrupted before atomic rename', () => {
     const service = new EpicService(tmpRoot());
     const created = service.create(INPUT);
@@ -107,6 +115,17 @@ describe('EpicService — unified durable state', () => {
     expect(reloaded).toMatchObject({ id: created.id, status: 'draft', revision: 0 });
     expect(fs.existsSync(stateFile)).toBe(true);
     expect(fs.existsSync(`${stateFile}.tmp`)).toBe(false);
+  });
+
+  it('recovers a pre-run Epic projection from its append-only audit event', () => {
+    const service = new EpicService(tmpRoot());
+    const created = service.create(INPUT);
+    service.store.appendEpicEvent(created.id, {
+      schemaVersion: 1, id: formatEpicEventId(created.id, 1),
+      at: '2026-08-09T10:00:00.000Z', actor: { kind: 'system', id: 'crash-simulation' },
+      epicId: created.id, command: 'epic.prepare', from: 'draft', to: 'ready', evidence: [],
+    });
+    expect(new EpicService(service.store.workspaceRoot).require(created.id).status).toBe('ready');
   });
 
   it('rebuilds stale read projections from an already-appended event after a crash', () => {
@@ -128,5 +147,24 @@ describe('EpicService — unified durable state', () => {
     const recovered = new EpicService(service.store.workspaceRoot).require(epic.id);
     expect(recovered.status).toBe('paused');
     expect(new EpicService(service.store.workspaceRoot).store.loadRun(run.id)?.status).toBe('paused');
+  });
+
+  it('redacts credentials before persisting audit events', () => {
+    const service = new EpicService(tmpRoot());
+    const { epic, run } = runningEpic(service);
+    service.store.appendEvent(run.id, {
+      schemaVersion: 1,
+      id: formatEventId(run.id, 2),
+      at: '2026-08-09T10:00:00.000Z',
+      actor: { kind: 'system', id: 'redaction-test' },
+      epicId: epic.id,
+      runId: run.id,
+      command: 'epic.explain',
+      evidence: [],
+      detail: 'provider returned Bearer abcdefghijklmnop',
+    });
+
+    expect(service.store.readEvents(run.id).at(-1)?.detail).toBe('provider returned [REDACTED]');
+    expect(fs.readFileSync(service.store.runEventsFile(run.id), 'utf8')).not.toContain('abcdefghijklmnop');
   });
 });

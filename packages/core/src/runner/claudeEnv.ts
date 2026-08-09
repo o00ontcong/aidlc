@@ -34,6 +34,36 @@ const CLAUDE_CODE_SESSION_MARKERS = [
   'CLAUDE_CODE_EXECPATH',
 ] as const;
 
+/**
+ * The provider subprocess must not inherit every credential available to the
+ * parent process. Keep only process-launch essentials plus authentication
+ * variables Claude CLI explicitly supports. Workspace `overrides` remain an
+ * explicit opt-in and are layered after this filter.
+ */
+const CLAUDE_BASE_ENV = [
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL',
+  'TMPDIR', 'TEMP', 'TMP',
+  'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'COLORTERM', 'NO_COLOR', 'FORCE_COLOR',
+  'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'CLAUDE_CONFIG_DIR',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+  'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'ANTHROPIC_CUSTOM_HEADERS',
+] as const;
+
+const CLAUDE_BEDROCK_ENV = [
+  'CLAUDE_CODE_USE_BEDROCK',
+  'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
+  'AWS_PROFILE', 'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_BEARER_TOKEN_BEDROCK',
+  'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_ROLE_ARN',
+  'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI', 'AWS_CONTAINER_CREDENTIALS_FULL_URI',
+  'AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'AWS_CONFIG_FILE',
+] as const;
+
+const CLAUDE_VERTEX_ENV = [
+  'CLAUDE_CODE_USE_VERTEX', 'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION',
+  'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_QUOTA_PROJECT',
+] as const;
+
 function truthy(v: string | undefined): boolean {
   return !!v && v !== '0' && v.toLowerCase() !== 'false';
 }
@@ -76,7 +106,11 @@ export function buildClaudeSpawnEnv(
   overrides: Record<string, string> = {},
   base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base };
+  const allowedNames = new Set<string>(CLAUDE_BASE_ENV);
+  if (truthy(base.CLAUDE_CODE_USE_BEDROCK)) for (const name of CLAUDE_BEDROCK_ENV) allowedNames.add(name);
+  if (truthy(base.CLAUDE_CODE_USE_VERTEX)) for (const name of CLAUDE_VERTEX_ENV) allowedNames.add(name);
+  const env: NodeJS.ProcessEnv = {};
+  for (const name of allowedNames) if (base[name] !== undefined) env[name] = base[name];
   // Strip the inherited key when login is the intended auth — either we're in a
   // Claude Code session (ephemeral key) or a `claude login` exists to fall back
   // on. Otherwise leave a deliberately-set, login-less API key in place.

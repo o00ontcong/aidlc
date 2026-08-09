@@ -140,3 +140,17 @@ export function runIdOfEvent(eventId: EventId): RunId {
   const idx = eventId.indexOf('--evt-');
   return toRunId(eventId.slice(0, idx));
 }
+
+// ── Pre-run Epic event id ──────────────────────────────────────────
+
+export type EpicEventId = Brand<string, 'EpicEventId'>;
+export const EPIC_EVENT_ID_PATTERN = /^EPIC-[A-Z0-9]+(?:-[A-Z0-9]+)*--evt-[0-9]+$/;
+export function toEpicEventId(value: string): EpicEventId {
+  if (!EPIC_EVENT_ID_PATTERN.test(value)) throw new Error(`Invalid EpicEventId "${value}" — must match ${EPIC_EVENT_ID_PATTERN}`);
+  return value as EpicEventId;
+}
+export const EpicEventIdSchema = z.string().regex(EPIC_EVENT_ID_PATTERN, 'Must match <EpicId>--evt-<sequence>').transform(toEpicEventId);
+export function formatEpicEventId(epicId: EpicId, sequence: number): EpicEventId {
+  if (!Number.isInteger(sequence) || sequence < 1) throw new Error(`Epic event sequence must be a positive integer, got ${sequence}`);
+  return toEpicEventId(`${epicId}--evt-${String(sequence).padStart(4, '0')}`);
+}

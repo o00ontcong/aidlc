@@ -1,0 +1,17 @@
+import type { V3ApplicationClient, V3WorkspaceState } from '../contracts';
+import { createV3CommandFactory, currentEpic } from '../contracts';
+import { RecoveryActions } from '../shell/RecoveryActions';
+
+export function GuideDiagnosticsView({ state, client }: { state: V3WorkspaceState; client: V3ApplicationClient }) {
+  const guide = state.guide;
+  const epic = currentEpic(state);
+  const command = createV3CommandFactory('guide');
+  return <div className="space-y-5"><header><p className="text-xs uppercase tracking-wide text-muted-foreground">Guide mode</p><h1 className="mt-1 text-xl font-semibold text-foreground">{guide.title}</h1></header>
+    <section className="rounded-md border border-border bg-card p-4"><h2 className="text-sm font-semibold text-foreground">What happens here</h2><p className="mt-2 text-xs text-muted-foreground">{guide.why}</p><div className="mt-4 grid gap-4 sm:grid-cols-2"><GuideList title="Inputs" values={guide.inputs} /><GuideList title="Outputs" values={guide.outputs} /></div><p className="mt-4 text-xs"><span className="font-medium text-foreground">Done when: </span><span className="text-muted-foreground">{guide.doneWhen}</span></p><p className="mt-2 text-xs"><span className="font-medium text-foreground">Next: </span><span className="text-muted-foreground">{guide.next}</span></p><div className="mt-4"><RecoveryActions epicId={epic?.id} actions={guide.recovery} client={client} /></div></section>
+    {epic?.blocker && <section className="rounded-md border border-amber-500/50 bg-amber-500/5 p-4"><h2 className="text-sm font-semibold text-foreground">Why this Epic stopped</h2><p className="mt-2 text-xs text-muted-foreground">{epic.blocker.summary}</p>{epic.blocker.detail && <p className="mt-1 text-xs text-muted-foreground">{epic.blocker.detail}</p>}<div className="mt-3"><RecoveryActions epicId={epic.id} actions={epic.blocker.recoveryActions} client={client} /></div></section>}
+    <section className="rounded-md border border-border bg-card p-4"><h2 className="text-sm font-semibold text-foreground">Doctor</h2>{state.project.diagnostics.length === 0 ? <p className="mt-2 text-xs text-muted-foreground">No issues found.</p> : <ul className="mt-3 space-y-3">{state.project.diagnostics.map((diagnostic) => <li key={diagnostic.id} className="rounded border border-border p-3"><p className="text-xs font-medium text-foreground">{diagnostic.summary}</p>{diagnostic.detail && <p className="mt-1 text-xs text-muted-foreground">{diagnostic.detail}</p>}{diagnostic.fix && <button type="button" onClick={() => client.dispatch(command('recovery.apply', { epicId: epic?.id, action: diagnostic.fix?.command ?? diagnostic.fix?.kind }))} className="mt-2 rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-accent">{diagnostic.fix.label}</button>}</li>)}</ul>}</section>
+    {guide.advancedLog && <details className="rounded-md border border-border bg-card p-4"><summary className="cursor-pointer text-xs font-medium text-foreground">Advanced details</summary><pre className="mt-3 overflow-auto whitespace-pre-wrap text-[11px] text-muted-foreground">{guide.advancedLog}</pre></details>}
+  </div>;
+}
+
+function GuideList({ title, values }: { title: string; values: readonly string[] }) { return <div><h3 className="text-xs font-medium text-foreground">{title}</h3><ul className="mt-1 list-inside list-disc text-xs text-muted-foreground">{values.map((value) => <li key={value}>{value}</li>)}</ul></div>; }

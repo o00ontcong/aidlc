@@ -12,7 +12,7 @@
  */
 
 import { z } from 'zod';
-import { IsoTimestampSchema } from './common';
+import { IsoTimestampSchema, parseContract } from './common';
 
 // ── ErrorCode ──────────────────────────────────────────────────────
 
@@ -77,3 +77,7 @@ export const AidlcErrorSchema = z.object({
   at: IsoTimestampSchema,
 });
 export type AidlcError = z.infer<typeof AidlcErrorSchema>;
+
+export function parseAidlcError(raw: unknown): AidlcError {
+  return parseContract(AidlcErrorSchema, raw, 'AidlcError');
+}

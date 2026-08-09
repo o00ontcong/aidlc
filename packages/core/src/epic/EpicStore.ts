@@ -11,17 +11,20 @@ import * as path from 'path';
 
 import {
   EPIC_STATUSES,
+  parseEpicEvent,
   parseEpic,
   parseEpicRun,
   parseRunEvent,
   toEpicId,
   toRunId,
   type Epic,
+  type EpicEvent,
   type EpicId,
   type EpicRun,
   type RunEvent,
   type RunId,
 } from '../contracts';
+import { redactSecrets } from '../release/ReleaseVerification';
 
 const AIDLC_DIR = '.aidlc';
 const EPICS_DIR = 'epics';
@@ -35,6 +38,27 @@ export class EpicStorageError extends Error {
   constructor(message: string, public readonly file: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'EpicStorageError';
+  }
+}
+
+export class EpicStoreRevisionConflictError extends Error {
+  constructor(readonly epicId: EpicId, readonly expectedRevision: number | null, readonly actualRevision: number | null) {
+    super(`Epic ${epicId} revision changed while writing (expected ${expectedRevision ?? 'missing'}, actual ${actualRevision ?? 'missing'}).`);
+    this.name = 'EpicStoreRevisionConflictError';
+  }
+}
+
+export class EpicRunRevisionConflictError extends Error {
+  constructor(readonly runId: RunId, readonly expectedRevision: number | null, readonly actualRevision: number | null) {
+    super(`Run ${runId} revision changed while writing (expected ${expectedRevision ?? 'missing'}, actual ${actualRevision ?? 'missing'}).`);
+    this.name = 'EpicRunRevisionConflictError';
+  }
+}
+
+export class RunEventConflictError extends Error {
+  constructor(readonly runId: RunId, message: string) {
+    super(message);
+    this.name = 'RunEventConflictError';
   }
 }
 
@@ -107,6 +131,10 @@ export class EpicStore {
     return path.join(this.epicDir(id), STATE_FILE);
   }
 
+  epicEventsFile(id: EpicId | string): string {
+    return path.join(this.epicDir(id), EVENTS_FILE);
+  }
+
   runDir(id: RunId | string): string {
     return path.join(this.runsDir(), toRunId(String(id)));
   }
@@ -125,8 +153,31 @@ export class EpicStore {
     return this.recoverProjection(parseEpic(raw));
   }
 
-  saveEpic(epic: Epic): void {
-    writeJson(this.epicStateFile(epic.id), epic);
+  saveEpic(epic: Epic, expectedRevision?: number | null): void {
+    const validated = parseEpic(epic);
+    if (expectedRevision === undefined) {
+      writeJson(this.epicStateFile(validated.id), validated);
+      return;
+    }
+    const stateFile = this.epicStateFile(validated.id);
+    const lockFile = `${stateFile}.lock`;
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    let lock: number;
+    try {
+      lock = fs.openSync(lockFile, 'wx');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new EpicStoreRevisionConflictError(validated.id, expectedRevision, null);
+      throw error;
+    }
+    try {
+      const raw = readJson(stateFile);
+      const currentRevision = raw === null ? null : parseEpic(raw).revision;
+      if (currentRevision !== expectedRevision) throw new EpicStoreRevisionConflictError(validated.id, expectedRevision, currentRevision);
+      writeJson(stateFile, validated);
+    } finally {
+      fs.closeSync(lock);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
   }
 
   listEpics(): Epic[] {
@@ -151,8 +202,29 @@ export class EpicStore {
     return raw === null ? null : parseEpicRun(raw);
   }
 
-  saveRun(run: EpicRun): void {
-    writeJson(this.runStateFile(run.id), run);
+  saveRun(run: EpicRun, expectedRevision?: number | null): void {
+    const validated = parseEpicRun(run);
+    if (expectedRevision === undefined) {
+      writeJson(this.runStateFile(validated.id), validated);
+      return;
+    }
+    const stateFile = this.runStateFile(validated.id);
+    const lockFile = `${stateFile}.lock`;
+    fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+    let lock: number;
+    try { lock = fs.openSync(lockFile, 'wx'); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new EpicRunRevisionConflictError(validated.id, expectedRevision, null);
+      throw error;
+    }
+    try {
+      const raw = readJson(stateFile);
+      const currentRevision = raw === null ? null : parseEpicRun(raw).revision;
+      if (currentRevision !== expectedRevision) throw new EpicRunRevisionConflictError(validated.id, expectedRevision, currentRevision);
+      writeJson(stateFile, validated);
+    } finally {
+      fs.closeSync(lock);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
   }
 
   listRunsForEpic(epicId: EpicId): EpicRun[] {
@@ -175,12 +247,59 @@ export class EpicStore {
   appendEvent(runId: RunId, event: RunEvent): void {
     const file = this.runEventsFile(runId);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const fd = fs.openSync(file, 'a');
+    const lockFile = `${file}.lock`;
+    let lock: number;
     try {
-      fs.writeFileSync(fd, `${JSON.stringify(event)}\n`, 'utf8');
-      fs.fsyncSync(fd);
+      lock = fs.openSync(lockFile, 'wx');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new RunEventConflictError(runId, `Run ${runId} event log is being written concurrently.`);
+      throw error;
+    }
+    try {
+      const validated = parseRunEvent(redactSecrets(event));
+      if (this.readEvents(runId).some((existing) => existing.id === validated.id)) {
+        throw new RunEventConflictError(runId, `Run event ${validated.id} already exists.`);
+      }
+      const fd = fs.openSync(file, 'a');
+      try {
+        fs.writeFileSync(fd, `${JSON.stringify(validated)}\n`, 'utf8');
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
     } finally {
-      fs.closeSync(fd);
+      fs.closeSync(lock);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
+  }
+
+  appendEpicEvent(epicId: EpicId, event: EpicEvent): void {
+    const file = this.epicEventsFile(epicId);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const lockFile = `${file}.lock`;
+    let lock: number;
+    try { lock = fs.openSync(lockFile, 'wx'); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`Epic ${epicId} event log is being written concurrently.`);
+      throw error;
+    }
+    try {
+      const validated = parseEpicEvent(redactSecrets(event));
+      if (this.readEpicEvents(epicId).some((existing) => existing.id === validated.id)) throw new Error(`Epic event ${validated.id} already exists.`);
+      const fd = fs.openSync(file, 'a');
+      try { fs.writeFileSync(fd, `${JSON.stringify(validated)}\n`, 'utf8'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    } finally {
+      fs.closeSync(lock);
+      if (fs.existsSync(lockFile)) fs.unlinkSync(lockFile);
+    }
+  }
+
+  readEpicEvents(epicId: EpicId): EpicEvent[] {
+    const file = this.epicEventsFile(epicId);
+    if (!fs.existsSync(file)) return [];
+    try {
+      return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => parseEpicEvent(JSON.parse(line)));
+    } catch (error) {
+      throw new EpicStorageError(`Unable to parse append-only Epic event log at ${file}`, file, { cause: error });
     }
   }
 
@@ -202,6 +321,13 @@ export class EpicStore {
    * small recovery logic, not legacy migration or workflow interpretation.
    */
   private recoverProjection(epic: Epic): Epic {
+    const epicEvents = this.readEpicEvents(epic.id);
+    const lastEpicEvent = epicEvents.at(-1);
+    if (!epic.activeRunId && lastEpicEvent?.to && epic.status !== lastEpicEvent.to) {
+      const repaired = { ...epic, status: lastEpicEvent.to, updatedAt: lastEpicEvent.at, revision: epic.revision + 1 };
+      this.saveEpic(repaired);
+      epic = repaired;
+    }
     let run: EpicRun | null = epic.activeRunId ? this.loadRun(epic.activeRunId) : null;
 
     // `startRun` writes the run before it writes the Epic. A crash in that
@@ -229,11 +355,16 @@ export class EpicStore {
     const last = events.at(-1);
     if (!last || !(EPIC_STATUSES as readonly string[]).includes(last.to ?? '')) return epic;
     const status = last.to as Epic['status'];
-    if (epic.status === status && run.status === status) return epic;
+    const eventStages = last.stages ?? run.stages;
+    const projectionCurrent = last.currentStageId ?? epic.currentStageId;
+    if (epic.status === status && run.status === status
+      && JSON.stringify(epic.stages) === JSON.stringify(eventStages)
+      && epic.currentStageId === projectionCurrent) return epic;
 
     const repairedRun: EpicRun = {
       ...run,
       status,
+      stages: eventStages,
       updatedAt: last.at,
       completedAt: status === 'completed' ? last.at : run.completedAt,
       revision: run.revision + 1,
@@ -242,6 +373,7 @@ export class EpicStore {
       ...epic,
       status,
       stages: repairedRun.stages,
+      currentStageId: projectionCurrent,
       blockedReason: status === 'blocked' ? last.detail ?? epic.blockedReason : undefined,
       updatedAt: last.at,
       revision: epic.revision + 1,

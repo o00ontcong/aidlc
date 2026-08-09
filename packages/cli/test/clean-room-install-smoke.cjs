@@ -1,0 +1,23 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const packageFile = process.argv[2];
+assert.ok(packageFile && fs.existsSync(packageFile), 'pass the packed aidlc .tgz path');
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-installed-'));
+fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'installed-clean-room', private: true }));
+const installed = spawnSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', packageFile], { cwd: root, encoding: 'utf8' });
+assert.equal(installed.status, 0, `${installed.stdout}\n${installed.stderr}`);
+const bin = path.join(root, 'node_modules', '.bin', 'aidlc');
+const help = spawnSync(bin, ['--help'], { cwd: root, encoding: 'utf8' });
+assert.equal(help.status, 0, help.stderr);
+assert.match(help.stdout, /project\|project-v3/);
+assert.match(help.stdout, /migration/);
+const setup = spawnSync(bin, ['project', 'setup', '--confirm', '--json'], { cwd: root, encoding: 'utf8' });
+assert.equal(setup.status, 0, `${setup.stdout}\n${setup.stderr}`);
+assert.equal(JSON.parse(setup.stdout).status, 'ok');
+assert.equal(fs.existsSync(path.join(root, '.aidlc', 'project.yaml')), true);
+assert.equal(fs.existsSync(path.join(root, '.claude', 'commands', 'aidlc.md')), true);
+console.log(JSON.stringify({ ok: true, root, packageFile }));

@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { EpicIdSchema, RunIdSchema } from './ids';
 import { StageIdSchema } from './stageId';
 import { StageSchema } from './stage';
-import { AutonomyPolicySchema } from './autonomy';
+import { AutonomyPolicySchema, PendingGateSchema } from './autonomy';
 import { IsoTimestampSchema, parseContract } from './common';
 
 // ── EpicType ───────────────────────────────────────────────────────
@@ -114,6 +114,8 @@ export const EpicSchema = z
     updatedAt: IsoTimestampSchema,
     /** Populated when `status === 'blocked'`. */
     blockedReason: z.string().optional(),
+    /** Present only while a guarded action is waiting for a correlated user decision. */
+    pendingGate: PendingGateSchema.optional(),
     /**
      * Optimistic-concurrency guard. Bump on every write; a writer that read
      * revision N must fail (not silently overwrite) if the file is now at a

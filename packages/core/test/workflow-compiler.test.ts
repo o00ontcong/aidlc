@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultAutonomyPolicy, type Epic, type ProjectFacts } from '../src/contracts';
-import { compileWorkflow } from '../src/workflows';
+import { compileWorkflow, WorkflowCompileError } from '../src/workflows';
 
 const epic = (profile: Epic['profile']): Epic => ({ schemaVersion: 1, id: 'EPIC-WORKFLOW', title: 'Workflow', description: '', type: 'feature', profile, status: 'draft', autonomy: createDefaultAutonomyPolicy(), stages: [], createdAt: '2026-08-09T00:00:00.000Z', updatedAt: '2026-08-09T00:00:00.000Z', revision: 0 });
 const facts: ProjectFacts = { schemaVersion: 1, projectId: 'project', generatedAt: '2026-08-09T00:00:00.000Z', revision: 1, facts: [] };
@@ -18,5 +18,35 @@ describe('compileWorkflow', () => {
   });
   it('hashes identical compiler input deterministically', () => {
     expect(compileWorkflow(input('standard')).hash).toBe(compileWorkflow(input('standard')).hash);
+  });
+  it('rejects malformed custom packs rather than silently discarding dependencies', () => {
+    const badDependency = {
+      ...input('standard'),
+      pack: { id: 'custom', version: '1', actions: { build: [{ id: 'build-custom', stageId: 'build' as const, name: 'Build', dependsOn: ['missing'] }] } },
+    };
+    expect(() => compileWorkflow(badDependency)).toThrow(WorkflowCompileError);
+
+    const cycle = {
+      ...input('standard'),
+      pack: { id: 'custom', version: '1', actions: {
+        build: [
+          { id: 'a', stageId: 'build' as const, name: 'A', dependsOn: ['b'] },
+          { id: 'b', stageId: 'build' as const, name: 'B', dependsOn: ['a'] },
+          { id: 'implement', stageId: 'build' as const, name: 'Implement', dependsOn: ['a'] },
+        ],
+      } },
+    };
+    expect(() => compileWorkflow(cycle)).toThrow(/cycle/);
+
+    const missingCapability = {
+      ...input('standard'),
+      pack: { id: 'custom', version: '1', actions: { build: [{ id: 'build-custom', stageId: 'build' as const, name: 'Build', dependsOn: ['design-plan'], requiresCapabilities: ['test-agent'] }] } },
+    };
+    expect(() => compileWorkflow(missingCapability)).toThrow(/unavailable capabilities/);
+
+    expect(() => compileWorkflow({
+      ...input('standard'),
+      pack: { id: 'custom', version: '1', actions: { surprise: [] } as never },
+    })).toThrow(/unknown stage/);
   });
 });

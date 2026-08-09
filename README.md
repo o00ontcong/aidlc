@@ -144,6 +144,10 @@ pnpm test                               # @aidlc/core unit tests
 pnpm package:extension                  # build .vsix for the extension
 ```
 
+Before publishing, follow the [redesign release checklist](docs/RELEASE_CHECKLIST.md).
+
+For the unified Epic runtime, canonical CLI, autonomy/gates, migration, provider authoring, and capability authoring, see the [AIDLC unified system guide](docs/UNIFIED_SYSTEM_GUIDE.md).
+
 ## CLI reference (summary)
 
 The full reference lives in [packages/cli/README.md](packages/cli/README.md).

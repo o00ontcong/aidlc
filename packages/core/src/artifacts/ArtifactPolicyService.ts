@@ -32,8 +32,9 @@ export class ArtifactPolicyService {
     return parseArtifactPolicy(yaml.load(fs.readFileSync(this.file(), 'utf8')));
   }
   save(policy: ArtifactPolicy): void {
+    const validated = parseArtifactPolicy(policy);
     fs.mkdirSync(path.dirname(this.file()), { recursive: true });
-    fs.writeFileSync(this.file(), yaml.dump(policy, { noRefs: true }), 'utf8');
+    fs.writeFileSync(this.file(), yaml.dump(validated, { noRefs: true }), 'utf8');
   }
   preview(policy: ArtifactPolicy, artifactTypes: string[], context: ArtifactPathContext, codePaths: string[] = [], configPaths: string[] = []): CommitPreview {
     const artifacts = artifactTypes.map((type) => resolveArtifactPath(policy, type, context)).filter((artifact) => artifact.commit);

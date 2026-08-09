@@ -7,6 +7,7 @@ import {
   type ResolvedModel,
 } from '../contracts';
 import { bestModelCandidate, describeUnsatisfiedRequirement, rankModelCandidates } from './modelResolution';
+import { ClaudeCliProvider, type ClaudeCliProviderOptions } from './ClaudeCliProvider';
 
 export class ModelProviderNotFoundError extends Error {
   readonly code = CORE_ERROR_CODES.PROVIDER_UNAVAILABLE;
@@ -146,4 +147,15 @@ export class ModelProviderRegistry {
     }
     return diagnostics;
   }
+}
+
+/**
+ * Create the product default registry.  Claude is deliberately installed via
+ * the same registry contract as every other provider, so callers can replace
+ * it or add a competing provider without changing workflow code.
+ */
+export function createDefaultModelProviderRegistry(options: ClaudeCliProviderOptions = {}): ModelProviderRegistry {
+  const registry = new ModelProviderRegistry();
+  registry.register(new ClaudeCliProvider(options), { default: true });
+  return registry;
 }

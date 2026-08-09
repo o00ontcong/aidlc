@@ -1,8 +1,10 @@
 # TODO — AIDLC System Redesign Multi-Agent Execution
 
 **Nguồn thiết kế:** [`AIDLC_SYSTEM_REDESIGN.md`](./AIDLC_SYSTEM_REDESIGN.md)  
-**Trạng thái:** Planning / chưa bắt đầu implementation  
+**Trạng thái:** Toàn bộ implementation và release gate tự động đã hoàn tất trong working tree hiện tại. VSIX đã cài và mở clean-room Cursor window; Command Palette activation bị macOS Accessibility chặn. Claude interactive smoke đã chạy tới dispatcher nhưng bị chặn bởi Claude Code chưa đăng nhập. Baseline commit trước redesign: `9da9121`.
 **Mục tiêu:** Cho nhiều agent triển khai song song nhưng vẫn giữ một contract, một Epic state model và một integration path kiểm soát được.
+
+**Ký hiệu trạng thái:** `[x]` đã triển khai và có acceptance evidence; `[~]` đã có code/test nhưng còn acceptance hoặc integration chưa hoàn thành; `[ ]` chưa bắt đầu. Commit/release gate được theo dõi riêng ở W4F.
 
 ## 0. Product decisions không được tự thay đổi
 
@@ -138,7 +140,7 @@ flowchart TD
 
 ## 3. Wave 0 — Contract freeze (tuần tự)
 
-### [ ] W0 — Domain contracts và architecture skeleton
+### [x] W0 — Domain contracts và architecture skeleton
 
 **Chế độ:** SERIAL  
 **Owner:** một architecture agent  
@@ -154,19 +156,19 @@ flowchart TD
 
 **Deliverables:**
 
-- [ ] `Epic`, `EpicStatus`, `EpicType`, `EpicProfile`.
-- [ ] `Stage`, `StageId`, `StageStatus`, `Action`, `ActionStatus`.
-- [ ] `EpicRun`, `RunEvent`, `EvidenceRef`, `ActorRef`.
-- [ ] `ApplicationCommand`, `CommandResult`, `NextAction`.
-- [ ] `AidlcError`, `ErrorCode`, `RecoveryAction`.
-- [ ] `AutonomyMode`, `AutonomyPolicy`, `GatePolicy`, `GateDecision`.
-- [ ] `ModelProvider`, `ModelDescriptor`, `ModelRequirement`, `ResolvedModel`.
-- [ ] `ProjectFacts`, `ProjectRecommendation`, `RecommendationEvidence`.
-- [ ] `ArtifactPolicy`, `ArtifactDescriptor`, `ArtifactLifecycle`.
-- [ ] `Capability`, `CapabilityProvider`, `CapabilityRequirement`.
-- [ ] Serialization schema/version cho mọi durable contract.
-- [ ] Quy ước ID: `EPIC-*`, run ID và event ID.
-- [ ] Contract tests cho parse/serialize/backward-compatible optional fields.
+- [x] `Epic`, `EpicStatus`, `EpicType`, `EpicProfile`.
+- [x] `Stage`, `StageId`, `StageStatus`, `Action`, `ActionStatus`.
+- [x] `EpicRun`, `RunEvent`, `EvidenceRef`, `ActorRef`.
+- [x] `ApplicationCommand`, `CommandResult`, `NextAction`.
+- [x] `AidlcError`, `ErrorCode`, `RecoveryAction`.
+- [x] `AutonomyMode`, `AutonomyPolicy`, `GatePolicy`, `GateDecision`.
+- [x] `ModelProvider`, `ModelDescriptor`, `ModelRequirement`, `ResolvedModel`.
+- [x] `ProjectFacts`, `ProjectRecommendation`, `RecommendationEvidence`.
+- [x] `ArtifactPolicy`, `ArtifactDescriptor`, `ArtifactLifecycle`.
+- [x] `Capability`, `CapabilityProvider`, `CapabilityRequirement`.
+- [x] Serialization schema/version cho mọi durable contract.
+- [x] Quy ước ID: `EPIC-*`, run ID và event ID.
+- [x] Contract tests cho parse/serialize/backward-compatible optional fields.
 
 **Acceptance:**
 
@@ -181,7 +183,7 @@ pnpm --filter @aidlc/core build
 
 W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path riêng.
 
-### [ ] W1A — Unified Epic domain, event log và state projection
+### [x] W1A — Unified Epic domain, event log và state projection
 
 **Depends on:** W0  
 **Ownership:**
@@ -191,17 +193,17 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] `EpicService` create/load/list/update/resume idempotent.
-- [ ] Một Epic state thay cho sự chồng lấn Epic/Delivery.
-- [ ] Append-only event store và `state.json` projection.
-- [ ] Atomic writes và schema versioning.
-- [ ] State machine: `draft → ready → running → waiting-for-user|blocked|paused → review → shipping → completed`.
-- [ ] Không tạo Epic trùng; Start existing Epic trả existing state + next action.
-- [ ] Tests cho crash recovery, invalid transition và concurrent revision check.
+- [x] `EpicService` create/load/list/update/resume idempotent.
+- [x] Một Epic state thay cho sự chồng lấn Epic/Delivery.
+- [x] Append-only event store và `state.json` projection.
+- [x] Atomic writes và schema versioning.
+- [x] State machine: `draft → ready → running → waiting-for-user|blocked|paused → review → shipping → completed`.
+- [x] Không tạo Epic trùng; Start existing Epic trả existing state + next action.
+- [x] Tests cho crash recovery, invalid transition và concurrent revision check; smoke đa process xác nhận một CAS winner và không mất event của tám writer đồng thời.
 
 **Không làm:** migration DeliveryState cũ; thuộc W2B.
 
-### [ ] W1B — Model provider interface và Claude provider mặc định
+### [x] W1B — Model provider interface và Claude provider mặc định
 
 **Depends on:** W0  
 **Ownership:**
@@ -211,17 +213,17 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Provider registry.
-- [ ] Provider-neutral model resolution theo tier/capability/context/tool/cost.
-- [ ] Claude provider mặc định dùng Claude CLI adapter.
-- [ ] Model selection lock có provider, model ID, version và reason.
-- [ ] Fake provider cho deterministic tests.
-- [ ] Không để workflow hoặc Epic state phụ thuộc Claude-specific ID.
-- [ ] Diagnostics khi provider thiếu auth/model/tool capability.
+- [x] Provider registry.
+- [x] Provider-neutral model resolution theo tier/capability/context/tool/cost.
+- [x] Claude provider mặc định dùng Claude CLI adapter.
+- [x] Model selection lock có provider, model ID, version và reason.
+- [x] Fake provider cho deterministic tests.
+- [x] Không để workflow hoặc Epic state phụ thuộc Claude-specific ID.
+- [x] Diagnostics khi provider thiếu auth/model/tool capability.
 
 **Không làm:** đăng ký export trong core index; W1I làm.
 
-### [ ] W1C — Autonomy policy, gates và recovery engine
+### [x] W1C — Autonomy policy, gates và recovery engine
 
 **Depends on:** W0  
 **Ownership:**
@@ -231,17 +233,17 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Modes `guide`, `assist`, `auto`, `unattended`.
-- [ ] Default policy luôn là `guide`.
-- [ ] Per-stage override.
-- [ ] Hard gates cho destructive change, merge default branch và external communication.
-- [ ] External communication classifier: PR, issue, comment, email/chat, release announcement, publish package.
-- [ ] Preview payload gồm destination, content summary và mutation scope.
-- [ ] Retry/recovery policy và escalation to human.
-- [ ] Test chứng minh `unattended` không bypass external communication.
-- [ ] Test chuyển mode giữa run không migrate state.
+- [x] Modes `guide`, `assist`, `auto`, `unattended`.
+- [x] Default policy luôn là `guide`.
+- [x] Per-stage override.
+- [x] Hard gates cho destructive change, merge default branch và external communication.
+- [x] External communication classifier: PR, issue, comment, email/chat, release announcement, publish package.
+- [x] Preview payload gồm destination, content summary và mutation scope.
+- [x] Retry/recovery policy và escalation to human.
+- [x] Test chứng minh `unattended` không bypass external communication.
+- [x] Test chuyển mode giữa run không migrate state.
 
-### [ ] W1D — Project Intelligence và recommendation engine
+### [x] W1D — Project Intelligence và recommendation engine
 
 **Depends on:** W0  
 **Ownership:**
@@ -252,18 +254,18 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Facts: languages, frameworks, platforms, build/test/CI, architecture, domain, risk, hotspots và capabilities.
-- [ ] Evidence path + confidence cho từng fact.
-- [ ] Capability requirements từ project facts + Epic request.
-- [ ] Recommendation cho workflow profile, agent role, skills và model tier.
-- [ ] Proposal/accept/override/lock flow.
-- [ ] iOS trading fixture đề xuất senior iOS developer, Swift/iOS skills và trading/financial precision skills.
-- [ ] Project Context status chỉ báo stale; không tự refresh.
-- [ ] Explicit `refreshContext()` API; revision chỉ đổi qua API này.
+- [x] Facts: languages, frameworks, platforms, build/test/CI, architecture, domain, risk, hotspots và capabilities.
+- [x] Evidence path + confidence cho từng fact mới (legacy facts vẫn parse backward-compatible khi thiếu confidence).
+- [x] Capability requirements từ project facts + Epic request.
+- [x] Recommendation cho workflow profile, agent role, skills và model tier.
+- [x] Proposal/accept/override/lock flow.
+- [x] iOS trading fixture đề xuất senior iOS developer, Swift/iOS skills và trading/financial precision skills.
+- [x] Project Context status chỉ báo stale; không tự refresh.
+- [x] Explicit `refreshContext()` API; revision chỉ đổi qua API này.
 
 **Không làm:** CLI commands; W2E làm.
 
-### [ ] W1E — Adaptive five-stage workflow compiler
+### [x] W1E — Adaptive five-stage workflow compiler
 
 **Depends on:** W0  
 **Ownership:**
@@ -273,16 +275,16 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Canonical stage IDs: Understand, Plan, Build, Verify, Ship.
-- [ ] Actions nằm bên trong stage và có dependency DAG.
-- [ ] Profiles Quick, Standard, Parallel và Regulated.
-- [ ] Small Epic có tối đa ba visible stages.
-- [ ] Standard/Parallel/Regulated có tối đa năm visible stages.
-- [ ] Work package là Build subrun, không phải top-level stage.
-- [ ] Compiler input gồm ProjectFacts, Epic, selected capabilities, autonomy policy và SDLC pack.
-- [ ] Deterministic compiled workflow hash.
+- [x] Canonical stage IDs: Understand, Plan, Build, Verify, Ship.
+- [x] Actions nằm bên trong stage và có dependency DAG.
+- [x] Profiles Quick, Standard, Parallel và Regulated.
+- [x] Small Epic có tối đa ba visible stages.
+- [x] Standard/Parallel/Regulated có tối đa năm visible stages.
+- [x] Work package là Build subrun, không phải top-level stage.
+- [x] Compiler input gồm ProjectFacts, Epic, selected capabilities, autonomy policy và SDLC pack.
+- [x] Deterministic compiled workflow hash.
 
-### [ ] W1F — Artifact lifecycle và commit policy
+### [x] W1F — Artifact lifecycle và commit policy
 
 **Depends on:** W0  
 **Ownership:**
@@ -292,15 +294,15 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Parse/validate `.aidlc/artifacts.yaml`.
-- [ ] Default `persist: runtime`, `commit: false`.
-- [ ] Resolve artifact path theo Epic/stage/action.
-- [ ] Commit allowlist chỉ gồm artifact có `commit: true`.
-- [ ] Preview artifact/code/config sẽ được stage; module không tự chạy `git add`.
-- [ ] Không ghi một review bundle ở nhiều canonical locations.
-- [ ] Tests path traversal, unknown artifact type và policy override.
+- [x] Parse/validate `.aidlc/artifacts.yaml`.
+- [x] Default `persist: runtime`, `commit: false`.
+- [x] Resolve artifact path theo Epic/stage/action.
+- [x] Commit allowlist chỉ gồm artifact có `commit: true`.
+- [x] Preview artifact/code/config sẽ được stage; module không tự chạy `git add`.
+- [x] Không ghi một review bundle ở nhiều canonical locations.
+- [x] Tests path traversal, unknown artifact type và policy override.
 
-### [ ] W1G — Contextual guide và structured diagnostics
+### [x] W1G — Contextual guide và structured diagnostics
 
 **Depends on:** W0  
 **Ownership:**
@@ -310,14 +312,14 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Guide metadata: why, inputs, outputs, doneWhen, next, recovery.
-- [ ] `explain`, `next`, `whyBlocked`, `doctor` application-neutral services.
-- [ ] Structured errors luôn có code, summary, detail và recovery actions.
-- [ ] Guide mode tạo instruction/preview nhưng không mutation.
-- [ ] Fallback guide khi workflow pack thiếu localized content.
-- [ ] Tests đảm bảo mọi canonical stage có help đầy đủ.
+- [x] Guide metadata: why, inputs, outputs, doneWhen, next, recovery.
+- [x] `explain`, `next`, `whyBlocked`, `doctor` application-neutral services.
+- [x] Structured errors luôn có code, summary, detail và recovery actions.
+- [x] Guide mode tạo instruction/preview nhưng không mutation.
+- [x] Fallback guide khi workflow pack thiếu localized content.
+- [x] Tests đảm bảo mọi canonical stage có help đầy đủ.
 
-### [ ] W1H — Capability registry và bundled capability contracts
+### [x] W1H — Capability registry và bundled capability contracts
 
 **Depends on:** W0  
 **Ownership:**
@@ -327,14 +329,14 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Capability registry, enable/disable policy và health status.
-- [ ] Bundled descriptors cho AST graph và artifact annotation.
-- [ ] Optional descriptors cho Test Agent và observability.
-- [ ] Runtime không phụ thuộc VS Code implementation của capability.
-- [ ] Project analyzer có thể query capability availability.
-- [ ] Tests: bundled default enabled; project policy có thể disable; optional mặc định absent/disabled.
+- [x] Capability registry, enable/disable policy và health status.
+- [x] Bundled descriptors cho AST graph và artifact annotation.
+- [x] Optional descriptors cho Test Agent và observability.
+- [x] Runtime không phụ thuộc VS Code implementation của capability.
+- [x] Project analyzer có thể query capability availability.
+- [x] Tests: bundled default enabled; project policy có thể disable; optional mặc định absent/disabled.
 
-### [ ] W1I — Core integration và public exports
+### [x] W1I — Core integration và public exports
 
 **Chế độ:** SERIAL INTEGRATION  
 **Depends on:** W1A–W1H  
@@ -348,16 +350,16 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Review duplicate concepts/API giữa các lane.
-- [ ] Wire public exports một lần.
-- [ ] Thêm config references cho autonomy/artifact/provider/capability mà không nhét runtime state vào `workspace.yaml` cũ.
-- [ ] Chốt module dependency direction; không có circular imports.
-- [ ] Core build và toàn bộ tests pass.
-- [ ] Ghi integration notes cho Wave 2.
+- [x] Review duplicate concepts/API giữa các lane; public-name collision của guide metadata đã được loại bỏ.
+- [x] Wire public exports một lần.
+- [x] Thêm config references cho autonomy/artifact/provider/capability mà không nhét runtime state vào `workspace.yaml` cũ.
+- [x] Chốt module dependency direction; có test quét toàn bộ relative import graph và reject circular imports.
+- [x] Core build và toàn bộ tests pass.
+- [x] Ghi integration notes cho Wave 2.
 
 ## 5. Wave 2 — Application, CLI, Claude command và compatibility
 
-### [ ] W2A — Application command bus
+### [x] W2A — Application command bus
 
 **Depends on:** W1I  
 **Ownership:**
@@ -367,15 +369,15 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Typed command dispatcher dùng `ApplicationCommand`/`CommandResult`.
-- [ ] Epic commands: start, run, next, status, explain, resume, review, ship.
-- [ ] Project commands: analyze, recommend, context status, context refresh.
-- [ ] Gate commands: preview, approve, reject.
-- [ ] Artifact commands: preview commit selection.
-- [ ] CLI/extension không cần gọi domain service trực tiếp.
-- [ ] Deterministic in-memory adapters cho tests.
+- [x] Typed command dispatcher dùng `ApplicationCommand`/`CommandResult`.
+- [x] Epic commands: start, run, next, status, explain, resume, review, ship.
+- [x] Project commands: analyze, recommend, context status, context refresh.
+- [x] Gate commands: preview, approve, reject.
+- [x] Artifact commands: preview commit selection.
+- [x] CLI/extension command paths đi qua application bus; host chỉ giữ adapter cho capability VS Code-native.
+- [x] Deterministic in-memory command/fake client adapters cho tests.
 
-### [ ] W2B — Legacy migration và compatibility adapter
+### [x] W2B — Legacy migration và compatibility adapter
 
 **Depends on:** W1I  
 **Ownership:**
@@ -385,14 +387,14 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Preview migration từ legacy epic/run/delivery sang unified Epic.
-- [ ] Map `.aidlc/deliveries`, `.aidlc/runs` và `docs/epics` không mất audit history.
-- [ ] Backup manifest + rollback plan.
-- [ ] Không xóa legacy files khi chưa có explicit apply confirmation.
-- [ ] Compatibility reader cho `workspace.yaml` hiện tại.
-- [ ] Idempotent migration và partial-failure recovery.
+- [x] Preview migration từ legacy epic/run/delivery sang unified Epic.
+- [x] Map `.aidlc/deliveries`, `.aidlc/runs` và `docs/epics` theo logical Epic; giữ source references và import history/events/audit log vào append-only event store.
+- [x] Backup manifest + rollback plan.
+- [x] Không xóa legacy files khi chưa có explicit apply confirmation.
+- [x] Compatibility reader cho `workspace.yaml` hiện tại.
+- [x] Idempotent migration và partial-failure recovery.
 
-### [ ] W2C — SDLC workflow packs
+### [x] W2C — SDLC workflow packs
 
 **Depends on:** W1E, W1F, W1G  
 **Ownership:**
@@ -403,14 +405,14 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] `sdlc-core` pack năm stage.
-- [ ] `speckit` action mapping.
-- [ ] `cohesive` parallel Build subruns + explicit context refresh.
-- [ ] `regulated` evidence/traceability policy.
-- [ ] Guide metadata và artifact policy đi cùng pack.
-- [ ] Không copy validator hoặc output placeholder vào project.
+- [x] `sdlc-core` pack năm stage.
+- [x] `speckit` action mapping.
+- [x] `cohesive` parallel Build subruns + explicit context refresh.
+- [x] `regulated` evidence/traceability policy.
+- [x] Guide metadata và artifact policy đi cùng pack.
+- [x] Không copy validator hoặc output placeholder vào project.
 
-### [ ] W2D — Versioned validator resolver
+### [x] W2D — Versioned validator resolver
 
 **Depends on:** W1F, W1H  
 **Ownership:**
@@ -420,14 +422,14 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Load bundled validator từ versioned pack.
-- [ ] Project chỉ lưu explicit override.
-- [ ] Pack/validator lock hashes.
-- [ ] Không tạo `.aidlc-new` cho bundled validator thông thường.
-- [ ] Override conflict tạo structured reconciliation task có diff/actions.
-- [ ] Validator result dùng typed evidence/error contract.
+- [x] Load bundled validator từ versioned pack.
+- [x] Project chỉ lưu explicit override.
+- [x] Pack/validator lock hashes.
+- [x] Không tạo `.aidlc-new` cho bundled validator thông thường.
+- [x] Override conflict tạo structured reconciliation task có diff/actions.
+- [x] Validator result dùng typed evidence/error contract.
 
-### [ ] W2E — CLI Epic/project commands
+### [x] W2E — CLI Epic/project commands
 
 **Depends on:** W2A  
 **Ownership:**
@@ -439,14 +441,15 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] `aidlc epic start|run|next|status|explain|resume|review|ship`.
-- [ ] `aidlc project analyze|recommend`.
-- [ ] `aidlc project context status|refresh`.
-- [ ] `aidlc gate preview|approve|reject`.
-- [ ] `--json` output giữ typed command result.
-- [ ] Exit code ổn định cho success, waiting-for-user, blocked và invalid input.
+- [x] Canonical `aidlc epic start|run|next|status|explain|resume|review|ship`; giữ alias `epic-v3` trong migration window và `run --mode` đầy đủ.
+- [x] Canonical `aidlc project analyze|recommend|setup`; giữ alias `project-v3`/`project3`.
+- [x] Canonical context `status|refresh` ở `aidlc context` và `aidlc project context`; giữ alias v3.
+- [x] Canonical gate `preview|approve|reject` ở `aidlc gate` (preview có `--epic-id`/`--stage`); giữ alias v3.
+- [x] `--json` output giữ typed command result.
+- [x] Exit code ổn định cho success, waiting-for-user, blocked và invalid input.
+- [x] `guide-v3 help|doctor|why-blocked` map tới application commands.
 
-### [ ] W2F — Claude `/aidlc` command surface
+### [x] W2F — Claude `/aidlc` command surface
 
 **Depends on:** W2A, W1G  
 **Ownership:**
@@ -456,15 +459,15 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Project command entry `.claude/commands/aidlc.md` hoặc Claude-supported equivalent.
-- [ ] `/aidlc setup`, `analyze-project`, `recommend`.
-- [ ] `/aidlc epic ...` parity với CLI.
-- [ ] `/aidlc context status|refresh`.
-- [ ] `/aidlc help|next|why-blocked|doctor`.
-- [ ] Command luôn dùng current Claude session ở interactive mode.
-- [ ] Không có capability chỉ tồn tại trong VS Code UI.
+- [x] Project command entry `.claude/commands/aidlc.md` hoặc Claude-supported equivalent.
+- [x] `/aidlc analyze-project`/`recommend`/`setup` đã map; setup đi qua `project.setup` (confirm bắt buộc để apply).
+- [x] `/aidlc epic ...` parity với CLI v3, gồm `run --mode`.
+- [x] `/aidlc context status|refresh`.
+- [x] `/aidlc help`/`help start`/`doctor`/`why-blocked`/`next` đã map.
+- [x] Template chạy như thin command trong current Claude interactive session, không tự mở model session khác.
+- [x] Không có capability chỉ tồn tại trong VS Code UI.
 
-### [ ] W2G — Extension application client adapter
+### [x] W2G — Extension application client adapter
 
 **Depends on:** W2A  
 **Ownership:**
@@ -474,13 +477,13 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Thin client gọi application command bus.
-- [ ] Subscribe typed events/state projections.
-- [ ] Không chứa orchestration/business logic.
-- [ ] Fake client cho webview tests.
-- [ ] Stable transport message schema cho UI v3.
+- [x] Thin client gọi application command bus.
+- [x] Subscribe typed durable state projections qua host subscription và filesystem watcher.
+- [x] Không chứa orchestration/business logic.
+- [x] Fake client cho webview tests.
+- [x] Stable transport message schema cho UI v3.
 
-### [ ] W2H — End-to-end core/CLI fixtures
+### [x] W2H — End-to-end core/CLI fixtures
 
 **Depends on:** W2C–W2F  
 **Ownership:**
@@ -491,15 +494,15 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Fixtures bắt buộc:**
 
-- [ ] Small TypeScript Epic: Quick profile, ba visible stages.
-- [ ] iOS trading Epic: project recommendation đúng role/skills/model tiers.
-- [ ] Parallel feature: Build subruns nhưng năm visible stages.
-- [ ] External PR/comment action bị hard gate trong unattended mode.
-- [ ] Context stale warning không tự refresh; explicit refresh tăng revision.
-- [ ] Artifact preview chỉ chọn policy-approved artifacts.
-- [ ] Non-Claude fake provider chạy cùng workflow contract.
+- [x] Small TypeScript Epic: Quick profile, ba visible stages.
+- [x] iOS trading Epic: project recommendation đúng role/skills/model tiers.
+- [x] Parallel feature: Build subruns nhưng năm visible stages.
+- [x] External PR/comment action bị hard gate trong unattended mode.
+- [x] Context stale warning không tự refresh; explicit refresh tăng revision.
+- [x] Artifact preview chỉ chọn policy-approved artifacts.
+- [x] Non-Claude fake provider chạy cùng workflow contract.
 
-### [ ] W2I — CLI/core pack integration
+### [x] W2I — CLI/core pack integration
 
 **Chế độ:** SERIAL INTEGRATION  
 **Depends on:** W2A–W2H
@@ -512,14 +515,14 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Register v3 commands mà không phá legacy CLI trong migration window.
-- [ ] Wire Claude template install.
-- [ ] Resolve command naming conflicts.
-- [ ] Core + CLI build/test pass.
+- [x] Register v3 commands mà không phá legacy CLI trong migration window.
+- [x] Wire Claude template install qua `project.setup` / `installClaudeAidlcCommand`.
+- [x] Canonical groups là mặc định; giữ migration-safe `*-v3` aliases và legacy groups với deprecation replacement chính xác.
+- [x] Core + CLI build/test pass.
 
 ## 6. Wave 3 — Extension UX v3
 
-### [ ] W3S — UI shell contracts và component boundaries
+### [x] W3S — UI shell contracts và component boundaries
 
 **Chế độ:** SERIAL  
 **Depends on:** W2G  
@@ -531,57 +534,57 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] View state types cho Home, Epics, Studio và Guide.
-- [ ] Navigation contract.
-- [ ] Shared loading/error/gate/recovery components.
-- [ ] Agent lanes W3A–W3D có fixture state ổn định và không cần sửa shared types.
+- [x] View state types cho Home, Epics, Studio và Guide.
+- [x] Navigation contract.
+- [x] Shared loading/error/gate/recovery components.
+- [x] Agent lanes W3A–W3D có fixture state ổn định và không cần sửa shared types.
 
-### [ ] W3A — Home
+### [x] W3A — Home
 
 **Depends on:** W3S  
 **Ownership:** `packages/extension/src/webview/v3/home/**` mới
 
-- [ ] Project readiness/profile/recommendation.
-- [ ] Current Epic và next action.
-- [ ] Current autonomy mode.
-- [ ] Blocker + structured recovery actions.
-- [ ] Không hiển thị raw internal steps mặc định.
+- [x] Project readiness/profile/recommendation.
+- [x] Current Epic và next action.
+- [x] Current autonomy mode.
+- [x] Blocker + structured recovery actions.
+- [x] Không hiển thị raw internal steps mặc định.
 
-### [ ] W3B — Epics
+### [x] W3B — Epics
 
 **Depends on:** W3S  
 **Ownership:** `packages/extension/src/webview/v3/epics/**` mới
 
-- [ ] Unified Epic list; không có Autonomous Delivery list riêng.
-- [ ] Timeline tối đa năm stages.
-- [ ] Action details mở theo progressive disclosure.
-- [ ] Per-stage autonomy selector.
-- [ ] Gate preview/approve/reject.
-- [ ] Artifact/evidence/review surfaces.
+- [x] Unified Epic list; không có Autonomous Delivery list riêng.
+- [x] Timeline tối đa năm stages.
+- [x] Action details mở theo progressive disclosure.
+- [x] Per-stage autonomy selector.
+- [x] Gate preview/approve/reject.
+- [x] Artifact/evidence/review surfaces nhận projection từ evidence refs bền vững của Epic actions.
 
-### [ ] W3C — Studio
+### [x] W3C — Studio
 
 **Depends on:** W3S  
 **Ownership:** `packages/extension/src/webview/v3/studio/**` mới
 
-- [ ] Workflow packs và compiled workflow preview.
-- [ ] Agent role/skill/model recommendations.
-- [ ] Model provider configuration/diagnostics.
-- [ ] Artifact policy editor.
-- [ ] Capability toggles: bundled AST graph/annotation; optional modules.
+- [x] Workflow packs và compiled workflow preview.
+- [x] Agent role/skill/model recommendations.
+- [x] Model provider diagnostics và editor chọn provider mặc định; credentials không được lưu trong project config.
+- [x] Artifact policy editor parse/validate JSON qua application command chung.
+- [x] Capability toggles: bundled AST graph/annotation; optional modules.
 
-### [ ] W3D — Guide & Diagnostics
+### [x] W3D — Guide & Diagnostics
 
 **Depends on:** W3S  
 **Ownership:** `packages/extension/src/webview/v3/guide/**` mới
 
-- [ ] Contextual help trả lời location/action/why stopped/next.
-- [ ] Doctor diagnostics và `Apply fix` actions.
-- [ ] Why-blocked view.
-- [ ] Raw logs chỉ ở advanced details.
-- [ ] Guide mode onboarding mặc định.
+- [x] Contextual help trả lời location/action/why stopped/next.
+- [x] Doctor diagnostics và `Apply fix` actions.
+- [x] Why-blocked view.
+- [x] Raw logs không xuất hiện trong primary view; advanced details hiển thị evidence/log refs khi user mở rộng.
+- [x] Guide mode onboarding mặc định.
 
-### [ ] W3E — Bundled AST graph contextual integration
+### [x] W3E — Bundled AST graph contextual integration
 
 **Depends on:** W2G, W3S  
 **Ownership:**
@@ -591,12 +594,12 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Adapter dùng implementation AST graph hiện tại qua capability contract.
-- [ ] Project analysis có thể request structural facts.
-- [ ] UI link xuất hiện trong Understand/diagnostics context, không chiếm primary navigation.
-- [ ] Disable policy hoạt động.
+- [x] Adapter capability AST graph và host dispatch dùng command AST graph hiện tại.
+- [x] Project analysis phát hiện `.ast-graph/graph.db` và xuất structural graph/hotspot facts có evidence.
+- [x] UI link xuất hiện trong Epic/Understand context, không chiếm primary navigation.
+- [x] Disable policy hoạt động.
 
-### [ ] W3F — Bundled annotation contextual integration
+### [x] W3F — Bundled annotation contextual integration
 
 **Depends on:** W2G, W3S  
 **Ownership:**
@@ -606,12 +609,12 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Adapter dùng renderer/Annotron hiện tại qua capability contract.
-- [ ] Annotation mở từ artifact/review context.
-- [ ] Feedback trở thành structured Epic review action.
-- [ ] Không tạo review state machine riêng.
+- [x] Host chạy Annotron đã cài từ `~/.claude/tools/annotron/bin/annotron` cho artifact path đã kiểm tra nằm trong workspace.
+- [x] Annotation action xuất hiện từ artifact/review context.
+- [x] Feedback trở thành structured Epic review action và append audit event.
+- [x] Không tạo review state machine riêng.
 
-### [ ] W3I — Extension integration
+### [x] W3I — Extension integration
 
 **Chế độ:** SERIAL INTEGRATION  
 **Depends on:** W3A–W3F, W2H
@@ -624,60 +627,60 @@ W1A–W1H có thể chạy đồng thời sau W0. Mỗi lane có ownership path 
 
 **Deliverables:**
 
-- [ ] Wire client adapter vào UI v3.
-- [ ] Home/Epics/Studio/Guide navigation.
-- [ ] Giữ compatibility entry cho UI cũ trong migration window.
-- [ ] Không duplicate orchestration trong webview host.
-- [ ] Command Palette gọi application commands chung.
-- [ ] Extension tests, typecheck và bundle pass.
+- [x] Wire client adapter vào UI v3.
+- [x] Home/Epics/Studio/Guide navigation.
+- [x] Giữ compatibility entry cho UI cũ trong migration window.
+- [x] Không duplicate orchestration trong webview host.
+- [x] Command Palette gọi application commands chung cho project analyze/setup và Epic next/resume.
+- [x] Extension tests, typecheck và bundle pass.
 
 ## 7. Wave 4 — Migration, hardening và release gate
 
-### [ ] W4A — Project folder migration
+### [x] W4A — Project folder migration
 
-- [ ] Tạo `.aidlc/project.yaml`, `autonomy.yaml`, `artifacts.yaml` qua preview/apply.
-- [ ] Migrate canonical assets sang `.claude/agents` và `.claude/skills` có lock hashes.
-- [ ] Migrate Epic state sang `.aidlc/epics/<epic-id>`.
-- [ ] Chỉ policy-approved artifacts sang `docs/epics/<epic-id>`.
-- [ ] Cache/runtime state được gitignore.
-- [ ] Không overwrite `CLAUDE.md`/`AGENTS.md`; chỉ managed block.
+- [x] Tạo `.aidlc/project.yaml`, `autonomy.yaml`, `artifacts.yaml` qua preview/apply.
+- [x] Migrate canonical assets sang `.claude/agents` và `.claude/skills` có lock hashes.
+- [x] Migrate Epic state sang `.aidlc/epics/<epic-id>`.
+- [x] Chỉ policy-approved artifacts sang `docs/epics/<epic-id>`.
+- [x] Cache/runtime state được gitignore.
+- [x] Không overwrite `CLAUDE.md`/`AGENTS.md`; setup chỉ tạo managed `.claude/commands/aidlc.md`, nên không cần chèn block vào root instruction files.
 
-### [ ] W4B — Backward compatibility
+### [x] W4B — Backward compatibility
 
-- [ ] Legacy workflow.yaml/pipeline runner tiếp tục hoạt động.
-- [ ] Legacy Epic UI có migration banner thay vì tự migrate.
-- [ ] Legacy Cohesive Delivery state đọc được.
-- [ ] CLI cũ có deprecation message và lệnh thay thế chính xác.
-- [ ] Không xóa legacy code trước khi telemetry/manual pilot xác nhận.
+- [x] Legacy workflow.yaml/pipeline runner tiếp tục hoạt động và full legacy tests vẫn pass.
+- [x] Legacy Epic UI có migration banner/notification thay vì tự migrate.
+- [x] Legacy Cohesive Delivery state được compatibility reader và migration preview đọc/correlate.
+- [x] CLI cũ có deprecation message và lệnh thay thế chính xác.
+- [x] Không xóa legacy code; canonical và legacy command paths cùng tồn tại trong migration window.
 
-### [ ] W4C — Security và policy verification
+### [x] W4C — Security và policy verification
 
-- [ ] External communication matrix đầy đủ.
-- [ ] Destructive action gates.
-- [ ] Path traversal và symlink tests.
-- [ ] Secret redaction trong event/evidence/log.
-- [ ] Unattended retry budget và runaway protection.
-- [ ] Model provider credential isolation.
+- [x] External communication matrix đầy đủ.
+- [x] Destructive action gates.
+- [x] Path traversal và symlink tests, gồm artifact source trong layout migration.
+- [x] Secret redaction trước khi append event/evidence/log.
+- [x] Unattended retry budget và runaway protection.
+- [x] Model provider credential isolation; backend credentials chỉ được forward khi backend tương ứng được bật hoặc workspace explicit override.
 
-### [ ] W4D — Performance và concurrency
+### [x] W4D — Performance và concurrency
 
-- [ ] Event store concurrent revision test.
-- [ ] Parallel Build subruns không ghi chung mutable artifact.
-- [ ] Cancellation, resume và process cleanup.
-- [ ] Large repo Project Intelligence benchmark.
-- [ ] AST scan không block primary Epic execution.
+- [x] Event store concurrent revision test đa process: một CAS winner, tám concurrent events được giữ đủ.
+- [x] Parallel Build subruns không ghi chung mutable artifact.
+- [x] Cancellation registry và process cleanup primitives; resume lifecycle có regression tests.
+- [x] Project Intelligence large-repo fixture 1.000 source files + AST graph, budget CI 5 giây.
+- [x] Regression test chứng minh primary Epic start/run/next không gọi implicit project analysis/AST scan.
 
-### [ ] W4E — Documentation và guides
+### [x] W4E — Documentation và guides
 
-- [ ] `/aidlc help` canonical command reference.
-- [ ] Three onboarding paths: runner, SDLC pack, automate project.
-- [ ] Project analyzer recommendation guide.
-- [ ] Autonomy/gate guide.
-- [ ] Migration/rollback guide.
-- [ ] Provider authoring guide.
-- [ ] Capability authoring guide.
+- [x] `/aidlc help` canonical command reference.
+- [x] Three onboarding paths: runner, SDLC pack, automate project.
+- [x] Project analyzer recommendation guide.
+- [x] Autonomy/gate guide.
+- [x] Migration/rollback guide.
+- [x] Provider authoring guide.
+- [x] Capability authoring guide.
 
-### [ ] W4F — Release verification
+### [~] W4F — Release verification
 
 ```bash
 pnpm --filter @aidlc/core test
@@ -689,12 +692,24 @@ pnpm package:extension
 git diff --check
 ```
 
-- [ ] Clean-room install fixture.
-- [ ] Legacy workspace migration preview/apply/rollback.
-- [ ] Claude `/aidlc` interactive smoke.
-- [ ] CLI unattended smoke dừng đúng external communication gate.
-- [ ] Extension VSIX manual smoke.
-- [ ] Verify VSIX contains freshly built core code.
+- [x] Clean-room install fixture (pack → npm install → canonical setup/layout validation).
+- [x] Legacy workspace migration preview/apply/rollback.
+- [~] Claude `/aidlc` template/install/dispatch tests pass; PTY thật nhận `/aidlc help` nhưng model session dừng với `Not logged in · Please run /login` (`claude auth status`: `loggedIn=false`).
+- [x] CLI unattended smoke dừng đúng external communication gate và ghi evidence.
+- [~] VSIX archive/bundle/manifest smoke pass; cài thành công vào Cursor, xác minh `o00ontcong.aidlc-o00ontcong@3.4.12`, mở clean-room window với Extension Host chạy; Command Palette activation còn bị macOS chặn UI automation (`osascript ... not allowed to send keystrokes`).
+- [x] Verify VSIX contains freshly built core code (bundle chứa hard-gate invariant mới).
+
+**Acceptance evidence — 2026-08-09:**
+
+- `pnpm --filter @aidlc/core test`: 60 files, 479 tests pass.
+- `pnpm --filter @aidlc/core build` và `pnpm build`: pass.
+- `pnpm --filter @aidlc/core test:concurrency`: `updateWinners=1`, `concurrentEvents=8`, `totalEvents=9`.
+- `pnpm --filter aidlc build`, `test:redesign`, `test:clean-install`: pass; unattended smoke dừng ở `external_communication`.
+- `pnpm --filter aidlc-o00ontcong test`: 8 files, 37 tests pass; `typecheck`: pass.
+- `pnpm package:extension`: pass, tạo `packages/extension/aidlc-o00ontcong-3.4.12.vsix` (131 files); `unzip -t`, fresh hard-gate invariant và canonical command manifest checks pass.
+- Cursor install smoke: `code --install-extension ... --force` pass; installed version là `o00ontcong.aidlc-o00ontcong@3.4.12`; clean-room Cursor window/Extension Host khởi động, không có activation error được quan sát trước khi UI automation bị chặn.
+- Claude interactive PTY: clean-room setup cài `.claude/commands/aidlc.md`, Claude nhận `/aidlc help`; execution bị chặn bởi external auth (`loggedIn=false`, `authMethod=none`).
+- `git diff --check`: pass.
 
 ## 8. Parallel dispatch matrix
 
@@ -790,18 +805,17 @@ Nếu contract thiếu hoặc cần đổi product decision, dừng với DECISI
 
 MVP mới chỉ được tuyên bố hoàn thành khi có:
 
-- [ ] Unified Epic state và application command bus.
-- [ ] Five-stage adaptive workflow.
-- [ ] Guide/assist/auto/unattended với default guide.
-- [ ] External communication hard gate.
-- [ ] Project analyzer + recommendation + iOS trading fixture.
-- [ ] Provider-neutral model contract + Claude default.
-- [ ] Explicit Project Context refresh.
-- [ ] Artifact commit policy.
-- [ ] CLI và Claude `/aidlc` parity.
-- [ ] Home + Epics + Guide UI tối thiểu.
-- [ ] AST graph và annotation qua bundled capability contracts.
-- [ ] Legacy migration preview và rollback.
+- [x] Unified Epic state và application command bus.
+- [x] Five-stage adaptive workflow.
+- [x] Guide/assist/auto/unattended với default guide.
+- [x] External communication hard gate.
+- [x] Project analyzer + recommendation + iOS trading fixture.
+- [x] Provider-neutral model contract + Claude default.
+- [x] Explicit Project Context refresh.
+- [x] Artifact commit policy.
+- [x] CLI và Claude `/aidlc` parity; canonical groups là mặc định và `*-v3` aliases được giữ cho migration window.
+- [x] Home + Epics + Guide UI tối thiểu.
+- [x] AST graph và annotation qua bundled capability contracts.
+- [x] Legacy migration preview và rollback.
 
 Studio nâng cao, regulated pack đầy đủ, Test Agent và observability có thể hoàn thiện sau MVP nếu core contracts đã ổn định.
-

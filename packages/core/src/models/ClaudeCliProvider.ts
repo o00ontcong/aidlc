@@ -18,6 +18,8 @@ export interface ClaudeCliInvocation {
   modelId: string;
   prompt: string;
   maxOutputTokens?: number;
+  workingDirectory?: string;
+  mutationAllowed?: boolean;
 }
 
 export interface ClaudeCliAdapter {
@@ -30,8 +32,19 @@ export class SpawnClaudeCliAdapter implements ClaudeCliAdapter {
   constructor(private readonly claudeBin = 'claude') {}
 
   async execute(invocation: ClaudeCliInvocation): Promise<ModelExecutionResult> {
-    const args = ['--print', '--output-format', 'json', '--model', invocation.modelId, invocation.prompt];
-    const result = await this.run(args);
+    // Non-interactive default permission prompts cannot be answered. Plan mode
+    // makes analysis actions provably read-only; acceptEdits lets an already
+    // autonomy-approved mutation edit only the active workspace while shell
+    // commands and external communication remain governed by Claude/project
+    // permission rules and AIDLC's outer hard gate.
+    const args = [
+      '--print',
+      '--output-format', 'json',
+      '--permission-mode', invocation.mutationAllowed ? 'acceptEdits' : 'plan',
+      '--model', invocation.modelId,
+      invocation.prompt,
+    ];
+    const result = await this.run(args, invocation.workingDirectory);
     if (result.code !== 0) {
       return { content: result.stderr || result.stdout, stopReason: 'error' };
     }
@@ -67,9 +80,9 @@ export class SpawnClaudeCliAdapter implements ClaudeCliAdapter {
     };
   }
 
-  private run(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  private run(args: string[], cwd?: string): Promise<{ code: number; stdout: string; stderr: string }> {
     return new Promise((resolve) => {
-      const proc = spawn(this.claudeBin, args, { env: buildClaudeSpawnEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(this.claudeBin, args, { cwd, env: buildClaudeSpawnEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
       proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
@@ -133,6 +146,8 @@ export class ClaudeCliProvider implements ModelProvider {
       modelId: request.resolvedModel.modelId,
       prompt: request.prompt,
       maxOutputTokens: request.maxOutputTokens,
+      workingDirectory: request.workingDirectory,
+      mutationAllowed: request.mutationAllowed,
     });
   }
 
