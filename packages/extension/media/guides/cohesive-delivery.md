@@ -6,7 +6,8 @@ Cohesive Delivery có hai cách chạy cùng tồn tại:
 
 - **Guided**: human chạy và review từng step như các mục 2–10 bên dưới.
 - **Existing Project Autonomous Delivery**: execution profile opt-in ở level project;
-  tự chạy từ `project-context` đến review bundle, nhưng không tự merge default branch.
+  mở một **Claude master command** chạy từ `project-context` đến review bundle,
+  nhưng không tự merge default branch.
 
 Profile autonomous là tính năng mở rộng cho project có sẵn. Nó không đổi mặc định
 của Cohesive Delivery và không bắt buộc request đến từ Jira.
@@ -77,8 +78,11 @@ stateDiagram-v2
   AutoReview --> AwaitingWork: Reject → Rerun
   HumanReview --> NextStep: Approve
   HumanReview --> AwaitingWork: Reject → Rerun
-  NextStep --> [*]
+NextStep --> [*]
 ```
+
+> Sơ đồ này là **Guided mode**. Autonomous Delivery dùng master command riêng ở
+> phần 1.1; không yêu cầu bạn bấm **Mark step done** giữa các phase.
 
 ## 1. Cài Cohesive Delivery vào project
 
@@ -134,16 +138,24 @@ hiển thị **Apply / upgrade Cohesive Delivery** thay vì bắt user tìm temp
 Nút **Help & guide** trong cùng modal mở lại tài liệu này.
 
 Chọn **Start new delivery** để mở form ngay trong AIDLC. Nhập feature id, title và mô
-tả trực tiếp, hoặc nhấn **Load requirement file**. Nhấn **Start delivery** để thực thi;
-mọi lỗi khởi động sẽ hiện bằng notification và trong Output
-**AIDLC Autonomous Delivery**. Jira/GitHub chỉ là source metadata tùy chọn, không phải
-điểm bắt đầu của flow. Command Palette vẫn là đường dự phòng với command
-**AIDLC: Start Autonomous Delivery for Existing Project**.
+tả trực tiếp, hoặc nhấn **Load requirement file**. Nhấn **Start delivery**: extension
+ghi request/state bền vững rồi mở terminal Claude hiển thị lệnh:
+
+```text
+/aidlc-autonomous-delivery <delivery-id>
+```
+
+Claude master thực hiện toàn bộ chain project-context → feature → work packages →
+integration/tests → PR → aggregate review. Extension **không** chạy ngầm global
+`aidlc cohesive` CLI, vì vậy bạn luôn thấy lệnh và output trong terminal Claude.
+Jira/GitHub chỉ là source metadata tùy chọn, không phải điểm bắt đầu của flow. Command
+Palette vẫn là đường dự phòng với command **AIDLC: Start Autonomous Delivery for
+Existing Project**.
 
 > Setting **Epic Autopilot** (`aidlc.autopilot.enabled`) là thử nghiệm pre-plan cho
 > **Start Epic** thông thường và không bật flow này. Có thể để setting đó **Off**.
 
-Hệ thống tự chạy:
+Hệ thống tự chạy trong phiên Claude master:
 
 ```mermaid
 flowchart LR
@@ -159,11 +171,16 @@ flowchart LR
 
 Các human review gate trong pipeline vẫn được ghi đầy đủ vào audit trail nhưng được
 gom vào `HUMAN-REVIEW-SUMMARY.md`; chúng không bị ghi sai thành “human approved”.
+Nếu terminal Claude bị đóng hoặc một phase lỗi, chọn **Resume interrupted delivery**.
+Extension mở lại đúng master command; Claude đọc checkpoint trong state, báo checkpoint
+được chọn trước khi làm việc, giữ artifacts/phase đã approved và chỉ chạy lại nhánh
+chưa xong hoặc failed cùng downstream cần thiết — **không chạy lại từ đầu**.
+
 Tại review bundle, human có thể:
 
 1. Chấp nhận và merge PR bằng tay, rồi chạy **Resume Autonomous Delivery After Merge**.
-2. Chạy **Add Autonomous Delivery Review Task** để thêm yêu cầu sửa; hệ thống route
-   task và chỉ rerun context/feature/package/integration bị ảnh hưởng.
+2. Chạy **Add Autonomous Delivery Review Task** để thêm yêu cầu sửa; Claude master
+   route task và chỉ rerun context/feature/package/integration bị ảnh hưởng.
 3. Chạy **Edit and Confirm Inferred Project Context**, sửa charter đã được AI suy luận,
    lưu file rồi xác nhận; charter tăng revision và downstream alignment được refresh.
 
@@ -214,10 +231,13 @@ sequenceDiagram
    - Đọc và kiểm tra artifact;
    - Nhấn **Approve** để sang bước tiếp theo;
    - Hoặc nhấn **Reject** và nhập lý do cần sửa.
-8. Nếu auto-review hoặc human review reject:
+8. Nếu terminal Claude fail/đóng nhưng step vẫn ở **Awaiting work**, nhấn **Run again
+   with Claude**. Lệnh slash cùng run id được mở lại để tiếp tục step đó.
+9. Nếu auto-review hoặc human review reject:
    - Đọc lý do reject trên step;
-   - Nhấn **Rerun**;
-   - Chạy lại step với feedback.
+   - Nhấn **Run again with Claude** để tăng revision, reset step và mở lại lệnh với
+     feedback; hoặc chọn **Edit feedback first** nếu cần sửa prompt trước;
+   - Sau khi Claude xong, **Mark step done** và chạy review lại.
 
 > **Quan trọng:** hãy tạo các run của Cohesive Delivery bằng nút **Start Epic**. Không dùng nút **Run** trực tiếp trên Pipeline card, vì `Start Epic` mới tạo đầy đủ `state.json`, `inputs.json` và thư mục artifacts mà các workflow này cần.
 

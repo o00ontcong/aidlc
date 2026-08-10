@@ -190,8 +190,8 @@ export function AutonomousDeliveryModal({
       title={screen === 'start' ? 'Start Autonomous Delivery' : 'Existing Project Autonomous Delivery'}
       subtitle={
         screen === 'start'
-          ? 'Describe one feature; AIDLC will infer project context and execute the full delivery flow.'
-          : 'Opt-in Cohesive Delivery flow — guided pipelines remain unchanged.'
+          ? 'Describe one feature; AIDLC opens a visible Claude master command for the full delivery flow.'
+          : 'Opt-in Claude-master delivery flow — guided pipelines remain unchanged.'
       }
       maxWidth="max-w-2xl"
       onClose={onClose}

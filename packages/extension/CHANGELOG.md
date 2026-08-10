@@ -1,5 +1,47 @@
 # Changelog
 
+## 3.4.20
+
+### Changed
+
+- docs(help): align the general Cohesive Delivery guide, Ask AIDLC answer, and every generated step Help page with the visible Claude master command, checkpoint-resume behavior, and **Run again with Claude** recovery actions.
+
+## 3.4.19
+
+### Fixed
+
+- fix(autonomous): the Claude master command now has an explicit checkpoint-resume contract: preserve validated work, locate the first incomplete/failed branch, retry only it and necessary downstream dependants, and never rerun approved upstream phases.
+
+## 3.4.18
+
+### Changed
+
+- change(autonomous): Start and Resume Autonomous Delivery now launch the visible Claude master command `/aidlc-autonomous-delivery <delivery-id>`. The extension writes only the durable request and command definition; it no longer starts a global `aidlc cohesive` process or a hidden orchestration run.
+
+## 3.4.17
+
+### Fixed
+
+- fix(cohesive): restore **Autonomous Delivery** to full automatic orchestration across all configured phases, workers, validators, and aggregate review. It now resumes from any failed checkpoint through the bundled engine; interactive **Run with Claude** remains the separate per-step guided path.
+
+## 3.4.16
+
+### Fixed
+
+- fix(workflows): every step now exposes a clear **Run again with Claude** recovery action. It appears after a prior terminal attempt that left the step awaiting work, and on rejected steps it resets the revision then reopens the exact slash command in Claude. **Edit feedback first** remains available when manual prompt changes are needed.
+
+## 3.4.15
+
+### Changed
+
+- change(cohesive): Guided Cohesive Delivery now opens the actionable phase in a Claude terminal using the same namespaced slash commands as normal workflow steps (for example `/project-context-project-rules-sync <run-id>`). Users advance each phase through the existing **Mark step done** and review controls; Start and Resume no longer execute delivery phases in the background.
+
+## 3.4.14
+
+### Fixed
+
+- fix(cohesive): run and resume Autonomous Delivery with the extension's bundled orchestrator rather than a global `aidlc cohesive` CLI. Delivery phases now use the same Claude-backed AIDLC execution path as workflows and cannot fail because an unrelated `aidlc` on `PATH` lacks `cohesive`.
+
 ## 3.4.12
 
 ### Fixed

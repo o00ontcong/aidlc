@@ -1173,6 +1173,10 @@ function RunGate({
   if (!ui) { return null; }
 
   const status = focused.runStatus!;
+  // A Claude terminal exit does not mutate the run state: the step remains
+  // awaiting_work. Calls/history let us surface an explicit recovery action
+  // instead of making users infer that the ordinary run button is retryable.
+  const hasPreviousAttempt = (focused.tokenUsage?.calls ?? 0) > 0 || (focused.history?.length ?? 0) > 0;
   const labels: Record<string, string> = {
     awaiting_work: 'Awaiting work',
     awaiting_auto_review: 'Awaiting auto-review',
@@ -1288,7 +1292,11 @@ function RunGate({
                   }}
                 >
                   <Play className="h-3 w-3" />
-                  {hasFeedback ? 'Update with feedback' : 'Run with Claude'}
+                  {hasFeedback
+                    ? 'Update with feedback'
+                    : hasPreviousAttempt
+                      ? 'Run again with Claude'
+                      : 'Run with Claude'}
                 </GateButton>
               );
             })()}
@@ -1325,9 +1333,25 @@ function RunGate({
           </>
         )}
         {status === 'rejected' && (
-          <GateButton variant="primary" onClick={() => setRerunOpen(true)}>
-            Rerun
-          </GateButton>
+          <>
+            {slashCommand && (
+              <GateButton
+                variant="approve"
+                onClick={() => postMessage({
+                  type: 'rerunAndRunWithClaude',
+                  runId: epic.runId!,
+                  stepIdx: focusedIdx,
+                  slashCommand,
+                  feedback: focused.rejectReason ?? '',
+                })}
+              >
+                <Play className="h-3 w-3" /> Run again with Claude
+              </GateButton>
+            )}
+            <GateButton variant="primary" onClick={() => setRerunOpen(true)}>
+              Edit feedback first
+            </GateButton>
+          </>
         )}
       </div>
 

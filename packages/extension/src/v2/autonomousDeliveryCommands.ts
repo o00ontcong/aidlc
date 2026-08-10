@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { exec } from 'child_process';
 import * as vscode from 'vscode';
@@ -65,6 +64,88 @@ async function openSummary(workspaceRoot: string, deliveryId: string): Promise<v
   const doc = await vscode.workspace.openTextDocument(file);
   await vscode.window.showTextDocument(doc, { preview: false });
   try { await vscode.commands.executeCommand('markdown.showPreviewToSide', doc.uri); } catch { /* optional */ }
+}
+
+const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery';
+
+/**
+ * The extension's only delivery launch surface is an interactive Claude
+ * command. The command owns the full workflow so users can watch, interrupt,
+ * and direct its work in the terminal instead of trusting a hidden CLI.
+ */
+function ensureAutonomousMasterCommand(workspaceRoot: string): void {
+  const file = path.join(workspaceRoot, '.claude', 'commands', 'aidlc-autonomous-delivery.md');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `---
+description: Run an entire AIDLC Cohesive Delivery autonomously. Usage: /aidlc-autonomous-delivery <delivery-id>
+---
+
+# AIDLC Autonomous Delivery Master
+
+You are the master executor for delivery \`$ARGUMENTS\`. Own the entire delivery
+until it reaches aggregate human review, a real external blocker, or a required
+human decision. Do **not** stop after one phase and do not ask the user to click
+"Mark step done" between phases.
+
+## Source of truth
+
+1. Read \`.aidlc/deliveries/$ARGUMENTS/request.md\` and
+   \`.aidlc/deliveries/$ARGUMENTS/state.json\`.
+2. Read \`.aidlc/workspace.yaml\`, its three Cohesive pipelines
+   (\`project-context\`, \`cohesive-feature\`, \`cohesive-work-package\`), and
+   every relevant agent/skill file under \`.claude/\` or \`~/.claude/\`.
+3. Read existing run and epic state before resuming; preserve completed,
+   validated work and continue from the first incomplete phase.
+
+## Resume contract (mandatory)
+
+- Treat \`.aidlc/deliveries/$ARGUMENTS/state.json\`, \`.aidlc/runs/*.json\`,
+  and the matching epic \`state.json\` files as durable checkpoints.
+- Never delete, recreate, reset, or overwrite a run, worktree, artifact, or
+  approved phase that already exists and validates successfully.
+- On a resumed invocation, locate the first phase or work package whose state
+  is \`awaiting_work\`, \`pending\`, \`rejected\`, or recorded as failed; retry
+  only that incomplete branch and its required downstream dependants.
+- Do not rerun an approved upstream phase merely because this master command
+  was invoked again. Report the checkpoint selected before doing any work.
+
+## Execute autonomously
+
+1. Complete all seven project-context phases in dependency order.
+2. Complete the cohesive-feature phases, deriving dependency-aware work
+   packages from the feature contract.
+3. Execute independent work packages in parallel when safe, then integrate,
+   validate, test, and prepare the single feature PR/review bundle.
+4. For every phase, follow the corresponding namespaced command document in
+   \`.claude/commands/\` (for example
+   \`project-context-project-rules-sync.md\`) as the authoritative persona,
+   skill, input, output, and acceptance contract.
+5. Validate declared outputs before treating a phase as complete. Keep the
+   AIDLC run/epic state files aligned with the completed phase so the extension
+   can render current progress after refresh.
+6. If a recoverable failure occurs, diagnose, repair, and retry that phase.
+   Stop only for missing credentials, an unsafe/destructive action requiring
+   consent, a genuine ambiguity that needs product input, or an enforced human
+   review/merge gate. State the exact blocker and the next command to resume.
+
+Work visibly in this Claude session: narrate stage transitions, commands,
+validation results, and failures. Never invoke a global \`aidlc\` CLI.
+`, 'utf8');
+}
+
+function writeAutonomousRequest(workspaceRoot: string, request: DeliveryRequest): void {
+  const file = path.join(workspaceRoot, '.aidlc', 'deliveries', request.id, 'request.md');
+  const body = [
+    `# Delivery Request: ${request.title}`,
+    '',
+    request.description.trim(),
+    ...(request.acceptanceCriteria?.length ? ['', '## Acceptance Criteria', ...request.acceptanceCriteria.map((item) => `- ${item}`)] : []),
+    ...(request.constraints?.length ? ['', '## Constraints', ...request.constraints.map((item) => `- ${item}`)] : []),
+    ...(request.source?.reference ? ['', `Source: ${request.source.type} — ${request.source.reference}`] : []),
+    '',
+  ].join('\n');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, body, 'utf8');
 }
 
 /** POSIX single-quote a shell argument; inside single quotes the only special character is `'` itself. */
@@ -282,40 +363,43 @@ export async function startAutonomousDeliveryCommand(output: vscode.OutputChanne
     id, title, description,
     source: { type: source.value as 'manual' | 'file', reference },
   };
-  await runNewAutonomousDelivery(workspaceRoot, request);
+  await runNewAutonomousDelivery(workspaceRoot, request, output);
 }
 
 /**
- * Launch `aidlc cohesive run` in a terminal for this request. The CLI does
- * create+reconcile+run end to end (create is idempotent — an existing
- * delivery id just resumes), including its own interactive keep/accept/skip
- * prompt for validator conflicts, so nothing here needs to special-case
- * "already exists" or catch `assertValidatorsReady` failures.
+ * Start the master Claude command. The extension prepares only the durable
+ * delivery request; it never runs a hidden local/global orchestration CLI.
  */
-async function runNewAutonomousDelivery(workspaceRoot: string, request: DeliveryRequest): Promise<void> {
-  if (!(await ensureAidlcCliAvailable())) return;
+async function runNewAutonomousDelivery(
+  workspaceRoot: string,
+  request: DeliveryRequest,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  if (!(await reconcileValidatorConflictsInteractive(workspaceRoot))) return;
 
-  const descFile = path.join(os.tmpdir(), `aidlc-delivery-${request.id}-${Date.now()}.md`);
-  fs.writeFileSync(descFile, request.description, 'utf8');
-
-  const argv = [
-    'cohesive', 'run',
-    '--id', request.id,
-    '--title', shQuote(request.title),
-    '--input', shQuote(descFile),
-    '--source-type', request.source?.type ?? 'manual',
-  ];
-  if (request.source?.reference) argv.push('--source-ref', shQuote(request.source.reference));
-  for (const item of request.acceptanceCriteria ?? []) argv.push('--acceptance', shQuote(item));
-  for (const item of request.constraints ?? []) argv.push('--constraint', shQuote(item));
-
-  launchCliInTerminal(workspaceRoot, argv, `AIDLC · Delivery: ${request.id}`);
+  const orchestrator = new DeliveryOrchestrator(workspaceRoot);
+  orchestrator.create(request);
+  writeAutonomousRequest(workspaceRoot, request);
+  ensureAutonomousMasterCommand(workspaceRoot);
+  output.show(true);
+  output.appendLine(`Opening Claude master: ${AUTONOMOUS_MASTER_COMMAND} ${request.id}`);
+  try {
+    await vscode.commands.executeCommand(
+      'aidlc.runStepWithFeedback',
+      AUTONOMOUS_MASTER_COMMAND,
+      request.id,
+      '',
+    );
+  } catch (error) {
+    output.show(true);
+    void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /** Start from the in-webview form without routing through VS Code's command registry. */
 export async function startAutonomousDeliveryFromRequest(
   request: DeliveryRequest,
-  _output: vscode.OutputChannel,
+  output: vscode.OutputChannel,
 ): Promise<void> {
   const workspaceRoot = root();
   if (!workspaceRoot) return;
@@ -323,19 +407,32 @@ export async function startAutonomousDeliveryFromRequest(
     void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     return;
   }
-  await runNewAutonomousDelivery(workspaceRoot, request);
+  await runNewAutonomousDelivery(workspaceRoot, request, output);
 }
 
 export async function resumeAutonomousDeliveryCommand(
-  _output: vscode.OutputChannel,
+  output: vscode.OutputChannel,
   requestedId?: string,
 ): Promise<void> {
   const workspaceRoot = root();
   if (!workspaceRoot) return;
   const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
-  if (!(await ensureAidlcCliAvailable())) return;
-  launchCliInTerminal(workspaceRoot, ['cohesive', 'resume', id], `AIDLC · Delivery: ${id}`);
+  if (!(await reconcileValidatorConflictsInteractive(workspaceRoot))) return;
+  ensureAutonomousMasterCommand(workspaceRoot);
+  output.show(true);
+  output.appendLine(`Opening Claude master: ${AUTONOMOUS_MASTER_COMMAND} ${id}`);
+  try {
+    await vscode.commands.executeCommand(
+      'aidlc.runStepWithFeedback',
+      AUTONOMOUS_MASTER_COMMAND,
+      id,
+      '',
+    );
+  } catch (error) {
+    output.show(true);
+    void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
 }
 
 export async function openAutonomousReviewSummaryCommand(requestedId?: string): Promise<void> {
@@ -523,6 +620,9 @@ export function openClaudeLoginTerminalCommand(): void {
 export async function runAutonomousDoctorCommand(): Promise<void> {
   const workspaceRoot = root();
   if (!workspaceRoot) return;
-  if (!(await ensureAidlcCliAvailable())) return;
-  launchCliInTerminal(workspaceRoot, ['doctor'], 'AIDLC · Doctor');
+  void workspaceRoot;
+  void vscode.window.showInformationMessage(
+    'AIDLC diagnostics run in the Claude terminal. Review the active master session or open Claude to diagnose the delivery.',
+  );
+  await vscode.commands.executeCommand('aidlc.openClaudeTerminal');
 }

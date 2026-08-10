@@ -160,12 +160,24 @@ From the epic detail panel:
 - **Run with Claude** → launches the slash command in the AIDLC · Claude
   terminal. If carried feedback exists (cascade reject, manual rerun),
   the modal opens so you can review the feedback before launching.
+- **Run again with Claude** → appears after a terminal attempt leaves the step in
+  `awaiting_work`, or after a review rejects it. It reopens the same Claude slash
+  command; a rejected step is reset to a new revision with its feedback. Choose
+  **Edit feedback first** when you need to change that feedback before rerunning.
 - **Mark step done** → tells AIDLC the agent finished. Validates that the
   step's `produces` paths exist, then advances the DAG.
 - **Approve / Reject** (after `human_review`) → either advances or rewinds.
   Rewind to any upstream step; downstream steps reset to pending.
 - **Update with feedback** → re-opens an already-approved step with
   feedback so a later phase can ask earlier ones to redo work.
+
+For **Existing Project Autonomous Delivery**, use **Autonomous Delivery** beside
+**Start Epic** instead. It opens visible Claude master command
+`/aidlc-autonomous-delivery <delivery-id>` to drive the complete delivery; do not
+click **Mark step done** between its phases. **Resume interrupted delivery** opens
+that same master command again and resumes from the saved checkpoint rather than
+restarting approved work. The extension does not launch a global `aidlc cohesive`
+process in the background.
 
 ---
 

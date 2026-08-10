@@ -1096,6 +1096,12 @@ export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
   }
   lines.push(
     '',
+    '## Recovery and execution mode',
+    '',
+    '- If Claude exits or fails while this step remains **Awaiting work**, click **Run again with Claude**. It reopens this exact slash command with the same run id.',
+    '- If a review rejects this step, click **Run again with Claude** to create a new revision and relaunch with the reject feedback. Choose **Edit feedback first** when the feedback needs changing before the retry.',
+    '- This help is for **Guided** execution: after Claude completes, use **Mark step done** and any review gates. In **Autonomous Delivery**, the visible `/aidlc-autonomous-delivery <delivery-id>` Claude master controls phases and resume checkpoints; do not mark individual phases done yourself.',
+    '',
     '## Command',
     '',
     '```text',

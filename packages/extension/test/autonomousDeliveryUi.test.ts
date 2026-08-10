@@ -140,4 +140,43 @@ describe('Autonomous Delivery UI', () => {
     expect(host).toContain("typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined");
     expect(host).not.toContain("case 'startAutonomousDelivery':\n        await vscode.commands.executeCommand");
   });
+
+  it('launches the full Cohesive Delivery through a visible Claude master command', () => {
+    const root = path.resolve(process.cwd());
+    const commands = fs.readFileSync(path.join(root, 'src/v2/autonomousDeliveryCommands.ts'), 'utf8');
+    expect(commands).toContain("const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery'");
+    expect(commands).toContain('ensureAutonomousMasterCommand(workspaceRoot)');
+    expect(commands).toContain("'aidlc.runStepWithFeedback',");
+    expect(commands).toContain('Never invoke a global');
+    expect(commands).toContain('Do not rerun an approved upstream phase');
+    expect(commands).toContain('Report the checkpoint selected before doing any work.');
+    expect(commands).not.toContain("'cohesive', 'run'");
+    expect(commands).not.toContain("['cohesive', 'resume', id]");
+  });
+
+  it('offers one-click Claude retry for failed or previously attempted workflow steps', () => {
+    const root = path.resolve(process.cwd());
+    const card = fs.readFileSync(path.join(root, 'src/webview/components/EpicCard.tsx'), 'utf8');
+    const host = fs.readFileSync(path.join(root, 'src/v2/workspaceWebview.ts'), 'utf8');
+    expect(card).toContain('Run again with Claude');
+    expect(card).toContain("type: 'rerunAndRunWithClaude'");
+    expect(card).toContain('hasPreviousAttempt');
+    expect(host).toContain("case 'rerunAndRunWithClaude'");
+    expect(host).toContain("'aidlc.runStepWithFeedback', slash, runId, feedback");
+  });
+
+  it('keeps general and per-step help aligned with Claude-only execution and recovery', () => {
+    const root = path.resolve(process.cwd());
+    const cohesiveGuide = fs.readFileSync(path.join(root, 'media/guides/cohesive-delivery.md'), 'utf8');
+    const gettingStarted = fs.readFileSync(path.join(root, 'media/getting-started.md'), 'utf8');
+    const ask = fs.readFileSync(path.join(root, 'src/v2/askCommand.ts'), 'utf8');
+    const stepHelp = fs.readFileSync(path.join(root, '../core/src/presets/builtinWorkflows.ts'), 'utf8');
+
+    for (const contents of [cohesiveGuide, gettingStarted, ask, stepHelp]) {
+      expect(contents).toContain('/aidlc-autonomous-delivery');
+      expect(contents).toContain('Run again with Claude');
+    }
+    expect(cohesiveGuide).toContain('không chạy lại từ đầu');
+    expect(gettingStarted).toContain('does not launch a global `aidlc cohesive`');
+  });
 });

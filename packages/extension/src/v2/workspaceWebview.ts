@@ -2451,6 +2451,18 @@ export class WorkspaceWebview {
         await rerunStepInlineCommand(runId, feedback, stepIdx);
         return;
       }
+      case 'rerunAndRunWithClaude': {
+        const runId = String(msg.runId ?? '');
+        const slash = String(msg.slashCommand ?? '');
+        const feedback = String(msg.feedback ?? '');
+        const stepIdx = typeof msg.stepIdx === 'number' && Number.isInteger(msg.stepIdx)
+          ? msg.stepIdx
+          : undefined;
+        if (!runId || !slash || stepIdx === undefined) { return; }
+        await rerunStepInlineCommand(runId, feedback, stepIdx);
+        await vscode.commands.executeCommand('aidlc.runStepWithFeedback', slash, runId, feedback);
+        return;
+      }
       case 'runStepWithFeedback': {
         const slash = String(msg.slashCommand ?? '');
         const runId = String(msg.runId ?? '');
