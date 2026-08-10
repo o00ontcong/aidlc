@@ -12,7 +12,7 @@ export type V3StageId = (typeof V3_STAGE_IDS)[number];
 export const V3_AUTONOMY_MODES = ['guide', 'assist', 'auto', 'unattended'] as const;
 export type V3AutonomyMode = (typeof V3_AUTONOMY_MODES)[number];
 
-export type V3ViewId = 'home' | 'epics' | 'studio' | 'guide';
+export type V3ViewId = 'home' | 'epics' | 'builder' | 'analyze' | 'tests' | 'studio' | 'guide';
 export type V3EpicStatus =
   | 'draft'
   | 'ready'
@@ -164,6 +164,54 @@ export interface V3Guide {
   readonly advancedLog?: string;
 }
 
+/** IMPLEMENT.md §1 registry entities (Skill/Agent/Pipeline) + one epic's progress through a pipeline. */
+export interface V3RegistryAgent {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly model: string;
+  readonly tier: string;
+  readonly skills: readonly string[];
+  readonly capabilities: readonly string[];
+}
+export interface V3RegistrySkill {
+  readonly id: string;
+  readonly source: string;
+  readonly description: string;
+}
+export interface V3RegistryStep {
+  readonly id: string;
+  readonly agent?: string;
+  readonly skills: readonly string[];
+  readonly autoReview: boolean;
+  readonly humanReview: boolean;
+  readonly gate?: string;
+}
+export interface V3RegistryPipeline {
+  readonly id: string;
+  readonly source: string;
+  readonly version: string;
+  readonly steps: readonly V3RegistryStep[];
+}
+export type V3StepRunStatus = 'awaiting-work' | 'running' | 'auto-review' | 'human-review' | 'done' | 'failed';
+export interface V3PipelineRunStep {
+  readonly id: string;
+  readonly status: V3StepRunStatus;
+  readonly attempt: number;
+  readonly feedback?: string;
+}
+export interface V3PipelineRun {
+  readonly epicId: string;
+  readonly pipelineId: string;
+  readonly steps: readonly V3PipelineRunStep[];
+}
+export interface V3Registry {
+  readonly agents: readonly V3RegistryAgent[];
+  readonly skills: readonly V3RegistrySkill[];
+  readonly pipelines: readonly V3RegistryPipeline[];
+  readonly runs: readonly V3PipelineRun[];
+}
+
 /** Complete, serializable screen state supplied by the extension host. */
 export interface V3WorkspaceState {
   readonly project: V3ProjectState;
@@ -176,4 +224,5 @@ export interface V3WorkspaceState {
   readonly legacyMigration?: { readonly id: string; readonly itemCount: number; readonly command: string };
   readonly capabilities: readonly V3Capability[];
   readonly guide: V3Guide;
+  readonly registry: V3Registry;
 }

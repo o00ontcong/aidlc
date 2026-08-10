@@ -4,6 +4,9 @@ import { HomeView } from '../home/HomeView';
 import { EpicsView } from '../epics/EpicsView';
 import { StudioView } from '../studio/StudioView';
 import { GuideDiagnosticsView } from '../guide/GuideDiagnosticsView';
+import { BuilderView } from '../builder/BuilderView';
+import { AnalyzeView } from '../analyze/AnalyzeView';
+import { TestsView } from '../tests/TestsView';
 import { V3Navigation } from './Navigation';
 
 /** Top-level v3 composition root. W3I owns mounting it in a webview entrypoint. */
@@ -20,6 +23,9 @@ export function V3WorkspaceShell({ state, client, initialView = 'home' }: {
       <main className="flex-1 overflow-y-auto p-5">
         {view === 'home' && <HomeView state={state} client={client} onOpenEpics={() => setView('epics')} onOpenStudio={() => setView('studio')} />}
         {view === 'epics' && <EpicsView state={state} client={client} selectedEpicId={selectedEpicId} onSelectEpic={setSelectedEpicId} />}
+        {view === 'builder' && <BuilderView state={state} client={client} />}
+        {view === 'analyze' && <AnalyzeView client={client} />}
+        {view === 'tests' && <TestsView state={state} client={client} />}
         {view === 'studio' && <StudioView state={state} client={client} />}
         {view === 'guide' && <GuideDiagnosticsView state={state} client={client} />}
       </main>

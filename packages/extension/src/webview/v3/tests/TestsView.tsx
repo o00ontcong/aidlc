@@ -1,0 +1,8 @@
+import type { V3ApplicationClient, V3WorkspaceState } from '../contracts';
+import { createV3CommandFactory } from '../contracts';
+
+export function TestsView({ state, client }: { state: V3WorkspaceState; client: V3ApplicationClient }) {
+  const command = createV3CommandFactory('tests');
+  const testAgent = state.capabilities.find((item) => item.id === 'test-agent');
+  return <div className="space-y-5"><header><h1 className="text-xl font-semibold text-foreground">Tests</h1><p className="mt-1 text-xs text-muted-foreground">Verify providers and expose the test-agent capability state before a pipeline reaches review.</p></header><section className="rounded-md border border-border bg-card p-4"><h2 className="text-sm font-semibold text-foreground">Test agent</h2><p className="mt-1 text-xs text-muted-foreground">{testAgent ? `${testAgent.enabled ? 'Enabled' : 'Disabled'} · ${testAgent.healthy ? 'healthy' : testAgent.message ?? 'needs setup'}` : 'No test-agent capability is registered.'}</p>{testAgent && <button type="button" onClick={() => client.dispatch(command('capability.enabled.set', { capabilityId: testAgent.id, enabled: !testAgent.enabled }))} className="mt-3 rounded border border-border px-3 py-1.5 text-xs text-foreground">{testAgent.enabled ? 'Disable' : 'Enable'} test agent</button>}</section><section className="rounded-md border border-border bg-card p-4"><h2 className="text-sm font-semibold text-foreground">Provider diagnostics</h2><button type="button" onClick={() => client.dispatch(command('model.diagnose', {}))} className="mt-3 rounded border border-border px-3 py-1.5 text-xs text-foreground">Check providers</button></section></div>;
+}

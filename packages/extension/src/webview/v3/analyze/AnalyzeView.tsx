@@ -1,0 +1,7 @@
+import type { V3ApplicationClient } from '../contracts';
+import { createV3CommandFactory } from '../contracts';
+
+export function AnalyzeView({ client }: { client: V3ApplicationClient }) {
+  const command = createV3CommandFactory('analyze');
+  return <div className="space-y-5"><header><h1 className="text-xl font-semibold text-foreground">Analyze</h1><p className="mt-1 text-xs text-muted-foreground">Inspect the workspace before changing it, then explicitly publish the project context.</p></header><section className="rounded-md border border-border bg-card p-4"><h2 className="text-sm font-semibold text-foreground">Project intelligence</h2><p className="mt-1 text-xs text-muted-foreground">Analysis is read-only; publishing context is a separate, visible action.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => client.dispatch(command('project.analyze', {}))} className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Analyze project</button><button type="button" onClick={() => client.dispatch(command('project.recommend', {}))} className="rounded border border-border px-3 py-1.5 text-xs text-foreground">Generate recommendation</button><button type="button" onClick={() => client.dispatch(command('project.context.refresh', {}))} className="rounded border border-border px-3 py-1.5 text-xs text-foreground">Publish context</button></div></section></div>;
+}

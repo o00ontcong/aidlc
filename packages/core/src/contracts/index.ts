@@ -23,3 +23,4 @@ export * from './command';
 export * from './project';
 export * from './artifact';
 export * from './capability';
+export * from './registry';

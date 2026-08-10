@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { V3ApplicationClient, V3EpicSummary, V3StageSummary, V3WorkspaceState } from '../contracts';
 import { createV3CommandFactory, visibleStages } from '../contracts';
 import { ArtifactAnnotationAction } from '../capabilities/annotation/ArtifactAnnotationAction';
@@ -7,6 +7,7 @@ import { GatePreview } from '../shell/GatePreview';
 import { RecoveryActions } from '../shell/RecoveryActions';
 import { StageTimeline } from '../shell/StageTimeline';
 import { V3EmptyState } from '../shell/AsyncState';
+import { FlowGraph } from './FlowGraph';
 
 export function EpicsView({ state, client, selectedEpicId, onSelectEpic }: {
   state: V3WorkspaceState;
@@ -14,25 +15,29 @@ export function EpicsView({ state, client, selectedEpicId, onSelectEpic }: {
   selectedEpicId?: string;
   onSelectEpic: (epicId: string) => void;
 }) {
-  const epic = state.epics.find((item) => item.id === selectedEpicId) ?? state.epics[0];
+  const [query, setQuery] = useState('');
+  const [following, setFollowing] = useState<Set<string>>(() => new Set());
+  const [rail, setRail] = useState(false);
+  const filtered = useMemo(() => state.epics.filter((item) => `${item.id} ${item.title} ${item.status}`.toLowerCase().includes(query.toLowerCase())), [state.epics, query]);
+  const epic = filtered.find((item) => item.id === selectedEpicId) ?? filtered[0] ?? state.epics.find((item) => item.id === selectedEpicId) ?? state.epics[0];
   if (!epic) return <V3EmptyState title="No Epics" description="Create a single unified Epic to plan, run, review, and ship work." />;
   return (
-    <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
+    <div className={`grid gap-5 ${rail ? 'lg:grid-cols-[3rem_minmax(0,1fr)]' : 'lg:grid-cols-[18rem_minmax(0,1fr)]'}`}>
       <aside className="space-y-2" aria-label="Epic list">
-        <h1 className="text-sm font-semibold text-foreground">Epics</h1>
-        {state.epics.map((item) => <EpicListItem key={item.id} epic={item} selected={item.id === epic.id} onSelect={() => onSelectEpic(item.id)} />)}
+        <div className="flex items-center justify-between gap-2"><h1 className="text-sm font-semibold text-foreground">{rail ? 'E' : `Epics (${state.epics.length})`}</h1><button type="button" onClick={() => setRail((value) => !value)} className="rounded border border-border px-2 py-1 text-[10px]">{rail ? '›' : '‹'}</button></div>
+        {!rail && <><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search epics" className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground" /><p className="text-[10px] text-muted-foreground">Following {following.size} · Showing {filtered.length}</p></>}
+        {filtered.map((item) => <EpicListItem key={item.id} epic={item} compact={rail} following={following.has(item.id)} selected={item.id === epic.id} onFollow={() => setFollowing((current) => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })} onSelect={() => onSelectEpic(item.id)} />)}
       </aside>
       <EpicDetail epic={epic} client={client} capabilities={state.capabilities} />
     </div>
   );
 }
 
-function EpicListItem({ epic, selected, onSelect }: { epic: V3EpicSummary; selected: boolean; onSelect: () => void }) {
-  return <button type="button" onClick={onSelect} className={`w-full rounded border p-3 text-left ${selected ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-accent'}`}>
+function EpicListItem({ epic, selected, compact, following, onFollow, onSelect }: { epic: V3EpicSummary; selected: boolean; compact: boolean; following: boolean; onFollow: () => void; onSelect: () => void }) {
+  return <div className={`rounded border ${selected ? 'border-primary bg-primary/5' : 'border-border bg-card hover:bg-accent'}`}><button type="button" title={epic.title} onClick={onSelect} className="w-full p-3 text-left">
     <span className="block font-mono text-[10px] text-muted-foreground">{epic.id}</span>
-    <span className="mt-1 block truncate text-xs font-medium text-foreground">{epic.title}</span>
-    <span className="mt-1 block text-[10px] capitalize text-muted-foreground">{epic.status} · {epic.profile}</span>
-  </button>;
+    {!compact && <><span className="mt-1 block truncate text-xs font-medium text-foreground">{epic.title}</span><span className="mt-1 block text-[10px] capitalize text-muted-foreground">{epic.status} · {epic.profile}</span></>}
+  </button>{!compact && <button type="button" aria-label={`Follow ${epic.id}`} onClick={onFollow} className="mb-2 ml-3 text-xs text-muted-foreground">{following ? '★ Following' : '☆ Follow'}</button>}</div>;
 }
 
 function EpicDetail({ epic, client, capabilities }: { epic: V3EpicSummary; client: V3ApplicationClient; capabilities: V3WorkspaceState['capabilities'] }) {
@@ -45,6 +50,7 @@ function EpicDetail({ epic, client, capabilities }: { epic: V3EpicSummary; clien
       <span className="rounded bg-secondary px-2 py-1 text-[10px] capitalize text-muted-foreground">{epic.autonomy}</span>
     </header>
     <StageTimeline stages={visibleStages(epic)} onStageClick={setStage} />
+    <FlowGraph stages={visibleStages(epic)} />
     {stage && <StageDetail epic={epic} stage={stage} client={client} />}
     {epic.gate && <GatePreview epicId={epic.id} preview={epic.gate} client={client} />}
     {epic.blocker && <section className="rounded-md border border-destructive/40 bg-destructive/5 p-4"><h2 className="text-sm font-semibold text-foreground">{epic.blocker.summary}</h2><p className="mt-1 text-xs text-muted-foreground">{epic.blocker.detail}</p><div className="mt-3"><RecoveryActions epicId={epic.id} actions={epic.blocker.recoveryActions} client={client} /></div></section>}

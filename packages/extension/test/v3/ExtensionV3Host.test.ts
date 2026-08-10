@@ -29,7 +29,14 @@ describe('ExtensionV3Host', () => {
   it('routes every browser command to the shared application bus or an explicit host capability', () => {
     const app = new AidlcApplication(tempWorkspace());
     const applicationNames = new Set(app.bus.names());
-    const hostNames = new Set(['capability.ast.graph.open', 'capability.annotation.open']);
+    // Registry/preset commands are intentionally dispatched by the VS Code
+    // host adapter: they write project files and open visible terminals, not
+    // the in-process application command bus.
+    const hostNames = new Set([
+      'capability.ast.graph.open', 'capability.annotation.open',
+      'registry.pipeline.run', 'registry.step.run', 'registry.step.rerun', 'registry.step.complete',
+      'registry.gate.approve', 'registry.gate.reject', 'preset.redrawDesign.apply',
+    ]);
     const missing = V3_COMMAND_NAMES.filter((name) => !hostNames.has(name) && !applicationNames.has(toApplicationCommandName(name)));
     expect(missing).toEqual([]);
   });

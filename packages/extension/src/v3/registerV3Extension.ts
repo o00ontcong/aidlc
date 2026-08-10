@@ -34,6 +34,31 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
         child.unref();
         return { commandId: command.id, status: 'ok', data: { opened: true, capabilityId: 'artifact-annotation', path: relative } };
       }
+      if (command.name === 'preset.redrawDesign.apply') {
+        try {
+          await vscode.commands.executeCommand('aidlc.preset.redrawDesign.apply');
+          return { commandId: command.id, status: 'ok', data: { dispatched: 'aidlc.preset.redrawDesign.apply' } };
+        } catch (error) {
+          return { commandId: command.id, status: 'error', data: { message: error instanceof Error ? error.message : String(error) } };
+        }
+      }
+      if (command.name.startsWith('registry.')) {
+        const payload = command.payload as { epicId?: unknown; pipelineId?: unknown; stepId?: unknown; feedback?: unknown; reason?: unknown };
+        const vscodeCommand = `aidlc.${command.name}`;
+        const args = command.name === 'registry.pipeline.run'
+          ? [payload.epicId, payload.pipelineId, payload.feedback]
+          : command.name === 'registry.step.rerun'
+            ? [payload.epicId, payload.pipelineId, payload.stepId, payload.feedback]
+            : command.name === 'registry.gate.reject'
+              ? [payload.epicId, payload.pipelineId, payload.stepId, payload.reason]
+              : [payload.epicId, payload.pipelineId, payload.stepId];
+        try {
+          await vscode.commands.executeCommand(vscodeCommand, ...args);
+          return { commandId: command.id, status: 'ok', data: { dispatched: vscodeCommand } };
+        } catch (error) {
+          return { commandId: command.id, status: 'error', data: { message: error instanceof Error ? error.message : String(error) } };
+        }
+      }
       return undefined;
     },
   });

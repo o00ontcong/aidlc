@@ -1,0 +1,2139 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/oten-chat-design-system-9c0e2db9-8359-48d1-b5b9-725a2d2e28cd/tokens/fig-tokens.css">
+<script src="_ds/oten-chat-design-system-9c0e2db9-8359-48d1-b5b9-725a2d2e28cd/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#0E0F10; }
+  a { color: rgb(20,197,96); text-decoration:none; }
+  a:hover { color: rgb(0,138,64); }
+  @keyframes aidlcPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .thm-dark {
+    --bg:#1B1D1E; --panel:#202324; --panel2:#262A2B; --side:#1E2122; --chrome:#232729;
+    --bd:rgba(255,255,255,0.08); --bd2:rgba(255,255,255,0.04); --hover:rgba(255,255,255,0.05);
+    --txt:#E6E8E8; --txt2:#9AA0A0; --txt3:#6E7574;
+    --acc:rgb(20,197,96); --acc-txt:rgb(20,197,96); --acc-bg:rgba(20,197,96,0.14); --acc-bd:rgba(20,197,96,0.4); --on-acc:#0E1A12;
+    --warn:#FEBC2E; --warn-bg:rgba(254,188,46,0.10); --warn-bd:rgba(254,188,46,0.32);
+    --err:#F08A84; --err-bg:rgba(222,55,48,0.12); --err-bd:rgba(222,55,48,0.42);
+    --info:rgb(90,175,255); --track:rgba(255,255,255,0.10);
+  }
+  .thm-light {
+    --bg:#FFFFFF; --panel:#F7F8F8; --panel2:#FFFFFF; --side:#F2F2F7; --chrome:#EFF1F1;
+    --bd:rgba(12,12,13,0.12); --bd2:rgba(12,12,13,0.06); --hover:rgba(12,12,13,0.04);
+    --txt:#191C1D; --txt2:#5C5F5F; --txt3:#8A8F8F;
+    --acc:rgb(20,197,96); --acc-txt:rgb(0,138,64); --acc-bg:rgba(20,197,96,0.12); --acc-bd:rgba(0,138,64,0.35); --on-acc:#FFFFFF;
+    --warn:#8A6100; --warn-bg:rgba(254,188,46,0.16); --warn-bd:rgba(138,97,0,0.28);
+    --err:#DE3730; --err-bg:rgba(222,55,48,0.09); --err-bd:rgba(222,55,48,0.35);
+    --info:rgb(0,110,214); --track:rgba(12,12,13,0.10);
+  }
+</style>
+</helmet>
+<div style="font-family:Inter,system-ui,sans-serif;background:#0E0F10;padding:22px;display:flex;flex-direction:column;gap:14px;align-items:center;min-height:100vh;box-sizing:border-box">
+
+  <div style="width:1440px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="width:22px;height:22px;border-radius:6px;background:rgb(20,197,96);display:flex;align-items:center;justify-content:center;color:#0E1A12;font-size:12px;font-weight:700">A</div>
+      <div style="color:#E6E8E8;font-size:13px;font-weight:600">AIDLC Unified Workspace</div>
+    </div>
+    <div style="display:flex;gap:5px">
+      <sc-for list="{{ themes }}" as="t" hint-placeholder-count="2">
+        <div onClick="{{ t.go }}" style="cursor:pointer;padding:6px 12px;border-radius:7px;font-size:12px;border:1px solid rgba(255,255,255,0.08);background:{{ t.bg }};color:{{ t.fg }}">{{ t.label }}</div>
+      </sc-for>
+    </div>
+    <div style="color:#6E7574;font-size:11.5px">Sidebar · Workspace shell · Epics 2 cột · Gate flow</div>
+  </div>
+
+  <div class="{{ themeClass }}" style="width:1440px;height:920px;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,0.10);background:var(--bg);display:flex;flex-direction:column;position:relative;box-shadow:0 24px 70px rgba(0,0,0,0.5)">
+
+    <sc-if value="{{ gateOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;z-index:30;background:rgba(0,0,0,0.5);display:flex;justify-content:center;align-items:flex-start;padding-top:90px">
+        <div style="width:620px;background:var(--panel2);border:2px solid var(--err-bd);border-radius:8px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,0.5)">
+          <div style="padding:14px 16px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;background:var(--err-bg)">
+            <div style="font-size:15px">🔒</div>
+            <div style="flex:1">
+              <div style="font-size:13.5px;color:var(--txt);font-weight:700">Hard gate · merge_default_branch</div>
+              <div style="font-size:11.5px;color:var(--txt2);margin-top:2px">Không mode nào bỏ qua được, kể cả unattended</div>
+            </div>
+            <div onClick="{{ closeGate }}" style="cursor:pointer;font-size:11px;color:var(--txt2);border:1px solid var(--bd);border-radius:5px;padding:3px 8px">esc</div>
+          </div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:13px">
+            <div style="font-size:12.5px;color:var(--txt2);line-height:1.65">Vì sao cần duyệt: hành động này ghi vào nhánh mặc định và mở giao tiếp ra ngoài repo — hai việc không thể hoàn tác bằng retry.</div>
+            <div style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:7px">
+              <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Nếu approve</div>
+              <div style="font-size:12.5px;color:var(--txt);line-height:1.6">Mở Pull Request <span style="font-family:'JetBrains Mono',monospace">epic-142-partial-refunds → main</span>, gắn 2 reviewer, comment vào PAY-884.</div>
+              <div style="font-size:12px;color:var(--txt2);line-height:1.6">Phạm vi: 4 file · +186 / −34 · 1 migration</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11.5px;color:var(--txt2)">Lý do (bắt buộc khi reject)</div>
+              <input value="{{ reason }}" onChange="{{ setReason }}" placeholder="Ghi lại quyết định cho audit log…" style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:9px 11px;color:var(--txt);font-size:12.5px;font-family:Inter,sans-serif;outline:none">
+            </div>
+            <div style="font-size:11.5px;color:var(--err);line-height:1.5">Hard gate không có tuỳ chọn "đừng hỏi lại".</div>
+          </div>
+          <div style="padding:12px 16px;border-top:1px solid var(--bd);display:flex;gap:8px;justify-content:flex-end">
+            <div onClick="{{ closeGate }}" style="cursor:pointer;padding:9px 14px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Huỷ</div>
+            <div onClick="{{ closeGate }}" style="cursor:pointer;padding:9px 14px;border-radius:6px;border:1px solid var(--err-bd);color:var(--err);font-size:12.5px">Reject</div>
+            <div onClick="{{ approveGate }}" style="cursor:pointer;padding:9px 16px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:12.5px;font-weight:600">Approve &amp; tiếp tục</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ newOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;z-index:32;background:rgba(0,0,0,0.5);display:flex;justify-content:center;align-items:flex-start;padding-top:56px">
+        <div style="width:820px;max-height:790px;background:var(--panel2);border:1px solid var(--bd);border-radius:9px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,0.5);display:flex;flex-direction:column">
+          <div style="flex:none;padding:14px 16px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px">
+            <div style="width:22px;height:22px;border-radius:6px;background:var(--acc);color:var(--on-acc);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">A</div>
+            <div style="flex:1">
+              <div style="font-size:13.5px;color:var(--txt);font-weight:700">New Epic</div>
+              <div style="font-size:11.5px;color:var(--txt2);margin-top:1px">Tất cả cấu hình dưới đây thuộc riêng Epic này và sửa được sau</div>
+            </div>
+            <div onClick="{{ closeNew }}" style="cursor:pointer;font-size:11px;color:var(--txt2);border:1px solid var(--bd);border-radius:5px;padding:3px 8px">esc</div>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11.5px;color:var(--txt2)">Tiêu đề</div>
+              <input value="{{ newTitle }}" onChange="{{ setNewTitle }}" placeholder="Ví dụ: Cho phép hoàn tiền một phần cho split payment" style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;color:var(--txt);font-size:13px;font-family:Inter,sans-serif;outline:none">
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11.5px;color:var(--txt2)">Mô tả / acceptance criteria</div>
+              <div style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;font-size:12.5px;color:var(--txt3);min-height:62px;line-height:1.6">Dán requirement, link ticket, hoặc mô tả kết quả mong muốn…</div>
+              <div style="display:flex;gap:6px">
+                <div style="cursor:pointer;font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid var(--bd);color:var(--txt2)">Từ REQ-018</div>
+                <div style="cursor:pointer;font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid var(--bd);color:var(--txt2)">Từ Jira PAY-884</div>
+                <div style="cursor:pointer;font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid var(--bd);color:var(--txt2)">Từ selection trong editor</div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11.5px;color:var(--txt2)">Loại công việc</div>
+              <div style="display:flex;gap:6px">
+                <sc-for list="{{ newTypes }}" as="t" hint-placeholder-count="5">
+                  <div onClick="{{ t.go }}" style="cursor:pointer;flex:1;text-align:center;padding:8px 6px;border-radius:6px;font-size:12px;border:1px solid {{ t.bd }};background:{{ t.bg }};color:{{ t.fg }}">{{ t.label }}</div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:7px;border:1px solid var(--acc-bd);background:var(--acc-bg)">
+              <div style="font-size:12px;color:var(--acc-txt)">◉</div>
+              <div style="flex:1">
+                <div style="font-size:12px;color:var(--txt);font-weight:600">Project Context: published · rev-7</div>
+                <div style="font-size:11.5px;color:var(--txt2);margin-top:2px;line-height:1.5">Epic capture snapshot của baseline này ở step <span style="font-family:'JetBrains Mono',monospace">capture-context</span> nên chạy độc lập được song song với epic khác.</div>
+              </div>
+              <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Đổi revision</div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="font-size:11.5px;color:var(--txt2)">Pipeline</div>
+                <div style="font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--acc-bg);color:var(--acc-txt)">{{ newRecommend }}</div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+                <sc-for list="{{ newProfiles }}" as="p" hint-placeholder-count="4">
+                  <div onClick="{{ p.go }}" style="cursor:pointer;border-radius:6px;padding:9px 10px;border:1px solid {{ p.bd }};background:{{ p.bg }}">
+                    <div style="font-size:12px;font-weight:600;color:{{ p.fg }}">{{ p.label }}</div>
+                    <div style="font-size:10.5px;color:var(--txt3);line-height:1.45;margin-top:2px">{{ p.desc }}</div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--txt2);background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:9px 11px">{{ newCompiled }}</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="font-size:11.5px;color:var(--txt2)">Workflow pack</div>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <sc-for list="{{ newPacks }}" as="p" hint-placeholder-count="4">
+                    <div onClick="{{ p.go }}" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;border:1px solid {{ p.bd }};background:{{ p.bg }}">
+                      <div style="font-size:11px;color:{{ p.fg }}">{{ p.mark }}</div>
+                      <div style="flex:1;font-size:12px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ p.label }}</div>
+                      <div style="font-size:10.5px;color:var(--txt3)">{{ p.note }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="font-size:11.5px;color:var(--txt2)">Autonomy khởi điểm</div>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <sc-for list="{{ newModes }}" as="m" hint-placeholder-count="4">
+                    <div onClick="{{ m.go }}" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;border:1px solid {{ m.bd }};background:{{ m.bg }}">
+                      <div style="font-size:11px;color:{{ m.fg }}">{{ m.mark }}</div>
+                      <div style="flex:none;font-size:12px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ m.label }}</div>
+                      <div style="flex:1;min-width:0;font-size:10.5px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ m.desc }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="font-size:11px;color:var(--txt3);line-height:1.5">Sửa riêng từng stage sau khi tạo. Hard gate luôn dừng, bất kể mode.</div>
+              </div>
+            </div>
+
+            <div style="background:var(--panel);border:1px solid var(--bd);border-radius:7px;overflow:hidden">
+              <div style="padding:10px 12px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+                <div style="font-size:11.5px;color:var(--txt);font-weight:600">Sẽ được lock cho Epic này</div>
+                <div style="flex:1"></div>
+                <div style="cursor:pointer;font-size:11px;color:var(--acc-txt)">Override</div>
+              </div>
+              <sc-for list="{{ newLock }}" as="l" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--bd2)">
+                  <div style="width:80px;flex:none;font-size:11px;color:var(--txt3)">{{ l.k }}</div>
+                  <div style="flex:1;min-width:0;font-size:12px;color:var(--txt);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.v }}</div>
+                  <div style="font-size:10.5px;color:var(--txt3)">{{ l.why }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:7px;border:1px solid var(--warn-bd);background:var(--warn-bg)">
+              <div style="color:var(--warn);font-size:12px">▲</div>
+              <div style="flex:1;font-size:11.5px;color:var(--txt);line-height:1.55">Project context là rev-7 (12 ngày). Epic sẽ dùng revision này — refresh là lệnh riêng, không tự chạy.</div>
+              <div style="cursor:pointer;font-size:11.5px;color:var(--warn);font-weight:600">Refresh trước</div>
+            </div>
+          </div>
+
+          <div style="flex:none;padding:12px 16px;border-top:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+            <div style="flex:1;font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ newCmd }}</div>
+            <div onClick="{{ closeNew }}" style="cursor:pointer;padding:9px 14px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Huỷ</div>
+            <div onClick="{{ createDraft }}" style="cursor:pointer;padding:9px 14px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Tạo draft</div>
+            <div onClick="{{ createRun }}" style="cursor:pointer;padding:9px 16px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:12.5px;font-weight:600">Tạo &amp; chạy</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ addOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;z-index:34;background:rgba(0,0,0,0.5);display:flex;justify-content:center;align-items:flex-start;padding-top:60px">
+        <div style="width:780px;max-height:770px;background:var(--panel2);border:1px solid var(--bd);border-radius:9px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,0.5);display:flex;flex-direction:column">
+          <div style="flex:none;padding:14px 16px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13.5px;color:var(--txt);font-weight:700">{{ addTitle }}</div>
+              <div style="font-size:11.5px;color:var(--txt2);margin-top:1px">{{ addSub }}</div>
+            </div>
+            <div onClick="{{ closeAdd }}" style="flex:none;cursor:pointer;font-size:11px;color:var(--txt2);border:1px solid var(--bd);border-radius:5px;padding:3px 8px">esc</div>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11.5px;color:var(--txt2)">Cách tạo</div>
+              <div style="display:flex;gap:6px">
+                <sc-for list="{{ addSources }}" as="s" hint-placeholder-count="4">
+                  <div onClick="{{ s.go }}" style="cursor:pointer;flex:1;min-width:0;padding:9px 10px;border-radius:6px;border:1px solid {{ s.bd }};background:{{ s.bg }}">
+                    <div style="font-size:12px;font-weight:600;color:{{ s.fg }}">{{ s.label }}</div>
+                    <div style="font-size:10.5px;color:var(--txt3);line-height:1.45;margin-top:2px">{{ s.desc }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="font-size:11.5px;color:var(--txt2)">{{ addIdLabel }}</div>
+                <input value="{{ addId }}" onChange="{{ setAddId }}" placeholder="{{ addIdPlaceholder }}" style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:9px 11px;color:var(--txt);font-size:12.5px;font-family:'JetBrains Mono',monospace;outline:none">
+                <div style="font-size:10.5px;color:{{ addIdTone }}">{{ addIdHint }}</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="font-size:11.5px;color:var(--txt2)">Sẽ ghi vào</div>
+                <div style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:9px 11px;font-size:12px;color:var(--txt3);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ addPath }}</div>
+                <div style="display:flex;gap:5px">
+                  <sc-for list="{{ addScopes }}" as="sc" hint-placeholder-count="2">
+                    <div onClick="{{ sc.go }}" style="cursor:pointer;flex:none;white-space:nowrap;font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid {{ sc.bd }};background:{{ sc.bg }};color:{{ sc.fg }}">{{ sc.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+
+            <sc-if value="{{ addIsFlow }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="flex:none;white-space:nowrap;font-size:11.5px;color:var(--txt2)">Step của pipeline</div>
+                  <div style="flex:1"></div>
+                  <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid var(--bd);color:var(--txt2)">Copy từ cohesive-feature</div>
+                  <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid var(--bd);color:var(--txt2)">+ Thêm step</div>
+                </div>
+                <sc-for list="{{ addFlowSteps }}" as="st" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:6px;border:1px solid var(--bd);background:var(--panel)">
+                    <div style="flex:none;cursor:grab;font-size:11px;color:var(--txt3)">⠿</div>
+                    <div style="flex:none;width:16px;font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ st.i }}</div>
+                    <div style="flex:1;min-width:0;font-size:12.5px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ st.name }}</div>
+                    <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 7px;border-radius:5px;background:{{ st.tagBg }};color:{{ st.tagFg }}">{{ st.tag }}</div>
+                    <div style="flex:none;cursor:pointer;font-size:11px;color:var(--txt2)">Sửa</div>
+                    <div style="flex:none;cursor:pointer;font-size:11px;color:var(--err)">Xoá</div>
+                  </div>
+                </sc-for>
+                <div style="font-size:11px;color:var(--txt3);line-height:1.5">Đánh dấu step nào cần human gate — agent không tự vượt qua gate, kể cả ở Autonomous Delivery.</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ addIsAgent }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div style="display:flex;flex-direction:column;gap:6px">
+                    <div style="font-size:11.5px;color:var(--txt2)">Tier</div>
+                    <div style="display:flex;gap:5px">
+                      <sc-for list="{{ addTiers }}" as="t" hint-placeholder-count="4">
+                        <div onClick="{{ t.go }}" style="cursor:pointer;flex:1;text-align:center;padding:8px 4px;border-radius:6px;font-size:11.5px;border:1px solid {{ t.bd }};background:{{ t.bg }};color:{{ t.fg }}">{{ t.label }}</div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:6px">
+                    <div style="font-size:11.5px;color:var(--txt2)">Model (từ provider)</div>
+                    <div style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:9px 11px;font-size:12px;color:var(--txt);font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:8px">
+                      <div style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ addModel }}</div>
+                      <div style="flex:none;font-size:9px;color:var(--txt3)">▾</div>
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="font-size:11.5px;color:var(--txt2)">System prompt / trách nhiệm</div>
+                  <div style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;font-size:12.5px;color:var(--txt3);min-height:58px;line-height:1.6">Agent này chịu trách nhiệm gì, được phép và không được phép làm gì…</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="font-size:11.5px;color:var(--txt2)">Skills gán cho agent</div>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap">
+                    <sc-for list="{{ addSkillPicks }}" as="sk" hint-placeholder-count="6">
+                      <div onClick="{{ sk.go }}" style="cursor:pointer;flex:none;white-space:nowrap;display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:5px;border:1px solid {{ sk.bd }};background:{{ sk.bg }}">
+                        <div style="font-size:10px;color:{{ sk.fg }}">{{ sk.mark }}</div>
+                        <div style="font-size:11.5px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ sk.n }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="font-size:11.5px;color:var(--txt2)">Capabilities</div>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap">
+                    <sc-for list="{{ addCaps }}" as="cp" hint-placeholder-count="4">
+                      <div onClick="{{ cp.go }}" style="cursor:pointer;flex:none;white-space:nowrap;display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:5px;border:1px solid {{ cp.bd }};background:{{ cp.bg }}">
+                        <div style="font-size:10px;color:{{ cp.fg }}">{{ cp.mark }}</div>
+                        <div style="font-size:11.5px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ cp.n }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--txt2);background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:9px 11px;line-height:1.7">
+                    <sc-for list="{{ addFrontmatter }}" as="fm" hint-placeholder-count="6">
+                      <div style="color:{{ fm.c }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ fm.t }}</div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ addIsSkill }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="font-size:11.5px;color:var(--txt2)">{{ addSkillBodyLabel }}</div>
+                  <div style="background:var(--panel);border:1px solid var(--bd);border-radius:6px;padding:11px 12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--txt2);line-height:1.85;min-height:120px">
+                    <sc-for list="{{ addSkillLines }}" as="l" hint-placeholder-count="6">
+                      <div style="color:{{ l.c }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.t }}</div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:7px;border:1px solid var(--bd);background:var(--panel)">
+                  <div style="flex:none;font-size:11.5px;color:var(--acc-txt)">✓</div>
+                  <div style="flex:1;min-width:0;font-size:11.5px;color:var(--txt2);line-height:1.5">Frontmatter hợp lệ · có <span style="font-family:'JetBrains Mono',monospace">name</span>, <span style="font-family:'JetBrains Mono',monospace">description</span></div>
+                  <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11px;padding:4px 9px;border-radius:5px;border:1px solid var(--bd);color:var(--txt)">Validate lại</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="background:var(--panel);border:1px solid var(--bd);border-radius:7px;overflow:hidden">
+              <div style="padding:9px 12px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+                <div style="flex:none;white-space:nowrap;font-size:11.5px;color:var(--txt);font-weight:600">Validation</div>
+                <div style="flex:1"></div>
+                <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 8px;border-radius:999px;background:{{ addValidBg }};color:{{ addValidFg }};font-weight:600">{{ addValidLabel }}</div>
+              </div>
+              <sc-for list="{{ addChecks }}" as="v" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:9px;padding:8px 12px;border-bottom:1px solid var(--bd2)">
+                  <div style="flex:none;font-size:11px;color:{{ v.tone }}">{{ v.mark }}</div>
+                  <div style="flex:1;min-width:0;font-size:11.5px;color:var(--txt2);line-height:1.5">{{ v.label }}</div>
+                  <sc-if value="{{ v.hasFix }}" hint-placeholder-val="{{ false }}">
+                    <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11px;color:var(--acc-txt)">{{ v.fix }}</div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:7px;border:1px solid var(--warn-bd);background:var(--warn-bg)">
+              <div style="flex:none;color:var(--warn);font-size:12px">▲</div>
+              <div style="flex:1;min-width:0;font-size:11.5px;color:var(--txt);line-height:1.55">{{ addWarn }}</div>
+            </div>
+          </div>
+
+          <div style="flex:none;padding:12px 16px;border-top:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+            <div style="flex:1;min-width:0;font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ addCmd }}</div>
+            <div onClick="{{ closeAdd }}" style="flex:none;white-space:nowrap;cursor:pointer;padding:9px 14px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Huỷ</div>
+            <div onClick="{{ closeAdd }}" style="flex:none;white-space:nowrap;cursor:pointer;padding:9px 14px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Lưu nháp</div>
+            <div onClick="{{ closeAdd }}" style="flex:none;white-space:nowrap;cursor:pointer;padding:9px 16px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:12.5px;font-weight:600">{{ addPrimary }}</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <div style="height:36px;flex:none;background:var(--chrome);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 13px;gap:12px">
+      <div style="display:flex;gap:7px">
+        <div style="width:10px;height:10px;border-radius:50%;background:#FF5F57"></div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#FEBC2E"></div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#28C840"></div>
+      </div>
+      <div style="flex:1;text-align:center;color:var(--txt2);font-size:11.5px">payments-service — Visual Studio Code</div>
+      <div style="width:56px"></div>
+    </div>
+
+    <div style="flex:1;display:flex;min-height:0">
+
+      <div style="width:48px;flex:none;background:var(--side);border-right:1px solid var(--bd);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:4px">
+        <div style="width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--txt3)">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 5h6l2 2h10v12H3z"/></svg>
+        </div>
+        <div style="width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--txt3)">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        </div>
+        <div style="width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--txt3)">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="6" r="2.5"/><circle cx="7" cy="18" r="2.5"/><circle cx="17" cy="12" r="2.5"/><path d="M7 8.5v7M9.5 17l5-3.5"/></svg>
+        </div>
+        <div style="width:34px;height:34px;border-radius:6px;background:var(--acc-bg);display:flex;align-items:center;justify-content:center;color:var(--acc-txt);font-size:13px;font-weight:700;position:relative">A
+          <div style="position:absolute;left:-7px;top:5px;bottom:5px;width:2px;border-radius:2px;background:var(--acc)"></div>
+        </div>
+      </div>
+
+      <div style="width:300px;flex:none;background:var(--side);border-right:1px solid var(--bd);display:flex;flex-direction:column;min-height:0">
+        <div style="padding:11px 12px 9px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Project</div>
+            <div style="font-size:12.5px;color:var(--txt);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">payments-service</div>
+          </div>
+          <div style="font-size:11px;color:var(--txt2);border:1px solid var(--bd);border-radius:5px;padding:3px 7px;cursor:pointer">Đổi</div>
+        </div>
+
+        <div style="flex:1;overflow:auto;padding:11px 12px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;gap:6px">
+            <div style="cursor:pointer;flex:1;text-align:center;padding:8px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:12px;font-weight:600">Ask AIDLC</div>
+            <div style="cursor:pointer;flex:1;text-align:center;padding:8px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12px">Analyze</div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <sc-for list="{{ stats }}" as="st" hint-placeholder-count="4">
+              <div onClick="{{ st.go }}" style="cursor:pointer;background:var(--panel2);border:1px solid var(--bd);border-radius:6px;padding:9px 10px">
+                <div style="font-size:17px;color:var(--txt);font-weight:700;line-height:1.1">{{ st.n }}</div>
+                <div style="font-size:11px;color:var(--txt2);margin-top:2px">{{ st.label }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:7px">
+              <div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Recent epics</div>
+              <div style="flex:1"></div>
+              <div onClick="{{ goEpics }}" style="cursor:pointer;font-size:11px;color:var(--acc-txt)">Tất cả</div>
+            </div>
+            <sc-for list="{{ recent }}" as="r" hint-placeholder-count="3">
+              <div onClick="{{ r.open }}" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--panel2);border:1px solid var(--bd)">
+                <div style="width:7px;height:7px;border-radius:50%;background:{{ r.dot }};flex:none"></div>
+                <div style="flex:1;min-width:0;font-size:12px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.title }}</div>
+                <div style="font-size:11px;color:{{ r.starC }}">{{ r.star }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Workflow templates</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap">
+              <sc-for list="{{ templates }}" as="tp" hint-placeholder-count="4">
+                <div style="cursor:pointer;font-size:11px;padding:4px 8px;border-radius:5px;background:var(--panel2);border:1px solid var(--bd);color:var(--txt2);font-family:'JetBrains Mono',monospace">{{ tp.n }}</div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:7px">
+              <div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">MCP servers</div>
+              <div style="flex:1"></div>
+              <div style="cursor:pointer;font-size:11px;color:var(--txt2)">⟳</div>
+            </div>
+            <sc-for list="{{ mcp }}" as="s" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;background:var(--panel2);border:1px solid var(--bd)">
+                <div style="font-size:11px;color:{{ s.tone }}">{{ s.mark }}</div>
+                <div style="flex:1;font-size:11.5px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ s.name }}</div>
+                <div style="font-size:10.5px;color:var(--txt3)">{{ s.state }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="flex:none;padding:10px 12px;border-top:1px solid var(--bd)">
+          <div onClick="{{ goEpics }}" style="cursor:pointer;text-align:center;padding:9px;border-radius:6px;border:1px solid var(--acc-bd);color:var(--acc-txt);font-size:12px;font-weight:600">Mở Workspace</div>
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)">
+        <div style="height:34px;flex:none;display:flex;align-items:stretch;background:var(--side);border-bottom:1px solid var(--bd)">
+          <div style="display:flex;align-items:center;gap:8px;padding:0 14px;background:var(--bg);color:var(--txt);font-size:12px;border-right:1px solid var(--bd);border-top:1px solid var(--acc)">AIDLC Workspace</div>
+          <div style="display:flex;align-items:center;padding:0 14px;color:var(--txt3);font-size:12px;border-right:1px solid var(--bd)">refunds/service.ts</div>
+        </div>
+
+        <div style="flex:none;display:flex;align-items:center;gap:2px;padding:0 10px;border-bottom:1px solid var(--bd);background:var(--panel)">
+          <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="7">
+            <div onClick="{{ t.go }}" style="cursor:pointer;padding:11px 13px;font-size:12.5px;font-weight:500;color:{{ t.fg }};border-bottom:2px solid {{ t.bd }}">{{ t.label }}</div>
+          </sc-for>
+          <div style="flex:1"></div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--txt2)">
+            <div style="width:7px;height:7px;border-radius:50%;background:var(--acc);animation:aidlcPulse 1.6s ease-in-out infinite"></div>
+            <div>Live</div>
+          </div>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow:hidden">
+
+          <sc-if value="{{ isEpics }}" hint-placeholder-val="{{ true }}">
+            <div style="height:100%;display:flex;min-height:0">
+
+              <div style="width:{{ listW }};flex:none;border-right:1px solid var(--bd);display:flex;flex-direction:column;min-height:0;background:var(--panel)">
+
+                <sc-if value="{{ listClosed }}" hint-placeholder-val="{{ false }}">
+                  <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;min-height:0">
+                    <div onClick="{{ toggleList }}" style="cursor:pointer;width:26px;height:26px;border-radius:6px;border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--txt2)">›</div>
+                    <div style="width:1px;height:6px"></div>
+                    <sc-for list="{{ railEpics }}" as="e" hint-placeholder-count="6">
+                      <div onClick="{{ e.open }}" style="cursor:pointer;width:26px;height:26px;border-radius:6px;border:1px solid {{ e.bd }};background:{{ e.bg }};display:flex;align-items:center;justify-content:center;position:relative">
+                        <div style="width:7px;height:7px;border-radius:50%;background:{{ e.dot }}"></div>
+                        <div style="position:absolute;top:-1px;right:-1px;font-size:8px;color:{{ e.starC }}">{{ e.railStar }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ listOpen }}" hint-placeholder-val="{{ true }}">
+                <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+                <div style="flex:none;padding:7px 10px;display:flex;flex-direction:column;gap:7px;border-bottom:1px solid var(--bd)">
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <div onClick="{{ toggleTools }}" style="cursor:pointer;flex:1;min-width:0;display:flex;align-items:center;gap:6px">
+                      <div style="font-size:10px;color:var(--txt3)">{{ toolCaret }}</div>
+                      <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Epics</div>
+                      <div style="font-size:10.5px;color:var(--txt3)">{{ totalCount }}</div>
+                      <div style="font-size:10px;padding:1px 7px;border-radius:999px;background:{{ chipBg }};color:{{ chipFg }};white-space:nowrap">{{ chipLabel }}</div>
+                    </div>
+                    <div onClick="{{ toggleTools }}" style="cursor:pointer;width:24px;height:24px;flex:none;border-radius:6px;border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--txt2)">⌕</div>
+                    <div onClick="{{ toggleList }}" style="cursor:pointer;width:24px;height:24px;flex:none;border-radius:6px;border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--txt2)">‹</div>
+                  </div>
+                  <sc-if value="{{ toolsOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <div style="display:flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--bd);border-radius:6px;padding:6px 9px">
+                        <div style="color:var(--txt3);font-size:11px">⌕</div>
+                        <input value="{{ q }}" onChange="{{ setQ }}" placeholder="Search epics…" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--txt);font-size:11.5px;font-family:Inter,sans-serif">
+                      </div>
+                      <div style="display:flex;gap:3px;flex-wrap:wrap">
+                        <sc-for list="{{ filters }}" as="f" hint-placeholder-count="5">
+                          <div onClick="{{ f.go }}" style="cursor:pointer;display:flex;align-items:center;gap:4px;padding:3px 7px;border-radius:999px;font-size:10.5px;border:1px solid {{ f.bd }};background:{{ f.bg }};color:{{ f.fg }}">
+                            <div>{{ f.label }}</div>
+                            <div style="opacity:.65">{{ f.count }}</div>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </div>
+                  </sc-if>
+                </div>
+
+                <div style="flex:1;overflow:auto;padding:8px 10px;display:flex;flex-direction:column;gap:9px">
+                  <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:34px 12px;text-align:center">
+                      <div style="width:38px;height:38px;border-radius:8px;border:1px dashed var(--bd);display:flex;align-items:center;justify-content:center;color:var(--txt3);font-size:15px">⌕</div>
+                      <div style="font-size:12.5px;color:var(--txt);font-weight:600">No epics match</div>
+                      <div style="font-size:11.5px;color:var(--txt2);line-height:1.5">Thử xoá từ khoá hoặc chọn filter All.</div>
+                      <div onClick="{{ resetFilters }}" style="cursor:pointer;margin-top:2px;font-size:11.5px;padding:6px 12px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Xoá bộ lọc</div>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ hasFollowed }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;flex-direction:column;gap:5px">
+                      <div onClick="{{ toggleFollowSection }}" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:2px 0">
+                        <div style="font-size:10px;color:var(--txt3)">{{ followCaret }}</div>
+                        <div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">★ Following</div>
+                        <div style="font-size:10.5px;color:var(--txt3)">{{ followCount }}</div>
+                      </div>
+                      <sc-if value="{{ followOpen }}" hint-placeholder-val="{{ true }}">
+                        <div style="display:flex;flex-direction:column;gap:2px">
+                          <sc-for list="{{ followedEpics }}" as="e" hint-placeholder-count="1">
+                            <div onClick="{{ e.open }}" style="cursor:grab;display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:5px;border:1px solid {{ e.bd }};background:{{ e.bg }}">
+                              <div style="width:7px;height:7px;border-radius:50%;background:{{ e.dot }};flex:none"></div>
+                              <div style="flex:1;min-width:0;font-size:11.5px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.title }}</div>
+                              <div style="width:26px;height:2px;border-radius:1px;background:var(--track);overflow:hidden;flex:none"><div style="height:2px;background:{{ e.dot }};width:{{ e.pct }}"></div></div>
+                              <div style="font-size:10px;color:var(--txt3);font-family:'JetBrains Mono',monospace;width:30px;text-align:right">{{ e.pct }}</div>
+                              <div onClick="{{ e.star }}" style="cursor:pointer;font-size:11px;color:{{ e.starC }}">★</div>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-if>
+
+                  <div style="display:flex;flex-direction:column;gap:5px">
+                    <div onClick="{{ toggleRestSection }}" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:2px 0">
+                      <div style="font-size:10px;color:var(--txt3)">{{ restCaret }}</div>
+                      <div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Not following</div>
+                      <div style="font-size:10.5px;color:var(--txt3)">{{ restCount }}</div>
+                    </div>
+                    <sc-if value="{{ restOpen }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;flex-direction:column;gap:2px">
+                      <sc-for list="{{ restEpics }}" as="e" hint-placeholder-count="4">
+                        <div onClick="{{ e.open }}" style="cursor:grab;display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:5px;border:1px solid {{ e.bd }};background:{{ e.bg }}">
+                          <div style="width:7px;height:7px;border-radius:50%;background:{{ e.dot }};flex:none"></div>
+                          <div style="flex:1;min-width:0;font-size:11.5px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.title }}</div>
+                          <div style="width:26px;height:2px;border-radius:1px;background:var(--track);overflow:hidden;flex:none"><div style="height:2px;background:{{ e.dot }};width:{{ e.pct }}"></div></div>
+                          <div style="font-size:10px;color:var(--txt3);font-family:'JetBrains Mono',monospace;width:30px;text-align:right">{{ e.pct }}</div>
+                          <div onClick="{{ e.star }}" style="cursor:pointer;font-size:11px;color:{{ e.starC }}">★</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                    </sc-if>
+                  </div>
+                </div>
+
+                <div style="flex:none;padding:8px 10px;border-top:1px solid var(--bd);display:flex;gap:6px">
+                  <div onClick="{{ openNew }}" style="cursor:pointer;flex:1;text-align:center;padding:7px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:11.5px;font-weight:600">+ New Epic</div>
+                  <div style="cursor:pointer;padding:7px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt2);font-size:11.5px" title="Start Autonomous Delivery">⚡</div>
+                </div>
+                </div>
+                </sc-if>
+              </div>
+
+              <div style="flex:1;min-width:0;overflow:auto;padding:16px 18px;display:flex;flex-direction:column;gap:14px">
+
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:7px;border:1px solid var(--warn-bd);background:var(--warn-bg)">
+                  <div style="color:var(--warn);font-size:12px">▲</div>
+                  <div style="flex:1;font-size:12px;color:var(--txt);line-height:1.5">Charter alignment: epic mở rộng ngoài phạm vi <span style="font-family:'JetBrains Mono',monospace">G-02</span> — chỉ được thu hẹp từ charter.</div>
+                  <div onClick="{{ goGuide }}" style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;color:var(--warn);font-weight:600">Xem xung đột</div>
+                </div>
+
+                <div style="display:flex;align-items:flex-start;gap:14px">
+                  <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:9px">
+                      <div style="font-size:11.5px;font-family:'JetBrains Mono',monospace;color:var(--txt3)">{{ epic.id }}</div>
+                      <div style="font-size:17px;color:var(--txt);font-weight:700">{{ epic.title }}</div>
+                      <div style="display:flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:999px;background:{{ epic.badgeBg }};color:{{ epic.badgeFg }};font-weight:600">
+                        <div>{{ epic.badgeIcon }}</div>
+                        <div>{{ epic.state }}</div>
+                      </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;margin-top:9px">
+                      <div style="flex:1;height:6px;border-radius:3px;background:var(--track);overflow:hidden"><div style="height:6px;border-radius:3px;background:var(--acc);width:{{ epic.pct }}"></div></div>
+                      <div style="font-size:11.5px;color:var(--txt2);font-family:'JetBrains Mono',monospace">{{ epic.pct }}</div>
+                      <div style="font-size:11.5px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ epic.tokens }}</div>
+                    </div>
+                  </div>
+                  <div style="position:relative">
+                    <div onClick="{{ toggleAutonomy }}" style="cursor:pointer;display:flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;border:1px solid var(--acc-bd);background:var(--acc-bg);color:var(--acc-txt);font-size:12px;font-weight:600">
+                      <div style="font-family:'JetBrains Mono',monospace">{{ mode }}</div>
+                      <div style="font-size:9px">▾</div>
+                    </div>
+                    <sc-if value="{{ autonomyOpen }}" hint-placeholder-val="{{ false }}">
+                      <div style="position:absolute;right:0;top:38px;width:280px;z-index:10;background:var(--panel2);border:1px solid var(--bd);border-radius:7px;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,0.35)">
+                        <sc-for list="{{ modes }}" as="m" hint-placeholder-count="4">
+                          <div onClick="{{ m.go }}" style="cursor:pointer;padding:9px 11px;border-bottom:1px solid var(--bd2);background:{{ m.bg }}">
+                            <div style="font-size:12px;font-weight:600;color:{{ m.fg }};font-family:'JetBrains Mono',monospace">{{ m.label }}</div>
+                            <div style="font-size:11px;color:var(--txt2);line-height:1.45;margin-top:2px">{{ m.desc }}</div>
+                          </div>
+                        </sc-for>
+                        <div style="padding:9px 11px;font-size:11px;color:var(--warn);line-height:1.5;background:var(--warn-bg)">Đổi sang unattended sẽ chạy liên tiếp nhiều stage — vẫn dừng ở hard gate.</div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+
+                <div style="flex:none;background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:9px">
+                    <div style="flex:none;white-space:nowrap;font-size:12.5px;color:var(--txt);font-weight:600">Project Context</div>
+                    <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 8px;border-radius:5px;background:var(--hover);color:var(--txt2);font-family:'JetBrains Mono',monospace">project-context · 7 step</div>
+                    <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 8px;border-radius:999px;background:var(--acc-bg);color:var(--acc-txt);font-weight:600">published · rev-7</div>
+                    <div style="flex:1"></div>
+                    <div style="min-width:0;font-size:11px;color:var(--txt3)">baseline chung — mỗi feature epic capture snapshot để chạy độc lập</div>
+                  </div>
+                  <div style="padding:10px 14px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+                    <sc-for list="{{ ctxSteps }}" as="c" hint-placeholder-count="7">
+                      <div style="display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:6px;border:1px solid {{ c.bd }};background:{{ c.bg }}">
+                        <div style="font-size:10.5px;color:{{ c.fg }}">{{ c.mark }}</div>
+                        <div style="font-size:11px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ c.n }}</div>
+                      </div>
+                    </sc-for>
+                    <div style="flex:1"></div>
+                    <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Mở context</div>
+                    <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--warn-bd);color:var(--warn)">Refresh context</div>
+                  </div>
+                </div>
+
+                <div style="flex:none;background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:9px">
+                    <div style="flex:none;white-space:nowrap;font-size:12.5px;color:var(--txt);font-weight:600">Feature epic đang chạy song song</div>
+                    <div style="min-width:0;font-size:11px;color:var(--txt3)">mỗi epic một terminal Claude, một branch, một PR</div>
+                    <div style="flex:1"></div>
+                    <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Kiểm tra độc lập</div>
+                  </div>
+                  <sc-for list="{{ parallel }}" as="p" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd2)">
+                      <div style="font-size:11px;color:{{ p.tone }}">{{ p.mark }}</div>
+                      <div style="width:130px;flex:none;font-size:11.5px;color:var(--txt);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.id }}</div>
+                      <div style="flex:1;min-width:0;font-size:12px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.title }}</div>
+                      <div style="font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ p.branch }}</div>
+                      <div style="font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace;width:52px;text-align:right">{{ p.pr }}</div>
+                      <div style="font-size:11px;color:{{ p.tone }};width:98px;text-align:right;font-family:'JetBrains Mono',monospace">{{ p.state }}</div>
+                    </div>
+                  </sc-for>
+                  <div style="padding:10px 14px;display:flex;flex-direction:column;gap:5px">
+                    <sc-for list="{{ independence }}" as="i" hint-placeholder-count="4">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <div style="font-size:11px;color:{{ i.tone }}">{{ i.mark }}</div>
+                        <div style="font-size:11.5px;color:var(--txt2);line-height:1.5">{{ i.label }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="flex:none;background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                    <div style="flex:none;white-space:nowrap;font-size:12.5px;color:var(--txt);font-weight:600">Flow của Feature Epic</div>
+                    <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 8px;border-radius:5px;background:var(--hover);color:var(--txt2);font-family:'JetBrains Mono',monospace">{{ pipelineLabel }}</div>
+                    <div style="flex:none;white-space:nowrap;display:flex;align-items:center;gap:5px;font-size:11px;padding:2px 8px;border-radius:999px;background:var(--warn-bg);color:var(--warn);font-weight:600">
+                      <div style="width:6px;height:6px;border-radius:50%;background:var(--warn);animation:aidlcPulse 1.3s ease-in-out infinite"></div>
+                      <div>{{ atLabel }}</div>
+                    </div>
+                    <div style="flex:1"></div>
+                                      </div>
+
+                  <div style="background:var(--panel2);overflow:hidden;height:{{ canvasH }}"><div style="position:relative;height:{{ gridH }};width:1120px;transform:scale(0.628);transform-origin:left top">
+                    <svg viewBox="{{ viewBox }}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                      <defs>
+                        <marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="var(--txt3)"></path></marker>
+                        <marker id="ara" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="var(--acc)"></path></marker>
+                        <marker id="arw" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 z" fill="var(--warn)"></path></marker>
+                      </defs>
+                      <sc-for list="{{ flowPaths }}" as="p" hint-placeholder-count="13">
+                        <path d="{{ p.d }}" stroke="{{ p.stroke }}" stroke-width="{{ p.w }}" stroke-dasharray="{{ p.dash }}" fill="none" marker-end="{{ p.marker }}"></path>
+                      </sc-for>
+                    </svg>
+
+                    <sc-for list="{{ flowNodes }}" as="n" hint-placeholder-count="13">
+                      <div onClick="{{ n.go }}" style="position:absolute;left:{{ n.x }};top:{{ n.y }};width:208px;box-sizing:border-box;cursor:pointer;padding:7px 11px;border-radius:7px;border:{{ n.border }};background:{{ n.bg }}">
+                        <div style="display:flex;align-items:center;gap:5px">
+                          <div style="font-size:13px;color:{{ n.fg }}">{{ n.icon }}</div>
+                          <div style="flex:1;min-width:0;font-size:14.5px;color:var(--txt);font-weight:600;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ n.name }}</div>
+                        </div>
+                        <div style="font-size:13px;color:{{ n.metaFg }};margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ n.meta }}</div>
+                      </div>
+                    </sc-for>
+
+                    <div style="position:absolute;left:{{ loopLeft }};top:{{ loopTop }};font-size:14px;color:var(--warn);white-space:nowrap">{{ rejectLabel }}</div>
+                    <div style="position:absolute;left:12px;top:6px;display:flex;align-items:center;gap:14px;font-size:13.5px;color:var(--txt3);white-space:nowrap">
+                      <div>{{ flowNote }}</div>
+                      <div style="display:flex;gap:12px"><div>✓ xong</div><div style="color:var(--warn)">● đang chạy</div><div>○ chưa tới</div><div>🔒 human gate</div></div>
+                    </div>
+                  </div></div>
+
+                  <div style="padding:11px 14px;border-top:1px solid var(--bd);display:flex;flex-direction:column;gap:8px">
+                    <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt3);font-weight:600">Vòng đời của step đang chạy</div>
+                    <div style="overflow:hidden;height:97px"><div style="position:relative;height:136px;width:1000px;transform:scale(0.705);transform-origin:left top">
+                      <svg viewBox="0 0 1000 136" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                        <path d="M148,46 L196,46" stroke="var(--acc)" stroke-width="2" fill="none" marker-end="url(#ara)"></path>
+                        <path d="M332,46 L392,46" stroke="var(--track)" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ar)"></path>
+                        <path d="M524,46 L588,46" stroke="var(--track)" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ar)"></path>
+                        <path d="M736,46 L800,46" stroke="var(--track)" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ar)"></path>
+                        <path d="M264,74 C264,120 196,120 196,80" stroke="var(--warn)" stroke-width="1.6" stroke-dasharray="4 4" fill="none" marker-end="url(#arw)"></path>
+                        <path d="M660,74 C660,126 90,128 90,74" stroke="var(--err)" stroke-width="1.6" stroke-dasharray="4 4" fill="none" marker-end="url(#arw)"></path>
+                      </svg>
+                      <sc-for list="{{ lifecycle }}" as="l" hint-placeholder-count="5">
+                        <div style="position:absolute;top:30px;left:{{ l.x }};width:{{ l.w }};box-sizing:border-box;padding:6px 9px;border-radius:6px;border:1.5px solid {{ l.bd }};background:{{ l.bg }}">
+                          <div style="display:flex;align-items:center;gap:6px">
+                            <div style="font-size:13.5px;color:{{ l.fg }}">{{ l.icon }}</div>
+                            <div style="font-size:15px;color:var(--txt);font-weight:600;font-family:'JetBrains Mono',monospace">{{ l.name }}</div>
+                          </div>
+                        </div>
+                      </sc-for>
+                      <div style="position:absolute;left:208px;top:100px;font-size:14px;color:var(--warn)">Rerun</div>
+                      <div style="position:absolute;left:420px;top:110px;font-size:14px;color:var(--err)">Reject → về AwaitingWork</div>
+                      <div style="position:absolute;left:152px;top:2px;font-size:13.5px;color:var(--txt3)">Run with Claude</div>
+                      <div style="position:absolute;left:340px;top:2px;font-size:13.5px;color:var(--txt3)">Mark step done</div>
+                      <div style="position:absolute;left:530px;top:2px;font-size:13.5px;color:var(--txt3)">pass + cần approve</div>
+                      <div style="position:absolute;left:744px;top:2px;font-size:13.5px;color:var(--txt3)">Approve</div>
+                    </div></div>
+                  </div>
+                </div>
+
+                <div style="flex:none;background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:9px">
+                    <div style="font-size:12.5px;color:var(--txt);font-weight:600">Cấu hình của Epic này</div>
+                    <div style="font-size:10.5px;padding:2px 8px;border-radius:5px;background:var(--acc-bg);color:var(--acc-txt)">ghi đè mặc định project</div>
+                    <div style="flex:1"></div>
+                    <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Sửa tất cả</div>
+                    <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt2)">Đặt lại theo project</div>
+                  </div>
+                  <sc-for list="{{ config }}" as="c" hint-placeholder-count="5">
+                    <div style="display:flex;align-items:center;gap:11px;padding:9px 14px;border-bottom:1px solid var(--bd2)">
+                      <div style="width:96px;flex:none;font-size:11.5px;color:var(--txt3)">{{ c.k }}</div>
+                      <div style="flex:1;min-width:0;font-size:12.5px;color:var(--txt);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.v }}</div>
+                      <div style="font-size:10.5px;color:{{ c.srcFg }}">{{ c.src }}</div>
+                      <div style="cursor:pointer;font-size:11.5px;color:var(--acc-txt)">Sửa</div>
+                    </div>
+                  </sc-for>
+                  <div style="padding:10px 14px;display:flex;flex-direction:column;gap:7px">
+                    <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--txt3);font-weight:600">Cách vận hành epic này</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <sc-for list="{{ runModes }}" as="m" hint-placeholder-count="2">
+                        <div onClick="{{ m.go }}" style="cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:6px;border:1px solid {{ m.bd }};background:{{ m.bg }};flex:1;min-width:0">
+                          <div style="font-size:11px;color:{{ m.fg }}">{{ m.mark }}</div>
+                          <div style="min-width:0">
+                            <div style="font-size:12px;color:var(--txt);font-weight:600">{{ m.label }}</div>
+                            <div style="font-size:11px;color:var(--txt3);line-height:1.45">{{ m.desc }}</div>
+                          </div>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="font-size:11px;color:var(--txt3);line-height:1.5">Không có CLI cohesive chạy ngầm — mọi thao tác đều mở lệnh nhìn thấy được trong terminal Claude.</div>
+                  </div>
+                </div>
+
+                <div style="flex:none;border:2px solid var(--err-bd);background:var(--err-bg);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:11px">
+                  <div style="display:flex;align-items:center;gap:9px">
+                    <div style="font-size:14px">🔒</div>
+                    <div style="flex:1">
+                      <div style="font-size:13px;color:var(--txt);font-weight:700">Human gate · await-merge</div>
+                      <div style="font-size:11.5px;color:var(--txt2);margin-top:2px">Agent không merge default branch. project-sync chỉ chạy sau bằng chứng merge.</div>
+                    </div>
+                    <div style="font-size:11px;padding:3px 9px;border-radius:999px;background:var(--warn-bg);color:var(--warn);font-weight:600">waiting-for-user</div>
+                  </div>
+                  <div style="font-size:12.5px;color:var(--txt);line-height:1.6;background:var(--panel2);border:1px solid var(--bd);border-radius:6px;padding:11px 12px">Mở PR <span style="font-family:'JetBrains Mono',monospace">epic-142-partial-refunds → main</span> và comment vào PAY-884. 4 file · <span style="color:var(--acc-txt)">+186</span> / <span style="color:var(--err)">−34</span>.</div>
+                  <div style="display:flex;gap:7px;flex-wrap:wrap">
+                    <div onClick="{{ openGate }}" style="cursor:pointer;padding:8px 14px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:12.5px;font-weight:600">Approve</div>
+                    <div onClick="{{ openGate }}" style="cursor:pointer;padding:8px 13px;border-radius:6px;border:1px solid var(--err-bd);color:var(--err);font-size:12.5px">Reject</div>
+                    <div style="cursor:pointer;padding:8px 13px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Rerun step</div>
+                    <div style="cursor:pointer;padding:8px 13px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Run auto-review</div>
+                    <div style="cursor:pointer;padding:8px 13px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Run with Claude</div>
+                  </div>
+                </div>
+
+                <div style="flex:none;background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:9px">
+                    <div style="font-size:12.5px;color:var(--txt);font-weight:600">Step của epic</div>
+                    <div style="flex:1"></div>
+                    <div style="font-size:11px;color:var(--txt3)">lệnh Claude có thể fail hoặc đóng — Run again with Claude mở lại đúng slash command và run id</div>
+                  </div>
+                  <sc-for list="{{ steps }}" as="s" hint-placeholder-count="6">
+                    <div style="display:flex;flex-direction:column;gap:7px;padding:10px 14px;border-bottom:1px solid var(--bd2);background:{{ s.rowBg }}">
+                      <div style="display:flex;align-items:center;gap:10px">
+                        <div style="width:18px;flex:none;text-align:center;font-size:12px;color:{{ s.tone }}">{{ s.icon }}</div>
+                        <div style="flex:1;min-width:0">
+                          <div style="font-size:12.5px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.name }}</div>
+                          <div style="font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ s.meta }}</div>
+                        </div>
+                        <div style="display:flex;gap:5px">
+                          <sc-for list="{{ s.actions }}" as="a" hint-placeholder-count="3">
+                            <div style="cursor:pointer;font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid {{ a.bd }};background:{{ a.bg }};color:{{ a.fg }};white-space:nowrap">{{ a.label }}</div>
+                          </sc-for>
+                        </div>
+                      </div>
+                      <sc-if value="{{ s.hasError }}" hint-placeholder-val="{{ false }}">
+                        <div style="font-size:11.5px;color:var(--err);line-height:1.55;font-family:'JetBrains Mono',monospace;padding-left:28px">{{ s.error }}</div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                  <div style="padding:10px 14px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                    <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:6px 11px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Run again with Claude</div>
+                    <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:6px 11px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Resume interrupted delivery</div>
+                    <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:6px 11px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Help &amp; guide</div>
+                    <div style="flex:1"></div>
+                    <div style="font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">resume từ checkpoint · giữ phase đã approve</div>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:14px">
+                  <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                    <div style="padding:10px 13px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+                      <div style="flex:none;white-space:nowrap;font-size:12.5px;color:var(--txt);font-weight:600">Chi tiết step · implement</div>
+                      <div style="flex:1"></div>
+                      <div style="font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">/aidlc epic next EPIC-142</div>
+                    </div>
+                    <sc-for list="{{ stepDetail }}" as="d" hint-placeholder-count="4">
+                      <div style="display:flex;gap:12px;padding:9px 13px;border-bottom:1px solid var(--bd2)">
+                        <div style="width:70px;flex:none;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--txt3)">{{ d.k }}</div>
+                        <div style="flex:1;font-size:12px;color:var(--txt2);line-height:1.6">{{ d.v }}</div>
+                      </div>
+                    </sc-for>
+                    <div style="padding:10px 13px;display:flex;gap:6px;flex-wrap:wrap">
+                      <sc-for list="{{ artifactsList }}" as="a" hint-placeholder-count="3">
+                        <div style="font-size:11px;padding:4px 8px;border-radius:5px;background:var(--panel2);border:1px solid var(--bd);color:var(--txt2);font-family:'JetBrains Mono',monospace">{{ a.n }}</div>
+                      </sc-for>
+                    </div>
+                  </div>
+
+                  <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                    <div style="padding:10px 13px;border-bottom:1px solid var(--bd);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">History</div>
+                    <sc-for list="{{ history }}" as="h" hint-placeholder-count="5">
+                      <div style="display:flex;gap:9px;padding:8px 13px;border-bottom:1px solid var(--bd2)">
+                        <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--txt3);flex:none">{{ h.at }}</div>
+                        <div style="flex:1;min-width:0">
+                          <div style="font-size:11.5px;color:{{ h.tone }}">{{ h.what }}</div>
+                          <div style="font-size:10.5px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ h.actor }}</div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:8px;border:1px solid var(--bd);background:var(--panel)">
+                  <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Ship</div>
+                  <div style="display:flex;align-items:center;gap:8px;flex:1">
+                    <sc-for list="{{ ship }}" as="s" hint-placeholder-count="4">
+                      <div style="display:flex;align-items:center;gap:7px">
+                        <div style="width:8px;height:8px;border-radius:50%;background:{{ s.dot }}"></div>
+                        <div style="font-size:11.5px;color:{{ s.fg }}">{{ s.label }}</div>
+                        <div style="width:18px;height:1px;background:var(--bd)"></div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="font-size:11.5px;color:var(--txt3);font-family:'JetBrains Mono',monospace">artifact policy: 4 / 9</div>
+                </div>
+
+                <div style="display:flex;gap:7px;flex-wrap:wrap;padding-bottom:6px">
+                  <sc-for list="{{ actionBar }}" as="a" hint-placeholder-count="5">
+                    <div style="cursor:pointer;font-size:12px;padding:8px 13px;border-radius:6px;border:1px solid {{ a.bd }};color:{{ a.fg }}">{{ a.label }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isHome }}" hint-placeholder-val="{{ false }}">
+            <div style="height:100%;box-sizing:border-box;overflow:auto;padding:20px 22px;display:flex;flex-direction:column;gap:16px">
+              <div style="display:grid;grid-template-columns:1fr 1.25fr;gap:16px">
+                <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);font-size:12.5px;color:var(--txt);font-weight:600">Project readiness</div>
+                  <sc-for list="{{ readiness }}" as="r" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid var(--bd2)">
+                      <div style="font-size:12px;color:{{ r.tone }}">{{ r.mark }}</div>
+                      <div style="flex:1;min-width:0">
+                        <div style="font-size:12.5px;color:var(--txt)">{{ r.label }}</div>
+                        <div style="font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ r.value }}</div>
+                      </div>
+                      <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid {{ r.btnBd }};color:{{ r.btnFg }}">{{ r.action }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="background:var(--panel);border:1px solid var(--acc-bd);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:12px">
+                  <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--acc-txt);font-weight:600">Current epic</div>
+                  <div style="font-size:16px;color:var(--txt);font-weight:700">EPIC-142 · Partial refunds</div>
+                  <div style="font-size:12.5px;color:var(--txt2);line-height:1.6">Việc tiếp theo: duyệt hard gate để mở PR sang <span style="font-family:'JetBrains Mono',monospace">main</span>. Không có gì chạy tiếp cho tới khi bạn quyết định.</div>
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="flex:1;height:6px;border-radius:3px;background:var(--track);overflow:hidden"><div style="height:6px;width:62%;background:var(--acc);border-radius:3px"></div></div>
+                    <div style="font-size:11.5px;color:var(--txt2);font-family:'JetBrains Mono',monospace">62%</div>
+                    <div style="font-size:11px;padding:3px 9px;border-radius:999px;background:var(--acc-bg);color:var(--acc-txt);font-family:'JetBrains Mono',monospace;font-weight:600">{{ mode }}</div>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <div onClick="{{ goEpics }}" style="cursor:pointer;padding:9px 15px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:12.5px;font-weight:600">Mở Epic</div>
+                    <div onClick="{{ openGate }}" style="cursor:pointer;padding:9px 15px;border-radius:6px;border:1px solid var(--bd);color:var(--txt);font-size:12.5px">Duyệt gate</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="background:var(--panel);border:1px solid var(--err-bd);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:11px">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <div style="color:var(--err);font-size:13px">■</div>
+                  <div style="font-size:13px;color:var(--txt);font-weight:600">EPIC-136 blocked · contract test thất bại sau 3 lần retry</div>
+                </div>
+                <div style="display:flex;gap:7px;flex-wrap:wrap">
+                  <sc-for list="{{ recovery }}" as="r" hint-placeholder-count="4">
+                    <div style="cursor:pointer;font-size:12px;padding:7px 12px;border-radius:6px;border:1px solid var(--bd);background:var(--panel2);color:var(--txt)">{{ r.n }}</div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isBuilder }}" hint-placeholder-val="{{ false }}">
+            <div style="height:100%;box-sizing:border-box;overflow:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+              <div style="flex:none;background:var(--panel);border:1px solid var(--acc-bd);border-radius:8px;overflow:hidden">
+                <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+                  <div style="flex:none;white-space:nowrap;font-size:12.5px;color:var(--txt);font-weight:600">Preset · Redraw Design</div>
+                  <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 8px;border-radius:5px;background:var(--acc-bg);color:var(--acc-txt);font-family:'JetBrains Mono',monospace">redraw-design · 4 step</div>
+                  <div style="flex:1;min-width:0;font-size:11px;color:var(--txt3)">cài 5 skill + agent design-recreator + pipeline trong một lần, không đụng pipeline hiện có</div>
+                  <div onClick="{{ applyPreset }}" style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:6px 12px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-weight:600">{{ presetCta }}</div>
+                  <div onClick="{{ togglePreset }}" style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:6px 11px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">{{ presetToggle }}</div>
+                </div>
+                <sc-if value="{{ presetOpen }}" hint-placeholder-val="{{ true }}">
+                  <div style="padding:12px 14px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Skills preset cài vào</div>
+                      <sc-for list="{{ presetSkills }}" as="s" hint-placeholder-count="5">
+                        <div style="display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:6px;border:1px solid {{ s.bd }};background:var(--panel2)">
+                          <div style="flex:none;font-size:11px;color:{{ s.fg }}">{{ s.mark }}</div>
+                          <div style="flex:none;white-space:nowrap;font-size:11.5px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ s.id }}</div>
+                          <div style="flex:1;min-width:0;font-size:11px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.desc }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Step của redraw-design</div>
+                      <sc-for list="{{ presetSteps }}" as="p" hint-placeholder-count="4">
+                        <div style="padding:7px 10px;border-radius:6px;border:1px solid {{ p.bd }};background:var(--panel2)">
+                          <div style="display:flex;align-items:center;gap:8px">
+                            <div style="flex:none;width:14px;font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ p.i }}</div>
+                            <div style="flex:1;min-width:0;font-size:11.5px;color:var(--txt);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.name }}</div>
+                            <div style="flex:none;white-space:nowrap;font-size:10px;padding:2px 6px;border-radius:4px;background:{{ p.tagBg }};color:{{ p.tagFg }}">{{ p.tag }}</div>
+                          </div>
+                          <div style="font-size:11px;color:var(--txt3);line-height:1.45;margin-top:3px">{{ p.desc }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+
+              <div style="display:flex;gap:5px">
+                <sc-for list="{{ builderTabs }}" as="b" hint-placeholder-count="3">
+                  <div onClick="{{ b.go }}" style="cursor:pointer;padding:7px 13px;border-radius:6px;font-size:12px;border:1px solid {{ b.bd }};background:{{ b.bg }};color:{{ b.fg }}">{{ b.label }}</div>
+                </sc-for>
+                <div style="flex:1"></div>
+                <div onClick="{{ openAdd }}" style="flex:none;white-space:nowrap;cursor:pointer;padding:7px 13px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:12px;font-weight:600">{{ builderAdd }}</div>
+              </div>
+
+              <sc-if value="{{ isBuilderFlows }}" hint-placeholder-val="{{ true }}">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <sc-for list="{{ flows }}" as="f" hint-placeholder-count="4">
+                    <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:13px;display:flex;flex-direction:column;gap:10px">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <div style="flex:1;font-size:12.5px;color:var(--txt);font-weight:600;font-family:'JetBrains Mono',monospace">{{ f.id }}</div>
+                        <div style="font-size:11px;color:var(--txt3)">{{ f.steps }} step</div>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:0">
+                        <sc-for list="{{ f.nodes }}" as="n" hint-placeholder-count="4">
+                          <div style="display:flex;align-items:center;flex:1">
+                            <div style="flex:1;height:1px;background:var(--bd)"></div>
+                            <div style="padding:3px 8px;border-radius:5px;border:1px solid var(--bd);background:var(--panel2);font-size:10.5px;color:var(--txt2);white-space:nowrap">{{ n.n }}</div>
+                            <div style="flex:1;height:1px;background:var(--bd)"></div>
+                          </div>
+                        </sc-for>
+                      </div>
+                      <div style="display:flex;gap:6px">
+                        <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Edit</div>
+                        <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Generate from recipe</div>
+                        <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--err)">Delete</div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ isBuilderAgents }}" hint-placeholder-val="{{ false }}">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <sc-for list="{{ agents }}" as="a" hint-placeholder-count="4">
+                    <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:13px;display:flex;flex-direction:column;gap:9px">
+                      <div style="display:flex;align-items:center;gap:8px">
+                        <div style="flex:1;font-size:12.5px;color:var(--txt);font-weight:600">{{ a.name }}</div>
+                        <div style="font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--acc-bg);color:var(--acc-txt);font-family:'JetBrains Mono',monospace">{{ a.tier }}</div>
+                      </div>
+                      <div style="font-size:11.5px;color:var(--txt3);line-height:1.5">{{ a.desc }}</div>
+                      <div style="font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ a.model }}</div>
+                      <div style="display:flex;gap:5px;flex-wrap:wrap">
+                        <sc-for list="{{ a.skills }}" as="s" hint-placeholder-count="3">
+                          <div style="font-size:11px;padding:3px 7px;border-radius:5px;background:var(--panel2);border:1px solid var(--bd);color:var(--txt2);font-family:'JetBrains Mono',monospace">{{ s.n }}</div>
+                        </sc-for>
+                      </div>
+                      <sc-if value="{{ a.hasCaps }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                          <div style="flex:none;white-space:nowrap;font-size:10.5px;color:var(--txt3)">capabilities</div>
+                          <sc-for list="{{ a.caps }}" as="c" hint-placeholder-count="4">
+                            <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--acc-bg);color:var(--acc-txt);font-family:'JetBrains Mono',monospace">{{ c.n }}</div>
+                          </sc-for>
+                        </div>
+                        <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--txt3);background:var(--panel2);border:1px solid var(--bd);border-radius:6px;padding:7px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.frontmatter }}</div>
+                      </sc-if>
+                      <div style="display:flex;gap:6px">
+                        <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Edit</div>
+                        <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Rename</div>
+                        <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--err)">Delete</div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ isBuilderSkills }}" hint-placeholder-val="{{ false }}">
+                <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <sc-for list="{{ skills }}" as="s" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;gap:11px;padding:9px 14px;border-bottom:1px solid var(--bd2)">
+                      <div style="flex:none;width:150px;font-size:12.5px;color:var(--txt);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.id }}</div>
+                      <div style="flex:1;min-width:0;font-size:11.5px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ s.desc }}</div>
+                      <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 7px;border-radius:5px;background:{{ s.tagBg }};color:{{ s.tagFg }}">{{ s.source }}</div>
+                      <div style="flex:none;font-size:11.5px;color:var(--txt2);cursor:pointer">Edit</div>
+                      <div style="flex:none;font-size:11.5px;color:var(--err);cursor:pointer">Delete</div>
+                    </div>
+                  </sc-for>
+                  <div style="padding:11px 14px;font-size:11.5px;color:var(--txt3);line-height:1.5">Thêm skill bằng 4 cách: chọn template · dán nội dung · upload file · tạo blank.</div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isAnalyze }}" hint-placeholder-val="{{ false }}">
+            <div style="height:100%;box-sizing:border-box;overflow:auto;padding:20px 22px;display:flex;gap:16px">
+              <div style="width:520px;flex:none;background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:13px">
+                <div style="font-size:13px;color:var(--txt);font-weight:600">Analyze requirement</div>
+                <div style="display:flex;flex-direction:column;gap:5px">
+                  <div style="font-size:11.5px;color:var(--txt2)">Nguồn requirement</div>
+                  <div style="background:var(--panel2);border:1px solid var(--bd);border-radius:6px;padding:10px 11px;font-size:12px;color:var(--txt3);min-height:64px">Dán nội dung, đường dẫn file, hoặc URL ticket…</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="font-size:11.5px;color:var(--txt2)">Platform đích</div>
+                  <div style="display:flex;gap:6px">
+                    <sc-for list="{{ platforms }}" as="p" hint-placeholder-count="5">
+                      <div onClick="{{ p.go }}" style="cursor:pointer;flex:1;text-align:center;padding:9px 6px;border-radius:6px;font-size:11.5px;border:1px solid {{ p.bd }};background:{{ p.bg }};color:{{ p.fg }}">{{ p.label }}</div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div style="display:flex;flex-direction:column;gap:5px">
+                    <div style="font-size:11.5px;color:var(--txt2)">Parent task</div>
+                    <div style="background:var(--panel2);border:1px solid var(--bd);border-radius:6px;padding:9px 11px;font-size:12px;color:var(--txt3);font-family:'JetBrains Mono',monospace">PAY-884</div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:5px">
+                    <div style="font-size:11.5px;color:var(--txt2)">Project key</div>
+                    <div style="background:var(--panel2);border:1px solid var(--bd);border-radius:6px;padding:9px 11px;font-size:12px;color:var(--txt3);font-family:'JetBrains Mono',monospace">PAY</div>
+                  </div>
+                </div>
+                <div style="background:var(--panel2);border:1px solid var(--bd);border-radius:6px;padding:11px;display:flex;flex-direction:column;gap:6px">
+                  <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Xác nhận trước khi tạo</div>
+                  <div style="font-size:12px;color:var(--txt);line-height:1.6">Partial refunds for split payments · Jira · parent PAY-884 · REQ-018</div>
+                </div>
+                <div style="cursor:pointer;text-align:center;padding:10px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-size:12.5px;font-weight:600">Proceed</div>
+              </div>
+
+              <div style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                <div style="padding:11px 14px;border-bottom:1px solid var(--bd);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Recent analyses</div>
+                <sc-for list="{{ analyses }}" as="a" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid var(--bd2);cursor:pointer">
+                    <div style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--txt3)">{{ a.id }}</div>
+                    <div style="flex:1;font-size:12.5px;color:var(--txt)">{{ a.title }}</div>
+                    <div style="font-size:11px;color:var(--txt3)">{{ a.meta }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isTests }}" hint-placeholder-val="{{ false }}">
+            <div style="height:100%;box-sizing:border-box;overflow:auto;padding:20px 22px;display:flex;flex-direction:column;gap:16px">
+              <div style="font-size:13px;color:var(--txt);font-weight:600">Test Agent · E2E pipeline</div>
+              <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:18px 16px">
+                <div style="display:flex;align-items:flex-start">
+                  <sc-for list="{{ testSteps }}" as="t" hint-placeholder-count="7">
+                    <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+                      <div style="display:flex;align-items:center">
+                        <div style="height:2px;flex:1;background:{{ t.lineL }}"></div>
+                        <div style="width:28px;height:28px;border-radius:{{ t.radius }};border:2px solid {{ t.ring }};background:{{ t.fill }};color:{{ t.iconC }};display:flex;align-items:center;justify-content:center;font-size:12px;flex:none">{{ t.icon }}</div>
+                        <div style="height:2px;flex:1;background:{{ t.lineR }}"></div>
+                      </div>
+                      <div style="text-align:center;font-size:11.5px;color:{{ t.fg }};font-weight:600">{{ t.name }}</div>
+                      <div style="text-align:center;font-size:10.5px;color:var(--txt3)">{{ t.meta }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+                <div style="background:var(--panel);border:1px solid var(--acc-bd);border-radius:8px;padding:15px;display:flex;flex-direction:column;gap:9px">
+                  <div style="font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--txt3);font-weight:600">Verdict</div>
+                  <div style="font-size:15px;color:var(--txt);font-weight:700">28 pass · 2 healed · 1 fail</div>
+                  <div style="font-size:12px;color:var(--txt2);line-height:1.6">Fail duy nhất ở luồng refund một phần với thẻ 3DS — cần người xác nhận là bug thật hay test cũ.</div>
+                  <div style="cursor:pointer;align-self:flex-start;font-size:12px;padding:7px 12px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Mở report chi tiết</div>
+                </div>
+                <div style="background:var(--panel);border:1px solid var(--warn-bd);border-radius:8px;padding:15px;display:flex;flex-direction:column;gap:9px">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div style="font-size:13px">🔒</div>
+                    <div style="font-size:12.5px;color:var(--txt);font-weight:600">2 gate trong pipeline</div>
+                  </div>
+                  <div style="font-size:12px;color:var(--txt2);line-height:1.6">Confirm (trước khi sinh test) và Verdict (trước khi ghi kết luận) đều cần người duyệt.</div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isGuide }}" hint-placeholder-val="{{ false }}">
+            <div style="height:100%;box-sizing:border-box;overflow:auto;padding:20px 22px;display:grid;grid-template-columns:1.1fr 1fr;gap:16px;align-content:start">
+              <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                <div style="padding:11px 14px;border-bottom:1px solid var(--bd);font-size:12.5px;color:var(--txt);font-weight:600">Build · destructive migration</div>
+                <sc-for list="{{ help }}" as="h" hint-placeholder-count="5">
+                  <div style="display:flex;gap:12px;padding:11px 14px;border-bottom:1px solid var(--bd2)">
+                    <div style="width:80px;flex:none;font-size:11px;font-family:'JetBrains Mono',monospace;color:{{ h.tone }}">{{ h.k }}</div>
+                    <div style="flex:1;font-size:12.5px;color:var(--txt2);line-height:1.6">{{ h.v }}</div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div style="background:var(--panel);border:1px solid var(--acc-bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+                    <div style="flex:none;white-space:nowrap;font-size:12.5px;color:var(--txt);font-weight:600">Ví dụ cấu hình · Redraw Design</div>
+                    <div style="flex:1"></div>
+                    <div style="flex:none;white-space:nowrap;cursor:pointer;font-size:11px;color:var(--acc-txt)">Copy</div>
+                  </div>
+                  <div style="padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.8;color:var(--txt2);background:var(--panel2)">
+                    <sc-for list="{{ exampleLines }}" as="l" hint-placeholder-count="10">
+                      <div style="color:{{ l.c }};white-space:pre;overflow:hidden;text-overflow:ellipsis">{{ l.t }}</div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+                    <div style="flex:none;white-space:nowrap;font-size:12.5px;color:var(--txt);font-weight:600">Test cho Redraw Design</div>
+                    <div style="flex:1"></div>
+                    <div style="flex:none;white-space:nowrap;font-size:10.5px;padding:2px 8px;border-radius:999px;background:var(--acc-bg);color:var(--acc-txt);font-weight:600">{{ testSummary }}</div>
+                  </div>
+                  <sc-for list="{{ redrawTests }}" as="t" hint-placeholder-count="6">
+                    <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--bd2)">
+                      <div style="flex:none;font-size:11px;color:{{ t.tone }}">{{ t.mark }}</div>
+                      <div style="flex:1;min-width:0;font-size:11.5px;color:var(--txt2);line-height:1.5">{{ t.label }}</div>
+                      <div style="flex:none;white-space:nowrap;font-size:10.5px;color:var(--txt3);font-family:'JetBrains Mono',monospace">{{ t.file }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+                    <div style="font-size:12.5px;color:var(--txt);font-weight:600">Doctor</div>
+                    <div style="flex:1"></div>
+                    <div style="cursor:pointer;font-size:11.5px;color:var(--acc-txt)">Chạy --fix</div>
+                  </div>
+                  <sc-for list="{{ doctor }}" as="d" hint-placeholder-count="5">
+                    <div style="display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid var(--bd2)">
+                      <div style="font-size:12px;color:{{ d.tone }}">{{ d.mark }}</div>
+                      <div style="flex:1;font-size:12.5px;color:var(--txt)">{{ d.label }}</div>
+                      <div style="cursor:pointer;font-size:11.5px;color:{{ d.actionTone }}">{{ d.action }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div onClick="{{ toggleLogs }}" style="cursor:pointer;background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:11px 14px;display:flex;align-items:center;gap:8px">
+                  <div style="font-size:11px;color:var(--txt3)">{{ logCaret }}</div>
+                  <div style="flex:1;font-size:12.5px;color:var(--txt)">Log nâng cao · 20 event gần nhất</div>
+                  <div style="font-size:11px;color:var(--txt3)">debug</div>
+                </div>
+                <sc-if value="{{ logsOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.9;color:var(--txt2)">
+                    <sc-for list="{{ events }}" as="ev" hint-placeholder-count="5">
+                      <div>{{ ev.line }}</div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isStudio }}" hint-placeholder-val="{{ false }}">
+            <div style="height:100%;box-sizing:border-box;overflow:auto;padding:20px 22px;display:flex;flex-direction:column;gap:16px">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:center;gap:9px">
+                  <div style="font-size:12.5px;color:var(--txt);font-weight:600">Workflow pack</div>
+                  <div style="font-size:11.5px;color:var(--txt3)">— đây là mặc định của project; mỗi Epic vẫn sửa được riêng trong tab Epics</div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+                  <sc-for list="{{ packs }}" as="p" hint-placeholder-count="4">
+                    <div onClick="{{ p.go }}" style="cursor:pointer;border-radius:8px;padding:13px;border:1px solid {{ p.bd }};background:{{ p.bg }};display:flex;flex-direction:column;gap:7px">
+                      <div style="font-size:12.5px;font-weight:600;color:{{ p.fg }};font-family:'JetBrains Mono',monospace">{{ p.label }}</div>
+                      <div style="font-size:11.5px;color:var(--txt2);line-height:1.5">{{ p.desc }}</div>
+                      <div style="font-size:11px;color:var(--txt3)">{{ p.agents }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+                    <div style="font-size:12.5px;color:var(--txt);font-weight:600">Model provider</div>
+                    <div style="flex:1"></div>
+                    <div style="cursor:pointer;font-size:11.5px;padding:5px 10px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Check providers</div>
+                  </div>
+                  <sc-for list="{{ providers }}" as="p" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid var(--bd2)">
+                      <div style="font-size:12px;color:{{ p.tone }}">{{ p.mark }}</div>
+                      <div style="flex:1;min-width:0">
+                        <div style="font-size:12.5px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ p.id }}</div>
+                        <div style="font-size:11px;color:var(--txt3)">{{ p.note }}</div>
+                      </div>
+                      <div style="font-size:11.5px;color:{{ p.actionTone }};cursor:pointer">{{ p.action }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                  <div style="padding:11px 14px;border-bottom:1px solid var(--bd);font-size:12.5px;color:var(--txt);font-weight:600">Capabilities</div>
+                  <sc-for list="{{ caps }}" as="c" hint-placeholder-count="5">
+                    <div onClick="{{ c.go }}" style="cursor:pointer;display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid var(--bd2)">
+                      <div style="font-size:11px;color:{{ c.healthTone }}">{{ c.health }}</div>
+                      <div style="flex:1;min-width:0">
+                        <div style="display:flex;align-items:center;gap:7px">
+                          <div style="font-size:12.5px;color:var(--txt);font-family:'JetBrains Mono',monospace">{{ c.name }}</div>
+                          <div style="font-size:10px;padding:1px 6px;border-radius:4px;background:{{ c.kindBg }};color:{{ c.kindFg }}">{{ c.kind }}</div>
+                        </div>
+                      </div>
+                      <div style="width:34px;height:19px;border-radius:999px;padding:2px;box-sizing:border-box;background:{{ c.trackBg }};display:flex;justify-content:{{ c.knobPos }}">
+                        <div style="width:15px;height:15px;border-radius:50%;background:{{ c.knobBg }}"></div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+
+              <div style="background:var(--panel);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+                <div style="padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+                  <div style="font-size:12.5px;color:var(--txt);font-weight:600">Artifact policy</div>
+                  <div style="font-size:11px;color:var(--txt3);font-family:'JetBrains Mono',monospace">.aidlc/artifacts.yaml</div>
+                  <div style="flex:1"></div>
+                  <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--acc-txt)"><div>✓</div><div>JSON hợp lệ</div></div>
+                  <div style="cursor:pointer;font-size:11.5px;padding:5px 11px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-weight:600">Save</div>
+                </div>
+                <div style="padding:13px 14px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.85;color:var(--txt2);background:var(--panel2)">
+                  <sc-for list="{{ policyLines }}" as="l" hint-placeholder-count="8">
+                    <div style="color:{{ l.c }}">{{ l.t }}</div>
+                  </sc-for>
+                </div>
+                <div style="padding:10px 14px;font-size:11.5px;color:var(--txt3);line-height:1.5">Mặc định mọi type là commit:false — chỉ artifact được policy chọn mới xuất hiện trong commit preview.</div>
+              </div>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </div>
+
+    <sc-if value="{{ toastOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;right:18px;bottom:38px;z-index:36;width:352px;background:var(--panel2);border:1px solid var(--acc-bd);border-radius:8px;box-shadow:0 18px 44px rgba(0,0,0,0.45);padding:12px 13px;display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:flex-start;gap:9px">
+          <div style="flex:none;font-size:12px;color:var(--acc-txt)">✓</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--txt);font-weight:600">{{ toastTitle }}</div>
+            <div style="font-size:11.5px;color:var(--txt2);line-height:1.5;margin-top:2px">{{ toastBody }}</div>
+          </div>
+          <div onClick="{{ closeToast }}" style="flex:none;cursor:pointer;font-size:11px;color:var(--txt3)">✕</div>
+        </div>
+        <div style="display:flex;gap:7px">
+          <div onClick="{{ closeToast }}" style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:6px 12px;border-radius:6px;background:var(--acc);color:var(--on-acc);font-weight:600">Reload VS Code</div>
+          <div onClick="{{ closeToast }}" style="flex:none;white-space:nowrap;cursor:pointer;font-size:11.5px;padding:6px 12px;border-radius:6px;border:1px solid var(--bd);color:var(--txt)">Để sau</div>
+        </div>
+      </div>
+    </sc-if>
+
+    <div style="height:24px;flex:none;background:var(--acc);display:flex;align-items:center;padding:0 12px;gap:14px;color:var(--on-acc);font-size:11px;font-weight:500">
+      <div>⎇ epic-142-partial-refunds</div>
+      <div>AIDLC · {{ statusText }}</div>
+      <div style="flex:1"></div>
+      <div style="font-family:'JetBrains Mono',monospace">{{ cmdHint }}</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;startTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Home&quot;,&quot;Epics&quot;,&quot;Builder&quot;,&quot;Analyze&quot;,&quot;Tests&quot;,&quot;Guide&quot;,&quot;Studio&quot;],&quot;default&quot;:&quot;Epics&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;executionMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;guide&quot;,&quot;assist&quot;,&quot;auto&quot;,&quot;unattended&quot;],&quot;default&quot;:&quot;auto&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Policy&quot;}}">
+class Component extends DCLogic {
+  state = { theme: null, tab: null, q: '', filter: 'All', follow: null, sel: 'EPIC-142',
+            gate: false, reason: '', autonomy: false, mode: null, builder: 'Workflows',
+            pack: 'sdlc-core', caps: null, platform: 'Jira', followOpen: true, logs: false };
+
+  get theme() { return this.state.theme ?? (this.props.theme || 'dark'); }
+  get tab() { return this.state.tab ?? (this.props.startTab || 'Epics'); }
+  get mode() { return this.state.mode ?? (this.props.executionMode || 'auto'); }
+
+  go(t) { return () => this.setState({ tab: t }); }
+
+  renderVals() {
+    const dark = this.theme === 'dark';
+    const A = 'var(--acc-txt)', T2 = 'var(--txt2)', T3 = 'var(--txt3)', TX = 'var(--txt)';
+    const OK = 'var(--acc-txt)', WARN = 'var(--warn)', ERR = 'var(--err)';
+
+    const themes = [['dark', 'Dark'], ['light', 'Light']].map(([id, label]) => ({
+      label, go: () => this.setState({ theme: id }),
+      bg: this.theme === id ? 'rgba(20,197,96,0.16)' : 'rgba(255,255,255,0.03)',
+      fg: this.theme === id ? 'rgb(20,197,96)' : '#9AA0A0'
+    }));
+
+    const tabIds = ['Home', 'Epics', 'Builder', 'Analyze', 'Tests', 'Guide', 'Studio'];
+    const tabs = tabIds.map(label => ({
+      label, go: this.go(label),
+      fg: this.tab === label ? TX : T3,
+      bd: this.tab === label ? 'var(--acc)' : 'transparent'
+    }));
+
+    const stats = [['24', 'Agents', 'Builder'], ['61', 'Skills', 'Builder'], ['9', 'Flows', 'Builder'], ['6', 'Epics', 'Epics']]
+      .map(([n, label, t]) => ({ n, label, go: this.go(t) }));
+
+    const g = 'var(--acc)', am = 'var(--warn)', rd = 'var(--err)', gr = 'var(--track)';
+    const rows = [
+      { id: 'EPIC-142', title: 'Partial refunds', state: 'In progress', dot: am, pct: '62%', next: 'Approve hard gate' },
+      { id: 'EPIC-139', title: 'Webhook retry backoff', state: 'In progress', dot: g, pct: '78%', next: 'Verify · contract tests' },
+      { id: 'EPIC-136', title: 'Idempotency keys', state: 'Failed', dot: rd, pct: '54%', next: 'Recovery hết lượt' },
+      { id: 'EPIC-131', title: 'Refund audit export', state: 'Done', dot: g, pct: '100%', next: 'PR #311 merged' },
+      { id: 'EPIC-128', title: 'Dispute evidence upload', state: 'Pending', dot: gr, pct: '0%', next: 'Cần acceptance criteria' },
+      { id: 'EPIC-124', title: 'Payout schedule refactor', state: 'Pending', dot: gr, pct: '22%', next: 'Chờ quyết định charter' },
+      { id: 'DESIGN-001', title: 'Redraw checkout screen', state: 'In progress', dot: am, pct: '75%', next: 'human-review · chờ feedback', pipeline: 'redraw-design' }
+    ];
+
+    const followSet = this.state.follow || { 'EPIC-142': true, 'EPIC-139': true };
+    const q = this.state.q, flt = this.state.filter;
+    const counts = { All: rows.length };
+    rows.forEach(r => { counts[r.state] = (counts[r.state] || 0) + 1; });
+    const filters = ['All', 'In progress', 'Pending', 'Done', 'Failed'].map(label => ({
+      label, count: counts[label] || 0,
+      go: () => this.setState({ filter: label }),
+      bg: flt === label ? 'var(--acc-bg)' : 'transparent',
+      bd: flt === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: flt === label ? A : T2
+    }));
+
+    const visible = rows
+      .filter(r => flt === 'All' || r.state === flt)
+      .filter(r => !q || (r.id + ' ' + r.title + ' ' + r.next).toLowerCase().indexOf(q.toLowerCase()) >= 0)
+      .map(r => Object.assign({}, r, {
+        open: () => this.setState({ sel: r.id }),
+        star: () => this.setState({ follow: Object.assign({}, followSet, { [r.id]: !followSet[r.id] }) }),
+        starC: followSet[r.id] ? A : 'var(--track)',
+        bg: this.state.sel === r.id ? 'var(--acc-bg)' : 'var(--panel2)',
+        bd: this.state.sel === r.id ? 'var(--acc-bd)' : 'var(--bd)'
+      }));
+    const followedEpics = visible.filter(r => followSet[r.id]);
+    const restEpics = visible.filter(r => !followSet[r.id]);
+
+    const cur = rows.filter(r => r.id === this.state.sel)[0] || rows[0];
+    const badge = {
+      'In progress': ['●', 'var(--warn-bg)', WARN, 'waiting-for-user'],
+      'Failed': ['✕', 'var(--err-bg)', ERR, 'blocked'],
+      'Done': ['✓', 'var(--acc-bg)', OK, 'completed'],
+      'Pending': ['○', 'var(--hover)', T2, 'draft']
+    }[cur.state];
+    const epic = {
+      id: cur.id, title: cur.title, pct: cur.pct, tokens: '412K tokens · $6.48',
+      badgeIcon: badge[0], badgeBg: badge[1], badgeFg: badge[2], state: badge[3]
+    };
+
+    const st = (name, meta, kind, first, last) => {
+      const map = {
+        done: ['✓', 'var(--acc)', 'var(--acc)', 'var(--on-acc)', TX],
+        active: ['●', 'var(--warn)', 'transparent', WARN, TX],
+        todo: ['○', 'var(--track)', 'transparent', T3, T3]
+      }[kind];
+      const doneLine = kind === 'todo' ? 'var(--track)' : 'var(--acc)';
+      return { name, meta, icon: map[0], ring: map[1], fill: map[2], iconC: map[3], fg: map[4],
+        lineL: first ? 'transparent' : doneLine, lineR: last ? 'transparent' : (kind === 'done' ? 'var(--acc)' : 'var(--track)') };
+    };
+    const stages = [
+      st('Understand', 'approved', 'done', true, false),
+      st('Plan', 'approved', 'done', false, false),
+      st('Build', '3 subruns · gate', 'active', false, false),
+      st('Verify', 'pending', 'todo', false, false),
+      st('Ship', 'pending', 'todo', false, true)
+    ];
+    const fnode = (name, meta, kind) => {
+      const map = {
+        done: ['✓', OK, 'var(--acc-bg)', '1.5px solid var(--acc)', T3],
+        active: ['●', WARN, 'var(--warn-bg)', '2px solid var(--warn)', WARN],
+        gate: ['🔒', WARN, 'var(--err-bg)', '2px solid var(--err-bd)', ERR],
+        todo: ['○', T3, 'var(--panel)', '1.5px dashed var(--bd)', T3]
+      }[kind];
+      return { name, meta, icon: map[0], fg: map[1], bg: map[2], border: map[3], metaFg: map[4], go: this.go('Guide') };
+    };
+    const featureFlow = [
+      fnode('capture-context', 'snapshot rev-7', 'done'),
+      fnode('specify', 'SPEC.md', 'done'),
+      fnode('clarify', 'FR/NFR/AC rõ', 'done'),
+      fnode('plan', 'PLAN.md', 'done'),
+      fnode('plan-tasks', 'TASKS.md', 'done'),
+      fnode('analyze-contract', 'CONTRACT frozen', 'done'),
+      fnode('implement', 'running · 01:12', 'active'),
+      fnode('impl-context', 'hành vi thực tế · traceability', 'todo'),
+      fnode('cohesion-review', 'review độc lập', 'todo'),
+      fnode('system-test', 'quality gates', 'todo'),
+      fnode('open-pr', 'PR riêng', 'gate'),
+      fnode('await-merge', 'human merge', 'gate'),
+      fnode('project-sync', 'cập nhật Reality', 'todo')
+    ];
+    const isRedraw = cur.pipeline === 'redraw-design';
+    const redrawFlow = [
+      fnode('design-analyzer', 'layout · màu · type · spacing', 'done'),
+      fnode('design-recreator', 'dựng UI theo phân tích', 'done'),
+      fnode('visual-reviewer', 'đã sửa 6 sai lệch', 'done'),
+      fnode('human-review', 'chờ duyệt / feedback', 'gate')
+    ];
+    const activeFlow = isRedraw ? redrawFlow : featureFlow;
+    const flowNodes = activeFlow.map((n, i) => Object.assign({}, n, {
+      x: (12 + 224 * (i % 5)) + 'px',
+      y: (40 + 128 * Math.floor(i / 5)) + 'px'
+    }));
+
+    // connectors derived from the same grid: node i occupies x=12+224*(i%5), y=40+128*floor(i/5), 208x52
+    const nx = (i) => 12 + 224 * (i % 5), ny = (i) => 40 + 128 * Math.floor(i / 5);
+    const path = (d, done) => ({ d, stroke: done ? 'var(--acc)' : 'var(--track)', w: '2', dash: done ? 'none' : '5 4', marker: done ? 'url(#ara)' : 'url(#ar)' });
+    const flowPaths = [];
+    activeFlow.forEach((n, i) => {
+      if (i === activeFlow.length - 1) return;
+      const done = activeFlow[i + 1].icon === '✓' || activeFlow[i].icon === '✓';
+      if ((i + 1) % 5 === 0) {
+        flowPaths.push(path('M' + (nx(i) + 104) + ',' + (ny(i) + 52) + ' L' + (nx(i) + 104) + ',' + (ny(i) + 88) + ' L' + (nx(i + 1) + 104) + ',' + (ny(i) + 88) + ' L' + (nx(i + 1) + 104) + ',' + ny(i + 1), done));
+      } else {
+        flowPaths.push(path('M' + (nx(i) + 208) + ',' + (ny(i) + 26) + ' L' + nx(i + 1) + ',' + (ny(i) + 26), done));
+      }
+    });
+    // reject loop: last gate/review node back to the recreate/implement node
+    const from = isRedraw ? 3 : 8, to = isRedraw ? 1 : 6;
+    const loopY = ny(from) + 76;
+    flowPaths.push({ d: 'M' + (nx(from) + 104) + ',' + (ny(from) + 52) + ' L' + (nx(from) + 104) + ',' + loopY + ' L' + (nx(to) + 104) + ',' + loopY + ' L' + (nx(to) + 104) + ',' + (ny(to) + 52), stroke: 'var(--warn)', w: '1.6', dash: '4 4', marker: 'url(#arw)' });
+    const loopLabel = { left: (nx(to) + 116) + 'px', top: (loopY - 20) + 'px' };
+    const gridH = Math.max(loopY + 20, 40 + 128 * Math.ceil(activeFlow.length / 5) + 12);
+
+    const parallel = [
+      { id: 'PAYMENTS-001', title: 'Partial refunds', branch: 'feat/payments-001', pr: 'PR #402', state: 'implement 7/13', tone: WARN, mark: '●', bd: 'var(--warn-bd)' },
+      { id: 'EXPORT-001', title: 'Refund audit export', branch: 'feat/export-001', pr: 'PR #399', state: 'await-merge', tone: WARN, mark: '🔒', bd: 'var(--bd)' },
+      { id: 'NOTIFICATIONS-001', title: 'Webhook retry notice', branch: 'feat/notif-001', pr: '—', state: 'specify 2/13', tone: OK, mark: '●', bd: 'var(--bd)' }
+    ];
+    const independence = [
+      { mark: '✓', tone: OK, label: 'Scope & acceptance criteria tách biệt' },
+      { mark: '✓', tone: OK, label: 'Branch và PR riêng cho từng epic' },
+      { mark: '!', tone: WARN, label: 'EXPORT-001 chạm cùng schema refunds — merge trước, refresh context sau' },
+      { mark: '✓', tone: OK, label: 'Không có thay đổi charter đang chờ ở epic khác' }
+    ];
+    const ctxSteps = ['define-charter', 'scan-project', 'model-project', 'check-drift', 'review-context', 'publish-context', 'project-rules-sync']
+      .map((n, i) => ({ n, mark: '✓', fg: OK, bd: 'var(--acc-bd)', bg: 'var(--acc-bg)' }));
+
+    const lc = (name, x, w, kind) => ({
+      name, x, w,
+      icon: kind === 'done' ? '✓' : kind === 'active' ? '●' : '○',
+      fg: kind === 'done' ? OK : kind === 'active' ? WARN : T3,
+      bd: kind === 'done' ? 'var(--acc)' : kind === 'active' ? 'var(--warn)' : 'var(--bd)',
+      bg: kind === 'done' ? 'var(--acc-bg)' : kind === 'active' ? 'var(--warn-bg)' : 'var(--panel)'
+    });
+    const lifecycle = [
+      lc('AwaitingWork', '20px', '128px', 'done'),
+      lc('Running', '196px', '136px', 'active'),
+      lc('AutoReview', '392px', '132px', 'todo'),
+      lc('HumanReview', '588px', '148px', 'todo'),
+      lc('NextStep', '800px', '110px', 'todo')
+    ];
+
+    const modeDefs = [
+      ['guide', 'Giải thích, không mutate — mặc định'],
+      ['assist', 'AI dựng plan/diff, bạn duyệt trước khi ghi'],
+      ['auto', 'Tự chạy stage, dừng ở gate cấu hình'],
+      ['unattended', 'Chạy xuyên stage, chỉ dừng ở hard gate']
+    ];
+    const modes = modeDefs.map(([id, desc]) => ({
+      label: id, desc,
+      go: () => this.setState({ mode: id, autonomy: false }),
+      bg: this.mode === id ? 'var(--acc-bg)' : 'transparent',
+      fg: this.mode === id ? A : TX
+    }));
+
+    const config = isRedraw ? [
+      { k: 'pipeline', v: 'redraw-design · 4 step', src: 'preset', srcFg: A },
+      { k: 'tham chiếu', v: 'figma/checkout-v3 · 3 ảnh mobile', src: 'epic riêng', srcFg: A },
+      { k: 'agent', v: 'design-recreator · claude-opus-4', src: 'epic riêng', srcFg: A },
+      { k: 'skills', v: 'figma-to-ui · design-system · responsive-layout · visual-review', src: 'từ agent', srcFg: T3 },
+      { k: 'capabilities', v: 'figma · files', src: 'từ agent', srcFg: T3 },
+      { k: 'artifacts', v: 'DESIGN-ANALYSIS.md · VISUAL-DIFF.md · component', src: 'theo step', srcFg: T3 }
+    ] : [
+      { k: 'pipeline', v: 'cohesive-feature · 13 step', src: 'bundled', srcFg: T3 },
+      { k: 'context', v: 'snapshot rev-7 của Project Context', src: 'capture-context', srcFg: T3 },
+      { k: 'branch', v: 'feat/payments-001', src: 'epic riêng', srcFg: A },
+      { k: 'PR', v: 'PR #402 · chưa merge', src: 'epic riêng', srcFg: A },
+      { k: 'contract', v: 'FEATURE-CONTRACT.md · frozen', src: 'analyze-contract', srcFg: T3 },
+      { k: 'phân rã nội bộ', v: 'Claude tự quyết định — không có work package', src: 'theo hợp đồng', srcFg: T3 }
+    ];
+
+    const rmState = this.state.runMode || 'Guided';
+    const runModes = [
+      ['Guided', 'Bạn chạy và review từng step'],
+      ['Autonomous Delivery', 'Claude master chạy trọn flow, dừng ở human gate']
+    ].map(([label, desc]) => ({
+      label, desc,
+      go: () => this.setState({ runMode: label }),
+      mark: rmState === label ? '◉' : '○',
+      bg: rmState === label ? 'var(--acc-bg)' : 'var(--panel2)',
+      bd: rmState === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: rmState === label ? A : T3
+    }));
+
+    const btn = (label, kind) => ({
+      label,
+      bd: kind === 'primary' ? 'var(--acc)' : kind === 'danger' ? 'var(--err-bd)' : 'var(--bd)',
+      bg: kind === 'primary' ? 'var(--acc)' : 'transparent',
+      fg: kind === 'primary' ? 'var(--on-acc)' : kind === 'danger' ? ERR : TX
+    });
+    const steps = isRedraw ? [
+      { name: 'design-analyzer', meta: 'done · DESIGN-ANALYSIS.md · figma-to-ui + image-to-ui', icon: '✓', tone: OK, rowBg: 'transparent', hasError: false, error: '',
+        actions: [btn('Xem phân tích'), btn('Run again with Claude')] },
+      { name: 'design-recreator', meta: 'done · 1 screen + 4 component · design-system', icon: '✓', tone: OK, rowBg: 'transparent', hasError: false, error: '',
+        actions: [btn('Xem diff'), btn('Run again with Claude')] },
+      { name: 'visual-reviewer', meta: 'auto-review · đã sửa 6 sai lệch, còn 2 ghi nhận', icon: '✓', tone: OK, rowBg: 'transparent', hasError: false, error: '',
+        actions: [btn('Xem VISUAL-DIFF'), btn('Run again with Claude')] },
+      { name: 'human-review', meta: 'chờ bạn duyệt hoặc nhập feedback', icon: '🔒', tone: WARN, rowBg: 'var(--warn-bg)', hasError: false, error: '',
+        actions: [btn('Approve', 'primary'), btn('Reject + feedback'), btn('So sánh side-by-side')] },
+      { name: 'human-review · lần trước', meta: 'rejected: spacing card sai 8px, font weight nhạt', icon: '⟳', tone: WARN, rowBg: 'transparent', hasError: true,
+        error: 'Feedback đã đưa vào revision 2 và chạy lại design-recreator, không chạy lại design-analyzer',
+        actions: [btn('Edit feedback first'), btn('Xem revision')] }
+    ] : [
+      { name: 'analyze-contract', meta: 'done · FEATURE-CONTRACT.md frozen', icon: '✓', tone: OK, rowBg: 'transparent', hasError: false, error: '',
+        actions: [btn('Xem artifact'), btn('Run again with Claude')] },
+      { name: 'implement', meta: 'running · terminal Claude đang mở', icon: '●', tone: WARN, rowBg: 'var(--acc-bg)', hasError: false, error: '',
+        actions: [btn('Mark step done', 'primary'), btn('Run again with Claude'), btn('Mở terminal')] },
+      { name: 'implement · lần trước', meta: 'lệnh Claude đóng khi step còn Awaiting work', icon: '⟳', tone: WARN, rowBg: 'transparent', hasError: false, error: '',
+        actions: [btn('Run again with Claude'), btn('Xem run id')] },
+      { name: 'cohesion-review', meta: 'rejected · cần revision mới', icon: '✕', tone: ERR, rowBg: 'var(--err-bg)', hasError: true,
+        error: 'Reject: implementation lệch FEATURE-CONTRACT ở refund rounding — cần revision',
+        actions: [btn('Run again with Claude', 'primary'), btn('Edit feedback first'), btn('Xem review')] },
+      { name: 'system-test', meta: 'pending · quality gates', icon: '○', tone: T3, rowBg: 'transparent', hasError: false, error: '',
+        actions: [btn('Run with Claude'), btn('Xem plan')] },
+      { name: 'open-pr → await-merge', meta: 'pending · human merge, agent không merge default branch', icon: '🔒', tone: WARN, rowBg: 'transparent', hasError: false, error: '',
+        actions: [btn('Open review summary'), btn('Add review task'), btn('Complete after merge')] }
+    ];
+
+    const stepDetail = [
+      { k: 'inputs', v: 'Plan đã approve · schema snapshot · FEATURE-CONTRACT v4' },
+      { k: 'outputs', v: '2 file source · 1 migration · 1 spec test' },
+      { k: 'done when', v: 'Migration chạy sạch trên shadow DB và contract test pass' },
+      { k: 'next', v: 'Verify · validators + human sign-off' }
+    ];
+    const artifactsList = ['src/refunds/service.ts', 'prisma/0042_partial.sql', 'tests/partial.spec.ts'].map(n => ({ n }));
+
+    const history = [
+      { at: '10:31', what: 'Gate requested · merge_default_branch', tone: WARN, actor: 'agent:senior-backend-developer' },
+      { at: '10:29', what: 'Validators passed · 418 unit, 12 contract', tone: OK, actor: 'system' },
+      { at: '10:14', what: 'Rerun sau feedback: tách compat shim', tone: T2, actor: 'user:mai' },
+      { at: '10:02', what: 'Step rejected · thiếu decimal guard', tone: ERR, actor: 'user:mai' },
+      { at: '09:47', what: 'Epic started · profile Standard', tone: T2, actor: 'user:mai' }
+    ];
+
+    const ship = [
+      { label: 'Commit preview', dot: g, fg: TX },
+      { label: 'PR', dot: am, fg: TX },
+      { label: 'Review', dot: gr, fg: T3 },
+      { label: 'Merge', dot: gr, fg: T3 }
+    ];
+    const actionBar = [
+      { label: 'Verify', bd: 'var(--bd)', fg: TX }, { label: 'Report', bd: 'var(--bd)', fg: TX },
+      { label: 'Reveal artifacts', bd: 'var(--bd)', fg: TX }, { label: 'Epic memory', bd: 'var(--bd)', fg: TX },
+      { label: 'Delete', bd: 'var(--err-bd)', fg: ERR }
+    ];
+
+    const readiness = [
+      { mark: '✓', tone: OK, label: 'Project đã setup', value: '.aidlc · pack sdlc-core@2.3.0', action: 'Xem', btnBd: 'var(--bd)', btnFg: TX },
+      { mark: '!', tone: WARN, label: 'Project context cũ 12 ngày', value: 'rev-7 · explicit refresh', action: 'Publish context', btnBd: 'var(--warn-bd)', btnFg: WARN },
+      { mark: '✓', tone: OK, label: 'Recommendation đã lock', value: '4 agent · 9 skill · sha256 ✓', action: 'Generate lại', btnBd: 'var(--bd)', btnFg: TX }
+    ];
+    const recovery = ['Retry step', 'Resume Epic', 'Apply fix: bump contract v4', 'Đổi policy gate'].map(n => ({ n }));
+
+    const recent = rows.slice(0, 3).map(r => ({
+      title: r.title, dot: r.dot, open: this.go('Epics'),
+      star: followSet[r.id] ? '★' : '', starC: A
+    }));
+    const templates = ['sdlc-core', 'speckit', 'cohesive', 'regulated'].map(n => ({ n }));
+    const mcp = [
+      { name: 'ast-graph', state: 'registered', mark: '●', tone: OK },
+      { name: 'agents-observe', state: 'off', mark: '○', tone: T3 }
+    ];
+
+    const bt = this.state.builder;
+    const builderTabs = ['Workflows', 'Agents', 'Skills'].map(label => ({
+      label, go: () => this.setState({ builder: label }),
+      bg: bt === label ? 'var(--acc-bg)' : 'transparent',
+      bd: bt === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: bt === label ? A : T2
+    }));
+    const nodes = (arr) => arr.map(n => ({ n }));
+    const flows = [
+      { id: 'redraw-design', steps: 4, nodes: nodes(['design-analyzer', 'design-recreator', 'visual-reviewer', 'human-review']) },
+      { id: 'sdlc-standard', steps: 5, nodes: nodes(['understand', 'plan', 'build', 'verify', 'ship']) },
+      { id: 'quick-fix', steps: 3, nodes: nodes(['understand', 'build', 'verify']) },
+      { id: 'cohesive-parallel', steps: 5, nodes: nodes(['plan', 'wp×3', 'integrate', 'ship']) },
+      { id: 'release-notes', steps: 2, nodes: nodes(['collect', 'draft']) }
+    ];
+    const agents = [
+      { name: 'design-recreator', tier: 'deep', model: 'claude-opus-4',
+        desc: 'Dựng lại UI từ Figma/ảnh tham chiếu rồi tự đối chiếu sai lệch',
+        skills: nodes(['figma-to-ui', 'image-to-ui', 'design-system', 'responsive-layout', 'visual-review']),
+        hasCaps: true, caps: nodes(['figma', 'files', 'github', 'web']),
+        frontmatter: 'skills: [figma-to-ui, design-system, responsive-layout]' },
+      { name: 'senior-backend-developer', tier: 'balanced', model: 'claude-sonnet-4-5', skills: nodes(['fastify', 'prisma-migrate', 'decimal-safety']) },
+      { name: 'backend-reviewer', tier: 'review', model: 'claude-sonnet-4-5', skills: nodes(['vitest', 'pact', 'code-review']) },
+      { name: 'service-architect', tier: 'deep', model: 'claude-opus-4', skills: nodes(['api-contract', 'prisma-schema']) },
+      { name: 'product-domain-analyst', tier: 'deep', model: 'claude-opus-4', skills: nodes(['payments-domain', 'acceptance-criteria']) }
+    ];
+    const skills = [
+      ['figma-to-ui', 'design', 'Đọc frame Figma → token, layout, component; không copy pixel'],
+      ['image-to-ui', 'design', 'Suy ra grid, spacing, typography từ ảnh tham chiếu'],
+      ['design-system', 'design', 'Bắt buộc dùng token/component của design system, không tự tạo màu'],
+      ['responsive-layout', 'design', 'Quy tắc breakpoint, thứ tự reflow, hit target tối thiểu'],
+      ['visual-review', 'design', 'So sánh kết quả với tham chiếu và liệt kê sai lệch có thể sửa'],
+      ['prisma-migrate', 'builtin', 'Viết migration an toàn, có shadow DB check'],
+      ['decimal-safety', 'custom', 'Quy tắc làm tròn tiền cho refund một phần'],
+      ['pact', 'builtin', 'Contract test giữa service'],
+      ['payments-domain', 'custom', 'Thuật ngữ và ràng buộc miền thanh toán'],
+      ['api-contract', 'builtin', 'Chuẩn hoá OpenAPI và versioning'],
+      ['acceptance-criteria', 'builtin', 'Viết AC kiểm chứng được']
+    ].map(([id, source, desc]) => ({
+      id, source, desc,
+      tagBg: source === 'design' ? 'var(--acc-bg)' : source === 'custom' ? 'var(--warn-bg)' : 'var(--hover)',
+      tagFg: source === 'design' ? A : source === 'custom' ? WARN : T2
+    }));
+    const builderAdd = { Workflows: '+ Add pipeline', Agents: '+ Add agent', Skills: '+ Add skill' }[bt];
+
+    const kind = bt;
+    const srcDefs = {
+      Workflows: [['Từ template', 'copy pipeline bundled rồi sửa'], ['Từ recipe', 'Claude sinh step từ mô tả'], ['Blank', 'tự thêm từng step']],
+      Agents: [['Từ template', 'agent role có sẵn'], ['Từ recommendation', 'lấy agent Claude đề xuất'], ['Blank', 'tự khai báo']],
+      Skills: [['Từ template', 'chọn skill bundled'], ['Dán nội dung', 'paste markdown'], ['Upload file', 'chọn .md từ máy'], ['Blank', 'tạo file trống']]
+    }[kind];
+    const aSrc = this.state.addSrc || srcDefs[0][0];
+    const addSources = srcDefs.map(([label, desc]) => ({
+      label, desc, go: () => this.setState({ addSrc: label }),
+      bg: aSrc === label ? 'var(--acc-bg)' : 'var(--panel)',
+      bd: aSrc === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: aSrc === label ? A : TX
+    }));
+
+    const aScope = this.state.addScope || (kind === 'Skills' ? 'user (~/.claude)' : 'project (.aidlc)');
+    const addScopes = ['project (.aidlc)', 'user (~/.claude)'].map(label => ({
+      label, go: () => this.setState({ addScope: label }),
+      bg: aScope === label ? 'var(--acc-bg)' : 'var(--panel)',
+      bd: aScope === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: aScope === label ? A : T2
+    }));
+    const aId = this.state.addId || '';
+    const base = aScope.indexOf('user') === 0 ? '~/.claude/' : '.aidlc/';
+    const addPath = base + { Workflows: 'pipelines/', Agents: 'agents/', Skills: 'skills/' }[kind] + (aId || '<id>') + (kind === 'Skills' ? '.md' : '.yaml');
+
+    const idTaken = ['prisma-migrate', 'sdlc-standard', 'backend-reviewer'].indexOf(aId) >= 0;
+    const addFlowSteps = [
+      { i: '1', name: 'capture-context', tag: 'auto', tagBg: 'var(--hover)', tagFg: T2 },
+      { i: '2', name: 'specify', tag: 'auto', tagBg: 'var(--hover)', tagFg: T2 },
+      { i: '3', name: 'implement', tag: 'auto', tagBg: 'var(--hover)', tagFg: T2 },
+      { i: '4', name: 'open-pr', tag: 'human gate', tagBg: 'var(--err-bg)', tagFg: ERR }
+    ];
+    const aTier = this.state.addTier || 'balanced';
+    const addTiers = ['fast', 'balanced', 'deep', 'review'].map(label => ({
+      label, go: () => this.setState({ addTier: label }),
+      bg: aTier === label ? 'var(--acc-bg)' : 'var(--panel)',
+      bd: aTier === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: aTier === label ? A : T2
+    }));
+    const pickState = this.state.addSkills || { 'prisma-migrate': true, 'decimal-safety': true };
+    const addSkillPicks = ['prisma-migrate', 'decimal-safety', 'pact', 'api-contract', 'payments-domain', 'acceptance-criteria'].map(n => {
+      const on = !!pickState[n];
+      return {
+        n, mark: on ? '◉' : '○',
+        go: () => this.setState({ addSkills: Object.assign({}, pickState, { [n]: !on }) }),
+        bg: on ? 'var(--acc-bg)' : 'var(--panel)',
+        bd: on ? 'var(--acc-bd)' : 'var(--bd)',
+        fg: on ? A : T3
+      };
+    });
+    const addSkillLines = [
+      ['---', T2], ['name: ' + (aId || 'decimal-safety'), OK],
+      ['description: Quy tắc làm tròn tiền cho refund một phần', T2],
+      ['---', T2], ['', T2],
+      ['## Khi nào dùng', TX], ['- Khi thao tác số tiền hoặc chia tỉ lệ refund', T2]
+    ].map(([t, c]) => ({ t, c }));
+
+    const acState = this.state.addCaps || { figma: true, files: true, github: false, web: false };
+    const addCaps = ['figma', 'files', 'github', 'web'].map(n => {
+      const on = !!acState[n];
+      return {
+        n, mark: on ? '◉' : '○',
+        go: () => this.setState({ addCaps: Object.assign({}, acState, { [n]: !on }) }),
+        bg: on ? 'var(--acc-bg)' : 'var(--panel)',
+        bd: on ? 'var(--acc-bd)' : 'var(--bd)',
+        fg: on ? A : T3
+      };
+    });
+    const pickedSkills = Object.keys(pickState).filter(k => pickState[k]);
+    const pickedCaps = Object.keys(acState).filter(k => acState[k]);
+    const addFrontmatter = [
+      ['---', T2],
+      ['id: ' + (aId || 'design-recreator'), OK],
+      ['name: ' + (aId || 'design-recreator'), T2],
+      ['description: Dựng lại UI từ Figma/ảnh rồi tự đối chiếu', T2],
+      ['model: ' + (aTier === 'deep' ? 'claude-opus-4' : 'claude-sonnet-4-5'), T2],
+      ['skills: [' + (pickedSkills.length ? pickedSkills.join(', ') : '…') + ']', OK],
+      ['capabilities: [' + (pickedCaps.length ? pickedCaps.join(', ') : '…') + ']', OK],
+      ['---', T2]
+    ].map(([t, c]) => ({ t, c }));
+
+    const knownSkills = skills.map(s => s.id);
+    const unknownSkill = pickedSkills.filter(s => knownSkills.indexOf(s) < 0)[0] || null;
+    const knownAgents = agents.map(a => a.name);
+    const missingAgent = kind === 'Workflows' && aSrc === 'Blank' ? 'visual-reviewer' : null;
+    const check = (ok, label, fix) => ({
+      mark: ok ? '✓' : '✕', tone: ok ? OK : ERR, label,
+      hasFix: !ok && !!fix, fix: fix || ''
+    });
+    const addChecks = kind === 'Workflows' ? [
+      check(!idTaken && !!aId, aId ? (idTaken ? 'Id "' + aId + '" đã tồn tại' : 'Id chưa dùng') : 'Chưa nhập pipeline id'),
+      check(!missingAgent, missingAgent ? 'Step tham chiếu agent chưa có: ' + missingAgent : 'Mọi step trỏ tới agent đã tồn tại', 'Tạo agent'),
+      check(true, 'Có ít nhất một step human gate — open-pr / human-review')
+    ] : kind === 'Agents' ? [
+      check(!idTaken && !!aId, aId ? (idTaken ? 'Tên agent đã tồn tại' : 'Tên agent chưa dùng') : 'Chưa nhập tên agent'),
+      check(!unknownSkill, unknownSkill ? 'Skill không tồn tại: ' + unknownSkill : 'Tất cả skill đã có trong project', 'Tạo skill'),
+      check(pickedSkills.length > 0, pickedSkills.length ? 'Đã gán ' + pickedSkills.length + ' skill' : 'Chưa gán skill nào'),
+      check(pickedCaps.length > 0, pickedCaps.length ? 'Capabilities: ' + pickedCaps.join(' · ') : 'Chưa chọn capability')
+    ] : [
+      check(!idTaken && !!aId, aId ? (idTaken ? 'Skill id đã tồn tại' : 'Skill id chưa dùng') : 'Chưa nhập skill id'),
+      check(true, 'Frontmatter có name và description'),
+      check(true, 'Có mục hướng dẫn: đầu vào · quy tắc · đầu ra mong đợi')
+    ];
+    const failCount = addChecks.filter(c => c.mark === '✕').length;
+
+    const addTitle = { Workflows: 'Add pipeline', Agents: 'Add agent', Skills: 'Add skill' }[kind];
+    const addSub = {
+      Workflows: 'Pipeline là chuỗi step; step nào cần human gate thì đánh dấu ở đây',
+      Agents: 'Agent = role + tier + skills; model thật do provider quyết định',
+      Skills: 'Skill là một file markdown có frontmatter name/description'
+    }[kind];
+    const addWarn = {
+      Workflows: 'Pipeline bundled không sửa trực tiếp được — bản mới là copy riêng của project, có version.',
+      Agents: 'Agent chỉ khai báo tier. Đổi provider ở Studio là đổi model thật cho mọi agent cùng tier.',
+      Skills: 'Skill ghi vào ~/.claude dùng cho mọi project; ghi vào .aidlc chỉ áp dụng project này.'
+    }[kind];
+    const addCmd = {
+      Workflows: 'aidlc pipeline add ' + (aId || '<id>') + ' --from ' + aSrc.toLowerCase(),
+      Agents: 'aidlc agent add ' + (aId || '<name>') + ' --tier ' + aTier,
+      Skills: 'aidlc skill add ' + (aId || '<id>') + ' --scope ' + (aScope.indexOf('user') === 0 ? 'user' : 'project')
+    }[kind];
+
+    const presetSkills = [
+      ['figma-to-ui', 'frame Figma → token, layout, component'],
+      ['image-to-ui', 'ảnh → grid, spacing, typography'],
+      ['design-system', 'bắt buộc dùng token của design system'],
+      ['responsive-layout', 'breakpoint, reflow, hit target'],
+      ['visual-review', 'liệt kê sai lệch so với tham chiếu']
+    ].map(([id, desc]) => ({ id, desc, mark: '✓', fg: OK, bd: 'var(--acc-bd)' }));
+    const presetSteps = [
+      ['1', 'design-analyzer', 'auto-review', 'Trích layout, màu, typography, spacing, component hierarchy từ Figma/ảnh'],
+      ['2', 'design-recreator', 'auto-review', 'Tạo hoặc cập nhật UI/component theo bản phân tích'],
+      ['3', 'visual-reviewer', 'auto-review', 'Đối chiếu với tham chiếu, sửa sai lệch layout/màu/font/responsive'],
+      ['4', 'human-review', 'human gate', 'Chờ bạn duyệt hoặc nhập feedback; reject sẽ chạy lại step phù hợp']
+    ].map(([i, name, tag, desc]) => ({
+      i, name, tag, desc,
+      tagBg: tag === 'human gate' ? 'var(--err-bg)' : 'var(--hover)',
+      tagFg: tag === 'human gate' ? ERR : T2,
+      bd: tag === 'human gate' ? 'var(--err-bd)' : 'var(--bd)'
+    }));
+    const presetApplied = !!this.state.preset;
+
+    const exampleLines = [
+      ['# .claude/agents/design-recreator.md', T3],
+      ['---', T2],
+      ['id: design-recreator', OK],
+      ['name: Design Recreator', T2],
+      ['description: Dựng lại UI từ Figma/ảnh tham chiếu', T2],
+      ['model: claude-opus-4', T2],
+      ['skills: [figma-to-ui, design-system, responsive-layout]', OK],
+      ['capabilities: [figma, files, github, web]', OK],
+      ['---', T2],
+      ['', T2],
+      ['# .aidlc/pipelines/redraw-design.yaml', T3],
+      ['steps:', T2],
+      ['  - id: design-analyzer', OK],
+      ['    agent: design-recreator', T2],
+      ['    skills: [figma-to-ui, image-to-ui]', T2],
+      ['    outputs: [DESIGN-ANALYSIS.md]', T2],
+      ['    auto_review: true', T2],
+      ['  - id: design-recreator', OK],
+      ['    skills: [design-system, responsive-layout]', T2],
+      ['    outputs: [src/ui/**]', T2],
+      ['  - id: visual-reviewer', OK],
+      ['    skills: [visual-review]', T2],
+      ['    outputs: [VISUAL-DIFF.md]', T2],
+      ['    auto_review: true', T2],
+      ['  - id: human-review', OK],
+      ['    human_review: true', WARN],
+      ['    on_reject: rerun(design-recreator, with_feedback)', WARN]
+    ].map(([t, c]) => ({ t, c }));
+
+    const redrawTests = [
+      ['✓', OK, 'Từ chối agent id trùng và skill id trùng', 'validation.spec'],
+      ['✓', OK, 'Từ chối skill không tồn tại khi gán vào agent', 'validation.spec'],
+      ['✓', OK, 'Từ chối step trỏ tới agent chưa tồn tại', 'validation.spec'],
+      ['✓', OK, 'Ghi và đọc lại frontmatter skills: [...] của agent', 'agent-store.spec'],
+      ['✓', OK, 'Liên kết agent–skill và workflow–agent sau reload', 'linking.spec'],
+      ['✓', OK, 'Reject ở human-review chạy lại đúng design-recreator kèm feedback', 'rerun.spec'],
+      ['✓', OK, 'Pipeline hiện có (cohesive-feature, sdlc-standard) không đổi', 'regression.spec']
+    ].map(([mark, tone, label, file]) => ({ mark, tone, label, file }));
+    const testSummary = redrawTests.length + ' test · pass';
+
+    const statusText2 = null;
+
+    const plat = this.state.platform;
+    const platforms = ['Jira', 'GitHub', 'Linear', 'Redmine', 'Local'].map(label => ({
+      label, go: () => this.setState({ platform: label }),
+      bg: plat === label ? 'var(--acc-bg)' : 'var(--panel2)',
+      bd: plat === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: plat === label ? A : T2
+    }));
+    const analyses = [
+      { id: 'REQ-018', title: 'Partial refunds for split payments', meta: 'Jira · 7 task' },
+      { id: 'REQ-017', title: 'Webhook signature rotation', meta: 'GitHub · 4 task' },
+      { id: 'REQ-015', title: 'Dispute evidence upload', meta: 'Local · 9 task' },
+      { id: 'REQ-012', title: 'Payout schedule refactor', meta: 'Jira · 12 task' }
+    ];
+
+    const ts = (name, meta, kind, gate, first, last) => {
+      const s = st(name, meta, kind, first, last);
+      s.radius = gate ? '6px' : '50%';
+      if (gate) { s.icon = '🔒'; s.ring = kind === 'done' ? 'var(--acc)' : 'var(--warn)'; s.fill = 'transparent'; s.iconC = WARN; }
+      return s;
+    };
+    const testSteps = [
+      ts('Explore', 'done', 'done', false, true, false),
+      ts('Plan', 'done', 'done', false, false, false),
+      ts('Confirm', 'gate · approved', 'done', true, false, false),
+      ts('Generate', 'done', 'done', false, false, false),
+      ts('Execute', '31 case', 'done', false, false, false),
+      ts('Heal', '2 healed', 'active', false, false, false),
+      ts('Verdict', 'gate · chờ duyệt', 'todo', true, false, true)
+    ];
+
+    const help = [
+      { k: 'why', v: 'Migration xoá cột nên không reversible — cần người xác nhận trước khi chạm dữ liệu.', tone: OK },
+      { k: 'inputs', v: 'Plan đã approve · schema snapshot · compat shim', tone: T3 },
+      { k: 'outputs', v: '1 migration · 2 file source thay đổi', tone: T3 },
+      { k: 'done when', v: 'Migration sạch trên shadow DB và contract test pass', tone: T3 },
+      { k: 'next', v: 'Verify · validators + human sign-off', tone: T3 }
+    ];
+    const doctor = [
+      { mark: '✓', tone: OK, label: 'Claude CLI khả dụng', action: '', actionTone: OK },
+      { mark: '✓', tone: OK, label: 'Git worktree sạch', action: '', actionTone: OK },
+      { mark: '!', tone: WARN, label: 'Context rev-7 cũ hơn 12 ngày', action: 'Fix', actionTone: WARN },
+      { mark: '!', tone: WARN, label: 'Coverage refunds/ dưới ngưỡng 70%', action: 'Fix', actionTone: WARN },
+      { mark: '✓', tone: OK, label: 'Không có validator conflict', action: '', actionTone: OK }
+    ];
+    const events = [
+      '10:31:04 gate.request running → waiting-for-user',
+      '10:29:51 action.execute running → validating',
+      '10:22:18 epic.next ready → running',
+      '10:20:02 workflow.compile draft → ready',
+      '10:19:47 epic.start — → draft'
+    ].map(line => ({ line }));
+
+    const pk = this.state.pack;
+    const packs = [
+      ['sdlc-core', 'Waterfall-like theo epic', 'PO · Tech Lead · Dev · QA'],
+      ['speckit', 'Spec-driven: SPEC → PLAN → TASKS', 'Analyst · Tech Lead · Dev · QA'],
+      ['cohesive', 'Feature-coordination song song', 'Curator · Coordinator · WP Engineer'],
+      ['regulated', 'Traceability & compliance nặng', 'Thêm evidence + mandatory gates']
+    ].map(([label, desc, agentsTxt]) => ({
+      label, desc, agents: agentsTxt,
+      go: () => this.setState({ pack: label }),
+      bg: pk === label ? 'var(--acc-bg)' : 'var(--panel)',
+      bd: pk === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: pk === label ? A : TX
+    }));
+
+    const providers = [
+      { id: 'claude', note: 'default · claude-sonnet-4-5, opus-4', mark: '●', tone: OK, action: 'Đang dùng', actionTone: T3 },
+      { id: 'local-fake', note: 'test fixture provider', mark: '○', tone: T3, action: 'Use as default', actionTone: A },
+      { id: 'custom-http', note: 'chưa cấu hình endpoint', mark: '✕', tone: ERR, action: 'Diagnose', actionTone: A }
+    ];
+
+    const capState = this.state.caps || { 'ast-graph': true, 'artifact-annotation': true, 'test-agent': false, 'observability': false, 'tracker-adapter': false };
+    const caps = [
+      ['ast-graph', 'bundled', true], ['artifact-annotation', 'bundled', true],
+      ['test-agent', 'optional', true], ['observability', 'optional', false], ['tracker-adapter', 'optional', true]
+    ].map(([name, kind, healthy]) => {
+      const active = !!capState[name];
+      return {
+        name, kind,
+        health: healthy ? '✓' : '✕', healthTone: healthy ? OK : ERR,
+        go: () => this.setState({ caps: Object.assign({}, capState, { [name]: !active }) }),
+        kindBg: kind === 'bundled' ? 'var(--acc-bg)' : 'var(--hover)',
+        kindFg: kind === 'bundled' ? A : T2,
+        trackBg: active ? 'var(--acc)' : 'var(--track)',
+        knobBg: active ? 'var(--on-acc)' : 'var(--txt3)',
+        knobPos: active ? 'flex-end' : 'flex-start'
+      };
+    });
+
+    const policyLines = [
+      ['{', T2], ['  "defaults": { "persist": "runtime", "commit": false },', T2],
+      ['  "types": {', T2],
+      ['    "specification":  { "path": "docs/epics/{epic}/SPEC.md", "commit": true },', OK],
+      ['    "architecture-decision": { "path": "docs/decisions/{id}.md", "commit": true },', OK],
+      ['    "execution-plan": { "persist": "runtime", "commit": false },', T3],
+      ['    "review-log":     { "persist": "runtime", "commit": false }', T3],
+      ['  }', T2], ['}', T2]
+    ].map(([t, c]) => ({ t, c }));
+
+    const nType = this.state.newType || 'Feature';
+    const newTypes = ['Feature', 'Bug', 'Refactor', 'Spike', 'Maintenance'].map(label => ({
+      label, go: () => this.setState({ newType: label }),
+      bg: nType === label ? 'var(--acc-bg)' : 'var(--panel)',
+      bd: nType === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: nType === label ? A : T2
+    }));
+    const nProf = this.state.newProfile || 'cohesive-feature';
+    const newProfiles = [
+      ['cohesive-feature', '13 step · một feature epic độc lập'],
+      ['project-context', '7 step · charter + context chung, chạy một lần'],
+      ['sdlc-standard', '5 stage cổ điển theo epic'],
+      ['quick-fix', '3 step cho sửa nhỏ']
+    ].map(([label, desc]) => ({
+      label, desc, go: () => this.setState({ newProfile: label }),
+      bg: nProf === label ? 'var(--acc-bg)' : 'var(--panel)',
+      bd: nProf === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: nProf === label ? A : TX
+    }));
+    const newCompiled = {
+      'cohesive-feature': 'capture-context → specify → clarify → plan → plan-tasks → analyze-contract → implement → implementation-context → cohesion-review → system-test → open-pr → await-merge → project-sync',
+      'project-context': 'define-charter → scan-project → model-project → check-drift → review-context → publish-context → project-rules-sync',
+      'sdlc-standard': 'Understand → Plan → Build → Verify → Ship',
+      'quick-fix': 'Understand → Build → Verify'
+    }[nProf];
+    const newRecommend = 'đề xuất: ' + (nType === 'Bug' ? 'quick-fix' : 'cohesive-feature');
+
+    const nPack = this.state.newPack || 'sdlc-core';
+    const newPacks = [
+      ['sdlc-core', 'mặc định project'], ['speckit', 'spec-driven'],
+      ['cohesive', 'work package song song'], ['regulated', 'compliance']
+    ].map(([label, note]) => ({
+      label, note, go: () => this.setState({ newPack: label }),
+      mark: nPack === label ? '◉' : '○',
+      bg: nPack === label ? 'var(--acc-bg)' : 'var(--panel)',
+      bd: nPack === label ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: nPack === label ? A : T3
+    }));
+    const nMode = this.state.newMode || 'guide';
+    const newModes = modeDefs.map(([id, desc]) => ({
+      label: id, desc, go: () => this.setState({ newMode: id }),
+      mark: nMode === id ? '◉' : '○',
+      bg: nMode === id ? 'var(--acc-bg)' : 'var(--panel)',
+      bd: nMode === id ? 'var(--acc-bd)' : 'var(--bd)',
+      fg: nMode === id ? A : T3
+    }));
+    const newLock = [
+      { k: 'context', v: 'snapshot rev-7 của Project Context', why: 'capture-context' },
+      { k: 'branch', v: 'feat/' + (this.state.newTitle ? 'epic' : '<epic-id>'), why: 'branch riêng cho epic' },
+      { k: 'PR', v: 'một PR riêng, merge do human', why: 'open-pr / await-merge' },
+      { k: 'phân rã', v: 'Claude tự quyết định số subagent và thứ tự', why: 'không tạo work package' },
+      { k: 'artifacts', v: 'SPEC · PLAN · TASKS · FEATURE-CONTRACT', why: 'pipeline ' + nProf }
+    ];
+    const newCmd = nProf === 'project-context'
+      ? '/aidlc-project-context  · hoặc Run with Claude từng step'
+      : (nMode === 'unattended' ? '/aidlc-autonomous-delivery <delivery-id>' : '/aidlc-' + nProf + ' <epic-id>');
+
+    const statusText = {
+      Home: 'ready · 1 blocker · 1 gate chờ',
+      Epics: cur.id + ' · ' + epic.state,
+      Builder: 'builder · ' + bt.toLowerCase(),
+      Analyze: 'analyze · ' + plat.toLowerCase(),
+      Tests: 'test agent · verdict gate chờ',
+      Guide: 'guide & diagnostics',
+      Studio: 'studio · pack ' + pk
+    }[this.tab];
+    const cmdHint = {
+      Home: 'aidlc epic next EPIC-142',
+      Epics: 'aidlc gate approve ' + cur.id + ' merge_default_branch',
+      Builder: 'aidlc pipeline list',
+      Analyze: 'aidlc analyze --platform ' + plat.toLowerCase(),
+      Tests: 'aidlc test run --e2e',
+      Guide: 'aidlc doctor',
+      Studio: 'aidlc project recommend --explain'
+    }[this.tab];
+
+    return {
+      themeClass: dark ? 'thm-dark' : 'thm-light', themes, tabs, stats, recent, templates, mcp,
+      q, setQ: (e) => this.setState({ q: e.target.value }),
+      filters, followedEpics, restEpics,
+      listOpen: !this.state.listCollapsed, listClosed: !!this.state.listCollapsed,
+      listW: this.state.listCollapsed ? '46px' : '316px',
+      toggleList: () => this.setState({ listCollapsed: !this.state.listCollapsed }),
+      railEpics: visible.map(e => Object.assign({}, e, { railStar: followSet[e.id] ? '★' : '' })),
+      toolsOpen: !!this.state.tools, toolCaret: this.state.tools ? '▾' : '▸',
+      toggleTools: () => this.setState({ tools: !this.state.tools }),
+      totalCount: visible.length,
+      chipLabel: q ? '“' + q + '”' : flt,
+      chipBg: (q || flt !== 'All') ? 'var(--acc-bg)' : 'var(--hover)',
+      chipFg: (q || flt !== 'All') ? A : T3,
+      restOpen: this.state.restOpen !== false, restCaret: this.state.restOpen !== false ? '▾' : '▸',
+      toggleRestSection: () => this.setState({ restOpen: this.state.restOpen === false }),
+      hasFollowed: followedEpics.length > 0, isEmpty: visible.length === 0,
+      followCount: followedEpics.length, restCount: restEpics.length,
+      followOpen: this.state.followOpen, followCaret: this.state.followOpen ? '▾' : '▸',
+      toggleFollowSection: () => this.setState({ followOpen: !this.state.followOpen }),
+      resetFilters: () => this.setState({ q: '', filter: 'All' }),
+      epic, stages, stepDetail, artifactsList, history, ship, actionBar,
+      flowNodes, flowPaths, parallel, independence, ctxSteps,
+      loopLeft: loopLabel.left, loopTop: loopLabel.top,
+      gridH: gridH + 'px', canvasH: Math.round(gridH * 0.628) + 'px', viewBox: '0 0 1120 ' + gridH,
+      pipelineLabel: isRedraw ? 'redraw-design · 4 step' : 'cohesive-feature · 13 step',
+      atLabel: isRedraw ? 'Đang ở: human-review · step 4/4' : 'Đang ở: implement · step 7/13',
+      flowNote: isRedraw
+        ? 'Tham chiếu: figma/checkout-v3 · reject sẽ chạy lại design-recreator kèm feedback'
+        : 'Project Context snapshot rev-7 → epic chạy độc lập, không có work package',
+      rejectLabel: isRedraw ? 'reject + feedback → design-recreator' : 'cohesion-review reject → Run again with Claude → implement',
+      config, runModes, steps, lifecycle,
+      mode: this.mode, modes, autonomyOpen: this.state.autonomy,
+      toggleAutonomy: () => this.setState({ autonomy: !this.state.autonomy }),
+      gateOpen: this.state.gate, reason: this.state.reason,
+      setReason: (e) => this.setState({ reason: e.target.value }),
+      openGate: () => this.setState({ gate: true }),
+      closeGate: () => this.setState({ gate: false }),
+      approveGate: () => this.setState({ gate: false, tab: 'Epics' }),
+      readiness, recovery,
+      newOpen: !!this.state.newEpic, newTitle: this.state.newTitle || '',
+      setNewTitle: (e) => this.setState({ newTitle: e.target.value }),
+      openNew: () => this.setState({ newEpic: true }),
+      closeNew: () => this.setState({ newEpic: false }),
+      createDraft: () => this.setState({ newEpic: false, tab: 'Epics' }),
+      createRun: () => this.setState({ newEpic: false, tab: 'Epics' }),
+      newTypes, newProfiles, newCompiled, newRecommend, newPacks, newModes, newLock, newCmd,
+      builderTabs, builderAdd, flows, agents, skills,
+      addOpen: !!this.state.add, addTitle, addSub, addWarn, addCmd, addSources, addScopes, addPath,
+      openAdd: () => this.setState({ add: true }),
+      closeAdd: () => this.setState({ add: false }),
+      addId: aId, setAddId: (e) => this.setState({ addId: e.target.value }),
+      addIdLabel: { Workflows: 'Pipeline id', Agents: 'Tên agent', Skills: 'Skill id' }[kind],
+      addIdPlaceholder: { Workflows: 'refund-hotfix', Agents: 'payments-reviewer', Skills: 'decimal-safety' }[kind],
+      addIdHint: idTaken ? 'Id đã tồn tại — chọn tên khác' : 'chữ thường, gạch ngang',
+      addIdTone: idTaken ? ERR : T3,
+      addIsFlow: kind === 'Workflows', addIsAgent: kind === 'Agents', addIsSkill: kind === 'Skills',
+      addFlowSteps, addTiers, addSkillPicks, addSkillLines,
+      addModel: aTier === 'deep' ? 'claude-opus-4' : 'claude-sonnet-4-5',
+      addCaps, addFrontmatter, addChecks,
+      addValidLabel: failCount ? failCount + ' lỗi cần sửa' : 'Hợp lệ',
+      addValidBg: failCount ? 'var(--err-bg)' : 'var(--acc-bg)',
+      addValidFg: failCount ? ERR : A,
+      presetSkills, presetSteps, exampleLines, redrawTests, testSummary,
+      presetOpen: this.state.presetOpen !== false,
+      togglePreset: () => this.setState({ presetOpen: this.state.presetOpen === false }),
+      presetToggle: this.state.presetOpen !== false ? 'Ẩn chi tiết' : 'Xem chi tiết',
+      presetCta: presetApplied ? 'Đã cài · Xem pipeline' : 'Apply preset',
+      applyPreset: () => this.setState({ preset: true, toast: true, builder: 'Workflows' }),
+      toastOpen: !!this.state.toast,
+      toastTitle: 'Đã cài Redraw Design',
+      toastBody: '5 skill · agent design-recreator · pipeline redraw-design. Reload để VS Code nạp lại slash command mới.',
+      closeToast: () => this.setState({ toast: false }),
+      addSkillBodyLabel: aSrc === 'Upload file' ? 'Nội dung file đã chọn' : aSrc === 'Từ template' ? 'Nội dung template' : 'Nội dung skill',
+      addPrimary: { Workflows: 'Tạo pipeline', Agents: 'Tạo agent', Skills: 'Tạo skill' }[kind],
+      isBuilderFlows: bt === 'Workflows', isBuilderAgents: bt === 'Agents', isBuilderSkills: bt === 'Skills',
+      platforms, analyses, testSteps, help, doctor, events,
+      logsOpen: this.state.logs, logCaret: this.state.logs ? '▾' : '▸',
+      toggleLogs: () => this.setState({ logs: !this.state.logs }),
+      packs, providers, caps, policyLines,
+      statusText, cmdHint,
+      isHome: this.tab === 'Home', isEpics: this.tab === 'Epics', isBuilder: this.tab === 'Builder',
+      isAnalyze: this.tab === 'Analyze', isTests: this.tab === 'Tests',
+      isGuide: this.tab === 'Guide', isStudio: this.tab === 'Studio',
+      goEpics: this.go('Epics'), goGuide: this.go('Guide'), goStudio: this.go('Studio')
+    };
+  }
+}
+</script>
+</body>
+</html>

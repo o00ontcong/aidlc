@@ -10,6 +10,10 @@ import * as path from 'path';
 import {
   AidlcApplication,
   listBuiltinWorkflowPacks,
+  AgentStore,
+  SkillStore,
+  PipelineStore,
+  PipelineRunStore,
 } from '@aidlc/core';
 
 import {
@@ -184,6 +188,7 @@ export class ExtensionV3Host {
           ? application.epics.events(currentSource.id).slice(-20).map((event) => JSON.stringify(event)).join('\n')
           : undefined,
       },
+      registry: registryProjection(root, sourceEpics.map((epic) => epic.id)),
     };
   }
 
@@ -235,6 +240,24 @@ export class ExtensionV3Host {
       // Workspace close/change races are surfaced on the next explicit read.
     }
   }
+}
+
+/** IMPLEMENT.md §1 registry read model — same three stores `registerRegistryCommands.ts` writes through. */
+function registryProjection(root: string, epicIds: readonly string[]): Record<string, unknown> {
+  const agents = new AgentStore(root);
+  const skills = new SkillStore(root);
+  const pipelines = new PipelineStore(root);
+  const runs = new PipelineRunStore(root);
+  return {
+    agents: agents.list(),
+    skills: skills.list().map((skill) => ({ id: skill.id, source: skill.source, description: skill.description })),
+    pipelines: pipelines.list(),
+    runs: epicIds.flatMap((epicId) => runs.listForEpic(epicId).map((run) => ({
+      epicId: run.epicId,
+      pipelineId: run.pipelineId,
+      steps: run.steps.map((step) => ({ id: step.id, status: step.status, attempt: step.attempt, feedback: step.feedback })),
+    }))),
+  };
 }
 
 function projectRecommendation(recommendation: RecommendationProjectionSource | null): Record<string, unknown> | undefined {

@@ -1,6 +1,6 @@
 import type { V3ViewId } from '../contracts';
 
-const labels: Record<V3ViewId, string> = { home: 'Home', epics: 'Epics', studio: 'Studio', guide: 'Guide' };
+const labels: Record<V3ViewId, string> = { home: 'Home', epics: 'Epics', builder: 'Builder', analyze: 'Analyze', tests: 'Tests', studio: 'Studio', guide: 'Guide' };
 const views = Object.keys(labels) as V3ViewId[];
 
 export function V3Navigation({ view, onChange }: { view: V3ViewId; onChange: (view: V3ViewId) => void }) {

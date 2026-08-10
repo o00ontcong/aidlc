@@ -9,6 +9,7 @@
 // migration window, so the unified contract uses explicit `Unified*` aliases
 // at the package boundary rather than silently breaking existing consumers.
 export * from './epic';
+export * from './registry';
 export * from './models';
 export * from './autonomy';
 export * from './artifacts';

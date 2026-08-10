@@ -30,6 +30,7 @@ import { installAnnotationTools } from './v2/annotationToolsInstaller';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
 import { WORKSPACE_DIR, WORKSPACE_FILENAME, activateBackendFromWorkspace } from '@aidlc/core';
 import { registerV3Extension } from './v3/registerV3Extension';
+import { registerRegistryCommands } from './v3/registerRegistryCommands';
 
 /**
  * Select the run-state backend declared in the first workspace folder's
@@ -127,6 +128,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // It dispatches to the shared application command bus and never changes the
   // existing Builder/sidebar registration above or below this boundary.
   context.subscriptions.push(...registerV3Extension(context, output));
+  context.subscriptions.push(...registerRegistryCommands(context));
 
   // Sidebar webview — minimalist launcher into the Builder panel.
   const sidebar = new SidebarWebviewProvider(context.extensionUri, presetStore);
