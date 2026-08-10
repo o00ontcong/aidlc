@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
 import * as vscode from 'vscode';
 
 import {
@@ -11,7 +10,6 @@ import {
   listValidatorConflicts,
   resolveValidatorConflict,
   WorkspaceLoader,
-  type DeliveryHooks,
   type DeliveryRequest,
 } from '@aidlc/core';
 
@@ -23,37 +21,9 @@ function root(): string | undefined {
 
 function ensureBundle(workspaceRoot: string): void {
   const ids = new Set(WorkspaceLoader.load(workspaceRoot).config.pipelines.map((pipeline) => pipeline.id));
-  for (const id of ['project-context', 'cohesive-feature', 'cohesive-work-package']) {
+  for (const id of ['project-context', 'cohesive-feature']) {
     if (!ids.has(id)) throw new Error(`Cohesive Delivery is not installed (missing pipeline ${id}).`);
   }
-}
-
-function progressHooks(
-  output: vscode.OutputChannel,
-  progress: vscode.Progress<{ message?: string; increment?: number }>,
-): DeliveryHooks {
-  return {
-    onDeliveryStage: ({ stage }) => {
-      progress.report({ message: stage });
-      output.appendLine(`\n◆ ${stage}`);
-    },
-    onStepStart: ({ stepIdx, agent }) => output.appendLine(`▶ step ${stepIdx}: ${agent}`),
-    onOutput: (chunk) => output.append(chunk),
-    onErrorOutput: (chunk) => output.append(chunk),
-    onAutoReviewResult: ({ decision, reason }) => output.appendLine(`auto-review ${decision}: ${reason}`),
-    onReviewDeferred: ({ agent, reviewBundleRevision }) => {
-      output.appendLine(`human review deferred: ${agent} → bundle R${reviewBundleRevision}`);
-    },
-    onStepFailed: ({ message, missing, failure }) => {
-      output.appendLine(`✘ ${message ?? 'Step failed.'}`);
-      if (missing?.length) output.appendLine(`Missing: ${missing.join(', ')}`);
-      if (failure) {
-        output.appendLine(`Failure code: ${failure.code}`);
-        output.appendLine(`Failure log: ${failure.logPath}`);
-        for (const command of failure.recoveryCommands) output.appendLine(`Recovery: ${command}`);
-      }
-    },
-  };
 }
 
 async function openSummary(workspaceRoot: string, deliveryId: string): Promise<void> {
@@ -67,6 +37,22 @@ async function openSummary(workspaceRoot: string, deliveryId: string): Promise<v
 }
 
 const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery';
+
+async function launchAutonomousMaster(
+  workspaceRoot: string,
+  deliveryId: string,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  ensureAutonomousMasterCommand(workspaceRoot);
+  output.show(true);
+  output.appendLine(`Opening Claude master: ${AUTONOMOUS_MASTER_COMMAND} ${deliveryId}`);
+  await vscode.commands.executeCommand(
+    'aidlc.runStepWithFeedback',
+    AUTONOMOUS_MASTER_COMMAND,
+    deliveryId,
+    '',
+  );
+}
 
 /**
  * The extension's only delivery launch surface is an interactive Claude
@@ -91,8 +77,8 @@ human decision. Do **not** stop after one phase and do not ask the user to click
 
 1. Read \`.aidlc/deliveries/$ARGUMENTS/request.md\` and
    \`.aidlc/deliveries/$ARGUMENTS/state.json\`.
-2. Read \`.aidlc/workspace.yaml\`, its three Cohesive pipelines
-   (\`project-context\`, \`cohesive-feature\`, \`cohesive-work-package\`), and
+2. Read \`.aidlc/workspace.yaml\`, its two Cohesive pipelines
+   (\`project-context\`, \`cohesive-feature\`), and
    every relevant agent/skill file under \`.claude/\` or \`~/.claude/\`.
 3. Read existing run and epic state before resuming; preserve completed,
    validated work and continue from the first incomplete phase.
@@ -103,19 +89,21 @@ human decision. Do **not** stop after one phase and do not ask the user to click
   and the matching epic \`state.json\` files as durable checkpoints.
 - Never delete, recreate, reset, or overwrite a run, worktree, artifact, or
   approved phase that already exists and validates successfully.
-- On a resumed invocation, locate the first phase or work package whose state
-  is \`awaiting_work\`, \`pending\`, \`rejected\`, or recorded as failed; retry
-  only that incomplete branch and its required downstream dependants.
+- On a resumed invocation, locate the first phase whose state is
+  \`awaiting_work\`, \`pending\`, \`rejected\`, or recorded as failed; retry only
+  that incomplete phase and its required downstream dependants.
 - Do not rerun an approved upstream phase merely because this master command
   was invoked again. Report the checkpoint selected before doing any work.
 
 ## Execute autonomously
 
 1. Complete all seven project-context phases in dependency order.
-2. Complete the cohesive-feature phases, deriving dependency-aware work
-   packages from the feature contract.
-3. Execute independent work packages in parallel when safe, then integrate,
-   validate, test, and prepare the single feature PR/review bundle.
+2. Complete the cohesive-feature phases end-to-end: contract, task plan,
+   implementation, validation, test, and the single feature PR/review bundle.
+3. This delivery is one independent epic. Do not create or ask the user to
+   manage work-package/worker epics, choose a worker count, or wait on an
+   internal worker board. You may choose internal task decomposition yourself
+   when it helps, but it is not a user-visible parallelism control.
 4. For every phase, follow the corresponding namespaced command document in
    \`.claude/commands/\` (for example
    \`project-context-project-rules-sync.md\`) as the authoritative persona,
@@ -146,93 +134,6 @@ function writeAutonomousRequest(workspaceRoot: string, request: DeliveryRequest)
   ].join('\n');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, body, 'utf8');
-}
-
-/** POSIX single-quote a shell argument; inside single quotes the only special character is `'` itself. */
-function shQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function isAidlcCliOnPath(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const cmd = process.platform === 'win32' ? 'where aidlc' : 'which aidlc';
-    exec(cmd, { timeout: 5000 }, (err, stdout) => resolve(!err && !!stdout.trim()));
-  });
-}
-
-/**
- * A stale/incompatible `aidlc` (older global npm install, or one linked from
- * a different checkout) fails silently at the wrong moment — commander
- * prints `error: unknown command 'cohesive'` only after the terminal already
- * opened. Check for actual `cohesive` support up front, not just that some
- * binary named `aidlc` is on PATH.
- */
-function hasAidlcCohesiveCommand(): Promise<boolean> {
-  return new Promise((resolve) => {
-    exec('aidlc cohesive --help', { timeout: 5000 }, (err) => resolve(!err));
-  });
-}
-
-/** Confirm the `aidlc` CLI on PATH actually supports Cohesive Delivery, offering to install/fix it otherwise. */
-async function ensureAidlcCliAvailable(): Promise<boolean> {
-  if (await hasAidlcCohesiveCommand()) return true;
-  if (await isAidlcCliOnPath()) {
-    void vscode.window.showErrorMessage(
-      'The `aidlc` CLI on PATH does not support Cohesive Delivery yet (older or mismatched version). '
-      + 'If you are developing AIDLC from source, rebuild and `npm link` packages/cli; otherwise install/update '
-      + 'to a release that includes it.',
-    );
-    return false;
-  }
-  const action = await vscode.window.showErrorMessage(
-    'Autonomous Delivery runs through the `aidlc` CLI in a terminal so every step and prompt is directly visible, but it is not installed.',
-    'Install via npm',
-  );
-  if (action === 'Install via npm') {
-    const terminal = vscode.window.createTerminal({ name: 'AIDLC CLI Setup' });
-    terminal.sendText('npm install -g aidlc');
-    terminal.show();
-  }
-  return false;
-}
-
-/**
- * Run `aidlc <argv>` in a fresh, dedicated terminal so the whole delivery —
- * every autonomous step's `claude` invocation, and any validator-conflict
- * prompt — is a normal, watchable CLI process instead of a silent in-process
- * VS Code action. `argv` entries are shell-ready tokens (quote values with
- * {@link shQuote} yourself; bare flags/enum values need no quoting). Mirrors
- * the shell-integration wait `aidlc.runStepWithFeedback` / `openClaudeTerminal`
- * use so it doesn't race heavy shell-init scripts (oh-my-zsh, direnv, nvm).
- */
-function launchCliInTerminal(workspaceRoot: string, argv: string[], terminalName: string): void {
-  const cwd = fs.existsSync(workspaceRoot) ? workspaceRoot : undefined;
-  const terminal = vscode.window.createTerminal({
-    name: terminalName,
-    cwd,
-    iconPath: new vscode.ThemeIcon('run-all'),
-    location: vscode.TerminalLocation.Panel,
-  });
-  terminal.show(false);
-  const oneShot = ['aidlc', ...argv].join(' ');
-
-  let sent = false;
-  const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
-    if (e.terminal === terminal && e.shellIntegration && !sent) {
-      sent = true;
-      e.shellIntegration.executeCommand(oneShot);
-      integ.dispose();
-    }
-  });
-  // Fallback for shells without integration — same 2s window as
-  // openClaudeTerminal / runStepWithFeedback.
-  setTimeout(() => {
-    if (!sent) {
-      sent = true;
-      terminal.sendText(oneShot, true);
-      integ.dispose();
-    }
-  }, 2000);
 }
 
 /**
@@ -380,16 +281,8 @@ async function runNewAutonomousDelivery(
   const orchestrator = new DeliveryOrchestrator(workspaceRoot);
   orchestrator.create(request);
   writeAutonomousRequest(workspaceRoot, request);
-  ensureAutonomousMasterCommand(workspaceRoot);
-  output.show(true);
-  output.appendLine(`Opening Claude master: ${AUTONOMOUS_MASTER_COMMAND} ${request.id}`);
   try {
-    await vscode.commands.executeCommand(
-      'aidlc.runStepWithFeedback',
-      AUTONOMOUS_MASTER_COMMAND,
-      request.id,
-      '',
-    );
+    await launchAutonomousMaster(workspaceRoot, request.id, output);
   } catch (error) {
     output.show(true);
     void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
@@ -419,16 +312,8 @@ export async function resumeAutonomousDeliveryCommand(
   const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
   if (!(await reconcileValidatorConflictsInteractive(workspaceRoot))) return;
-  ensureAutonomousMasterCommand(workspaceRoot);
-  output.show(true);
-  output.appendLine(`Opening Claude master: ${AUTONOMOUS_MASTER_COMMAND} ${id}`);
   try {
-    await vscode.commands.executeCommand(
-      'aidlc.runStepWithFeedback',
-      AUTONOMOUS_MASTER_COMMAND,
-      id,
-      '',
-    );
+    await launchAutonomousMaster(workspaceRoot, id, output);
   } catch (error) {
     output.show(true);
     void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
@@ -455,15 +340,10 @@ export async function addAutonomousReviewTaskCommand(
   if (!title) return;
   const orchestrator = new DeliveryOrchestrator(workspaceRoot);
   const task = orchestrator.addTask(id, { title });
-  const action = await vscode.window.showInformationMessage(`Added ${task.id}.`, 'Run rework now');
-  if (action !== 'Run rework now') { await openSummary(workspaceRoot, id); return; }
+  const action = await vscode.window.showInformationMessage(`Added ${task.id}.`, 'Run in Claude now');
+  if (action !== 'Run in Claude now') { await openSummary(workspaceRoot, id); return; }
   try {
-    await vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification,
-      title: `Applying review tasks: ${id}`,
-      cancellable: false,
-    }, async (progress) => orchestrator.rework(id, { hooks: progressHooks(output, progress) }));
-    await openSummary(workspaceRoot, id);
+    await launchAutonomousMaster(workspaceRoot, id, output);
   } catch (error) {
     output.show(true);
     await openSummary(workspaceRoot, id);
@@ -480,13 +360,7 @@ export async function resumeAutonomousAfterMergeCommand(
   const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
   try {
-    await vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification,
-      title: `Post-merge project sync: ${id}`,
-      cancellable: false,
-    }, async (progress) => new DeliveryOrchestrator(workspaceRoot)
-      .resumeAfterMerge(id, progressHooks(output, progress)));
-    await openSummary(workspaceRoot, id);
+    await launchAutonomousMaster(workspaceRoot, id, output);
   } catch (error) {
     output.show(true);
     await openSummary(workspaceRoot, id);
@@ -537,12 +411,7 @@ export async function editInferredProjectContextCommand(
       acceptanceCriteria: ['Refresh context evidence, drift analysis, manifest, and downstream alignment.'],
       target: { runId: state.projectContextRunId, step: 'define-charter' },
     });
-    await vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification,
-      title: `Refreshing project context: ${id}`,
-      cancellable: false,
-    }, async (progress) => orchestrator.rework(id, { hooks: progressHooks(output, progress) }));
-    await openSummary(workspaceRoot, id);
+    await launchAutonomousMaster(workspaceRoot, id, output);
   } catch (error) {
     output.show(true);
     await openSummary(workspaceRoot, id);
@@ -560,13 +429,7 @@ export async function reworkAutonomousDeliveryCommand(
   const id = await resolveDeliveryId(workspaceRoot, requestedId);
   if (!id) return;
   try {
-    await vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification,
-      title: `Applying review tasks: ${id}`,
-      cancellable: false,
-    }, async (progress) => new DeliveryOrchestrator(workspaceRoot)
-      .rework(id, { hooks: progressHooks(output, progress) }));
-    await openSummary(workspaceRoot, id);
+    await launchAutonomousMaster(workspaceRoot, id, output);
   } catch (error) {
     output.show(true);
     await openSummary(workspaceRoot, id);

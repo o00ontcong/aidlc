@@ -65,7 +65,6 @@ describe('Existing Project Autonomous Delivery contracts', () => {
     expect(config.cohesive_delivery?.execution_profiles['existing-project-autonomous']).toEqual({
       project_context: 'infer-or-refresh',
       review_strategy: 'aggregate',
-      max_parallel_workers: 3,
       open_feature_pr: true,
       merge: 'human-only',
     });

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import {
   artifactDir, contractHash, declaredContractHash, exists, formatError,
-  fullCommitExists, loadCharter, markdownHasGo, pass, readJson, readText, reject,
+  loadCharter, markdownHasGo, pass, readText, reject,
 } from './lib.mjs';
 
 function snapshotCharterHash(snapshotText) {
@@ -15,7 +15,7 @@ export default async function featureContract(ctx) {
     const artifacts = artifactDir(ctx.workspaceRoot, ctx.state.runId);
     const analysis = readText(path.join(artifacts, 'ANALYSIS.md'));
     const contract = readText(path.join(artifacts, 'FEATURE-CONTRACT.md'));
-    const manifest = readJson(path.join(artifacts, 'WORK-PACKAGES.json'));
+    const tasks = readText(path.join(artifacts, 'TASKS.md'));
     const problems = [];
 
     if (!markdownHasGo(analysis)) problems.push('ANALYSIS.md does not contain a GO verdict');
@@ -24,11 +24,7 @@ export default async function featureContract(ctx) {
     const actual = contractHash(contract).toLowerCase();
     if (!declared) problems.push('FEATURE-CONTRACT.md is missing a sha256 Contract Hash');
     else if (declared !== actual) problems.push(`feature contract hash mismatch (${declared} != ${actual})`);
-    if (!Number.isInteger(manifest.featureContractRevision) || manifest.featureContractRevision < 1) {
-      problems.push('featureContractRevision must be a positive integer');
-    }
-    if (manifest.featureContractHash?.toLowerCase?.() !== declared) problems.push('WORK-PACKAGES.json contract hash differs from FEATURE-CONTRACT.md');
-    if (!fullCommitExists(ctx.workspaceRoot, manifest.baseCommit)) problems.push('WORK-PACKAGES.json baseCommit is invalid');
+    if (!/\bT\d+\b/i.test(tasks)) problems.push('TASKS.md must contain at least one stable task id');
     for (const section of [
       '## Goal',
       '## Invariants',
@@ -58,13 +54,11 @@ export default async function featureContract(ctx) {
             `stale charterHash on FEATURE-CONTRACT.md (${contractCharter} != ${current})`,
           );
         }
-      } else if (manifest.charterHash && String(manifest.charterHash).toLowerCase() !== String(charter.hash).toLowerCase()) {
-        problems.push('WORK-PACKAGES.json charterHash is stale versus CHARTER.json');
       }
     }
 
     if (problems.length) return reject(`Feature contract cannot be frozen:\n- ${problems.join('\n- ')}`);
-    return pass(`Feature Contract revision ${manifest.featureContractRevision} is frozen at ${declared}.`);
+    return pass(`Feature Contract is frozen at ${declared}.`);
   } catch (error) {
     return reject(`Feature-contract validator failed: ${formatError(error)}`);
   }

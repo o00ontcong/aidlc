@@ -303,8 +303,9 @@ export function AutonomousDeliveryModal({
       ) : (
         <>
           <div className="mb-4 rounded-md border border-primary/25 bg-primary/5 p-3 text-[11.5px] leading-relaxed text-muted-foreground">
-            AIDLC runs all eligible steps and defers human gates into one review bundle.
-            It opens a feature PR but never merges the default branch.
+            Each delivery is one independent feature epic. You can run several independent
+            deliveries at the same time; Claude decides any internal task decomposition.
+            Each delivery opens one feature PR and never merges the default branch.
           </div>
           <button
             type="button"
@@ -315,7 +316,7 @@ export function AutonomousDeliveryModal({
             <span>
               <span className="block text-xs font-semibold text-foreground">Start new delivery</span>
               <span className="mt-1 block text-[10.5px] leading-relaxed text-muted-foreground">
-                Run project context, feature, work packages, integration, tests and PR creation.
+                Run one independent feature epic: context, contract, implementation, tests and PR creation.
               </span>
             </span>
           </button>
@@ -352,7 +353,7 @@ export function AutonomousDeliveryModal({
 
                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9.5px] text-muted-foreground">
                       <span>Review R{delivery.reviewRevision}</span>
-                      <span>{delivery.workerCount} worker{delivery.workerCount === 1 ? '' : 's'}</span>
+                      <span>Independent feature epic</span>
                       {delivery.openReviewTasks > 0 && (
                         <span>{delivery.openReviewTasks} correction{delivery.openReviewTasks === 1 ? '' : 's'} pending</span>
                       )}

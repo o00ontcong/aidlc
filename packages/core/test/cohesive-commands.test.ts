@@ -23,10 +23,10 @@ describe('cohesive companion command files', () => {
     for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('expects 28 distinct pipeline-namespaced command ids (no cohesive-feature-scan-project)', () => {
+  it('expects 20 distinct command ids for Project Context and independent Feature Epics', () => {
     const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
     const pairs = workflowCommandPhases(workflow);
-    expect(pairs).toHaveLength(28);
+    expect(pairs).toHaveLength(20);
 
     const ids = pairs.map(({ pipelineId, phase }) => pipelineCommandId(pipelineId, phase.id));
     expect(ids).toContain('project-context-define-charter');
@@ -34,17 +34,15 @@ describe('cohesive companion command files', () => {
     expect(ids).toContain('project-context-scan-project');
     expect(ids).toContain('project-context-check-drift');
     expect(ids).toContain('project-context-project-rules-sync');
-    expect(ids).toContain('cohesive-work-package-load-package');
-    expect(ids).toContain('cohesive-work-package-package-test-plan');
-    expect(ids).toContain('cohesive-work-package-package-review');
     expect(ids).toContain('cohesive-feature-capture-context');
+    expect(ids).toContain('cohesive-feature-implement');
     expect(ids).toContain('cohesive-feature-open-pr');
     expect(ids).toContain('cohesive-feature-await-merge');
     expect(ids).not.toContain('cohesive-feature-scan-project');
     expect(ids).not.toContain('cohesive-feature-publish-context');
     expect(ids).not.toContain('cohesive-feature-load-package');
-    expect(ids).not.toContain('cohesive-work-package-open-pr');
-    expect(new Set(ids).size).toBe(28);
+    expect(ids).not.toContain('cohesive-work-package-load-package');
+    expect(new Set(ids).size).toBe(20);
   });
 
   it('loadBuiltinPreset has skill content for every cohesive phase', () => {
@@ -55,7 +53,7 @@ describe('cohesive companion command files', () => {
     }
   });
 
-  it('can materialize all 28 command files into an empty .claude/commands', () => {
+  it('can materialize all 20 command files into an empty .claude/commands', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-cmds-'));
     tempRoots.push(root);
     const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
@@ -74,11 +72,8 @@ describe('cohesive companion command files', () => {
     expect(files).toContain('project-context-publish-context.md');
     expect(files).toContain('project-context-define-charter.md');
     expect(files).toContain('project-context-project-rules-sync.md');
-    expect(files).toContain('cohesive-work-package-publish-result.md');
-    expect(files).toContain('cohesive-work-package-package-test-plan.md');
-    expect(files).toContain('cohesive-work-package-package-review.md');
     expect(files.filter((f) => f.startsWith('project-context-'))).toHaveLength(7);
-    expect(files.filter((f) => f.startsWith('cohesive-work-package-'))).toHaveLength(7);
-    expect(files.filter((f) => f.startsWith('cohesive-feature-'))).toHaveLength(14);
+    expect(files.filter((f) => f.startsWith('cohesive-work-package-'))).toHaveLength(0);
+    expect(files.filter((f) => f.startsWith('cohesive-feature-'))).toHaveLength(13);
   });
 });

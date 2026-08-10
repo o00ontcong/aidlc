@@ -124,9 +124,8 @@ describe('alignmentArtifacts + EpicScaffold seed', () => {
 });
 
 describe('ship phase placement', () => {
-  it('places open-pr / await-merge on cohesive-feature after system-test, not on work-package', () => {
+  it('places open-pr / await-merge on each independent cohesive-feature epic after system-test', () => {
     const feature = getBuiltinWorkflowByPipelineId('cohesive-feature')!;
-    const worker = getBuiltinWorkflowByPipelineId('cohesive-work-package')!;
     const ids = feature.phases.map((p) => p.id);
     expect(ids.indexOf('open-pr')).toBe(ids.indexOf('system-test') + 1);
     expect(ids.indexOf('await-merge')).toBe(ids.indexOf('open-pr') + 1);
@@ -139,13 +138,9 @@ describe('ship phase placement', () => {
     const sync = feature.phases.find((p) => p.id === 'project-sync')!;
     expect(sync.dependsOn).toEqual(['await-merge']);
 
-    expect(worker.phases.map((p) => p.id)).not.toContain('open-pr');
-    expect(worker.phases.map((p) => p.id)).not.toContain('await-merge');
-
     const bundle = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
     expect(bundle.primaryPhases!.some((p) => p.id === 'open-pr')).toBe(true);
-    const wp = bundle.additionalPipelines!.find((p) => p.id === 'cohesive-work-package')!;
-    expect(wp.phases.some((p) => p.id === 'open-pr')).toBe(false);
+    expect(bundle.additionalPipelines!.some((p) => p.id === 'cohesive-work-package')).toBe(false);
   });
 });
 
@@ -449,23 +444,11 @@ describe('extended cohesive validators', () => {
     const contract = contractBody.replace('**Contract Hash:** pending', `**Contract Hash:** ${hash}`);
     fs.writeFileSync(path.join(artifacts, 'FEATURE-CONTRACT.md'), contract + '\n');
     fs.writeFileSync(path.join(artifacts, 'ANALYSIS.md'), '**Verdict:** GO\n');
+    fs.writeFileSync(path.join(artifacts, 'TASKS.md'), '## FEAT-1-T01\nImplements: FEAT-1-FR01\nAC: works\n');
     fs.writeFileSync(
       path.join(artifacts, 'PROJECT-CONTEXT-SNAPSHOT.md'),
       `**Charter Hash:** sha256:${'b'.repeat(64)}\n`,
     );
-    fs.writeFileSync(
-      path.join(artifacts, 'WORK-PACKAGES.json'),
-      JSON.stringify({
-        schemaVersion: 1,
-        feature: 'FEAT-1',
-        projectContextRevision: 1,
-        featureContractRevision: 1,
-        featureContractHash: hash,
-        baseCommit: sha,
-        packages: [],
-      }, null, 2),
-    );
-
     const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
     expect(v.decision).toBe('reject');
     expect(v.reason).toMatch(/stale charterHash/);
@@ -480,12 +463,8 @@ describe('extended cohesive validators', () => {
       'Duplicate ok\nContract ok\nTraceability ok\nVertical ok\nINV-1 VIOLATED in shared module\n**Verdict:** GO\n',
     );
     fs.writeFileSync(
-      path.join(artifacts, 'INTEGRATION-CONTEXT.md'),
-      '## Planned Versus Actual\nx\n## Cross-Package Interactions\nx\n## Remaining Risks\nx\nWP-01 done\n',
-    );
-    fs.writeFileSync(
-      path.join(artifacts, 'WORK-PACKAGES.json'),
-      JSON.stringify({ packages: [{ id: 'WP-01' }] }),
+      path.join(artifacts, 'IMPLEMENTATION-CONTEXT.md'),
+      '## Planned Versus Actual\nx\n## Implemented Behavior\nx\n## Requirement Traceability\nx\n## Remaining Risks\nx\n',
     );
     const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
     expect(v.decision).toBe('reject');

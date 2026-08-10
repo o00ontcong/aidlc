@@ -465,18 +465,15 @@ const SPECKIT_RECIPES: RecipeDef[] = [
 ];
 
 /**
- * Cohesive Delivery keeps three context layers connected while allowing work
- * packages to execute in parallel:
+ * Cohesive Delivery has two durable layers:
  *
  *   project-context (canonical, repo-wide)
  *          ↓ immutable snapshot
- *   cohesive-feature (spec, contract, package board, integration)
- *          ↓ bounded package context        ↑ result contract
- *   cohesive-work-package (one isolated worktree per package)
+ *   cohesive-feature (one independently runnable feature epic)
  *
- * The primary feature pipeline coordinates but does not perform package work.
- * Workers cannot redefine shared contracts; integration and project-sync gates
- * pull their results back into one feature and then the canonical context.
+ * Parallelism belongs *between* independent feature epics. A feature epic owns
+ * its plan, implementation, tests, PR, and sync end-to-end; Claude decides any
+ * internal decomposition without creating user-managed worker epics.
  */
 const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   {
@@ -634,7 +631,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   {
     id: 'clarify', name: 'Clarify', persona: 'cohesive-feature-agent',
     skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Resolve ambiguity before the shared design and package boundaries are frozen.',
+    description: 'Resolve ambiguity before the feature design and delivery contract are frozen.',
     inputs: 'Feature specification and stakeholder decisions', outputs: 'Clarified specification',
     artifact: 'SPEC.md', humanReview: true, autoReview: false, dependsOn: ['specify'],
     requires: ['docs/epics/{epic}/artifacts/SPEC.md'],
@@ -665,32 +662,27 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
     capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
-    id: 'tasks-package', name: 'Package Tasks', persona: 'cohesive-feature-agent',
+    id: 'plan-tasks', name: 'Plan Tasks', persona: 'cohesive-feature-agent',
     skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Partition work into dependency-aware packages with exclusive ownership and stable result contracts.',
-    inputs: 'Feature spec and plan', outputs: 'Traceable task list and machine-readable work packages',
-    artifact: 'WORK-PACKAGES.json', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/work-packages.mjs', dependsOn: ['plan'],
+    description: 'Create one traceable task plan for this feature. Internal agent delegation is Claude’s decision, not a user-managed worker graph.',
+    inputs: 'Feature spec and plan', outputs: 'Traceable feature task plan',
+    artifact: 'TASKS.md', humanReview: true, autoReview: false, dependsOn: ['plan'],
     requires: ['docs/epics/{epic}/artifacts/SPEC.md', 'docs/epics/{epic}/artifacts/PLAN.md'],
-    produces: [
-      'docs/epics/{epic}/artifacts/TASKS.md',
-      'docs/epics/{epic}/artifacts/WORK-PACKAGES.json',
-    ], capabilities: ['files', 'github', 'core-business', 'web'],
+    produces: ['docs/epics/{epic}/artifacts/TASKS.md'], capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
     id: 'analyze-contract', name: 'Analyze Contract', persona: 'cohesive-feature-agent',
     skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Cross-check coverage and freeze the feature contract before parallel package work starts.',
-    inputs: 'Context snapshot, spec, plan, tasks, and work-package graph',
+    description: 'Cross-check coverage and freeze the feature contract before implementation.',
+    inputs: 'Context snapshot, spec, plan, and task plan',
     outputs: 'Coverage analysis and immutable feature contract', artifact: 'FEATURE-CONTRACT.md',
     humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/feature-contract.mjs', dependsOn: ['tasks-package'],
+    autoReviewRunner: '.aidlc/validators/feature-contract.mjs', dependsOn: ['plan-tasks'],
     requires: [
       'docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md',
       'docs/epics/{epic}/artifacts/SPEC.md',
       'docs/epics/{epic}/artifacts/PLAN.md',
       'docs/epics/{epic}/artifacts/TASKS.md',
-      'docs/epics/{epic}/artifacts/WORK-PACKAGES.json',
     ],
     produces: [
       'docs/epics/{epic}/artifacts/ANALYSIS.md',
@@ -698,61 +690,49 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
     ], capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
-    id: 'await-packages', name: 'Await Packages', persona: 'cohesive-feature-agent',
+    id: 'implement', name: 'Implement Feature', persona: 'cohesive-feature-agent',
     skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Track parallel workers and block integration until every required package result is valid.',
-    inputs: 'Feature contract, package graph, and worker result files',
-    outputs: 'Package results rollup and task board', artifact: 'PACKAGE-RESULTS.md',
-    humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/await-packages.mjs', dependsOn: ['analyze-contract'],
+    description: 'Implement the complete feature on its feature branch, run focused tests, and record the resulting behavior.',
+    inputs: 'Frozen feature contract, task plan, and repository context',
+    outputs: 'Complete feature implementation and implementation summary', artifact: 'IMPLEMENTATION-SUMMARY.md',
+    humanReview: true, autoReview: false, dependsOn: ['analyze-contract'],
     requires: [
       'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
-      'docs/epics/{epic}/artifacts/WORK-PACKAGES.json',
+      'docs/epics/{epic}/artifacts/TASKS.md',
     ],
     produces: [
-      'docs/epics/{epic}/artifacts/PACKAGE-RESULTS.md',
-      'docs/epics/{epic}/artifacts/TASK-BOARD.md',
+      'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
     ], capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
-    id: 'integrate', name: 'Integrate', persona: 'cohesive-feature-agent',
+    id: 'implementation-context', name: 'Implementation Context', persona: 'cohesive-feature-agent',
     skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Integrate approved package branches in dependency order and record conflict decisions.',
-    inputs: 'Validated package-results rollup', outputs: 'Integration summary',
-    artifact: 'INTEGRATION-SUMMARY.md', humanReview: true, autoReview: false,
-    dependsOn: ['await-packages'], requires: ['docs/epics/{epic}/artifacts/PACKAGE-RESULTS.md'],
-    produces: ['docs/epics/{epic}/artifacts/INTEGRATION-SUMMARY.md'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'integration-context', name: 'Integration Context', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Reconstruct actual cross-package behavior after integration.',
-    inputs: 'Integration summary and integrated code', outputs: 'Post-integration context',
-    artifact: 'INTEGRATION-CONTEXT.md', humanReview: false, autoReview: false,
-    dependsOn: ['integrate'], requires: ['docs/epics/{epic}/artifacts/INTEGRATION-SUMMARY.md'],
-    produces: ['docs/epics/{epic}/artifacts/INTEGRATION-CONTEXT.md'],
-    producesContains: ['## Planned Versus Actual', '## Cross-Package Interactions', '## Remaining Risks'],
+    description: 'Record actual feature behavior, changed contracts, and traceability after implementation.',
+    inputs: 'Implementation summary and implemented code', outputs: 'Post-implementation context',
+    artifact: 'IMPLEMENTATION-CONTEXT.md', humanReview: false, autoReview: false,
+    dependsOn: ['implement'], requires: ['docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md'],
+    produces: ['docs/epics/{epic}/artifacts/IMPLEMENTATION-CONTEXT.md'],
+    producesContains: ['## Planned Versus Actual', '## Implemented Behavior', '## Requirement Traceability', '## Remaining Risks'],
     capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
     id: 'cohesion-review', name: 'Cohesion Review', persona: 'cohesive-reviewer-agent',
     skillFiles: ['cohesive-reviewer-workflow'], model: 'claude-opus-5',
     description: 'Independent read-only review that the integrated feature still conforms to its frozen contract and project boundaries.',
-    inputs: 'Feature contract and integration context', outputs: 'Cohesion verdict and deviations',
+    inputs: 'Feature contract and implementation context', outputs: 'Cohesion verdict and deviations',
     artifact: 'COHESION-REPORT.md', humanReview: true, autoReview: true,
     autoReviewRunner: '.aidlc/validators/integration-cohesion.mjs', dependsOn: ['integration-context'],
     requires: [
       'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
-      'docs/epics/{epic}/artifacts/INTEGRATION-CONTEXT.md',
+      'docs/epics/{epic}/artifacts/IMPLEMENTATION-CONTEXT.md',
     ], produces: ['docs/epics/{epic}/artifacts/COHESION-REPORT.md'],
     capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
     id: 'system-test', name: 'System Test', persona: 'cohesive-feature-agent',
     skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Run project-level quality commands against the integrated feature.',
-    inputs: 'Approved cohesion report and integrated repository', outputs: 'System test report',
+    description: 'Run project-level quality commands against the completed feature.',
+    inputs: 'Approved cohesion report and implemented repository', outputs: 'System test report',
     artifact: 'SYSTEM-TEST-REPORT.md', humanReview: true, autoReview: true,
     autoReviewRunner: '.aidlc/validators/project-ci.mjs', dependsOn: ['cohesion-review'],
     requires: ['docs/epics/{epic}/artifacts/COHESION-REPORT.md'],
@@ -762,8 +742,8 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   {
     id: 'open-pr', name: 'Open PR', persona: 'cohesive-feature-agent',
     skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Open exactly one pull request for the feature (feature/$0 → defaultBranch). Packages never open PRs.',
-    inputs: 'Passed system test and integrated feature branch', outputs: 'PR link record',
+    description: 'Open exactly one pull request for this independent feature epic (feature/$0 → defaultBranch).',
+    inputs: 'Passed system test and feature branch', outputs: 'PR link record',
     artifact: 'PR-LINK.md', humanReview: false, autoReview: true,
     autoReviewRunner: '.aidlc/validators/ship.mjs', dependsOn: ['system-test'],
     requires: ['docs/epics/{epic}/artifacts/SYSTEM-TEST-REPORT.md'],
@@ -800,108 +780,9 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
 ];
 
-const COHESIVE_WORK_PACKAGE_PHASES: PhaseDef[] = [
-  {
-    id: 'load-package', name: 'Load Package', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
-    description: 'Load exactly one approved package plus its frozen feature and project context.',
-    inputs: 'Epic id and package id', outputs: 'Bounded package-context document',
-    artifact: 'PACKAGE-CONTEXT.md', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/package-context.mjs',
-    produces: ['docs/epics/{epic}/artifacts/PACKAGE-CONTEXT.md'], capabilities: ['files', 'github'],
-  },
-  {
-    id: 'prepare-worktree', name: 'Prepare Worktree', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
-    description: 'Verify the package runs in its declared isolated branch and worktree.',
-    inputs: 'Package context and current git state', outputs: 'Machine-readable worktree state',
-    artifact: 'WORKTREE-STATE.json', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/worktree-state.mjs', dependsOn: ['load-package'],
-    requires: ['docs/epics/{epic}/artifacts/PACKAGE-CONTEXT.md'],
-    produces: ['docs/epics/{epic}/artifacts/WORKTREE-STATE.json'], capabilities: ['files', 'github'],
-  },
-  {
-    id: 'package-test-plan', name: 'Package Test Plan', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
-    description: 'Write failing tests for the package acceptance criteria before implementation.',
-    inputs: 'Package context, worktree state, and task AC',
-    outputs: 'Failing-test plan and red-test evidence', artifact: 'PACKAGE-TEST-PLAN.md',
-    humanReview: false, autoReview: false, dependsOn: ['prepare-worktree'],
-    requires: [
-      'docs/epics/{epic}/artifacts/PACKAGE-CONTEXT.md',
-      'docs/epics/{epic}/artifacts/WORKTREE-STATE.json',
-    ],
-    produces: ['docs/epics/{epic}/artifacts/PACKAGE-TEST-PLAN.md'],
-    producesContains: ['## Failing Tests'],
-    capabilities: ['files', 'github'],
-  },
-  {
-    id: 'implement-package', name: 'Implement Package', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
-    description: 'Implement only the owned package surface without redefining shared contracts.',
-    inputs: 'Package context, failing tests, worktree state, owned files, and allowed contracts',
-    outputs: 'Implementation state, package summary, and reviewable diff', artifact: 'PACKAGE-SUMMARY.md',
-    humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/diff-review.mjs', dependsOn: ['package-test-plan'],
-    requires: [
-      'docs/epics/{epic}/artifacts/PACKAGE-CONTEXT.md',
-      'docs/epics/{epic}/artifacts/WORKTREE-STATE.json',
-      'docs/epics/{epic}/artifacts/PACKAGE-TEST-PLAN.md',
-    ],
-    produces: [
-      'docs/epics/{epic}/artifacts/IMPLEMENT-STATE.md',
-      'docs/epics/{epic}/artifacts/PACKAGE-SUMMARY.md',
-      'docs/epics/{epic}/artifacts/REVIEW-DIFF.md',
-    ], capabilities: ['files', 'github'],
-  },
-  {
-    id: 'package-test', name: 'Package Test', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
-    description: 'Run the package-specific test contract and capture evidence.',
-    inputs: 'Implementation state, package summary, and package test contract',
-    outputs: 'Package test report', artifact: 'PACKAGE-TEST-REPORT.md',
-    humanReview: false, autoReview: false, dependsOn: ['implement-package'],
-    requires: [
-      'docs/epics/{epic}/artifacts/IMPLEMENT-STATE.md',
-      'docs/epics/{epic}/artifacts/PACKAGE-SUMMARY.md',
-      'docs/epics/{epic}/artifacts/REVIEW-DIFF.md',
-    ], produces: ['docs/epics/{epic}/artifacts/PACKAGE-TEST-REPORT.md'],
-    capabilities: ['files', 'github'],
-  },
-  {
-    id: 'package-review', name: 'Package Review', persona: 'cohesive-reviewer-agent',
-    skillFiles: ['cohesive-reviewer-workflow'], model: 'claude-opus-5',
-    description: 'Independent read-only review of the package diff, tests, and charter conformance.',
-    inputs: 'Review diff, test report, package context', outputs: 'Package review verdict',
-    artifact: 'PACKAGE-REVIEW.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/package-review.mjs', dependsOn: ['package-test'],
-    requires: [
-      'docs/epics/{epic}/artifacts/REVIEW-DIFF.md',
-      'docs/epics/{epic}/artifacts/PACKAGE-TEST-REPORT.md',
-    ],
-    produces: ['docs/epics/{epic}/artifacts/PACKAGE-REVIEW.md'],
-    capabilities: ['files', 'github'],
-  },
-  {
-    id: 'publish-result', name: 'Publish Result', persona: 'cohesive-work-package-agent',
-    skillFiles: ['cohesive-work-package-workflow'], model: 'claude-sonnet-5',
-    description: 'Publish the stable result contract consumed by the feature coordinator.',
-    inputs: 'Package test evidence, review verdict, commits, deviations, and integration notes',
-    outputs: 'Machine-readable package result', artifact: 'PACKAGE-RESULT.json',
-    humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/package-result.mjs', dependsOn: ['package-review'],
-    requires: [
-      'docs/epics/{epic}/artifacts/PACKAGE-TEST-REPORT.md',
-      'docs/epics/{epic}/artifacts/PACKAGE-REVIEW.md',
-    ],
-    produces: ['docs/epics/{epic}/artifacts/PACKAGE-RESULT.json'], capabilities: ['files', 'github'],
-  },
-];
-
 const COHESIVE_ALL_PHASES: PhaseDef[] = [
   ...COHESIVE_PROJECT_CONTEXT_PHASES,
   ...COHESIVE_FEATURE_PHASES,
-  ...COHESIVE_WORK_PACKAGE_PHASES,
 ];
 
 export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
@@ -932,14 +813,13 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
     templatesDir: 'cohesive',
     guide: 'media/guides/cohesive-delivery.md',
     description:
-      'Three connected context layers with parallel package execution: Charter + Project Context → Feature Alignment/Contract → Work Packages → cohesion → system-test → one feature PR → post-merge project sync.',
+      'Project Context plus independently runnable feature epics. Parallelism means multiple independent epics; Claude owns internal task decomposition for each epic.',
     // The extension writes commands from `phases`; the actual primary pipeline
     // is selected via `primaryPhases`. This preserves generic installer code.
     phases: COHESIVE_ALL_PHASES,
     primaryPhases: COHESIVE_FEATURE_PHASES,
     additionalPipelines: [
       { id: 'project-context', name: 'Project Context', phases: COHESIVE_PROJECT_CONTEXT_PHASES },
-      { id: 'cohesive-work-package', name: 'Cohesive Work Package', phases: COHESIVE_WORK_PACKAGE_PHASES },
     ],
     seedArtifacts: false,
   },
@@ -1100,6 +980,7 @@ export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
     '',
     '- If Claude exits or fails while this step remains **Awaiting work**, click **Run again with Claude**. It reopens this exact slash command with the same run id.',
     '- If a review rejects this step, click **Run again with Claude** to create a new revision and relaunch with the reject feedback. Choose **Edit feedback first** when the feedback needs changing before the retry.',
+    '- In Cohesive Delivery, parallelism means independent feature epics may run at the same time. It does not mean creating worker/work-package epics or setting an agent count inside this epic; Claude owns any internal decomposition.',
     '- This help is for **Guided** execution: after Claude completes, use **Mark step done** and any review gates. In **Autonomous Delivery**, the visible `/aidlc-autonomous-delivery <delivery-id>` Claude master controls phases and resume checkpoints; do not mark individual phases done yourself.',
     '',
     '## Command',
@@ -1379,9 +1260,9 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
   const skills: Array<Record<string, unknown>> = Array.from(skillEntries.values());
 
   // Commands are namespaced by the pipeline that owns each phase — not the
-  // bundle's primary pipelineId — so companion pipelines (project-context,
-  // cohesive-work-package) get `/project-context-scan-project` rather than
-  // the misleading `/cohesive-feature-scan-project`.
+  // bundle's primary pipelineId — so Project Context gets
+  // `/project-context-scan-project` rather than the misleading
+  // `/cohesive-feature-scan-project`.
   const slashCommands: Array<Record<string, unknown>> = workflowCommandPhases(workflow).map(
     ({ pipelineId, phase }) => ({
       name: `/${pipelineCommandId(pipelineId, phase.id)}`,
@@ -1451,7 +1332,6 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
             'existing-project-autonomous': {
               project_context: 'infer-or-refresh',
               review_strategy: 'aggregate',
-              max_parallel_workers: 3,
               open_feature_pr: true,
               merge: 'human-only',
             },
@@ -1943,15 +1823,12 @@ export function writeBuiltinAutoReviewValidators(
     };
   };
 
-  // Bundle-local validators may share helper modules (for example lib.mjs).
-  // Install all support modules first so referenced runners
-  // remain importable after the preset is installed by the extension.
-  if (fs.existsSync(workflowValidatorDir)) {
-    for (const entry of fs.readdirSync(workflowValidatorDir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith('.mjs')) { continue; }
-      const supportDest = path.join(root, '.aidlc', 'validators', entry.name);
-      install(supportDest, fs.readFileSync(path.join(workflowValidatorDir, entry.name), 'utf8'));
-    }
+  // Bundle-local runners share lib.mjs. Install only that helper plus runners
+  // referenced by active phases; retired worker validators must not reappear
+  // in a fresh independent-epic Cohesive workspace.
+  const helper = path.join(workflowValidatorDir, 'lib.mjs');
+  if (fs.existsSync(helper)) {
+    install(path.join(root, '.aidlc', 'validators', 'lib.mjs'), fs.readFileSync(helper, 'utf8'));
   }
 
   const seen = new Set<string>();

@@ -179,6 +179,10 @@ that same master command again and resumes from the saved checkpoint rather than
 restarting approved work. The extension does not launch a global `aidlc cohesive`
 process in the background.
 
+For Cohesive Delivery, **parallel** means several independent feature epics running
+at the same time. It does not mean creating worker/work-package epics or choosing
+how many agents run inside one epic; Claude owns that internal decomposition.
+
 ---
 
 ## 7. Tips

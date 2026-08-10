@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.4.21
+
+### Changed
+
+- redesign(cohesive): parallel delivery now means multiple independent feature epics running concurrently. New Cohesive workspaces install only `project-context` and the 13-step end-to-end `cohesive-feature` pipeline; internal task decomposition belongs to Claude, with no work-package worker epic, worker-count setting, or package wait gate.
+- docs(help): rewrite Cohesive guides, master command, UI copy, and per-step help around independent epics, conflict boundaries, and the new implementation flow.
+
 ## 3.4.20
 
 ### Changed

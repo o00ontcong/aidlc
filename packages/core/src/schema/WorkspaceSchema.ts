@@ -506,7 +506,8 @@ export type PersistenceConfig = z.infer<typeof PersistenceSchema>;
 const CohesiveExecutionProfileSchema = z.object({
   project_context: z.enum(['interactive', 'infer-or-refresh']).default('interactive'),
   review_strategy: z.enum(['per-step', 'aggregate']).default('per-step'),
-  max_parallel_workers: z.number().int().positive().max(32).default(3),
+  /** Legacy compatibility only. New Cohesive Delivery never uses a worker-count setting. */
+  max_parallel_workers: z.number().int().positive().max(32).optional(),
   open_feature_pr: z.literal(true).default(true),
   merge: z.literal('human-only').default('human-only'),
 });

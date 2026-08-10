@@ -10,8 +10,7 @@ import type { AutonomousDeliverySummary } from '../src/webview/lib/types';
 
 const complete = [
   { id: 'project-context', steps: Array(7) },
-  { id: 'cohesive-feature', steps: Array(14) },
-  { id: 'cohesive-work-package', steps: Array(7) },
+  { id: 'cohesive-feature', steps: Array(13) },
 ];
 
 describe('Autonomous Delivery UI', () => {
@@ -30,7 +29,7 @@ describe('Autonomous Delivery UI', () => {
     ...patch,
   });
 
-  it('accepts the current three-pipeline Cohesive Delivery bundle', () => {
+  it('accepts the current Project Context plus independent Feature Epic bundle', () => {
     expect(autonomousDeliveryReadiness(complete)).toEqual({
       ready: true,
       missingOrOutdated: [],
@@ -69,7 +68,7 @@ describe('Autonomous Delivery UI', () => {
   });
 
   it.each([
-    'pending', 'project-context', 'feature-contract', 'executing-workers', 'integrating', 'failed',
+    'pending', 'project-context', 'feature-contract', 'integrating', 'failed',
   ] as const)('offers direct checkpoint resume while status is %s', (status) => {
     expect(autonomousDeliveryActions(delivery({ status }))).toEqual(['resume']);
   });
@@ -146,12 +145,17 @@ describe('Autonomous Delivery UI', () => {
     const commands = fs.readFileSync(path.join(root, 'src/v2/autonomousDeliveryCommands.ts'), 'utf8');
     expect(commands).toContain("const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery'");
     expect(commands).toContain('ensureAutonomousMasterCommand(workspaceRoot)');
+    expect(commands).toContain('launchAutonomousMaster(workspaceRoot, id, output)');
     expect(commands).toContain("'aidlc.runStepWithFeedback',");
     expect(commands).toContain('Never invoke a global');
     expect(commands).toContain('Do not rerun an approved upstream phase');
     expect(commands).toContain('Report the checkpoint selected before doing any work.');
+    expect(commands).toContain('one independent epic');
+    expect(commands).not.toContain('Execute independent work packages in parallel');
     expect(commands).not.toContain("'cohesive', 'run'");
     expect(commands).not.toContain("['cohesive', 'resume', id]");
+    expect(commands).not.toContain('orchestrator.rework(');
+    expect(commands).not.toContain('.resumeAfterMerge(');
   });
 
   it('offers one-click Claude retry for failed or previously attempted workflow steps', () => {
@@ -177,6 +181,7 @@ describe('Autonomous Delivery UI', () => {
       expect(contents).toContain('Run again with Claude');
     }
     expect(cohesiveGuide).toContain('không chạy lại từ đầu');
+    expect(cohesiveGuide).toContain('nhiều feature epic độc lập');
     expect(gettingStarted).toContain('does not launch a global `aidlc cohesive`');
   });
 });

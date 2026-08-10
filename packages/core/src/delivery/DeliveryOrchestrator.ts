@@ -105,7 +105,9 @@ function profileFromWorkspace(root: string, override?: Partial<DeliveryProfile>)
     ...(raw ? {
       projectContextMode: raw.project_context,
       reviewStrategy: raw.review_strategy,
-      maxParallelWorkers: raw.max_parallel_workers,
+      // Only retained to read historical delivery state. New Cohesive Delivery
+      // no longer exposes or uses a worker-count concurrency setting.
+      maxParallelWorkers: raw.max_parallel_workers ?? DEFAULT_EXISTING_PROJECT_PROFILE.maxParallelWorkers,
       openFeaturePullRequest: raw.open_feature_pr,
       mergePolicy: raw.merge,
     } : {}),

@@ -21,7 +21,6 @@ const EXECUTION_STATUSES = new Set<AutonomousDeliverySummary['status']>([
   'pending',
   'project-context',
   'feature-contract',
-  'executing-workers',
   'integrating',
   'failed',
 ]);
@@ -65,8 +64,7 @@ export function autonomousDeliveryActions(
 
 export const REQUIRED_AUTONOMOUS_PIPELINES = [
   { id: 'project-context', steps: 7 },
-  { id: 'cohesive-feature', steps: 14 },
-  { id: 'cohesive-work-package', steps: 7 },
+  { id: 'cohesive-feature', steps: 13 },
 ] as const;
 
 export function autonomousDeliveryReadiness(pipelines: AutonomousPipelineLike[]): {
