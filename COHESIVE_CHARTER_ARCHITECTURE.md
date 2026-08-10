@@ -1,5 +1,13 @@
 # Cohesive Delivery — Kiến trúc Charter (north star) và kỷ luật thực thi
 
+> **SUPERSEDED (2026-08-10).** Cohesive Delivery đã được redesign quanh independent
+> feature epics ở commit `6c35cad` ("redesign cohesive delivery around independent
+> epics"). Pipeline `cohesive-work-package` nói tới trong tài liệu này không còn được
+> cài cho workspace mới; "song song" giờ nghĩa là nhiều feature epic độc lập, không
+> phải work-package worker trong một feature. Giữ lại làm hồ sơ thiết kế lịch sử —
+> hiện trạng thật xem tại [`packages/extension/media/guides/cohesive-delivery.md`](packages/extension/media/guides/cohesive-delivery.md)
+> và [`packages/core/src/presets/builtinWorkflows.ts`](packages/core/src/presets/builtinWorkflows.ts).
+
 Bản thiết kế hợp nhất cho Cohesive Delivery. Thay thế cách tiếp cận "Thinking Board đặt ở
 cấp epic" trong nhánh `feat/custom`.
 

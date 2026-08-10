@@ -721,7 +721,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
     description: 'Independent read-only review that the integrated feature still conforms to its frozen contract and project boundaries.',
     inputs: 'Feature contract and implementation context', outputs: 'Cohesion verdict and deviations',
     artifact: 'COHESION-REPORT.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/integration-cohesion.mjs', dependsOn: ['integration-context'],
+    autoReviewRunner: '.aidlc/validators/integration-cohesion.mjs', dependsOn: ['implementation-context'],
     requires: [
       'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
       'docs/epics/{epic}/artifacts/IMPLEMENTATION-CONTEXT.md',

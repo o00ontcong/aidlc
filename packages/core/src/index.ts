@@ -168,6 +168,12 @@ export {
   validateDeliveryRequest,
 } from './delivery/DeliveryTypes';
 export {
+  AUTONOMOUS_MASTER_COMMAND,
+  ensureAutonomousMasterCommand,
+  writeAutonomousRequest,
+  ensureCohesiveBundleInstalled,
+} from './delivery/AutonomousMaster';
+export {
   renderDeliveryReviewBundle,
   deliveryReviewSummaryPath,
   writeDeliveryReviewBundle,

@@ -1,5 +1,12 @@
 # TODO — Cohesive Multi-Pipeline Workflow
 
+> **SUPERSEDED (2026-08-10).** Commit `6c35cad` ("redesign cohesive delivery around
+> independent epics") thay toàn bộ mô hình 3-pipeline/work-package bên dưới (kể cả note
+> 2026-08-08 ngay sau đây, vẫn còn nói tới "dynamic workers") bằng mô hình 2 pipeline
+> independent-epics. Không dùng tài liệu này để hiểu hành vi hiện tại — xem
+> [`packages/extension/media/guides/cohesive-delivery.md`](packages/extension/media/guides/cohesive-delivery.md)
+> và [`packages/core/src/presets/builtinWorkflows.ts`](packages/core/src/presets/builtinWorkflows.ts).
+
 > Cập nhật 2026-08-08: tài liệu bên dưới là checklist của prototype workspace-local
 > ban đầu. Bundle hiện đã nằm trong core/extension và có thêm execution profile opt-in
 > `existing-project-autonomous`: tự chạy `project-context` → feature → dynamic workers

@@ -143,14 +143,21 @@ describe('Autonomous Delivery UI', () => {
   it('launches the full Cohesive Delivery through a visible Claude master command', () => {
     const root = path.resolve(process.cwd());
     const commands = fs.readFileSync(path.join(root, 'src/v2/autonomousDeliveryCommands.ts'), 'utf8');
-    expect(commands).toContain("const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery'");
+    // The master command id + prompt template are shared with the CLI via
+    // @aidlc/core (see packages/core/src/delivery/AutonomousMaster.ts) so both
+    // launch surfaces hand off to the exact same Claude command.
+    const masterModule = fs.readFileSync(
+      path.join(root, '../core/src/delivery/AutonomousMaster.ts'),
+      'utf8',
+    );
+    expect(masterModule).toContain("export const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery'");
     expect(commands).toContain('ensureAutonomousMasterCommand(workspaceRoot)');
     expect(commands).toContain('launchAutonomousMaster(workspaceRoot, id, output)');
     expect(commands).toContain("'aidlc.runStepWithFeedback',");
-    expect(commands).toContain('Never invoke a global');
-    expect(commands).toContain('Do not rerun an approved upstream phase');
-    expect(commands).toContain('Report the checkpoint selected before doing any work.');
-    expect(commands).toContain('one independent epic');
+    expect(masterModule).toContain('Never invoke a global');
+    expect(masterModule).toContain('Do not rerun an approved upstream phase');
+    expect(masterModule).toContain('Report the checkpoint selected before doing any work.');
+    expect(masterModule).toContain('one independent epic');
     expect(commands).not.toContain('Execute independent work packages in parallel');
     expect(commands).not.toContain("'cohesive', 'run'");
     expect(commands).not.toContain("['cohesive', 'resume', id]");

@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { Command } from 'commander';
 import chalk from 'chalk';
 
@@ -12,7 +12,10 @@ import {
   recordHumanCharterEdit,
   listValidatorConflicts,
   resolveValidatorConflict,
-  type DeliveryHooks,
+  AUTONOMOUS_MASTER_COMMAND,
+  ensureAutonomousMasterCommand,
+  writeAutonomousRequest,
+  ensureCohesiveBundleInstalled,
   type DeliveryRequest,
   type ValidatorConflict,
 } from '@aidlc/core';
@@ -44,33 +47,6 @@ function printDiff(installedPath: string, conflictPath: string): void {
   }
 }
 
-function hooks(): DeliveryHooks {
-  return {
-    onDeliveryStage: ({ stage, detail }) => {
-      console.log(chalk.bold(`\n◆ ${stage}`) + (detail ? chalk.dim(` — ${detail}`) : ''));
-    },
-    onStepStart: ({ stepIdx, agent }) => console.log(chalk.cyan(`  ▶ step ${stepIdx}: ${agent}`)),
-    onAutoReviewResult: ({ decision, reason }) => {
-      const mark = decision === 'pass' ? chalk.green('✔') : chalk.red('✘');
-      console.log(`  ${mark} auto-review ${decision}: ${reason}`);
-    },
-    onReviewDeferred: ({ agent, reviewBundleRevision }) => {
-      console.log(chalk.dim(`  ◷ ${agent}: human review deferred to bundle R${reviewBundleRevision}`));
-    },
-    onOutput: (chunk) => process.stdout.write(chunk),
-    onErrorOutput: (chunk) => process.stderr.write(chunk),
-    onStepFailed: ({ message, missing, failure }) => {
-      console.error(chalk.red(`\n  ✘ ${message ?? 'Step failed.'}`));
-      if (missing?.length) console.error(chalk.yellow(`  Missing: ${missing.join(', ')}`));
-      if (failure) {
-        console.error(chalk.dim(`  Code: ${failure.code}`));
-        console.error(chalk.dim(`  Log: ${failure.logPath}`));
-        for (const command of failure.recoveryCommands) console.error(chalk.dim(`  Recovery: ${command}`));
-      }
-    },
-  };
-}
-
 function reportError(error: unknown): void {
   console.error(chalk.red(error instanceof Error ? error.message : String(error)));
   process.exitCode = 1;
@@ -79,9 +55,8 @@ function reportError(error: unknown): void {
 /**
  * Walk every pending `.aidlc/validators/*.aidlc-new` conflict, printing a
  * diff and asking keep/accept/skip for each. Called proactively before
- * `run`/`resume` so a pending upgrade is resolved as part of starting
- * delivery rather than surfacing as a mid-run failure; `assertValidatorsReady`
- * still enforces afterward for anything left skipped (or a non-TTY shell).
+ * launching the autonomous master so a pending upgrade is resolved as part
+ * of starting delivery rather than surfacing as a mid-run failure.
  * Returns whatever is still pending once the walk finishes.
  */
 async function reconcileValidatorConflictsInteractive(root: string): Promise<ValidatorConflict[]> {
@@ -116,12 +91,29 @@ async function reconcileValidatorConflictsInteractive(root: string): Promise<Val
   return listValidatorConflicts(root);
 }
 
+/**
+ * Hand off to an interactive `claude` session running the autonomous master
+ * command, exactly like the extension's terminal launch. The delivery's own
+ * internal task decomposition and phase sequencing is Claude's decision, not
+ * a TypeScript orchestration loop — this process just gives Claude the TTY.
+ */
+function spawnClaudeMaster(root: string, deliveryId: string): Promise<void> {
+  ensureAutonomousMasterCommand(root);
+  const prompt = `${AUTONOMOUS_MASTER_COMMAND} ${deliveryId}`;
+  console.log(chalk.bold(`\n◆ Opening Claude master: ${prompt}`));
+  return new Promise((resolve, reject) => {
+    const child = spawn('claude', [prompt], { cwd: root, stdio: 'inherit' });
+    child.on('error', reject);
+    child.on('close', () => resolve());
+  });
+}
+
 export function registerCohesive(program: Command): void {
   const cmd = program.command('cohesive')
     .description('Run project-level Cohesive Delivery orchestration');
 
   cmd.command('run')
-    .description('Start and execute Existing Project Autonomous Delivery')
+    .description('Create a delivery and hand it off to the Claude autonomous master')
     .requiredOption('--id <id>', 'Delivery / feature id')
     .option('--title <title>', 'Feature title (defaults to id)')
     .option('--description <text>', 'Feature request description')
@@ -130,14 +122,13 @@ export function registerCohesive(program: Command): void {
     .option('--constraint <text>', 'Constraint (repeatable)', collect, [])
     .option('--source-type <type>', 'manual|file|jira|github|other')
     .option('--source-ref <ref>', 'Optional source reference')
-    .option('--max-workers <count>', 'Maximum parallel package workers', '3')
     .action(async (opts: {
       id: string; title?: string; description?: string; input?: string;
-      acceptance: string[]; constraint: string[]; sourceType?: string;
-      sourceRef?: string; maxWorkers: string;
+      acceptance: string[]; constraint: string[]; sourceType?: string; sourceRef?: string;
     }, actionCmd: Command) => {
       try {
         const root = resolveWorkspaceRoot(actionCmd);
+        ensureCohesiveBundleInstalled(root);
         const fromFile = opts.input
           ? fs.readFileSync(path.resolve(root, opts.input), 'utf8')
           : '';
@@ -152,38 +143,27 @@ export function registerCohesive(program: Command): void {
           constraints: opts.constraint,
           source: { type: sourceType, reference: opts.sourceRef ?? opts.input },
         };
-        const maxWorkers = Number(opts.maxWorkers);
-        if (!Number.isInteger(maxWorkers) || maxWorkers < 1 || maxWorkers > 32) {
-          throw new Error('--max-workers must be an integer between 1 and 32.');
-        }
-        const orchestrator = new DeliveryOrchestrator(root);
-        orchestrator.create(request, {
-          profile: { maxParallelWorkers: maxWorkers },
-        });
+        new DeliveryOrchestrator(root).create(request);
+        writeAutonomousRequest(root, request);
         await reconcileValidatorConflictsInteractive(root);
-        const state = await orchestrator.run(opts.id, { hooks: hooks() });
-        console.log(chalk.green(`\n✔ Delivery ${state.id} is ready for aggregate human review.`));
-        console.log(deliveryReviewSummaryPath(root, state));
+        await spawnClaudeMaster(root, opts.id);
       } catch (error) { reportError(error); }
     });
 
   cmd.command('resume <deliveryId>')
-    .description('Resume an interrupted autonomous delivery')
+    .description('Resume an interrupted delivery by relaunching the Claude autonomous master')
     .action(async (deliveryId: string, _opts: unknown, actionCmd: Command) => {
       try {
         const root = resolveWorkspaceRoot(actionCmd);
-        await reconcileValidatorConflictsInteractive(root);
-        const orchestrator = new DeliveryOrchestrator(root);
-        const previous = orchestrator.load(deliveryId);
-        if (previous.lastFailure) {
-          console.log(chalk.yellow(`Retrying ${previous.lastFailure.runId} from step ${previous.lastFailure.stepIdx ?? '?'} (${previous.lastFailure.code}).`));
-          console.log(chalk.dim(`Previous log: ${previous.lastFailure.logPath}`));
-        } else if (previous.lastError) {
-          console.log(chalk.yellow(`Retrying legacy blocked delivery ${deliveryId} from its unchanged current step.`));
-          console.log(chalk.dim(`Previous error (no structured log was captured by the older version): ${previous.lastError}`));
+        const state = new DeliveryOrchestrator(root).load(deliveryId);
+        if (state.lastFailure) {
+          console.log(chalk.yellow(`Last failure: ${state.lastFailure.runId} step ${state.lastFailure.stepIdx ?? '?'} (${state.lastFailure.code}).`));
+          console.log(chalk.dim(`Log: ${state.lastFailure.logPath}`));
+        } else if (state.lastError) {
+          console.log(chalk.yellow(`Legacy error on record: ${state.lastError}`));
         }
-        const state = await orchestrator.run(deliveryId, { hooks: hooks() });
-        console.log(chalk.green(`✔ Delivery ${state.id}: ${state.status}`));
+        await reconcileValidatorConflictsInteractive(root);
+        await spawnClaudeMaster(root, deliveryId);
       } catch (error) { reportError(error); }
     });
 
@@ -201,11 +181,11 @@ export function registerCohesive(program: Command): void {
         else if (Array.isArray(value)) {
           for (const state of value) console.log(`${state.id}\t${state.status}\tR${state.reviewRevision}`);
         } else {
-          console.log(`${value.id} · ${value.status} · workers ${value.workerRunIds.length} · review R${value.reviewRevision}`);
+          console.log(`${value.id} · ${value.status} · review R${value.reviewRevision}`);
           if (value.lastFailure) {
             console.log(chalk.red(`  ${value.lastFailure.code}: ${value.lastFailure.summary}`));
             console.log(chalk.dim(`  Log: ${value.lastFailure.logPath}`));
-            console.log(chalk.yellow(`  Resume: ${value.lastFailure.resumeCommand}`));
+            console.log(chalk.yellow(`  Resume: aidlc cohesive resume ${value.id}`));
           } else if (value.lastError) {
             console.log(chalk.red(`  Legacy error: ${value.lastError}`));
             console.log(chalk.yellow(`  Resume: aidlc cohesive resume ${value.id}`));
@@ -267,16 +247,18 @@ export function registerCohesive(program: Command): void {
           target: opts.run || opts.step ? { runId: opts.run, step: opts.step } : undefined,
         });
         console.log(chalk.green(`✔ Added ${task.id}: ${task.title}`));
+        console.log(chalk.dim(`Run "aidlc cohesive resume ${deliveryId}" to have Claude act on it.`));
       } catch (error) { reportError(error); }
     });
 
   cmd.command('rework <deliveryId>')
-    .description('Route pending human tasks, selectively rerun affected work, and rebuild the review bundle')
+    .description('Relaunch the Claude autonomous master to act on pending review tasks (alias of resume)')
     .action(async (deliveryId: string, _opts: unknown, actionCmd: Command) => {
       try {
         const root = resolveWorkspaceRoot(actionCmd);
-        const state = await new DeliveryOrchestrator(root).rework(deliveryId, { hooks: hooks() });
-        console.log(chalk.green(`✔ Rework complete; review bundle R${state.reviewRevision} is ready.`));
+        new DeliveryOrchestrator(root).load(deliveryId); // validates the delivery exists
+        await reconcileValidatorConflictsInteractive(root);
+        await spawnClaudeMaster(root, deliveryId);
       } catch (error) { reportError(error); }
     });
 
@@ -293,19 +275,19 @@ export function registerCohesive(program: Command): void {
     });
 
   cmd.command('resume-after-merge <deliveryId>')
-    .description('Run await-merge/project-sync after the feature PR has been merged')
+    .description('Relaunch the Claude autonomous master to run await-merge/project-sync after the feature PR has been merged')
     .action(async (deliveryId: string, _opts: unknown, actionCmd: Command) => {
       try {
         const root = resolveWorkspaceRoot(actionCmd);
-        const state = await new DeliveryOrchestrator(root).resumeAfterMerge(deliveryId, hooks());
-        console.log(chalk.green(`✔ Delivery ${state.id} completed.`));
+        new DeliveryOrchestrator(root).load(deliveryId); // validates the delivery exists
+        await spawnClaudeMaster(root, deliveryId);
       } catch (error) { reportError(error); }
     });
 
   cmd.command('confirm-context <deliveryId>')
-    .description('Record manual edits to the inferred project charter and selectively rework delivery context')
+    .description('Record manual edits to the inferred project charter and optionally relaunch the Claude master')
     .option('--id <charterId>', 'Confirm only this goal/invariant/tech-rule id (repeatable)', collect, [])
-    .option('--no-rework', 'Only record the edit; do not rerun affected delivery steps')
+    .option('--no-rework', 'Only record the edit; do not relaunch Claude')
     .action(async (deliveryId: string, opts: { id: string[]; rework: boolean }, actionCmd: Command) => {
       try {
         const root = resolveWorkspaceRoot(actionCmd);
@@ -327,8 +309,7 @@ export function registerCohesive(program: Command): void {
             acceptanceCriteria: ['Refresh project evidence, drift report, context manifest, and downstream alignment.'],
             target: { runId: state.projectContextRunId, step: 'define-charter' },
           });
-          const updated = await orchestrator.rework(deliveryId, { hooks: hooks() });
-          console.log(chalk.green(`✔ Delivery refreshed; review bundle R${updated.reviewRevision} is ready.`));
+          await spawnClaudeMaster(root, deliveryId);
         }
       } catch (error) { reportError(error); }
     });

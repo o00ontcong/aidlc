@@ -1,5 +1,12 @@
 # Hướng dẫn sử dụng Cohesive Delivery trên UI
 
+> **SUPERSEDED (2026-08-10).** Cohesive Delivery đã được redesign quanh independent
+> feature epics ở commit `6c35cad` ("redesign cohesive delivery around independent
+> epics"). Guide dưới đây vẫn mô tả work-package/worker, `max_parallel_workers` và
+> aggregate-review-qua-nhiều-worker của mô hình cũ. Guide canonical, đang cập nhật là
+> [`packages/extension/media/guides/cohesive-delivery.md`](packages/extension/media/guides/cohesive-delivery.md) —
+> mở trực tiếp trong extension qua **Autonomous Delivery → Help & guide**.
+
 Tài liệu này dành cho người mới đã cài AIDLC extension và đang mở project cần làm việc trong VS Code hoặc Cursor.
 
 Cohesive Delivery có hai cách chạy cùng tồn tại:

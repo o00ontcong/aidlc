@@ -1,5 +1,12 @@
 # Cohesive Delivery — Tóm tắt hiện trạng
 
+> **SUPERSEDED (2026-08-10).** Tài liệu này chụp hiện trạng *trước* redesign — commit
+> `6c35cad` ("redesign cohesive delivery around independent epics") đã bỏ pipeline
+> `cohesive-work-package` và toàn bộ dynamic-worker orchestration mô tả bên dưới, thay
+> bằng mô hình independent-epics (2 pipeline: `project-context` + `cohesive-feature`
+> 13 bước). Nhiều điểm ở §8 "đáng ngờ" chính là lý do dẫn tới redesign này. Hiện trạng
+> thật xem tại [`packages/extension/media/guides/cohesive-delivery.md`](packages/extension/media/guides/cohesive-delivery.md).
+
 > Tài liệu này mô tả implementation hiện tại, không phải thiết kế mục tiêu.
 
 ## 1. Mục tiêu hiện tại
