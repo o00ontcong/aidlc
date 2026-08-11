@@ -13,6 +13,7 @@ import { V3WorkspacePanel } from './V3WorkspacePanel';
 export function registerV3Extension(context: vscode.ExtensionContext, output: vscode.OutputChannel): vscode.Disposable[] {
   const host = new ExtensionV3Host({
     workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    language: () => (vscode.workspace.getConfiguration('aidlc').get<string>('language') === 'vi' ? 'vi' : 'en'),
     hostDispatcher: async (command) => {
       if (command.name === 'capability.ast.graph.open') {
         await vscode.commands.executeCommand('aidlc.astGraph.openReport');
@@ -99,6 +100,11 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
     watcher.onDidChange(() => host.notifyDurableStateChanged());
     watcher.onDidDelete(() => host.notifyDurableStateChanged());
   }
+  // Live-refresh the panel's display language when the user flips
+  // `aidlc.language` from the Settings UI, without needing a reload.
+  const languageConfigReg = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration('aidlc.language')) { host.notifyDurableStateChanged(); }
+  });
   return [
     vscode.commands.registerCommand('aidlc.v3.open', open),
     vscode.commands.registerCommand('aidlc.v3.command', async (message: unknown) => {
@@ -110,6 +116,7 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
     vscode.commands.registerCommand('aidlc.project.setup', () => dispatchPalette('project.setup', { confirm: false })),
     vscode.commands.registerCommand('aidlc.epic.next', () => withEpicId('epic.next')),
     vscode.commands.registerCommand('aidlc.epic.resume', () => withEpicId('epic.resume')),
+    languageConfigReg,
     ...(watcher ? [watcher] : []),
   ];
 }

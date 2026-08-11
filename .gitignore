@@ -18,6 +18,9 @@ packages/*/bin/
 /docs/*
 !/docs/UNIFIED_SYSTEM_GUIDE.md
 .aidlc/
+# test fixtures intentionally ship a checked-in .aidlc/ (e.g. artifacts.yaml)
+!/packages/core/test/fixtures/**/.aidlc/
+!/packages/core/test/fixtures/**/.aidlc/**
 
 # editor
 .idea/

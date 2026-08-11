@@ -1,0 +1,11 @@
+schemaVersion: 1
+defaults:
+  persist: runtime
+  commit: false
+types:
+  specification:
+    path: docs/epics/{epic}/SPEC.md
+    commit: true
+  review:
+    path: docs/epics/{epic}/REVIEW.md
+    commit: false

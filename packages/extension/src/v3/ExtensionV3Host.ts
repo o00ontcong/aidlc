@@ -31,6 +31,8 @@ export interface ExtensionV3HostOptions {
   readonly applicationFactory?: V3HostApplicationFactory;
   readonly actor?: V3ActorRef;
   readonly hostDispatcher?: (command: ExtensionV3Command) => Promise<ExtensionV3CommandResult | undefined>;
+  /** Reads the `aidlc.language` setting. Defaults to `'en'` — kept as a callback (like `workspaceRoot`) so this class stays vscode-agnostic and testable. */
+  readonly language?: () => 'en' | 'vi';
 }
 
 /** Kept local because the public core migration export currently exposes the application class, not this helper contract. */
@@ -132,6 +134,7 @@ export class ExtensionV3Host {
     const migration = application.migration.preview();
 
     return {
+      language: this.options.language?.() ?? 'en',
       project: {
         name: path.basename(root),
         readiness: context?.analysisStatus === 'published' ? 'ready' : 'not-ready',

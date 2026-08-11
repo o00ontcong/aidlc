@@ -214,6 +214,8 @@ export interface V3Registry {
 
 /** Complete, serializable screen state supplied by the extension host. */
 export interface V3WorkspaceState {
+  /** `aidlc.language` setting — drives `I18nProvider` in `webview/lib/i18n.tsx`. */
+  readonly language: 'en' | 'vi';
   readonly project: V3ProjectState;
   readonly epics: readonly V3EpicSummary[];
   readonly currentEpicId?: string;

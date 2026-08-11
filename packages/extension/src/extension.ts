@@ -150,6 +150,15 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // Dedicated AIDLC settings entry point (sidebar gear icon). Opens VS Code's
+  // native Settings UI pre-filtered to this extension's settings — currently
+  // just the display-language picker (`aidlc.language`, en|vi, default en).
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aidlc.openSettings', () => {
+      void vscode.commands.executeCommand('workbench.action.openSettings', 'aidlc.language');
+    }),
+  );
+
   // Watch workspace.yaml so the sidebar (and any open Builder panel) refresh
   // automatically when the user edits the file directly. We don't rely on
   // a single watcher because the user can switch projects mid-session.
@@ -245,10 +254,15 @@ export function activate(context: vscode.ExtensionContext): void {
   // structural code context cheaply instead of grep+read sweeps.
   registerAstGraph(context, output);
 
-  // Auto-open Workspace once — deferred so a restored panel from the serializer
-  // can reclaim first (avoids duplicate "AIDLC Workspace" tabs on reload).
+  // Auto-open the V3 workspace (the redesigned UI) once per activation —
+  // deferred so a restored V2 panel from its serializer can reclaim first.
+  // V2's own auto-open is intentionally disabled: V3 is now the default
+  // surface; V2 remains fully wired and reachable via `aidlc.openBuilder`
+  // for rollback, it just no longer opens itself unprompted.
   const hasFolder = (vscode.workspace.workspaceFolders ?? []).length > 0;
-  WorkspaceWebview.scheduleAutoOpen(context.extensionUri, hasFolder ? 'builder' : 'epics');
+  if (hasFolder) {
+    setTimeout(() => { void vscode.commands.executeCommand('aidlc.v3.open'); }, 400);
+  }
 
   output.appendLine('Activation complete.');
 }

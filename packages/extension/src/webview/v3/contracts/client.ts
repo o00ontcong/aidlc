@@ -53,10 +53,15 @@ export function setStageAutonomyPayload(epicId: string, stageId: string, autonom
   return { epicId, stageId, autonomy };
 }
 
-export function gateDecisionPayload(epicId: string, preview: V3GatePreview, decision: 'approved' | 'rejected') {
-  return { epicId, gateId: preview.id, decision };
+export function gateDecisionPayload(epicId: string, preview: V3GatePreview, decision: 'approved' | 'rejected', reason?: string) {
+  return { epicId, gateId: preview.id, decision, reason };
 }
 
 export function recoveryPayload(epicId: string | undefined, action: V3RecoveryAction, reason?: string) {
   return { epicId, action: action.command ?? action.kind, reason };
+}
+
+/** Payload shape the `registry.*` commands expect — see `registerV3Extension.ts`'s `registry.` dispatch branch. */
+export function registryStepPayload(epicId: string, pipelineId: string, stepId: string, extra?: { feedback?: string; reason?: string }) {
+  return { epicId, pipelineId, stepId, ...extra };
 }

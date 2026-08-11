@@ -1,11 +1,13 @@
 import type { V3ApplicationClient, V3RecoveryAction } from '../contracts';
 import { createV3CommandFactory, recoveryPayload } from '../contracts';
+import { useI18n } from '../../lib/i18n';
 
 export function RecoveryActions({ epicId, actions, client }: {
   epicId?: string;
   actions: readonly V3RecoveryAction[];
   client: V3ApplicationClient;
 }) {
+  const t = useI18n();
   const command = createV3CommandFactory('recovery');
   if (actions.length === 0) return null;
   return (
@@ -17,7 +19,7 @@ export function RecoveryActions({ epicId, actions, client }: {
           title={action.description}
           className="rounded border border-border bg-card px-2.5 py-1.5 text-xs text-foreground hover:border-primary hover:bg-accent"
           onClick={() => {
-            const reason = action.requiresReason ? window.prompt(`${action.label}: add a reason`) ?? undefined : undefined;
+            const reason = action.requiresReason ? window.prompt(`${action.label}${t.recoveryActions.addReasonSuffix}`) ?? undefined : undefined;
             if (action.requiresReason && !reason) return;
             client.dispatch(command('recovery.apply', recoveryPayload(epicId, action, reason)));
           }}

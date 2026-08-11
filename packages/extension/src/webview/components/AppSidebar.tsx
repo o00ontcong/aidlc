@@ -30,12 +30,15 @@ import { ConfirmModal } from './ConfirmModal';
 import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
 import { ThemeToggle } from './ThemeToggle';
+import { NeedsLogic } from './NeedsLogic';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
+import { I18nProvider, useI18n } from '@/lib/i18n';
 
 interface CollapseState {
   recentEpics: boolean;
   workflows: boolean;
   mcpServers: boolean;
+  quotaTracker: boolean;
 }
 
 interface PersistedUi {
@@ -46,6 +49,7 @@ const DEFAULT_COLLAPSED: CollapseState = {
   recentEpics: false,
   workflows: false,
   mcpServers: true,
+  quotaTracker: true,
 };
 
 export function AppSidebar({ state }: { state: SidebarState | null }) {
@@ -72,27 +76,20 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
 
   if (!state) {
     return (
-      <aside className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
-          Loading…
-        </div>
-      </aside>
+      <I18nProvider lang="en">
+        <aside className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
+          <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
+            <LoadingLabel />
+          </div>
+        </aside>
+      </I18nProvider>
     );
   }
 
   return (
+    <I18nProvider lang={state.language}>
     <aside className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-sidebar-border px-3 py-2.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <BrandIcon />
-          <div className="min-w-0">
-            <h2 className="text-[11px] font-bold tracking-widest uppercase">AIDLC</h2>
-            <p className="truncate text-[10px] text-muted-foreground">Agent workflow runner</p>
-          </div>
-        </div>
-        <ThemeToggle />
-      </div>
+      <SidebarHeader />
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
@@ -103,44 +100,24 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
           <>
             <ProjectBar workspaceName={state.workspaceName} configExists={state.configExists} extraProjects={state.extraProjects} />
             {state.configExists && (
-              <button
-                type="button"
-                onClick={() => postMessage({ type: 'openYaml' })}
-                className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <FileCode2 className="h-3.5 w-3.5" />
-                <span>Open workspace.yaml</span>
-              </button>
+              <OpenYamlButton />
             )}
 
             {!state.configExists && (
-              <div className="rounded-md border border-dashed border-border bg-surface/50 p-3 text-[11px] text-muted-foreground leading-relaxed">
-                No <code className="rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">workspace.yaml</code> yet — open the Builder from the title bar to scaffold one.
-              </div>
+              <NoWorkspaceYamlNote />
             )}
 
             {/* Analyze Requirements — always visible when a folder is open */}
-            <button
-              type="button"
-              onClick={() => postMessage({ type: 'openAnalyzeView' })}
-              className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-            >
-              <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>Analyze Requirements</span>
-              <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-50" />
-            </button>
+            <AnalyzeRequirementsButton />
+
+            <QuotaTrackerSection
+              collapsed={collapsed.quotaTracker}
+              onToggle={() => toggleSection('quotaTracker')}
+            />
 
             {state.configExists && (
               <>
-                <button
-                  type="button"
-                  onClick={() => postMessage({ type: 'openWorkspace' })}
-                  className="flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold uppercase tracking-wider text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  <Layers className="h-3.5 w-3.5" />
-                  <span>Open Workspace</span>
-                  <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
-                </button>
+                <OpenWorkspaceButton />
 
                 <StatsGrid state={state} />
 
@@ -179,6 +156,81 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
       <Footer hasFolder={state.hasFolder} />
 
     </aside>
+    </I18nProvider>
+  );
+}
+
+function LoadingLabel() {
+  const t = useI18n();
+  return <>{t.sidebar.loading}</>;
+}
+
+function SidebarHeader() {
+  const t = useI18n();
+  return (
+    <div className="flex items-center justify-between border-b border-sidebar-border px-3 py-2.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <BrandIcon />
+        <div className="min-w-0">
+          <h2 className="text-[11px] font-bold tracking-widest uppercase">{t.sidebar.brandTitle}</h2>
+          <p className="truncate text-[10px] text-muted-foreground">{t.sidebar.brandSubtitle}</p>
+        </div>
+      </div>
+      <ThemeToggle />
+    </div>
+  );
+}
+
+function OpenYamlButton() {
+  const t = useI18n();
+  return (
+    <button
+      type="button"
+      onClick={() => postMessage({ type: 'openYaml' })}
+      className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    >
+      <FileCode2 className="h-3.5 w-3.5" />
+      <span>{t.sidebar.openWorkspaceYaml}</span>
+    </button>
+  );
+}
+
+function NoWorkspaceYamlNote() {
+  const t = useI18n();
+  return (
+    <div className="rounded-md border border-dashed border-border bg-surface/50 p-3 text-[11px] text-muted-foreground leading-relaxed">
+      {t.sidebar.noWorkspaceYamlNotePrefix}<code className="rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">workspace.yaml</code>{t.sidebar.noWorkspaceYamlNoteSuffix}
+    </div>
+  );
+}
+
+function AnalyzeRequirementsButton() {
+  const t = useI18n();
+  return (
+    <button
+      type="button"
+      onClick={() => postMessage({ type: 'openAnalyzeView' })}
+      className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+    >
+      <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
+      <span>{t.sidebar.analyzeRequirements}</span>
+      <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-50" />
+    </button>
+  );
+}
+
+function OpenWorkspaceButton() {
+  const t = useI18n();
+  return (
+    <button
+      type="button"
+      onClick={() => postMessage({ type: 'openWorkspace' })}
+      className="flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold uppercase tracking-wider text-primary-foreground transition-colors hover:bg-primary/90"
+    >
+      <Layers className="h-3.5 w-3.5" />
+      <span>{t.sidebar.openWorkspace}</span>
+      <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
+    </button>
   );
 }
 
@@ -186,15 +238,16 @@ function AskButton() {
   // Always visible — the whole point is helping users understand the
   // extension and how to set it up, which matters most *before* a workspace
   // exists. Routes to the host `aidlc.ask` command (prompts → claude → preview).
+  const t = useI18n();
   return (
     <button
       type="button"
       onClick={() => postMessage({ type: 'askAidlc' })}
-      title="Ask Claude about AIDLC — what it does, how to set it up"
+      title={t.sidebar.askAidlcTooltip}
       className="flex w-full items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
     >
       <HelpCircle className="h-3.5 w-3.5" />
-      <span>Ask AIDLC</span>
+      <span>{t.sidebar.askAidlc}</span>
       <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
     </button>
   );
@@ -227,12 +280,13 @@ function ProjectBar({
   configExists: boolean;
   extraProjects?: Array<{ type: string; ref: string; label: string; mode?: string }>;
 }) {
+  const t = useI18n();
   const hasExtras = extraProjects && extraProjects.length > 0;
   return (
     <div className="space-y-1">
       {hasExtras && (
         <div className="px-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-          AIDLC Workspace
+          {t.sidebar.aidlcWorkspaceLabel}
         </div>
       )}
       <div
@@ -246,13 +300,13 @@ function ProjectBar({
           }
         }}
         className="group flex cursor-pointer items-center gap-2 rounded-md border border-primary/30 bg-gradient-to-br from-primary/10 to-primary/5 px-3 py-2 transition-all hover:border-primary/40 hover:from-primary/20 hover:to-primary/10"
-        title="Click to open Builder"
+        title={t.sidebar.clickToOpenBuilder}
       >
         <Layers className="h-3.5 w-3.5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-bold tracking-wide text-primary">{workspaceName}</div>
           {!configExists && (
-            <div className="text-[10px] text-muted-foreground">no workspace.yaml</div>
+            <div className="text-[10px] text-muted-foreground">{t.sidebar.noWorkspaceYaml}</div>
           )}
         </div>
         <button
@@ -261,7 +315,7 @@ function ProjectBar({
             e.stopPropagation();
             postMessage({ type: 'openProject' });
           }}
-          title="Switch project"
+          title={t.sidebar.switchProject}
           className="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-primary/20 hover:text-primary"
         >
           <FolderOpen className="h-3.5 w-3.5" />
@@ -272,7 +326,7 @@ function ProjectBar({
             e.stopPropagation();
             postMessage({ type: 'closeProject' });
           }}
-          title="Close project"
+          title={t.sidebar.closeProject}
           className="grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
         >
           <X className="h-3.5 w-3.5" />
@@ -299,6 +353,7 @@ function ProjectBar({
 }
 
 function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
+  const t = useI18n();
   const [demoModalOpen, setDemoModalOpen] = useState(false);
   const onLoadDemo = () => {
     if (demoProjectExists) {
@@ -312,9 +367,9 @@ function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
   };
   return (
     <div className="rounded-md border border-dashed border-border bg-surface/50 p-4 text-center">
-      <h3 className="mb-1.5 text-xs font-bold tracking-wide">No project open</h3>
+      <h3 className="mb-1.5 text-xs font-bold tracking-wide">{t.sidebar.noProjectOpenTitle}</h3>
       <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">
-        Open a folder to start building agents and workflows — or load the demo project.
+        {t.sidebar.noProjectOpenBody}
       </p>
       <button
         type="button"
@@ -322,7 +377,7 @@ function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
         className="flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold uppercase tracking-wider text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <FolderOpen className="h-3.5 w-3.5" />
-        <span>Open Project</span>
+        <span>{t.sidebar.openProject}</span>
         <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
       </button>
       <button
@@ -331,7 +386,7 @@ function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
         className="mt-2 flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       >
         <Beaker className="h-3.5 w-3.5" />
-        <span>Load Demo Project</span>
+        <span>{t.sidebar.loadDemoProject}</span>
       </button>
       {demoModalOpen && (
         <LoadDemoModal
@@ -344,27 +399,28 @@ function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
 }
 
 function StatsGrid({ state }: { state: SidebarState }) {
+  const t = useI18n();
   // Each tile doubles as navigation: Agents/Skills/Flows deep-link into the
   // matching Builder tab, while Epics opens the dedicated top-level Epics view
   // (the Builder no longer has an Epics tab).
   const stats: { label: string; value: number; onClick: () => void }[] = [
     {
-      label: 'Agents',
+      label: t.sidebar.statsAgents,
       value: state.agentsCount,
       onClick: () => postMessage({ type: 'openBuilderTab', tab: 'agents' }),
     },
     {
-      label: 'Skills',
+      label: t.sidebar.statsSkills,
       value: state.skillsCount,
       onClick: () => postMessage({ type: 'openBuilderTab', tab: 'skills' }),
     },
     {
-      label: 'Flows',
+      label: t.sidebar.statsFlows,
       value: state.pipelinesCount,
       onClick: () => postMessage({ type: 'openBuilderTab', tab: 'workflows' }),
     },
     {
-      label: 'Epics',
+      label: t.sidebar.statsEpics,
       value: state.epicsCount,
       onClick: () => postMessage({ type: 'openEpicsList' }),
     },
@@ -376,7 +432,7 @@ function StatsGrid({ state }: { state: SidebarState }) {
           key={s.label}
           type="button"
           onClick={s.onClick}
-          title={`Open ${s.label}`}
+          title={`${t.sidebar.statsOpenPrefix}${s.label}`}
           className="flex flex-col items-center gap-0.5 rounded-md border border-border bg-card/50 px-1 py-2 transition-colors hover:border-primary/40 hover:bg-accent"
         >
           <span className="font-mono text-base font-bold tabular-nums text-primary leading-none">
@@ -430,10 +486,11 @@ function RecentEpicsSection({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const t = useI18n();
   return (
     <div>
       <SectionHeader
-        label="Recent Epics"
+        label={t.sidebar.recentEpics}
         collapsed={collapsed}
         onToggle={onToggle}
         trailing={
@@ -442,7 +499,7 @@ function RecentEpicsSection({
             onClick={() => postMessage({ type: 'openEpicsList' })}
             className="text-[10px] text-muted-foreground hover:text-primary"
           >
-            All {epicsCount} →
+            {t.sidebar.all} {epicsCount} →
           </button>
         }
       />
@@ -491,6 +548,38 @@ function EpicDot({ status }: { status: string }) {
   return <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', cls)} />;
 }
 
+/**
+ * No real quota data source exists anywhere in the codebase yet (confirmed:
+ * not in V2 or V3, only hardcoded numbers in the `re-design` mockup) — every
+ * row here is `<NeedsLogic>` until a real provider-quota reader is wired up.
+ */
+function QuotaTrackerSection({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const t = useI18n();
+  return (
+    <div>
+      <SectionHeader
+        label={t.sidebar.quotaTracker}
+        collapsed={collapsed}
+        onToggle={onToggle}
+        trailing={<span className="text-[10px] text-muted-foreground">{t.sidebar.noProvidersConnected}</span>}
+      />
+      {!collapsed && (
+        <div className="mt-1.5 space-y-1.5">
+          <NeedsLogic block note="No provider quota reader is wired up yet">
+            <div className="w-full rounded-md border border-dashed border-border bg-surface/50 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
+              {t.sidebar.noProviderQuotaWired}
+            </div>
+          </NeedsLogic>
+          <div className="flex gap-1.5">
+            <NeedsLogic block><button type="button" className="flex-1 rounded border border-border py-1 text-[10.5px] text-muted-foreground">{t.sidebar.addProvider}</button></NeedsLogic>
+            <NeedsLogic block><button type="button" className="flex-1 rounded border border-border py-1 text-[10.5px] text-muted-foreground">{t.sidebar.routing}</button></NeedsLogic>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function McpServersSection({
   servers,
   loading,
@@ -504,6 +593,7 @@ function McpServersSection({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const t = useI18n();
   // Show counts in the header so users can glance the connected total
   // without expanding. servers === null means the list hasn't loaded yet.
   const total = servers?.length ?? 0;
@@ -511,7 +601,7 @@ function McpServersSection({
   return (
     <div>
       <SectionHeader
-        label="MCP servers"
+        label={t.sidebar.mcpServers}
         collapsed={collapsed}
         onToggle={onToggle}
         trailing={
@@ -527,7 +617,7 @@ function McpServersSection({
                 e.stopPropagation();
                 postMessage({ type: 'refreshMcp' });
               }}
-              title="Re-run claude mcp list"
+              title={t.sidebar.reRunMcpList}
               className="grid h-5 w-5 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
               disabled={loading}
             >
@@ -550,12 +640,12 @@ function McpServersSection({
           {servers === null && !error && (
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
-              <span>Querying claude mcp list…</span>
+              <span>{t.sidebar.queryingMcp}</span>
             </div>
           )}
           {servers && servers.length === 0 && !error && (
             <div className="px-2.5 py-1.5 text-[10px] text-muted-foreground">
-              No MCP servers configured.
+              {t.sidebar.noMcpConfigured}
             </div>
           )}
           {servers?.map((s) => <McpRow key={s.name} server={s} />)}
@@ -609,6 +699,7 @@ function WorkflowsSection({
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const t = useI18n();
   const [saveOpen, setSaveOpen] = useState(false);
   const [pendingApply, setPendingApply] = useState<TemplateRef | null>(null);
 
@@ -624,7 +715,7 @@ function WorkflowsSection({
 
   return (
     <div>
-      <SectionHeader label="Workflows" collapsed={collapsed} onToggle={onToggle} />
+      <SectionHeader label={t.sidebar.workflows} collapsed={collapsed} onToggle={onToggle} />
       {!collapsed && (
         <div className="mt-1.5 space-y-1.5">
           {configExists && (
@@ -634,16 +725,16 @@ function WorkflowsSection({
               className="flex w-full items-center gap-2 rounded-md border border-dashed border-border px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
             >
               <Diamond className="h-3 w-3" />
-              <span>Save current as template</span>
+              <span>{t.sidebar.saveCurrentAsTemplate}</span>
             </button>
           )}
           {builtins.length > 0 && (
             <>
               <div className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Common
+                {t.sidebar.common}
               </div>
-              {builtins.map((t) => (
-                <TemplateRow key={t.id} template={t} builtin onApply={onApplyClick} />
+              {builtins.map((item) => (
+                <TemplateRow key={item.id} template={item} builtin onApply={onApplyClick} />
               ))}
               <AutopilotRow enabled={autopilotEnabled} />
             </>
@@ -651,10 +742,10 @@ function WorkflowsSection({
           {project.length > 0 && (
             <>
               <div className="mt-2 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Custom
+                {t.sidebar.custom}
               </div>
-              {project.map((t) => (
-                <TemplateRow key={t.id} template={t} builtin={false} onApply={onApplyClick} />
+              {project.map((item) => (
+                <TemplateRow key={item.id} template={item} builtin={false} onApply={onApplyClick} />
               ))}
             </>
           )}
@@ -738,11 +829,12 @@ function TemplateRow({
   builtin: boolean;
   onApply: (template: TemplateRef) => void;
 }) {
+  const t = useI18n();
   const Icon = builtin ? Sparkles : Diamond;
   const tip = useTooltip();
   const tipText = template.description
-    ? `${template.name}\n\n${template.description}\n\nClick to apply.`
-    : `Apply template ${template.id}`;
+    ? `${template.name}\n\n${template.description}\n\n${t.sidebar.clickToApply}`
+    : `${t.sidebar.applyTemplatePrefix}${template.id}`;
   return (
     <div
       role="button"
@@ -773,22 +865,10 @@ function TemplateRow({
 // the row mirrors that setting: "Coming soon" (disabled look) when off, "On"
 // (active look) when enabled. Clicking either state deep-links to the setting
 // so the user can flip it. The shared concept blurb frames the feature.
-const AUTOPILOT_CONCEPT =
-  'Epic Autopilot (experimental)\n\n' +
-  "Reads your project's real context — codebase, tests, spec, and design — " +
-  'sizes the epic, then drafts a plan tailored to it: which agents run in ' +
-  'which phases, what to clarify first, and which phases to add. A near-' +
-  'superpower that stays grounded in your business and codebase, not generic ' +
-  'boilerplate. This is separate from Cohesive Delivery\'s Existing Project ' +
-  'Autonomous Delivery flow.';
-
 function AutopilotRow({ enabled }: { enabled: boolean }) {
+  const t = useI18n();
   const tip = useTooltip();
-  const tipText =
-    AUTOPILOT_CONCEPT +
-    (enabled
-      ? '\n\n✅ On — runs automatically when you start an epic. Click to manage the setting.'
-      : '\n\n🚧 Coming soon — ships disabled. Click to enable the experimental `aidlc.autopilot.enabled` setting.');
+  const tipText = t.sidebar.autopilotConcept + (enabled ? t.sidebar.autopilotOnSuffix : t.sidebar.autopilotOffSuffix);
   return (
     <div
       role="button"
@@ -811,9 +891,9 @@ function AutopilotRow({ enabled }: { enabled: boolean }) {
     >
       <Zap className={cn('h-3 w-3 shrink-0', enabled ? 'text-primary opacity-80' : 'text-muted-foreground')} />
       <span className={cn('shrink-0 truncate font-semibold max-w-[40%]', enabled ? 'text-primary' : 'text-muted-foreground')}>
-        Epic Autopilot
+        {t.sidebar.epicAutopilot}
       </span>
-      <span className="truncate text-muted-foreground">· Auto-plan epics from your project context</span>
+      <span className="truncate text-muted-foreground">· {t.sidebar.autopilotDesc}</span>
       <span
         className={cn(
           'ml-auto shrink-0 rounded-sm border px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider',
@@ -822,7 +902,7 @@ function AutopilotRow({ enabled }: { enabled: boolean }) {
             : 'border-border text-muted-foreground',
         )}
       >
-        {enabled ? 'On' : 'Coming soon'}
+        {enabled ? t.sidebar.on : t.sidebar.comingSoon}
       </span>
       {tip.pos && <Tooltip pos={tip.pos} text={tipText} />}
     </div>
@@ -830,6 +910,7 @@ function AutopilotRow({ enabled }: { enabled: boolean }) {
 }
 
 function Footer({ hasFolder }: { hasFolder: boolean }) {
+  const t = useI18n();
   const v = typeof window !== 'undefined' ? window.EXTENSION_VERSION : undefined;
   return (
     <div className="border-t border-sidebar-border px-3 py-2 text-center text-[10px] text-muted-foreground">
@@ -842,7 +923,7 @@ function Footer({ hasFolder }: { hasFolder: boolean }) {
             onClick={() => postMessage({ type: 'openBuilder' })}
             className="hover:text-primary"
           >
-            Builder
+            {t.sidebar.builder}
           </button>
           <span className="mx-1.5">·</span>
           <button
@@ -850,7 +931,7 @@ function Footer({ hasFolder }: { hasFolder: boolean }) {
             onClick={() => postMessage({ type: 'refresh' })}
             className="hover:text-primary"
           >
-            <RefreshCw className="inline h-2.5 w-2.5 align-text-bottom" /> Refresh
+            <RefreshCw className="inline h-2.5 w-2.5 align-text-bottom" /> {t.sidebar.refresh}
           </button>
         </>
       ) : (
@@ -859,7 +940,7 @@ function Footer({ hasFolder }: { hasFolder: boolean }) {
           onClick={() => postMessage({ type: 'openProject' })}
           className="hover:text-primary"
         >
-          Open Project
+          {t.sidebar.openProject}
         </button>
       )}
     </div>

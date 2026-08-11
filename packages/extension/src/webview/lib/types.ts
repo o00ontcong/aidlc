@@ -349,6 +349,8 @@ export interface OtelSnapshot {
 }
 
 export interface SidebarState {
+  /** `aidlc.language` setting — drives `I18nProvider` in `webview/lib/i18n.tsx`. */
+  language: 'en' | 'vi';
   hasFolder: boolean;
   workspaceName: string;
   configExists: boolean;

@@ -97,6 +97,7 @@ interface PipelineRef {
 }
 
 interface SidebarState {
+  language: 'en' | 'vi';
   hasFolder: boolean;
   workspaceName: string;
   configExists: boolean;
@@ -151,9 +152,11 @@ function buildState(
   const autopilotEnabled = vscode.workspace
     .getConfiguration('aidlc')
     .get<boolean>('autopilot.enabled', false);
+  const language = vscode.workspace.getConfiguration('aidlc').get<string>('language') === 'vi' ? 'vi' : 'en';
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     return {
+      language,
       hasFolder: false,
       workspaceName: '',
       configExists: false,
@@ -217,6 +220,7 @@ function buildState(
 
   if (!doc) {
     return {
+      language,
       hasFolder: true,
       workspaceName: folder.name,
       configExists: false,
@@ -245,6 +249,7 @@ function buildState(
   }));
 
   return {
+    language,
     hasFolder: true,
     // Use the folder name as the project identity, not workspace.yaml's
     // free-form `name:` field (see comment in builderWebview.ts).
@@ -413,10 +418,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     // other panel propagate here too.
     const themeReg = themeManager.register(view.webview);
     view.onDidDispose(() => themeReg.dispose());
-    // Re-render when the autopilot toggle changes so the row flips between
-    // "Coming soon" and "On" live, without a manual refresh.
+    // Re-render when the autopilot toggle or display language changes so
+    // both flip live, without a manual refresh.
     const cfgReg = vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('aidlc.autopilot.enabled')) { this.refresh(); }
+      if (e.affectsConfiguration('aidlc.autopilot.enabled') || e.affectsConfiguration('aidlc.language')) { this.refresh(); }
     });
     view.onDidDispose(() => cfgReg.dispose());
     this.refresh();
@@ -474,8 +479,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('aidlc.openBuilder');
         return;
       case 'openWorkspace':
-        // Reveal panel only — keep whatever tab the user was on (Epics, etc.).
-        WorkspaceWebview.reveal(this.extensionUri);
+        // V3 is the default workspace surface now — see extension.ts activation.
+        await vscode.commands.executeCommand('aidlc.v3.open');
         return;
       case 'openBuilderTab': {
         const tab = String(msg.tab ?? '');
