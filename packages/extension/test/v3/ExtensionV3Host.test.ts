@@ -5,7 +5,24 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { AidlcApplication } from '@aidlc/core';
 
 import { ExtensionV3Host, toApplicationCommandName } from '../../src/v3/ExtensionV3Host';
-import { V3_COMMAND_NAMES } from '../../src/webview/v3/contracts';
+
+/**
+ * Snapshot of the command names the (now mock-driven, rebuilt) webview/v3 UI
+ * used to declare in its `contracts/client.ts` before the pixel-perfect
+ * redesign replaced that module. Kept here, inlined, purely as a regression
+ * check that the host-side dispatch table this file exercises hasn't lost
+ * coverage for any of them — this is host-only test fixture data now, not a
+ * shared contract with the webview.
+ */
+const V3_COMMAND_NAMES = [
+  'project.analyze', 'project.context.refresh', 'project.context.status', 'project.recommend',
+  'epic.create', 'epic.prepare', 'epic.next', 'epic.status', 'epic.explain', 'epic.resume', 'epic.review', 'epic.ship',
+  'epic.stage.autonomy.set', 'gate.approve', 'gate.reject', 'recovery.apply', 'workflow.compile', 'model.diagnose',
+  'artifact.policy.update', 'model.provider.default.set', 'capability.enabled.set', 'capability.ast.graph.open', 'capability.annotation.open', 'epic.review.feedback',
+  'migration.preview',
+  'registry.pipeline.run', 'registry.step.run', 'registry.step.rerun', 'registry.gate.approve', 'registry.gate.reject',
+  'registry.step.complete', 'preset.redrawDesign.apply',
+] as const;
 
 const roots: string[] = [];
 

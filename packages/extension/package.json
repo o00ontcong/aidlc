@@ -88,6 +88,11 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.debug.toggleMock",
+        "title": "Toggle Mock Data Highlight (V3 Workspace)",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.openBuilder",
         "title": "Open Workspace Builder",
         "icon": "$(layout-panel)",
@@ -329,6 +334,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a status bar item with today/this-month Claude token spend, parsed from ~/.claude/projects logs."
+        },
+        "aidlc.showMockData": {
+          "type": "boolean",
+          "default": true,
+          "description": "Outline mock-data-bound controls in the AIDLC V3 Workspace (redraw dashed red) until they're wired to a real backend. Toggle with 'AIDLC: Toggle Mock Data Highlight'."
         },
         "aidlc.tokenMonitor.refreshSeconds": {
           "type": "number",

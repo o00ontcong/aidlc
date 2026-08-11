@@ -105,8 +105,15 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
   const languageConfigReg = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration('aidlc.language')) { host.notifyDurableStateChanged(); }
   });
+  const toggleMock = async () => {
+    const config = vscode.workspace.getConfiguration('aidlc');
+    const next = !config.get<boolean>('showMockData', true);
+    await config.update('showMockData', next, vscode.ConfigurationTarget.Global);
+    V3WorkspacePanel.setMockVisible(next);
+  };
   return [
     vscode.commands.registerCommand('aidlc.v3.open', open),
+    vscode.commands.registerCommand('aidlc.debug.toggleMock', toggleMock),
     vscode.commands.registerCommand('aidlc.v3.command', async (message: unknown) => {
       const result = await host.handleMessage(message);
       if (!result) output.appendLine('Ignored malformed aidlc.v3.command message.');

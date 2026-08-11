@@ -37,6 +37,11 @@ export class V3WorkspacePanel {
     V3WorkspacePanel.current = new V3WorkspacePanel(panel, extensionUri, host);
   }
 
+  /** Pushes a live mock-visibility toggle to the open panel, if any (no-op otherwise). */
+  static setMockVisible(value: boolean): void {
+    void V3WorkspacePanel.current?.panel.webview.postMessage({ type: 'aidlc.v3.mockVisible', value });
+  }
+
   private async handleMessage(message: unknown): Promise<void> {
     if (isReadyMessage(message)) {
       this.pushState();
@@ -65,12 +70,14 @@ export class V3WorkspacePanel {
     const common = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'common.js'));
     const styles = webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, 'styles.css'));
     const nonce = randomNonce();
+    const showMockData = vscode.workspace.getConfiguration('aidlc').get<boolean>('showMockData', true);
     return `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';" />
 <link rel="stylesheet" href="${styles}" /></head>
 <body><div id="root"></div>
+<script nonce="${nonce}">window.__AIDLC_SHOW_MOCK__ = ${JSON.stringify(showMockData)};</script>
 <script nonce="${nonce}" type="module" src="${vendor}"></script>
 <script nonce="${nonce}" type="module" src="${common}"></script>
 <script nonce="${nonce}" type="module" src="${entry}"></script>

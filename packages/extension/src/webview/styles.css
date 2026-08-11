@@ -44,6 +44,45 @@
   --color-surface-foreground: var(--surface-foreground);
   --font-mono: "JetBrains Mono", "SF Mono", Menlo, "Cascadia Code", Consolas, monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+
+  /* v3 redesign tokens (webview/v3/styles/tokens.css defines the actual
+   * --bg/--panel/--acc/... custom properties per .thm-dark/.thm-light).
+   * These aliases MUST live in this file: `@tailwindcss/vite` only expands
+   * `@theme` blocks found in the CSS module graph reachable from its own
+   * `@import "tailwindcss"` — a value-only `@theme` block in a separately
+   * `import`ed CSS file (no CSS-level `@import` chain back to this file)
+   * is invisible to it and generates no utilities at all. Names below don't
+   * collide with anything above (`--bg`/`--panel`/`--acc`/`--bd`/... vs.
+   * `--background`/`--card`/`--primary`/`--border`/...). */
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel2: var(--panel2);
+  --color-side: var(--side);
+  --color-chrome: var(--chrome);
+  --color-bd: var(--bd);
+  --color-bd2: var(--bd2);
+  --color-hover: var(--hover);
+  --color-txt: var(--txt);
+  --color-txt2: var(--txt2);
+  --color-txt3: var(--txt3);
+  --color-acc: var(--acc);
+  --color-acc-txt: var(--acc-txt);
+  --color-acc-bg: var(--acc-bg);
+  --color-acc-bd: var(--acc-bd);
+  --color-on-acc: var(--on-acc);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-bd: var(--warn-bd);
+  --color-err: var(--err);
+  --color-err-bg: var(--err-bg);
+  --color-err-bd: var(--err-bd);
+  --color-track: var(--track);
+  --font-v3-sans: 'Inter', system-ui, sans-serif;
+  --font-v3-mono: 'JetBrains Mono', monospace;
+  --shadow-v3-modal: 0 30px 70px rgba(0,0,0,0.5);
+  --shadow-v3-dropdown: 0 16px 40px rgba(0,0,0,0.35);
+  --shadow-v3-toast: 0 18px 44px rgba(0,0,0,0.45);
+  --shadow-v3-frame: 0 24px 70px rgba(0,0,0,0.5);
 }
 
 /*

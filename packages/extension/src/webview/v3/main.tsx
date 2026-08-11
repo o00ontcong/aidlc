@@ -1,101 +1,68 @@
+// v3/main.tsx — mount, VS Code bridge (theme + mock-visible only; this UI is
+// mock-data-driven, it does not consume aidlc.v3.state), Vite entry
+// `src/webview/v3/main.tsx` per vite.config.ts (kept — renaming would need an
+// extra host-adjacent edit for zero benefit).
+import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import App from './App';
+// `@tailwindcss/vite` only scans the module graph reachable from wherever
+// `@import "tailwindcss"` lives (in `../styles.css`) — without this import,
+// none of this tree's Tailwind classes get generated at all, regardless of
+// `cssCodeSplit:false` merging the *emitted* CSS text together. Every other
+// webview entry (`sidebar/main.tsx`, `workspace/main.tsx`, …) imports it for
+// the same reason.
+import '../styles.css';
+import './styles/tokens.css';
+import { UiStoreProvider } from './state/store';
+import type { ThemeId } from './data/types';
 
-import { createV3ApplicationClient, type V3ApplicationClient, type V3CommandName, type V3WorkspaceState } from './contracts';
-import { V3WorkspaceShell, Toast, type ToastState } from './shell';
-import { getDict } from '../lib/i18n';
+declare global {
+  interface Window {
+    __AIDLC_SHOW_MOCK__?: boolean;
+  }
+}
 
-declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
-
-const vscode = acquireVsCodeApi();
-
-const initialState: V3WorkspaceState = {
-  language: 'en',
-  project: { name: '', readiness: 'not-ready', diagnostics: [] },
-  epics: [],
-  workflowPacks: [],
-  providerDiagnostics: [],
-  artifactPolicy: {},
-  capabilities: [],
-  guide: { title: 'AIDLC guide', why: 'Loading workspace state.', inputs: [], outputs: [], doneWhen: '', next: '', recovery: [] },
-  registry: { agents: [], skills: [], pipelines: [], runs: [] },
-};
-
-/**
- * V3 has no theme override UI yet (unlike V2's `useThemeBridge`) — this just
- * follows VS Code's real theme so `.dark` tokens in styles.css apply. VS
- * Code stamps `vscode-dark`/`vscode-high-contrast` on `<body>` and updates it
- * live if the user switches themes, hence the MutationObserver.
- */
-function useFollowVsCodeTheme(): void {
-  useEffect(() => {
-    const apply = () => {
-      const dark = document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
-      document.documentElement.classList.toggle('dark', dark);
-    };
-    apply();
-    const observer = new MutationObserver(apply);
+/** VS Code stamps `vscode-dark`/`vscode-light`/`vscode-high-contrast*` on
+ * <body>; there is no ColorThemeKind push into the webview. Mirrors the
+ * MutationObserver pattern the previous v3 main.tsx used, but drives the
+ * design's own `thm-dark`/`thm-light` class instead of Tailwind's `.dark`. */
+function useFollowVsCodeTheme(): ThemeId {
+  const compute = (): ThemeId => (document.body.classList.contains('vscode-light') ? 'light' : 'dark');
+  const [theme, setTheme] = React.useState<ThemeId>(compute);
+  React.useEffect(() => {
+    setTheme(compute());
+    const observer = new MutationObserver(() => setTheme(compute()));
     observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     return () => observer.disconnect();
   }, []);
+  return theme;
 }
 
-function App() {
-  useFollowVsCodeTheme();
-  const [state, setState] = useState<V3WorkspaceState>(initialState);
-  const [toast, setToast] = useState<ToastState>();
-  const pendingCommands = useMemo(() => new Map<string, V3CommandName>(), []);
-  const languageRef = useRef(state.language);
-  languageRef.current = state.language;
-  const client = useMemo<V3ApplicationClient>(() => {
-    const base = createV3ApplicationClient(vscode);
-    return {
-      dispatch(command) {
-        pendingCommands.set(command.id, command.name);
-        base.dispatch(command);
-      },
+function Root() {
+  const theme = useFollowVsCodeTheme();
+  const [mockVisible, setMockVisible] = React.useState<boolean>(() => window.__AIDLC_SHOW_MOCK__ ?? true);
+
+  React.useEffect(() => {
+    document.documentElement.classList.toggle('mock-visible', mockVisible);
+  }, [mockVisible]);
+
+  React.useEffect(() => {
+    const vscode = window.acquireVsCodeApi?.();
+    vscode?.postMessage({ type: 'aidlc.v3.ready' });
+    const onMessage = (event: MessageEvent) => {
+      const message = event.data as { type?: string; value?: unknown } | undefined;
+      if (message?.type === 'aidlc.v3.mockVisible') setMockVisible(Boolean(message.value));
     };
-  }, [pendingCommands]);
-  useEffect(() => {
-    const receive = (event: MessageEvent<unknown>) => {
-      const message = event.data as { type?: unknown; state?: unknown; result?: { status?: unknown; commandId?: unknown; data?: { message?: unknown }; error?: { summary?: unknown } } };
-      if (message?.type === 'aidlc.v3.state' && message.state && typeof message.state === 'object') {
-        setState(message.state as V3WorkspaceState);
-      } else if (message?.type === 'aidlc.v3.result') {
-        const commandId = typeof message.result?.commandId === 'string' ? message.result.commandId : undefined;
-        const commandName = commandId ? pendingCommands.get(commandId) : undefined;
-        if (commandId) pendingCommands.delete(commandId);
-        if (message.result?.status === 'error') {
-          const summary = typeof message.result.error?.summary === 'string'
-            ? message.result.error.summary
-            : typeof message.result.data?.message === 'string' ? message.result.data.message : getDict(languageRef.current).common.commandFailed;
-          setState((current) => ({
-            ...current,
-            project: {
-              ...current.project,
-              diagnostics: [{ id: `command-${Date.now()}`, severity: 'error', summary }, ...current.project.diagnostics],
-            },
-          }));
-        } else if (message.result?.status === 'ok' && commandName) {
-          const t = getDict(languageRef.current);
-          const toastCommands: Partial<Record<V3CommandName, ToastState>> = {
-            'preset.redrawDesign.apply': { title: t.toast.presetAppliedTitle, body: t.toast.presetAppliedBody, canReload: true },
-            'epic.create': { title: t.toast.epicCreatedTitle, body: t.toast.epicCreatedBody, canReload: false },
-          };
-          if (toastCommands[commandName]) setToast(toastCommands[commandName]);
-        }
-      }
-    };
-    window.addEventListener('message', receive);
-    vscode.postMessage({ type: 'aidlc.v3.ready' });
-    return () => window.removeEventListener('message', receive);
-  }, [pendingCommands]);
-  return <>
-    <V3WorkspaceShell state={state} client={client} />
-    {toast && <Toast toast={toast} onDismiss={() => setToast(undefined)} />}
-  </>;
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  return (
+    <UiStoreProvider theme={theme}>
+      <App />
+    </UiStoreProvider>
+  );
 }
 
-const root = document.getElementById('root');
-if (!root) throw new Error('Missing #root for AIDLC V3 webview.');
-createRoot(root).render(<App />);
+const container = document.getElementById('root');
+if (container) createRoot(container).render(<Root />);
