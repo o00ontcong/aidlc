@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { V3ApplicationClient, V3EpicStatus, V3EpicSummary, V3StageSummary, V3WorkspaceState } from '../contracts';
-import { createV3CommandFactory, visibleStages } from '../contracts';
+import type { V3ApplicationClient, V3AutonomyMode, V3EpicStatus, V3EpicSummary, V3StageSummary, V3WorkspaceState } from '../contracts';
+import { V3_AUTONOMY_MODES, createV3CommandFactory, visibleStages } from '../contracts';
 import { ArtifactAnnotationAction } from '../capabilities/annotation/ArtifactAnnotationAction';
 import { AstGraphContextAction } from '../capabilities/astGraph/AstGraphContextAction';
 import { GatePreview } from '../shell/GatePreview';
@@ -168,7 +168,7 @@ function EpicDetail({ state, epic, client, capabilities }: { state: V3WorkspaceS
           <span className="font-mono text-[11.5px] text-muted-foreground">{stageProgress(epic)}%</span>
         </div>
       </div>
-      <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 font-mono text-xs font-semibold text-primary">{epic.autonomy}</span>
+      <AutonomyDropdown epic={epic} stage={stage} client={client} />
     </header>
 
     <section className="overflow-hidden rounded-lg border border-border bg-card">
@@ -196,10 +196,17 @@ function EpicDetail({ state, epic, client, capabilities }: { state: V3WorkspaceS
         <div key={item.id} className="flex items-center gap-2.5 border-b border-border/60 px-3.5 py-2 last:border-b-0">
           <span className="w-28 shrink-0 truncate font-mono text-[11px] text-foreground">{item.id}</span>
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{item.title}</span>
-          <NeedsLogic note="Chưa có dữ liệu branch/PR cho epic"><span className="shrink-0 text-[10.5px] text-muted-foreground">{t.epics.branchPr}</span></NeedsLogic>
+          <NeedsLogic note="Chưa có dữ liệu branch/PR thật cho epic khác"><span className="shrink-0 font-mono text-[10.5px] text-muted-foreground">feat/{item.id.toLowerCase()}</span></NeedsLogic>
           <span className="w-24 shrink-0 text-right font-mono text-[11px] capitalize text-muted-foreground">{item.status}</span>
         </div>
       ))}
+      <NeedsLogic block note="Chưa có kiểm tra độc lập thật (scope/branch/charter) — đây là danh sách mẫu theo mockup">
+        <div className="flex w-full flex-col gap-1.5 border-t border-border px-3.5 py-2.5">
+          {t.epics.independenceChecks.map((check) => (
+            <div key={check} className="flex items-center gap-2 text-[11.5px] text-muted-foreground"><span className="text-primary">✓</span>{check}</div>
+          ))}
+        </div>
+      </NeedsLogic>
     </section>
 
     <section className="overflow-hidden rounded-lg border border-border bg-card">
@@ -212,9 +219,45 @@ function EpicDetail({ state, epic, client, capabilities }: { state: V3WorkspaceS
       </div>
     </section>
 
-    <NeedsLogic block note="Chưa có data model cho epic-config override (EpicConfig) hay run-mode command riêng epic">
-      <section className="w-full overflow-hidden rounded-lg border border-dashed border-border bg-card p-3.5 text-[11px] text-muted-foreground">
-        {t.epics.epicConfigNote}
+    <NeedsLogic block note="Chưa có data model EpicConfig thật — bảng dưới tính từ pipeline đã chọn, phần branch/PR là placeholder">
+      <section className="w-full overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3.5 py-2.5">
+          <h2 className="shrink-0 text-xs font-semibold text-foreground">{t.epics.epicConfigTitle}</h2>
+          <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10.5px] text-primary">{t.epics.epicConfigOverrideBadge}</span>
+          <span className="flex-1" />
+          <span className="shrink-0 cursor-pointer text-[11.5px] text-foreground">{t.epics.editAll}</span>
+          <span className="shrink-0 cursor-pointer text-[11.5px] text-muted-foreground">{t.epics.resetToProject}</span>
+        </div>
+        {[
+          { k: t.epics.configPipelineLabel, v: pipeline ? `${pipeline.id} · ${pipeline.steps.length} ${t.builder.stepUnit}` : '—', src: t.epics.configSourceBundled },
+          { k: t.epics.configContextLabel, v: t.newEpic.lockContextValue.replace('{rev}', state.project.contextRevision ?? t.newEpic.notPublishedYet), src: pipeline?.steps[0]?.id ?? t.epics.configSourceBundled },
+          { k: t.epics.configBranchLabel, v: t.newEpic.lockBranchValue.replace('{id}', epic.id.toLowerCase()), src: t.epics.configSourceOwnEpic },
+          { k: t.epics.configPrLabel, v: t.epics.configPrValue.replace('{n}', '402'), src: t.epics.configSourceOwnEpic },
+          { k: t.epics.configContractLabel, v: t.epics.configContractValue, src: pipeline?.steps.find((s) => s.id.includes('contract'))?.id ?? t.epics.configSourceByContract },
+          { k: t.epics.configDecompositionLabel, v: t.newEpic.lockDecompositionValue, src: t.epics.configSourceByContract },
+        ].map((row) => (
+          <div key={row.k} className="flex items-center gap-2.5 border-b border-border/60 px-3.5 py-2 last:border-b-0">
+            <span className="w-24 shrink-0 text-[11px] text-muted-foreground">{row.k}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{row.v}</span>
+            <span className="shrink-0 text-[10.5px] text-primary">{row.src}</span>
+            <span className="shrink-0 cursor-pointer text-[11.5px] text-primary">{t.common.edit}</span>
+          </div>
+        ))}
+        <div className="flex flex-col gap-2 border-t border-border p-3.5">
+          <p className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">{t.epics.runModeTitle}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {(['guided', 'autonomous'] as const).map((mode) => (
+              <button type="button" key={mode} onClick={() => setRunMode(mode)} className={`flex flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left ${runMode === mode ? 'border border-primary/40 bg-primary/10' : 'border border-border'}`}>
+                <span className={runMode === mode ? 'text-primary' : 'text-muted-foreground'}>{runMode === mode ? '◉' : '○'}</span>
+                <span>
+                  <p className="text-xs font-semibold text-foreground">{mode === 'guided' ? t.epics.runModeGuidedLabel : t.epics.runModeAutonomousLabel}</p>
+                  <p className="text-[11px] text-muted-foreground">{mode === 'guided' ? t.epics.runModeGuidedDesc : t.epics.runModeAutonomousDesc}</p>
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">{t.epics.runModeFootnote}</p>
+        </div>
       </section>
     </NeedsLogic>
 

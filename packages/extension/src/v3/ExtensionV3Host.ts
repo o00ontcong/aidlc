@@ -21,6 +21,7 @@ import {
   type ExtensionV3Command,
   type ExtensionV3CommandResult,
 } from './ExtensionV3ApplicationClient';
+import { MOCK_AGENTS, MOCK_SKILLS, MOCK_PIPELINES } from './mockRegistryData';
 
 export interface V3HostApplicationFactory {
   (workspaceRoot: string): AidlcApplication;
@@ -249,11 +250,15 @@ export class ExtensionV3Host {
 function registryProjection(root: string, epicIds: readonly string[]): Record<string, unknown> {
   const agents = new AgentStore(root);
   const skills = new SkillStore(root);
-  const pipelines = new PipelineStore(root);
+  const pipelines = new PipelineStore(root, MOCK_PIPELINES as unknown as ConstructorParameters<typeof PipelineStore>[1]);
   const runs = new PipelineRunStore(root);
+  const realAgents = agents.list();
+  const realSkills = skills.list();
   return {
-    agents: agents.list(),
-    skills: skills.list().map((skill) => ({ id: skill.id, source: skill.source, description: skill.description })),
+    agents: realAgents.length > 0 ? realAgents : MOCK_AGENTS,
+    skills: realSkills.length > 0
+      ? realSkills.map((skill) => ({ id: skill.id, source: skill.source, description: skill.description }))
+      : MOCK_SKILLS,
     pipelines: pipelines.list(),
     runs: epicIds.flatMap((epicId) => runs.listForEpic(epicId).map((run) => ({
       epicId: run.epicId,
