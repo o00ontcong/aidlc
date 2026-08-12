@@ -4,7 +4,7 @@
 
 ### Changed
 
-- feat(quota): the sidebar Quota Tracker now shows real provider quota instead of mock data. New `packages/core/src/providers/quota/` detects installed AI coding providers (Claude Code, OpenAI Codex, Kimi, xAI/Grok), reads quota from whatever each one actually exposes locally (verified per-provider — Codex's own rollout logs report an exact rate-limit percentage; Claude Code and Kimi expose no local quota source today, so their cards honestly show `—` rather than a fabricated number), and surfaces `quota.list`/`quota.refresh`/`quota.enabled.set` through the existing V3 command bus. The sidebar renders instantly from cache, backs off polling while the panel is hidden, refreshes on provider log changes, and never lets one provider's failure blank out the others. Routing rules, the add-provider wizard, low-quota toasts, and usage history/forecast are follow-up work, not part of this change.
+- change(v3): the AIDLC Workspace panel now fills its editor tab instead of rendering a fixed 1440×920 mockup frame, and no longer draws its own title bar, editor-tab strip, Activity Bar, or project sidebar — every one of those duplicated the real VS Code chrome already surrounding the panel. Removes the mockup-era components outright and fixes the unstyled white gap that showed around the panel in windows larger than the old fixed frame.
 
 ## 3.4.21
 

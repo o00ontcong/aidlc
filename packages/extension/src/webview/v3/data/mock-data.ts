@@ -22,9 +22,6 @@ export const MOCK_BRANCH = 'epic-142-partial-refunds';               // status b
 
 /* ═══ SIDEBAR ═════════════════════════════════════════════ */
 
-// sidebar.quota is wired to real data: see quota.list/quota.refresh/quota.setEnabled
-// (ExtensionV3Host → AidlcApplication.quota) and useQuota() in the webview.
-
 // CATALOG: chip template — đọc từ PipelineStore.list()
 export const CATALOG_TEMPLATES = ['sdlc-core', 'speckit', 'cohesive', 'regulated'];
 

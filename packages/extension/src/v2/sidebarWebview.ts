@@ -28,16 +28,8 @@ import {
   resolvePath,
   discoverAssets,
   getBuiltinWorkflow,
-  presentQuotaSnapshot,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
-import { getQuotaService } from './quotaServiceHost';
-
-// Mirrors webview/lib/types.ts's `QuotaSidebarState` — host/webview types are
-// kept independently defined across the bundle boundary (see McpServerInfo's
-// same split between here and mcpServers.ts), so this stays structural rather
-// than importing the webview module.
-type QuotaSidebarState = ReturnType<typeof presentQuotaSnapshot>;
 import { listEpics } from './epicsList';
 import type { PresetStore } from './presetStore';
 import { themeManager } from './themeManager';
@@ -144,9 +136,6 @@ interface SidebarState {
   /** `aidlc.autopilot.enabled` setting — drives the AIDLC Autopilot row's
    * "Coming soon" vs "On" state in the Common workflows. */
   autopilotEnabled: boolean;
-  /** Detected AI coding provider quota. null when no folder is open — quota
-   * policy (.aidlc/quota.yaml) is project-scoped. */
-  quota: QuotaSidebarState | null;
 }
 
 interface McpSnapshot {
@@ -182,7 +171,6 @@ function buildState(
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
       autopilotEnabled,
-      quota: null,
     };
   }
 
@@ -251,7 +239,6 @@ function buildState(
       mcpError: mcp.error,
       extraProjects: sidebarExtraProjects,
       autopilotEnabled,
-      quota: presentQuotaSnapshot(getQuotaService(root).list()),
     };
   }
 
@@ -295,7 +282,6 @@ function buildState(
     mcpError: mcp.error,
     extraProjects: sidebarExtraProjects,
     autopilotEnabled,
-    quota: presentQuotaSnapshot(getQuotaService(root).list()),
   };
 }
 
@@ -411,7 +397,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   // user trigger refreshes from the UI.
   private mcp: McpSnapshot = { servers: null, loading: false, error: null };
   private mcpLoadPromise: Promise<void> | null = null;
-  private quotaPollTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -427,13 +412,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     view.webview.html = this.getHtml(view.webview);
     view.webview.onDidReceiveMessage((msg) => this.handleMessage(msg));
     view.onDidChangeVisibility(() => {
-      if (view.visible) {
-        this.refresh();
-        this.scheduleQuotaPoll();
-        void this.refreshQuota();
-      } else {
-        this.clearQuotaPoll();
-      }
+      if (view.visible) { this.refresh(); }
     });
     // Register the webview with the theme manager so user toggles in any
     // other panel propagate here too.
@@ -445,16 +424,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       if (e.affectsConfiguration('aidlc.autopilot.enabled') || e.affectsConfiguration('aidlc.language')) { this.refresh(); }
     });
     view.onDidDispose(() => cfgReg.dispose());
-    view.onDidDispose(() => this.clearQuotaPoll());
     this.refresh();
     // First-time MCP load happens once the panel is up — kicks off the
     // spawn and re-posts state when the result lands.
     void this.loadMcp();
-    // Quota renders instantly from cache (buildState() above already read
-    // it); kick a background probe for the real numbers, then poll while
-    // the view stays visible (§2.5 adaptive poll).
-    void this.refreshQuota();
-    this.scheduleQuotaPoll();
   }
 
   refresh(): void {
@@ -463,25 +436,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       type: 'state',
       state: buildState(this.presetStore, this.mcp),
     });
-  }
-
-  private scheduleQuotaPoll(): void {
-    this.clearQuotaPoll();
-    const cfg = vscode.workspace.getConfiguration('aidlc.quota');
-    if (!this.view?.visible || !cfg.get<boolean>('enabled', true)) { return; }
-    const seconds = Math.max(15, cfg.get<number>('pollSeconds', 60));
-    this.quotaPollTimer = setInterval(() => void this.refreshQuota(), seconds * 1000);
-  }
-
-  private clearQuotaPoll(): void {
-    if (this.quotaPollTimer) { clearInterval(this.quotaPollTimer); this.quotaPollTimer = undefined; }
-  }
-
-  private async refreshQuota(): Promise<void> {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!root) { return; }
-    await getQuotaService(root).refresh();
-    this.refresh();
   }
 
   private async loadMcp(): Promise<void> {
@@ -760,17 +714,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'refreshMcp':
         void this.loadMcp();
         return;
-      case 'quotaRefresh':
-        void this.refreshQuota();
-        return;
-      case 'quotaSetEnabled': {
-        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        const providerId = String(msg.providerId ?? '');
-        if (!root || !providerId) { return; }
-        getQuotaService(root).setEnabled(providerId, msg.enabled === true);
-        this.refresh();
-        return;
-      }
       case 'pickAndReadFile': {
         const requestId = String(msg.requestId ?? '');
         if (!requestId) { return; }

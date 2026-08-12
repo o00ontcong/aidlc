@@ -26,7 +26,6 @@ import { registerGuide } from './commands/guide';
 import { registerGlobals } from './commands/globals';
 import { setQuiet } from './output';
 import { registerAnalyze } from './commands/analyze';
-import { registerQuota } from './commands/quota';
 import { registerRedesignCommands } from './commands/v3/registerRedesign';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json') as { version: string };
@@ -74,7 +73,6 @@ registerAsk(program);
 registerGuide(program);
 registerGlobals(program);
 registerAnalyze(program);
-registerQuota(program);
 registerRedesignCommands(program);
 
 program.parseAsync(process.argv).catch((err) => {

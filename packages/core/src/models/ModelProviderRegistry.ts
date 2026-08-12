@@ -45,8 +45,6 @@ export interface ResolveModelOptions {
 export class ModelProviderRegistry {
   private readonly providers = new Map<string, ModelProvider>();
   private defaultProviderId?: string;
-  /** Providers excluded from auto-selection (e.g. toggled off in the quota tracker). Explicit `providerId` requests bypass this. */
-  private readonly disabled = new Set<string>();
 
   register(provider: ModelProvider, options: { default?: boolean } = {}): void {
     if (this.providers.has(provider.id)) throw new ModelProviderAlreadyRegisteredError(provider.id);
@@ -69,28 +67,6 @@ export class ModelProviderRegistry {
     return [...this.providers.values()];
   }
 
-  isEnabled(providerId: string): boolean {
-    return !this.disabled.has(providerId);
-  }
-
-  /** Excludes/restores a provider from auto-selection (`resolve()` without an explicit `providerId`). */
-  setEnabled(providerId: string, enabled: boolean): void {
-    this.get(providerId);
-    if (enabled) this.disabled.delete(providerId);
-    else this.disabled.add(providerId);
-  }
-
-  /**
-   * Providers eligible for auto-selection. Never returns empty when
-   * `list()` is non-empty — a step must always have somewhere to run, so a
-   * user disabling every provider falls back to the full list rather than
-   * silently blocking every run.
-   */
-  listEnabled(): ModelProvider[] {
-    const enabled = this.list().filter((provider) => this.isEnabled(provider.id));
-    return enabled.length > 0 ? enabled : this.list();
-  }
-
   getDefault(): ModelProvider {
     if (!this.defaultProviderId) throw new ModelResolutionError('No model provider is registered.');
     return this.get(this.defaultProviderId);
@@ -102,9 +78,7 @@ export class ModelProviderRegistry {
   }
 
   async resolve(requirement: ModelRequirement, options: ResolveModelOptions = {}): Promise<ResolvedModel> {
-    // An explicit providerId is a direct request — honor it even if disabled.
-    // Auto-selection (no providerId) only competes among enabled providers.
-    const providers = options.providerId ? [this.get(options.providerId)] : this.listEnabled();
+    const providers = options.providerId ? [this.get(options.providerId)] : this.list();
     if (!providers.length) throw new ModelResolutionError('No model provider is registered.');
 
     const discovered = await Promise.all(providers.map(async (provider) => ({
