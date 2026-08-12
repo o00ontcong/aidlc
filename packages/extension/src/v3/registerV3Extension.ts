@@ -13,6 +13,7 @@ import { V3WorkspacePanel } from './V3WorkspacePanel';
 export function registerV3Extension(context: vscode.ExtensionContext, output: vscode.OutputChannel): vscode.Disposable[] {
   const host = new ExtensionV3Host({
     workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    templateRoot: () => path.join(context.extensionPath, 'templates'),
     language: () => (vscode.workspace.getConfiguration('aidlc').get<string>('language') === 'vi' ? 'vi' : 'en'),
     hostDispatcher: async (command) => {
       if (command.name === 'capability.ast.graph.open') {
@@ -43,7 +44,15 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
           return { commandId: command.id, status: 'error', data: { message: error instanceof Error ? error.message : String(error) } };
         }
       }
-      if (command.name.startsWith('registry.')) {
+      if (command.name === 'registry.pipeline.generateFromRecipe') {
+        try {
+          await vscode.commands.executeCommand('aidlc.generateFromRecipe');
+          return { commandId: command.id, status: 'ok', data: { opened: 'aidlc.generateFromRecipe' } };
+        } catch (error) {
+          return { commandId: command.id, status: 'error', data: { message: error instanceof Error ? error.message : String(error) } };
+        }
+      }
+      if (['registry.pipeline.run', 'registry.step.run', 'registry.step.rerun', 'registry.step.complete', 'registry.gate.approve', 'registry.gate.reject'].includes(command.name)) {
         const payload = command.payload as { epicId?: unknown; pipelineId?: unknown; stepId?: unknown; feedback?: unknown; reason?: unknown };
         const vscodeCommand = `aidlc.${command.name}`;
         const args = command.name === 'registry.pipeline.run'
@@ -94,7 +103,7 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
     return epicId ? dispatchPalette(name, { epicId }) : undefined;
   };
   const root = vscode.workspace.workspaceFolders?.[0];
-  const watcher = root ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '.aidlc/{epics/**,runs/**,project.yaml,autonomy.yaml,artifacts.yaml,catalog/**}')) : undefined;
+  const watcher = root ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '{.aidlc/epics/**,.aidlc/runs/**,.aidlc/pipelines/**,.aidlc/skills/**,.claude/agents/**,.claude/skills/**,.aidlc/workspace.yaml,.aidlc/project.yaml,.aidlc/autonomy.yaml,.aidlc/artifacts.yaml,.aidlc/catalog/**}')) : undefined;
   if (watcher) {
     watcher.onDidCreate(() => host.notifyDurableStateChanged());
     watcher.onDidChange(() => host.notifyDurableStateChanged());

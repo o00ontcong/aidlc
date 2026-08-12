@@ -1,21 +1,11 @@
 /**
- * Placeholder registry content for the redesigned v3 Builder/New-Epic UI.
+ * Registry bundled definitions for the redesigned v3 Builder/New-Epic UI.
  *
- * `AgentStore`/`SkillStore`/`PipelineStore` are real stores (`.claude/agents`,
- * `.aidlc/skills` + `~/.claude/skills`, `.aidlc/pipelines`) but ship with no
- * bundled content of their own, so a fresh workspace reads back empty lists
- * and the Builder/New-Epic screens render as if the feature didn't exist.
- * `registryProjection` in `ExtensionV3Host.ts` falls back to this fixture
- * only when the real store is empty, so any real agent/skill/pipeline the
- * user authors takes priority automatically.
- *
- * Replace this file's content with real bundled definitions (or delete the
- * fallback in `registryProjection`) once the registry is seeded for real —
- * see `re-design/IMPLEMENT.md` §1 for the intended `.aidlc/pipelines/*.yaml`
- * bundled-pipeline shape this stands in for.
+ * Only pipelines have a bundled scope. Agents and skills are discovered from
+ * their project/global filesystem locations and are never fabricated here.
  */
 
-interface MockRegistryStep {
+interface BuiltinRegistryStep {
   readonly id: string;
   readonly agent?: string;
   readonly skills: readonly string[];
@@ -23,13 +13,13 @@ interface MockRegistryStep {
   readonly humanReview: boolean;
   readonly gate?: string;
 }
-interface MockRegistryPipeline {
+interface BuiltinRegistryPipeline {
   readonly id: string;
   readonly source: string;
   readonly version: string;
-  readonly steps: readonly MockRegistryStep[];
+  readonly steps: readonly BuiltinRegistryStep[];
 }
-interface MockRegistryAgent {
+interface BuiltinRegistryAgent {
   readonly id: string;
   readonly name: string;
   readonly description: string;
@@ -38,17 +28,17 @@ interface MockRegistryAgent {
   readonly skills: readonly string[];
   readonly capabilities: readonly string[];
 }
-interface MockRegistrySkill {
+interface BuiltinRegistrySkill {
   readonly id: string;
   readonly source: string;
   readonly description: string;
 }
 
-function step(id: string, agent: string, skills: readonly string[] = [], options: Partial<MockRegistryStep> = {}): MockRegistryStep {
+function step(id: string, agent: string, skills: readonly string[] = [], options: Partial<BuiltinRegistryStep> = {}): BuiltinRegistryStep {
   return { id, agent, skills, autoReview: false, humanReview: false, ...options };
 }
 
-export const MOCK_PIPELINES: readonly MockRegistryPipeline[] = [
+export const BUILTIN_PIPELINES: readonly BuiltinRegistryPipeline[] = [
   {
     id: 'cohesive-feature',
     source: 'bundled',
@@ -107,7 +97,7 @@ export const MOCK_PIPELINES: readonly MockRegistryPipeline[] = [
   },
 ];
 
-export const MOCK_AGENTS: readonly MockRegistryAgent[] = [
+export const BUILTIN_AGENTS: readonly BuiltinRegistryAgent[] = [
   {
     id: 'cohesive-feature-agent',
     name: 'Cohesive Feature Coordinator',
@@ -155,7 +145,7 @@ export const MOCK_AGENTS: readonly MockRegistryAgent[] = [
   },
 ];
 
-export const MOCK_SKILLS: readonly MockRegistrySkill[] = [
+export const BUILTIN_SKILLS: readonly BuiltinRegistrySkill[] = [
   { id: 'cohesive-feature-workflow', source: 'bundled', description: 'Coordinate a cohesive feature from project-context snapshot through specification, work-package execution, integration, verification, and project sync.' },
   { id: 'cohesive-work-package-workflow', source: 'bundled', description: 'Execute one approved cohesive work package inside its isolated worktree.' },
   { id: 'cohesive-reviewer-workflow', source: 'bundled', description: 'Review package diffs and integrated features against contracts, tests, and charter invariants.' },

@@ -43,6 +43,9 @@ export {
   type ProjectRecommendation,
   type ArtifactPolicy,
   type Capability,
+  parseAgent,
+  parseSkill,
+  parsePipeline,
 } from './contracts';
 
 export {

@@ -74,3 +74,11 @@ export function writePipelineCommand(root: string, pipeline: Pipeline, opts: { o
   writeFileAtomic(file, registryPipelineCommandDoc(pipeline));
   return { written: true, file };
 }
+
+/** Remove the generated command when a project pipeline is deleted. */
+export function removePipelineCommand(root: string, pipelineId: string): boolean {
+  const file = registryPipelineCommandFile(root, pipelineId);
+  if (!fs.existsSync(file)) return false;
+  fs.unlinkSync(file);
+  return true;
+}

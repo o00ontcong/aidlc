@@ -14,6 +14,7 @@ import App from './App';
 import '../styles.css';
 import './styles/tokens.css';
 import { UiStoreProvider } from './state/store';
+import { V3ApplicationClientProvider } from './applicationClient';
 import type { ThemeId } from './data/types';
 
 declare global {
@@ -58,9 +59,11 @@ function Root() {
   }, []);
 
   return (
-    <UiStoreProvider theme={theme}>
-      <App />
-    </UiStoreProvider>
+    <V3ApplicationClientProvider>
+      <UiStoreProvider theme={theme}>
+        <App />
+      </UiStoreProvider>
+    </V3ApplicationClientProvider>
   );
 }
 

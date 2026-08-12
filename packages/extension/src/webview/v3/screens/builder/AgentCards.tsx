@@ -1,21 +1,29 @@
 // v3/screens/builder/AgentCards.tsx — Builder → Agents.
 import React from 'react';
-import { mock, Chip } from '../../components';
-import { MOCK_AGENTS } from '../../data/mock-data';
+import { Chip } from '../../components';
+import { useUiStore } from '../../state/store';
+import { useApplicationClient, type RegistryAgent } from '../../applicationClient';
 
 export default function AgentCards() {
+  const { registry, command } = useApplicationClient();
+  const { update } = useUiStore();
+  const remove = async (agent: RegistryAgent) => {
+    if (!agent.scope || !window.confirm(`Delete ${agent.scope} agent "${agent.id}"?`)) return;
+    const result = await command('registry.agent.delete', { id: agent.id, scope: agent.scope });
+    if (result.status === 'error') window.alert(String((result.data as { message?: string })?.message ?? 'Unable to delete agent.'));
+  };
   return (
-    <div {...mock('builder.agents', 'block')} className="grid grid-cols-2 gap-[12px]">
-      {MOCK_AGENTS.map((agent) => (
-        <div key={agent.name} className="bg-panel border border-bd rounded-[8px] p-[13px] flex flex-col gap-[9px]">
+    <div className="grid grid-cols-2 gap-[12px]">
+      {registry.agents.map((agent) => (
+        <div key={agent.id} className="bg-panel border border-bd rounded-[8px] p-[13px] flex flex-col gap-[9px]">
           <div className="flex items-center gap-[8px]">
             <span className="flex-1 min-w-0 text-[12.5px] font-semibold text-txt whitespace-nowrap overflow-hidden text-ellipsis">
-              {agent.name}
+              {agent.name} <span className="font-v3-mono text-txt3">({agent.id})</span>
             </span>
             <Chip label={agent.tier} tone="acc" mono />
           </div>
 
-          {agent.desc && <div className="text-[11.5px] text-txt3">{agent.desc}</div>}
+          <div className="text-[11.5px] text-txt3">{agent.description}</div>
 
           <div className="font-v3-mono text-[11px] text-txt3 min-w-0 whitespace-nowrap overflow-hidden text-ellipsis">
             {agent.model}
@@ -40,18 +48,19 @@ export default function AgentCards() {
                 ))}
               </div>
               <div className="bg-panel2 rounded-[6px] p-[6px_9px] font-v3-mono text-[10.5px] text-txt3 min-w-0 whitespace-nowrap overflow-hidden text-ellipsis">
-                {agent.frontmatter}
+                scope: {agent.scope ?? 'unknown'} · skills: [{agent.skills.join(', ')}]
               </div>
             </div>
           )}
 
           <div className="flex items-center gap-[12px]">
-            <button type="button" onClick={() => {}} className="text-[11.5px] text-txt2">Edit</button>
-            <button type="button" onClick={() => {}} className="text-[11.5px] text-txt2">Rename</button>
-            <button type="button" onClick={() => {}} className="text-[11.5px] text-err">Delete</button>
+            <button type="button" onClick={() => update({ addOpen: true, addSrc: 'Agents', addId: agent.id })} className="text-[11.5px] text-txt2">Edit</button>
+            <button type="button" onClick={() => update({ addOpen: true, addSrc: 'Agents', addId: agent.id })} className="text-[11.5px] text-txt2">Rename</button>
+            <button type="button" onClick={() => void remove(agent)} className="text-[11.5px] text-err">Delete</button>
           </div>
         </div>
       ))}
+      {!registry.agents.length && <div className="col-span-2 p-[13px] border border-bd rounded-[8px] text-[12px] text-txt3">No agents found in project or global scope.</div>}
     </div>
   );
 }

@@ -7,6 +7,8 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
+import * as yaml from 'js-yaml';
 import {
   AidlcApplication,
   listBuiltinWorkflowPacks,
@@ -14,6 +16,12 @@ import {
   SkillStore,
   PipelineStore,
   PipelineRunStore,
+  RegistryValidator,
+  parseAgent,
+  parseSkill,
+  parsePipeline,
+  writePipelineCommand,
+  removePipelineCommand,
 } from '@aidlc/core';
 
 import {
@@ -21,7 +29,8 @@ import {
   type ExtensionV3Command,
   type ExtensionV3CommandResult,
 } from './ExtensionV3ApplicationClient';
-import { MOCK_AGENTS, MOCK_SKILLS, MOCK_PIPELINES } from './mockRegistryData';
+import { BUILTIN_PIPELINES } from './bundledRegistryData';
+import type { RegistryAgentInput, RegistryPipelineInput, RegistryScope, RegistrySkillInput } from './ExtensionV3ApplicationClient';
 
 export interface V3HostApplicationFactory {
   (workspaceRoot: string): AidlcApplication;
@@ -34,6 +43,7 @@ export interface ExtensionV3HostOptions {
   readonly hostDispatcher?: (command: ExtensionV3Command) => Promise<ExtensionV3CommandResult | undefined>;
   /** Reads the `aidlc.language` setting. Defaults to `'en'` — kept as a callback (like `workspaceRoot`) so this class stays vscode-agnostic and testable. */
   readonly language?: () => 'en' | 'vi';
+  readonly templateRoot?: () => string | undefined;
 }
 
 /** Kept local because the public core migration export currently exposes the application class, not this helper contract. */
@@ -192,7 +202,7 @@ export class ExtensionV3Host {
           ? application.epics.events(currentSource.id).slice(-20).map((event) => JSON.stringify(event)).join('\n')
           : undefined,
       },
-      registry: registryProjection(root, sourceEpics.map((epic) => epic.id)),
+      registry: registryProjection(root, sourceEpics.map((epic) => epic.id), this.options.templateRoot?.()),
     };
   }
 
@@ -201,6 +211,11 @@ export class ExtensionV3Host {
       const hostResult = await this.options.hostDispatcher?.(command);
       if (hostResult) return hostResult;
       const root = this.requireWorkspaceRoot();
+      const registryResult = this.dispatchRegistry(root, command);
+      if (registryResult) {
+        this.emitState();
+        return registryResult;
+      }
       const application = this.applicationFactory(root);
       const applicationCommand = application.bus.command(
         command.id,
@@ -235,6 +250,100 @@ export class ExtensionV3Host {
     return root;
   }
 
+  /** Registry CRUD deliberately lives at the host boundary: it validates and
+   * persists durable files, while the webview only sends typed commands. */
+  private dispatchRegistry(root: string, command: ExtensionV3Command): ExtensionV3CommandResult | undefined {
+    if (!command.name.startsWith('registry.agent.') && !command.name.startsWith('registry.skill.') && !command.name.startsWith('registry.pipeline.')) return undefined;
+    const agents = new AgentStore(root);
+    const skills = new SkillStore(root);
+    const pipelines = new PipelineStore(root, BUILTIN_PIPELINES as unknown as ConstructorParameters<typeof PipelineStore>[1]);
+    const validator = new RegistryValidator(agents, skills, pipelines);
+    const ok = (data: unknown): ExtensionV3CommandResult => ({ commandId: command.id, status: 'ok', data });
+    const scope = (value: unknown): RegistryScope => value === 'global' ? 'global' : 'project';
+    const p = command.payload as Record<string, unknown>;
+
+    if (command.name === 'registry.agent.create' || command.name === 'registry.agent.update') {
+      const entity = parseAgent(p.agent as RegistryAgentInput);
+      const targetScope = scope(p.scope);
+      if (command.name.endsWith('.create')) {
+        const duplicate = validator.checkDuplicateId('agent', entity.id);
+        if (duplicate) throw new Error(duplicate.message);
+      } else if (agents.scopeOf(entity.id) !== targetScope) {
+        throw new Error(`Agent "${entity.id}" does not exist in ${targetScope} scope.`);
+      }
+      for (const skillId of entity.skills) if (!skills.exists(skillId)) throw new Error(`Agent "${entity.id}" references skill "${skillId}", which doesn't exist.`);
+      agents.write(entity, targetScope);
+      return ok({ agent: { ...entity, scope: targetScope } });
+    }
+    if (command.name === 'registry.agent.delete') {
+      const id = String(p.id ?? '');
+      const targetScope = scope(p.scope);
+      if (agents.scopeOf(id) !== targetScope) throw new Error(`Agent "${id}" does not exist in ${targetScope} scope.`);
+      const references = pipelines.list().filter((pipeline) => pipeline.steps.some((step) => step.agent === id)).map((pipeline) => pipeline.id);
+      if (references.length) throw new Error(`Agent "${id}" is referenced by pipeline(s): ${references.join(', ')}.`);
+      agents.remove(id, targetScope);
+      return ok({ deleted: id });
+    }
+    if (command.name === 'registry.skill.create' || command.name === 'registry.skill.update') {
+      const entity = parseSkill(p.skill as RegistrySkillInput);
+      const targetScope = scope(p.scope);
+      if (command.name.endsWith('.create')) {
+        const duplicate = validator.checkDuplicateId('skill', entity.id);
+        if (duplicate) throw new Error(duplicate.message);
+      } else if (skills.scopeOf(entity.id) !== targetScope) {
+        throw new Error(`Skill "${entity.id}" does not exist in ${targetScope} scope.`);
+      }
+      skills.write(entity, targetScope);
+      return ok({ skill: { ...entity, scope: targetScope } });
+    }
+    if (command.name === 'registry.skill.delete') {
+      const id = String(p.id ?? '');
+      const targetScope = scope(p.scope);
+      if (skills.scopeOf(id) !== targetScope) throw new Error(`Skill "${id}" does not exist in ${targetScope} scope.`);
+      const references = pipelines.list().filter((pipeline) => pipeline.steps.some((step) => step.skills.includes(id))).map((pipeline) => pipeline.id);
+      if (references.length) throw new Error(`Skill "${id}" is referenced by pipeline(s): ${references.join(', ')}.`);
+      skills.remove(id, targetScope);
+      return ok({ deleted: id });
+    }
+    if (command.name === 'registry.pipeline.create' || command.name === 'registry.pipeline.update' || command.name === 'registry.pipeline.copyToProject') {
+      const input = p.pipeline as RegistryPipelineInput;
+      const entity = parsePipeline({ ...input, source: 'project' });
+      if (command.name === 'registry.pipeline.create') {
+        const duplicate = validator.checkDuplicateId('pipeline', entity.id);
+        if (duplicate) throw new Error(duplicate.message);
+      }
+      if (command.name === 'registry.pipeline.update' && !pipelines.isProject(entity.id)) {
+        throw new Error(`Pipeline "${entity.id}" is bundled and read-only. Copy it to project before editing.`);
+      }
+      const issues = validator.validatePipeline(entity);
+      if (issues.length) throw new Error(issues.map((issue) => issue.message).join(' '));
+      const written = pipelines.write(entity);
+      writePipelineCommand(root, written, { overwrite: true });
+      return ok({ pipeline: written, copied: command.name === 'registry.pipeline.copyToProject' });
+    }
+    if (command.name === 'registry.pipeline.delete') {
+      const id = String(p.id ?? '');
+      if (!pipelines.isProject(id)) throw new Error(`Pipeline "${id}" is bundled and cannot be deleted.`);
+      const active = this.activePipelineRuns(root, id);
+      if (active.length) throw new Error(`Pipeline "${id}" has active run(s): ${active.join(', ')}.`);
+      pipelines.remove(id);
+      // Deleting an override can reveal a bundled pipeline with the same id;
+      // regenerate its command instead of leaving a stale project command.
+      const fallback = pipelines.read(id);
+      if (fallback) writePipelineCommand(root, fallback, { overwrite: true });
+      else removePipelineCommand(root, id);
+      return ok({ deleted: id });
+    }
+    return undefined;
+  }
+
+  private activePipelineRuns(root: string, pipelineId: string): string[] {
+    const runs = new PipelineRunStore(root);
+    return runs.listForPipeline(pipelineId)
+      .filter((run) => run.steps.some((step) => step.status !== 'done'))
+      .map((run) => run.epicId);
+  }
+
   private emitState(): void {
     if (!this.stateListeners.size) return;
     try {
@@ -247,19 +356,16 @@ export class ExtensionV3Host {
 }
 
 /** IMPLEMENT.md §1 registry read model — same three stores `registerRegistryCommands.ts` writes through. */
-function registryProjection(root: string, epicIds: readonly string[]): Record<string, unknown> {
+function registryProjection(root: string, epicIds: readonly string[], templateRoot?: string): Record<string, unknown> {
   const agents = new AgentStore(root);
   const skills = new SkillStore(root);
-  const pipelines = new PipelineStore(root, MOCK_PIPELINES as unknown as ConstructorParameters<typeof PipelineStore>[1]);
+  const pipelines = new PipelineStore(root, BUILTIN_PIPELINES as unknown as ConstructorParameters<typeof PipelineStore>[1]);
   const runs = new PipelineRunStore(root);
-  const realAgents = agents.list();
-  const realSkills = skills.list();
   return {
-    agents: realAgents.length > 0 ? realAgents : MOCK_AGENTS,
-    skills: realSkills.length > 0
-      ? realSkills.map((skill) => ({ id: skill.id, source: skill.source, description: skill.description }))
-      : MOCK_SKILLS,
+    agents: agents.list().map((agent) => ({ ...agent, scope: agents.scopeOf(agent.id) })),
+    skills: skills.list().map((skill) => ({ ...skill, scope: skills.scopeOf(skill.id) })),
     pipelines: pipelines.list(),
+    templates: discoverRegistryTemplates(templateRoot),
     runs: epicIds.flatMap((epicId) => runs.listForEpic(epicId).map((run) => ({
       epicId: run.epicId,
       pipelineId: run.pipelineId,
@@ -267,6 +373,51 @@ function registryProjection(root: string, epicIds: readonly string[]): Record<st
     }))),
   };
 }
+
+/** Read-only catalog of assets bundled with AIDLC. A selection only pre-fills
+ * the Builder form; it is not shown as a stored Agent/Skill until saved to a
+ * project or global scope. */
+function discoverRegistryTemplates(templateRoot?: string): Record<string, unknown>[] {
+  if (!templateRoot || !fs.existsSync(templateRoot)) return [];
+  const templates: Record<string, unknown>[] = [];
+  for (const workflow of fs.readdirSync(templateRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory())) {
+    for (const kind of ['agents', 'skills'] as const) {
+      const dir = path.join(templateRoot, workflow.name, kind);
+      if (!fs.existsSync(dir)) continue;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true }).filter((item) => item.isFile() && item.name.endsWith('.md'))) {
+        const raw = fs.readFileSync(path.join(dir, entry.name), 'utf8');
+        const { attributes, body } = splitTemplateFrontmatter(raw);
+        const stem = path.basename(entry.name, '.md');
+        const id = `template:${workflow.name}/${kind}/${stem}`;
+        const suggestedId = `aidlc-${workflow.name}-${stem}`.replace(/[^a-z0-9-]/g, '-');
+        const label = stringValue(attributes.name) || firstHeading(body) || stem;
+        const description = stringValue(attributes.description) || firstParagraph(body) || `${label} starter template`;
+        if (kind === 'agents') {
+          const model = stringValue(attributes.model) || 'claude-sonnet-4-5';
+          const capabilities = stringArray(attributes.tools).filter((value): value is 'figma' | 'files' | 'github' | 'web' => ['figma', 'files', 'github', 'web'].includes(value));
+          templates.push({ id, kind: 'agent', label, description, agent: { id: suggestedId, name: label, description, model, tier: model.includes('opus') ? 'deep' : 'balanced', skills: stringArray(attributes.skills), capabilities } });
+        } else {
+          templates.push({ id, kind: 'skill', label, description, skill: { id: suggestedId, source: 'custom', description, body } });
+        }
+      }
+    }
+  }
+  return templates.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+function splitTemplateFrontmatter(raw: string): { attributes: Record<string, unknown>; body: string } {
+  if (!raw.startsWith('---')) return { attributes: {}, body: raw.trim() };
+  const end = raw.indexOf('\n---', 3);
+  if (end === -1) return { attributes: {}, body: raw.trim() };
+  try {
+    return { attributes: (yaml.load(raw.slice(3, end)) as Record<string, unknown>) ?? {}, body: raw.slice(end + 4).trim() };
+  } catch { return { attributes: {}, body: raw.slice(end + 4).trim() }; }
+}
+
+function stringValue(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }
+function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []; }
+function firstHeading(body: string): string { return body.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? ''; }
+function firstParagraph(body: string): string { return body.split(/\n\s*\n/).map((part) => part.replace(/^#+\s+/, '').trim()).find(Boolean) ?? ''; }
 
 function projectRecommendation(recommendation: RecommendationProjectionSource | null): Record<string, unknown> | undefined {
   if (!recommendation) return undefined;

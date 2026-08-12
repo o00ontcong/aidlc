@@ -35,6 +35,13 @@ export class PipelineStore {
     return fs.existsSync(this.projectFile(id)) || this.bundled.has(id);
   }
 
+  isProject(id: string): boolean { return fs.existsSync(this.projectFile(id)); }
+
+  scopeOf(id: string): 'project' | 'bundled' | null {
+    if (this.isProject(id)) return 'project';
+    return this.bundled.has(id) ? 'bundled' : null;
+  }
+
   read(id: string): Pipeline | null {
     const projectFile = this.projectFile(id);
     if (fs.existsSync(projectFile)) {
@@ -59,6 +66,15 @@ export class PipelineStore {
     writeFileAtomic(this.projectFile(validated.id), yaml.dump(validated, { noRefs: true, lineWidth: 120 }));
     this.emitter.emit('change', { id: validated.id });
     return validated;
+  }
+
+  /** Removes a project override only. Bundled definitions are intentionally read-only. */
+  remove(id: string): boolean {
+    const file = this.projectFile(id);
+    if (!fs.existsSync(file)) return false;
+    fs.unlinkSync(file);
+    this.emitter.emit('change', { id });
+    return true;
   }
 
   onChange(listener: (event: { id: string }) => void): () => void {

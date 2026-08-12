@@ -56,6 +56,17 @@ export class PipelineRunStore {
       .filter((run): run is PipelineRun => run !== null);
   }
 
+  /** Every durable run for one pipeline, including runs whose Epic is no
+   * longer in the application read model. Used to protect pipeline deletion. */
+  listForPipeline(pipelineId: string): PipelineRun[] {
+    const epicsDir = path.join(this.workspaceRoot, '.aidlc', 'epics');
+    if (!fs.existsSync(epicsDir)) return [];
+    return fs.readdirSync(epicsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => this.load(entry.name, pipelineId))
+      .filter((run): run is PipelineRun => run !== null);
+  }
+
   /** `null` if this epic has never run this pipeline. */
   load(epicId: string, pipelineId: string): PipelineRun | null {
     const file = this.stateFile(epicId, pipelineId);

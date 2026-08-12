@@ -6,9 +6,42 @@
  * safe to unit-test and cannot fork the application state machine.
  */
 
+export type RegistryScope = 'project' | 'global';
+
+export interface RegistryAgentInput {
+  readonly id: string; readonly name: string; readonly description: string; readonly model: string;
+  readonly tier: 'fast' | 'balanced' | 'deep' | 'review'; readonly skills: readonly string[];
+  readonly capabilities: readonly ('figma' | 'files' | 'github' | 'web')[];
+}
+export interface RegistrySkillInput {
+  readonly id: string; readonly source: 'bundled' | 'design' | 'custom'; readonly description: string; readonly body: string;
+}
+export interface RegistryPipelineStepInput {
+  readonly id: string; readonly agent?: string; readonly skills: readonly string[]; readonly outputs: readonly string[];
+  readonly autoReview: boolean; readonly humanReview: boolean;
+  readonly onReject?: { readonly rerun: string; readonly withFeedback: boolean };
+  readonly gate?: string;
+}
+export interface RegistryPipelineInput {
+  readonly id: string; readonly version: string; readonly steps: readonly RegistryPipelineStepInput[];
+}
+export interface RegistryTemplate {
+  readonly id: string;
+  readonly kind: 'agent' | 'skill';
+  readonly label: string;
+  readonly description: string;
+  readonly agent?: RegistryAgentInput;
+  readonly skill?: RegistrySkillInput;
+}
+
+export type ExtensionV3CommandName = string
+  | 'registry.agent.create' | 'registry.agent.update' | 'registry.agent.delete'
+  | 'registry.skill.create' | 'registry.skill.update' | 'registry.skill.delete'
+  | 'registry.pipeline.create' | 'registry.pipeline.update' | 'registry.pipeline.copyToProject' | 'registry.pipeline.delete' | 'registry.pipeline.generateFromRecipe';
+
 export interface ExtensionV3Command {
   readonly id: string;
-  readonly name: string;
+  readonly name: ExtensionV3CommandName;
   readonly payload: unknown;
 }
 

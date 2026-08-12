@@ -44,7 +44,7 @@ export default function BuilderScreen() {
         <Button
           label={`+ Add ${ADD_LABEL[tab]}`}
           variant="primary"
-          onClick={() => update({ addOpen: true, addSrc: tab })}
+          onClick={() => update({ addOpen: true, addSrc: tab, addId: '', addSkills: {}, addCaps: { figma: false, files: false, github: false, web: false } })}
         />
       </div>
 

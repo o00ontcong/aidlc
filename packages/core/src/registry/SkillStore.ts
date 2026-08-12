@@ -35,6 +35,13 @@ export class SkillStore {
     return fs.existsSync(this.fileFor(id, 'project')) || fs.existsSync(this.fileFor(id, 'global'));
   }
 
+  /** The effective entry's scope. Project wins when it shadows a global id. */
+  scopeOf(id: string): 'project' | 'global' | null {
+    if (fs.existsSync(this.fileFor(id, 'project'))) return 'project';
+    if (fs.existsSync(this.fileFor(id, 'global'))) return 'global';
+    return null;
+  }
+
   read(id: string): Skill | null {
     const project = readFrontmatterFile(this.fileFor(id, 'project'));
     const raw = project ?? readFrontmatterFile(this.fileFor(id, 'global'));
@@ -65,6 +72,15 @@ export class SkillStore {
     );
     this.emitter.emit('change', { id: validated.id, scope });
     return validated;
+  }
+
+  /** Removes exactly one scoped file; callers must do reference checks first. */
+  remove(id: string, scope: 'project' | 'global'): boolean {
+    const file = this.fileFor(id, scope);
+    if (!fs.existsSync(file)) return false;
+    fs.unlinkSync(file);
+    this.emitter.emit('change', { id, scope });
+    return true;
   }
 
   onChange(listener: (event: { id: string; scope: 'project' | 'global' }) => void): () => void {

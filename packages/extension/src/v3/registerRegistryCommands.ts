@@ -21,7 +21,7 @@ import {
   writePipelineCommand,
   registryPipelineCommandId,
 } from '@aidlc/core';
-import { MOCK_PIPELINES } from './mockRegistryData';
+import { BUILTIN_PIPELINES } from './bundledRegistryData';
 
 interface ActorRef {
   kind: 'user' | 'agent' | 'system';
@@ -55,7 +55,7 @@ export function registerRegistryCommands(context: vscode.ExtensionContext): vsco
   const bindStores = (root: string) => {
     const agents = new AgentStore(root);
     const skills = new SkillStore(root);
-    const pipelines = new PipelineStore(root, MOCK_PIPELINES as unknown as ConstructorParameters<typeof PipelineStore>[1]);
+    const pipelines = new PipelineStore(root, BUILTIN_PIPELINES as unknown as ConstructorParameters<typeof PipelineStore>[1]);
     const runner = new StepRunner(new PipelineRunStore(root));
 
     unsubscribers.push(pipelines.onChange(({ id }) => {

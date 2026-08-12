@@ -110,6 +110,9 @@ export const PipelineSchema = z.object({
   source: PipelineSourceSchema,
   version: z.string().min(1),
   steps: z.array(PipelineStepSchema).min(1),
+}).refine((pipeline) => new Set(pipeline.steps.map((step) => step.id)).size === pipeline.steps.length, {
+  message: 'Step ids must be unique within a Pipeline',
+  path: ['steps'],
 });
 export type Pipeline = z.infer<typeof PipelineSchema>;
 

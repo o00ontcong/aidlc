@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AidlcApplication } from '@aidlc/core';
+import { PipelineRunStore, StepRunner, type Pipeline } from '@aidlc/core';
 
 import { ExtensionV3Host, toApplicationCommandName } from '../../src/v3/ExtensionV3Host';
 
@@ -80,6 +81,22 @@ describe('ExtensionV3Host', () => {
     expect(result).toMatchObject({ commandId: 'ui-2', status: 'error' });
   });
 
+  it('projects shipped agent and skill templates as starters, not saved assets', () => {
+    const root = tempWorkspace();
+    const templates = tempWorkspace();
+    const agentDir = path.join(templates, 'sdlc', 'agents');
+    const skillDir = path.join(templates, 'sdlc', 'skills');
+    fs.mkdirSync(agentDir, { recursive: true }); fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'reviewer.md'), '---\nname: Reviewer\ndescription: Reviews changes\nmodel: claude-opus-5\ntools: [files, github]\n---\n# Reviewer\n');
+    fs.writeFileSync(path.join(skillDir, 'review.md'), '---\nname: Review\ndescription: Review a diff\n---\n# Review\nUse a structured checklist.\n');
+    const host = new ExtensionV3Host({ workspaceRoot: () => root, templateRoot: () => templates });
+    const state = host.workspaceState() as { registry: { agents: unknown[]; skills: unknown[]; templates: Array<{ kind: string; agent?: { id: string; tier: string }; skill?: { body: string } }> } };
+    expect(state.registry.agents).toEqual([]);
+    expect(state.registry.skills).toEqual([]);
+    expect(state.registry.templates).toContainEqual(expect.objectContaining({ kind: 'agent', agent: expect.objectContaining({ id: 'aidlc-sdlc-reviewer', tier: 'deep' }) }));
+    expect(state.registry.templates).toContainEqual(expect.objectContaining({ kind: 'skill', skill: expect.objectContaining({ body: '# Review\nUse a structured checklist.' }) }));
+  });
+
   it('publishes durable state subscriptions and projects artifact evidence', async () => {
     const root = tempWorkspace();
     const app = new AidlcApplication(root);
@@ -99,5 +116,35 @@ describe('ExtensionV3Host', () => {
     subscription.dispose();
     host.notifyDurableStateChanged();
     expect(states).toHaveLength(1);
+  });
+
+  it('performs typed registry CRUD, validates pipeline links, and guards active runs', async () => {
+    const root = tempWorkspace();
+    const host = new ExtensionV3Host({ workspaceRoot: () => root });
+    const send = (name: string, payload: unknown) => host.handleMessage({ type: 'aidlc.v3.command', command: { id: `${name}-${Math.random()}`, name, payload } });
+    await expect(send('registry.skill.create', { scope: 'project', skill: { id: 'test-plan', source: 'custom', description: 'Test plan', body: '# test' } })).resolves.toMatchObject({ status: 'ok' });
+    await expect(send('registry.agent.create', { scope: 'project', agent: { id: 'test-agent', name: 'Test Agent', description: 'Runs tests', model: 'claude-sonnet', tier: 'balanced', skills: ['test-plan'], capabilities: ['files'] } })).resolves.toMatchObject({ status: 'ok' });
+    const pipeline: Pipeline = { id: 'test-flow', source: 'project', version: '1.0.0', steps: [{ id: 'test', agent: 'test-agent', skills: ['test-plan'], outputs: ['test.md'], autoReview: false, humanReview: true, onReject: { rerun: 'test', withFeedback: true } }] };
+    await expect(send('registry.pipeline.create', { pipeline })).resolves.toMatchObject({ status: 'ok' });
+    const state = host.workspaceState() as { registry: { agents: Array<{ id: string; scope: string }>; pipelines: Array<{ id: string }> } };
+    expect(state.registry.agents).toContainEqual(expect.objectContaining({ id: 'test-agent', scope: 'project' }));
+    expect(state.registry.pipelines).toContainEqual(expect.objectContaining({ id: 'test-flow' }));
+    await expect(send('registry.agent.update', { scope: 'project', agent: { id: 'test-agent', name: 'Test Agent', description: 'Updated test runner', model: 'claude-sonnet', tier: 'balanced', skills: ['test-plan'], capabilities: ['files'] } })).resolves.toMatchObject({ status: 'ok' });
+    const updatedPipeline = { ...pipeline, version: '2.0.0' };
+    await expect(send('registry.pipeline.update', { pipeline: updatedPipeline })).resolves.toMatchObject({ status: 'ok' });
+    expect(fs.readFileSync(path.join(root, '.claude', 'commands', 'aidlc-test-flow.md'), 'utf8')).toContain('v2.0.0');
+    await expect(send('registry.pipeline.create', { pipeline: { ...pipeline, id: 'broken-flow', steps: [{ ...pipeline.steps[0], agent: 'missing-agent' }] } })).resolves.toMatchObject({ status: 'error' });
+    await expect(send('registry.pipeline.create', { pipeline: { ...pipeline, id: 'unsafe-flow', steps: [{ ...pipeline.steps[0], id: 'unsafe', gate: 'merge_default_branch', humanReview: false }] } })).resolves.toMatchObject({ status: 'error' });
+    await expect(send('registry.agent.delete', { id: 'test-agent', scope: 'project' })).resolves.toMatchObject({ status: 'error' });
+    const runner = new StepRunner(new PipelineRunStore(root));
+    let run = runner.ensureStarted(updatedPipeline, 'EPIC-ACTIVE');
+    await expect(send('registry.pipeline.delete', { id: 'test-flow' })).resolves.toMatchObject({ status: 'error' });
+    run = runner.runStep(updatedPipeline, run, 'test', { kind: 'user', id: 'test' });
+    run = runner.completeStep(updatedPipeline, run, 'test', { kind: 'user', id: 'test' });
+    runner.approve(updatedPipeline, run, 'test', { kind: 'user', id: 'test' });
+    await expect(send('registry.pipeline.delete', { id: 'test-flow' })).resolves.toMatchObject({ status: 'ok' });
+    expect(fs.existsSync(path.join(root, '.claude', 'commands', 'aidlc-test-flow.md'))).toBe(false);
+    await expect(send('registry.agent.delete', { id: 'test-agent', scope: 'project' })).resolves.toMatchObject({ status: 'ok' });
+    await expect(send('registry.skill.delete', { id: 'test-plan', scope: 'project' })).resolves.toMatchObject({ status: 'ok' });
   });
 });

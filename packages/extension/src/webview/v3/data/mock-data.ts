@@ -10,7 +10,7 @@
 
 import type {
   EpicRowVM, RecentEpicVM, McpServerVM, ParallelEpicVM, ConfigRowVM,
-  StepRowVM, HistoryVM, ShipVM, LifecycleVM, FlowSummaryVM, AgentVM, SkillVM,
+  StepRowVM, HistoryVM, ShipVM, LifecycleVM,
   PresetStepVM, PackVM, ProviderVM, CapabilityVM, CodeLineVM, DoctorVM,
   TestStepVM, AnalysisVM, ReadinessVM, ActionVM,
 } from './types';
@@ -231,37 +231,6 @@ export const MOCK_HOME_BLOCKED = 'EPIC-136 blocked · contract test thất bại
 export const MOCK_RECOVERY = ['Retry step', 'Resume Epic', 'Apply fix: bump contract v4', 'Đổi policy gate'];
 
 /* ═══ BUILDER ═════════════════════════════════════════════ */
-export const MOCK_FLOWS: FlowSummaryVM[] = [
-  { id: 'redraw-design',     steps: 4, nodes: ['design-analyzer','design-recreator','visual-reviewer','human-review'] },
-  { id: 'sdlc-standard',     steps: 5, nodes: ['understand','plan','build','verify','ship'] },
-  { id: 'quick-fix',         steps: 3, nodes: ['understand','build','verify'] },
-  { id: 'cohesive-parallel', steps: 5, nodes: ['plan','wp×3','integrate','ship'] },
-  { id: 'release-notes',     steps: 2, nodes: ['collect','draft'] },
-];
-export const MOCK_AGENTS: AgentVM[] = [
-  { name: 'design-recreator', tier: 'deep', model: 'claude-opus-4',
-    desc: 'Dựng lại UI từ Figma/ảnh tham chiếu rồi tự đối chiếu sai lệch',
-    skills: ['figma-to-ui','image-to-ui','design-system','responsive-layout','visual-review'],
-    capabilities: ['figma','files','github','web'],
-    frontmatter: 'skills: [figma-to-ui, design-system, responsive-layout]' },
-  { name: 'senior-backend-developer', tier: 'balanced', model: 'claude-sonnet-4-5', skills: ['fastify','prisma-migrate','decimal-safety'] },
-  { name: 'backend-reviewer',         tier: 'review',   model: 'claude-sonnet-4-5', skills: ['vitest','pact','code-review'] },
-  { name: 'service-architect',        tier: 'deep',     model: 'claude-opus-4',     skills: ['api-contract','prisma-schema'] },
-  { name: 'product-domain-analyst',   tier: 'deep',     model: 'claude-opus-4',     skills: ['payments-domain','acceptance-criteria'] },
-];
-export const MOCK_SKILLS: SkillVM[] = [
-  { id: 'figma-to-ui',        source: 'design',  desc: 'Đọc frame Figma → token, layout, component; không copy pixel' },
-  { id: 'image-to-ui',        source: 'design',  desc: 'Suy ra grid, spacing, typography từ ảnh tham chiếu' },
-  { id: 'design-system',      source: 'design',  desc: 'Bắt buộc dùng token/component của design system, không tự tạo màu' },
-  { id: 'responsive-layout',  source: 'design',  desc: 'Quy tắc breakpoint, thứ tự reflow, hit target tối thiểu' },
-  { id: 'visual-review',      source: 'design',  desc: 'So sánh kết quả với tham chiếu và liệt kê sai lệch có thể sửa' },
-  { id: 'prisma-migrate',     source: 'bundled', desc: 'Viết migration an toàn, có shadow DB check' },
-  { id: 'decimal-safety',     source: 'custom',  desc: 'Quy tắc làm tròn tiền cho refund một phần' },
-  { id: 'pact',               source: 'bundled', desc: 'Contract test giữa service' },
-  { id: 'payments-domain',    source: 'custom',  desc: 'Thuật ngữ và ràng buộc miền thanh toán' },
-  { id: 'api-contract',       source: 'bundled', desc: 'Chuẩn hoá OpenAPI và versioning' },
-  { id: 'acceptance-criteria',source: 'bundled', desc: 'Viết AC kiểm chứng được' },
-];
 // CATALOG: preset Redraw Design (ship kèm extension — không phải mock)
 export const PRESET_SKILLS = [
   { id: 'figma-to-ui',       desc: 'frame Figma → token, layout, component' },
@@ -286,20 +255,6 @@ export const TOAST_PRESET = {
   body: '5 skill · agent design-recreator · pipeline redraw-design. Reload để VS Code nạp lại slash command mới.',
 };
 
-// MOCK: id đã tồn tại (dùng cho validation demo) — thật ra phải hỏi *Store.exists()
-export const MOCK_TAKEN_IDS = ['prisma-migrate', 'sdlc-standard', 'backend-reviewer'];
-// MOCK: preview step khi Add pipeline
-export const MOCK_ADD_FLOW_STEPS = [
-  { i: '1', name: 'capture-context', tag: 'auto' as const },
-  { i: '2', name: 'specify',         tag: 'auto' as const },
-  { i: '3', name: 'implement',       tag: 'auto' as const },
-  { i: '4', name: 'open-pr',         tag: 'human gate' as const },
-];
-export const ADD_SOURCE_DEFS = {
-  Workflows: [['Từ template','copy pipeline bundled rồi sửa'],['Từ recipe','Claude sinh step từ mô tả'],['Blank','tự thêm từng step']],
-  Agents:    [['Từ template','agent role có sẵn'],['Từ recommendation','lấy agent Claude đề xuất'],['Blank','tự khai báo']],
-  Skills:    [['Từ template','chọn skill bundled'],['Dán nội dung','paste markdown'],['Upload file','chọn .md từ máy'],['Blank','tạo file trống']],
-} as const;
 
 /* ═══ ANALYZE ═════════════════════════════════════════════ */
 export const CATALOG_PLATFORMS = ['Jira', 'GitHub', 'Linear', 'Redmine', 'Local'] as const;
