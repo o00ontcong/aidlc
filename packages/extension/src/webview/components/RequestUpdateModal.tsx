@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
+import { useState } from 'react';
+import { Btn } from './epic-v3/primitives';
+import {
+  V3Callout, V3Field, V3Modal, V3ModalFooter, V3ModalHeader, V3Textarea,
+} from './epic-v3/V3Modal';
 
 interface Props {
   agent: string;
@@ -12,6 +15,11 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Request update — rewinds an approved step. v3-styled; the required-feedback
+ * guard and the `onSubmit` contract (which posts `requestStepUpdate`) are
+ * unchanged.
+ */
 export function RequestUpdateModal({
   agent,
   runId,
@@ -21,11 +29,6 @@ export function RequestUpdateModal({
   onClose,
 }: Props) {
   const [feedback, setFeedback] = useState('');
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    ref.current?.focus();
-  }, []);
 
   const trimmed = feedback.trim();
   const submit = () => {
@@ -35,45 +38,50 @@ export function RequestUpdateModal({
   };
 
   return (
-    <Modal
-      title={`Request update — step ${stepIdx + 1}`}
-      subtitle={
-        <>
-          <span className="font-mono text-foreground/80">{agent}</span> · run{' '}
-          <span className="font-mono text-foreground/80">{runId}</span>
-        </>
-      }
+    <V3Modal
+      width={560}
+      paddingTop={110}
       onClose={onClose}
-      onSubmit={submit}
+      header={
+        <V3ModalHeader
+          title={`Request update — step ${stepIdx + 1}`}
+          sub={`${agent} · run ${runId}`}
+          onClose={onClose}
+        />
+      }
+      footer={
+        <V3ModalFooter cli={`aidlc step request-update ${runId} --step ${stepIdx}`}>
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn
+            label="Request update"
+            variant="primary"
+            onClick={submit}
+            disabled={!trimmed}
+            title={trimmed ? undefined : 'Bắt buộc ghi rõ thay đổi'}
+            pad="9px 16px"
+            fs={12.5}
+          />
+        </V3ModalFooter>
+      }
     >
-      <div className="mb-3 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[11px] text-warning/90">
-        <div className="font-semibold">
-          This step will rewind to "awaiting work" with revision++.
-        </div>
+      <V3Callout tone="warn" label="Hậu quả">
+        <div style={{ fontWeight: 600 }}>Step này quay lại "awaiting work" và revision++.</div>
         {downstreamCount > 0 && (
-          <div className="mt-0.5">
-            {downstreamCount} downstream step{downstreamCount === 1 ? '' : 's'} will reset to
-            pending — their history is preserved so you can see they were "previously done".
+          <div style={{ marginTop: 3, color: 'var(--txt2)' }}>
+            {downstreamCount} step phía sau sẽ reset về pending — history của chúng được giữ lại nên bạn
+            vẫn thấy được là "trước đó đã xong".
           </div>
         )}
-      </div>
-
-      <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-        What changed? <span className="font-normal normal-case tracking-normal">(required)</span>
-      </label>
-      <textarea
-        ref={ref}
-        value={feedback}
-        onChange={(e) => setFeedback(e.target.value)}
-        placeholder="e.g. PRD must add rate-limit policy from new requirements doc"
-        rows={4}
-        className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
-      />
-
-      <ModalFooter>
-        <ModalCancelButton onClick={onClose} />
-        <ModalConfirmButton onClick={submit} label="Request update" disabled={!trimmed} />
-      </ModalFooter>
-    </Modal>
+      </V3Callout>
+      <V3Field label="Thay đổi gì?" hint="(bắt buộc)">
+        <V3Textarea
+          value={feedback}
+          onChange={setFeedback}
+          placeholder="ví dụ: PRD phải bổ sung rate-limit policy theo requirements doc mới"
+          rows={4}
+          autoFocus
+        />
+      </V3Field>
+    </V3Modal>
   );
 }

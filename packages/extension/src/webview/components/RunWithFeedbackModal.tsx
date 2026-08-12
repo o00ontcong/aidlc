@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { FileUp, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { pickAndReadFile } from '@/lib/pickFile';
+import { Btn, Mono, SectionLabel } from './epic-v3/primitives';
+import { V3Callout, V3Label, V3Modal, V3ModalFooter, V3ModalHeader } from './epic-v3/V3Modal';
 
 interface Props {
   agent: string;
@@ -15,6 +14,11 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Run with feedback. v3-styled; the load-from-file behaviour (append, not
+ * overwrite), the prompt preview string, and the `onSubmit` contract (which
+ * posts `runStepWithFeedback`) are all unchanged.
+ */
 export function RunWithFeedbackModal({
   agent,
   runId,
@@ -39,7 +43,7 @@ export function RunWithFeedbackModal({
       // Append (rather than overwrite) when there's already typed feedback —
       // user is more often layering hints than swapping them.
       setFeedback((cur) => (cur.trim() ? `${cur.trimEnd()}\n\n${result.content}` : result.content));
-      setLoadInfo({ kind: 'loaded', text: `Loaded ${result.fileName}` });
+      setLoadInfo({ kind: 'loaded', text: `Đã nạp ${result.fileName}` });
     } catch (err) {
       setLoadInfo({
         kind: 'error',
@@ -73,82 +77,89 @@ export function RunWithFeedbackModal({
     : `${slashCommand} ${runId}`;
 
   return (
-    <Modal
-      title="Run with feedback"
-      subtitle={
-        <>
-          <span className="font-mono text-foreground/80">{agent}</span> · run{' '}
-          <span className="font-mono text-foreground/80">{runId}</span>
-        </>
-      }
+    <V3Modal
+      width={620}
+      paddingTop={90}
       onClose={onClose}
-      onSubmit={submit}
+      header={
+        <V3ModalHeader
+          title="Run with feedback"
+          sub={`${agent} · run ${runId}`}
+          onClose={onClose}
+        />
+      }
+      footer={
+        <V3ModalFooter cli={`${slashCommand} ${runId}`}>
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn label="Run in Claude" variant="primary" onClick={submit} pad="9px 16px" fs={12.5} />
+        </V3ModalFooter>
+      }
     >
       {carriedFeedback && (
-        <div className="mb-3 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5">
-          <div className="text-[9.5px] font-bold uppercase tracking-wider text-warning">
-            Carried feedback
+        <V3Callout tone="warn" label="Carried feedback">
+          <Mono>↳ {carriedFeedback}</Mono>
+          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--txt3)' }}>
+            Đã điền sẵn bên dưới — sửa hoặc xoá nếu bạn muốn gửi nội dung khác.
           </div>
-          <div className="mt-0.5 font-mono text-[10.5px] text-warning/90">
-            ↳ {carriedFeedback}
-          </div>
-          <div className="mt-1 text-[10px] italic text-warning/70">
-            Pre-filled below — edit or clear if you want to send something else.
-          </div>
-        </div>
+        </V3Callout>
       )}
 
-      <div className="mb-1 flex items-baseline justify-between gap-2">
-        <label className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-          Feedback for the agent <span className="font-normal normal-case tracking-normal">(optional)</span>
-        </label>
-        <button
-          type="button"
-          onClick={onLoadFromFile}
-          disabled={loading}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-          title="Append the contents of a text/markdown file to the feedback"
-        >
-          {loading ? (
-            <Loader2 className="h-2.5 w-2.5 animate-spin" />
-          ) : (
-            <FileUp className="h-2.5 w-2.5" />
-          )}
-          <span>Load from file…</span>
-        </button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <V3Label hint="(tuỳ chọn)">Feedback cho agent</V3Label>
+          <div style={{ flex: 1 }} />
+          <button
+            type="button"
+            onClick={onLoadFromFile}
+            disabled={loading}
+            title="Nối nội dung một file text/markdown vào feedback"
+            style={{
+              cursor: loading ? 'default' : 'pointer', fontSize: 11, padding: '3px 8px',
+              borderRadius: 5, border: '1px solid var(--bd)', background: 'transparent',
+              color: 'var(--txt2)', opacity: loading ? 0.5 : 1, fontFamily: 'inherit',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {loading ? 'Đang nạp…' : 'Load from file…'}
+          </button>
+        </div>
+        <textarea
+          ref={ref}
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          placeholder="ví dụ: thêm rate-limit policy theo PRD §4.2; trình bày dạng checklist"
+          rows={5}
+          style={{
+            background: 'var(--panel)', border: '1px solid var(--bd)', borderRadius: 6,
+            padding: '10px 12px', color: 'var(--txt)', fontSize: 12.5, fontFamily: 'inherit',
+            lineHeight: 1.6, resize: 'vertical', outline: 'none',
+          }}
+        />
+        {loadInfo && (
+          <div
+            style={{
+              fontSize: 11,
+              color: loadInfo.kind === 'loaded' ? 'var(--txt3)' : 'var(--err)',
+            }}
+          >
+            {loadInfo.text}
+          </div>
+        )}
       </div>
-      <textarea
-        ref={ref}
-        value={feedback}
-        onChange={(e) => setFeedback(e.target.value)}
-        placeholder="e.g. include rate-limit policy from PRD §4.2; format as a checklist"
-        rows={5}
-        className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
-      />
-      {loadInfo && (
-        <div
-          className={cn(
-            'mt-1 text-[10px]',
-            loadInfo.kind === 'loaded' ? 'text-muted-foreground' : 'text-destructive',
-          )}
-        >
-          {loadInfo.text}
-        </div>
-      )}
 
-      <div className="mt-3">
-        <div className="mb-1 text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground">
-          Will run in Claude
-        </div>
-        <div className="rounded-md border border-border bg-secondary/40 px-2.5 py-1.5 font-mono text-[10.5px] text-foreground/80 break-all">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <SectionLabel fs={10.5} tracking=".09em">Sẽ chạy trong Claude</SectionLabel>
+        <div
+          className="v3-mono"
+          style={{
+            background: 'var(--panel)', border: '1px solid var(--bd)', borderRadius: 6,
+            padding: '9px 11px', fontSize: 11, color: 'var(--txt2)', lineHeight: 1.8,
+            wordBreak: 'break-all',
+          }}
+        >
           {previewPrompt}
         </div>
       </div>
-
-      <ModalFooter>
-        <ModalCancelButton onClick={onClose} />
-        <ModalConfirmButton onClick={submit} label="Run in Claude" />
-      </ModalFooter>
-    </Modal>
+    </V3Modal>
   );
 }

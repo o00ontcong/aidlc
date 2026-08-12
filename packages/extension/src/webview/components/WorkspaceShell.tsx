@@ -128,19 +128,27 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   return (
     <div className="flex h-full flex-col">
       <TopBar view={view} onView={onView} workspaceName={state.workspaceName} />
-      <main className="flex-1 overflow-y-auto">
-        <div className="p-6">
-          {view === 'builder' ? (
-            <BuilderView state={state} />
-          ) : view === 'epics' ? (
-            <EpicsView state={state} />
-          ) : view === 'analyze' ? (
-            <AnalyzeView state={state} />
-          ) : (
-            <TestAgentView state={state} />
-          )}
-        </div>
-      </main>
+      {view === 'epics' ? (
+        // The v3 Epics screen is a two-column master/detail that scrolls each
+        // column independently and must fill the panel height, so it is not
+        // wrapped in the padded scroll box. The other views keep their exact
+        // previous wrapper markup below — nothing about them changes.
+        <main className="min-h-0 flex-1 overflow-hidden">
+          <EpicsView state={state} />
+        </main>
+      ) : (
+        <main className="flex-1 overflow-y-auto">
+          <div className="p-6">
+            {view === 'builder' ? (
+              <BuilderView state={state} />
+            ) : view === 'analyze' ? (
+              <AnalyzeView state={state} />
+            ) : (
+              <TestAgentView state={state} />
+            )}
+          </div>
+        </main>
+      )}
     </div>
   );
 }

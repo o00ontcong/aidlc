@@ -1,0 +1,127 @@
+/* AIDLC Workspace v3 — design tokens.
+ *
+ * Token blocks copied VERBATIM from `AIDLC Workspace v3.dc.html` <helmet><style>
+ * (via v3-handoff/tokens.css). No value is altered.
+ *
+ * SCOPING CONTRACT — read before editing.
+ * These custom properties use v3's own names (--bg, --panel, --txt, --acc, …).
+ * They do NOT collide with the shadcn token names the rest of the extension
+ * uses (--background, --card, --foreground, --primary, …), so nothing outside
+ * the v3 Epic subtree can resolve them. Both theme blocks are additionally
+ * scoped under `.aidlc-v3` so a stray `.thm-dark` elsewhere stays inert.
+ *
+ * Deliberately NOT copied from v3-handoff/tokens.css:
+ *   - `body { margin:0; background:#0E0F10; font-family:Inter }`
+ *   - `a { color: … }`
+ * Those are demo/standalone chrome ("Trong VS Code webview, nền do host quyết
+ * định" — tokens.css:30). Copying them would repaint every other screen.
+ *
+ * Also NOT copied: the Google Fonts `@import`. This webview's CSP is
+ * `style-src ${cspSource} 'unsafe-inline'` with no `https:`, so a remote
+ * stylesheet import is blocked by the browser and would only add a console
+ * error. Inter / JetBrains Mono resolve from the system font stack, which is
+ * what the extension's existing --font-sans / --font-mono already assume.
+ */
+
+@keyframes aidlcPulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+
+.aidlc-v3.thm-dark {
+  --bg:#1B1D1E; --panel:#202324; --panel2:#262A2B; --side:#1E2122; --chrome:#232729;
+  --bd:rgba(255,255,255,0.08); --bd2:rgba(255,255,255,0.04); --hover:rgba(255,255,255,0.05);
+  --txt:#E6E8E8; --txt2:#9AA0A0; --txt3:#6E7574;
+  --acc:rgb(20,197,96); --acc-txt:rgb(20,197,96); --acc-bg:rgba(20,197,96,0.14); --acc-bd:rgba(20,197,96,0.4); --on-acc:#0E1A12;
+  --warn:#FEBC2E; --warn-bg:rgba(254,188,46,0.10); --warn-bd:rgba(254,188,46,0.32);
+  --err:#F08A84; --err-bg:rgba(222,55,48,0.12); --err-bd:rgba(222,55,48,0.42);
+  --info:rgb(90,175,255); --track:rgba(255,255,255,0.10);
+}
+
+.aidlc-v3.thm-light {
+  --bg:#FFFFFF; --panel:#F7F8F8; --panel2:#FFFFFF; --side:#F2F2F7; --chrome:#EFF1F1;
+  --bd:rgba(12,12,13,0.12); --bd2:rgba(12,12,13,0.06); --hover:rgba(12,12,13,0.04);
+  --txt:#191C1D; --txt2:#5C5F5F; --txt3:#8A8F8F;
+  --acc:rgb(20,197,96); --acc-txt:rgb(0,138,64); --acc-bg:rgba(20,197,96,0.12); --acc-bd:rgba(0,138,64,0.35); --on-acc:#FFFFFF;
+  --warn:#8A6100; --warn-bg:rgba(254,188,46,0.16); --warn-bd:rgba(138,97,0,0.28);
+  --err:#DE3730; --err-bg:rgba(222,55,48,0.09); --err-bd:rgba(222,55,48,0.35);
+  --info:rgb(0,110,214); --track:rgba(12,12,13,0.10);
+}
+
+/* Typography roots. v3 uses Inter for prose and JetBrains Mono for every id,
+ * path, command, scope, %, branch and PR number (V3_HANDOFF §2 rule 4). */
+.aidlc-v3 {
+  /* Stacks copied verbatim from the design file: `Inter, system-ui, sans-serif`
+   * (tokens.css:31) and `'JetBrains Mono', monospace` (its inline styles).
+   * The fallback list must match exactly — when JetBrains Mono is absent, a
+   * different fallback resolves to different metrics and every mono pill ends
+   * up 1-2px off the design. */
+  font-family: Inter, system-ui, sans-serif;
+  color: var(--txt);
+  background: var(--bg);
+  /* The FlowCanvas inner grid is a literal 1120px box (scaled by transform,
+   * which does not shrink layout width). Without these the root would grow to
+   * its min-content width and push the whole screen into horizontal overflow
+   * whenever it is used as a flex item. */
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 0%;
+  /* Tailwind's preflight puts `line-height: 1.5` on <html>. The design file has
+   * no such rule, so its text boxes use `normal` (~1.2) and everything else
+   * sets line-height explicitly. Inheriting 1.5 inflated every card header and
+   * row by 3-4px. Reset to normal; the explicit 1.45/1.5/1.55/1.6/1.65 values
+   * transcribed from the design still apply where the design sets them. */
+  line-height: normal;
+
+  /* ── SIZE KNOB ────────────────────────────────────────────────────────────
+   * The design is drawn for a 1440px-wide frame, where its 10-12px type reads
+   * fine. A real VS Code editor panel is narrower and often on a lower-density
+   * display, so the same values read too small there.
+   *
+   * `zoom` scales EVERYTHING proportionally — type, padding, borders, the
+   * FlowCanvas grid — so every design ratio is preserved exactly; only the
+   * absolute size changes. (`zoom` reflows, unlike `transform: scale`, which
+   * would leave the layout at the original size and clip.)
+   *
+   * To go back to a 1:1 match with AIDLC Workspace v3.dc.html, set this to 1.
+   * Change this ONE value to retune; do not edit the per-element px numbers,
+   * they are transcribed from the design file. */
+  --v3-zoom: 1.12;
+  zoom: var(--v3-zoom);
+}
+.aidlc-v3 .v3-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* The shared base layer sets `* { border-color: var(--color-border) }`; v3
+ * always writes the border colour explicitly, but reset box-sizing for the
+ * scroll containers per V3_HANDOFF §2 rule 5. */
+.aidlc-v3 *, .aidlc-v3 *::before, .aidlc-v3 *::after { box-sizing: border-box; }
+
+.aidlc-v3 input::placeholder, .aidlc-v3 textarea::placeholder { color: var(--txt3); }
+
+/* Hover affordances the design file shows as static states. */
+.aidlc-v3 .v3-hover:hover { background: var(--hover); }
+
+/* ─────────────────────────────────────────────────────────────
+ * MOCK DATA HIGHLIGHT  (V3_HANDOFF §12)
+ * Every control bound to fake data carries data-mock="true".
+ * Toggle the red overlay with `.mock-visible` on <html>.
+ * Default is OFF here: the user's brief specifies "mặc định tắt".
+ * ───────────────────────────────────────────────────────────── */
+.mock-visible [data-mock="true"] {
+  outline: 1px dashed #FF3B30 !important;
+  outline-offset: 1px;
+  background-image: repeating-linear-gradient(
+    45deg, rgba(255,59,48,0.10) 0 6px, transparent 6px 12px
+  );
+}
+.mock-visible [data-mock="true"][data-mock-level="block"] {
+  outline: 2px solid #FF3B30 !important;
+  outline-offset: 2px;
+  position: relative;
+}
+.mock-visible [data-mock="true"][data-mock-level="block"]::after {
+  content: "MOCK: " attr(data-mock-id);
+  position: absolute; top: -9px; right: 6px; z-index: 5;
+  font: 600 9px/1.4 'JetBrains Mono', monospace;
+  letter-spacing: .04em; color: #fff; background: #FF3B30;
+  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+}

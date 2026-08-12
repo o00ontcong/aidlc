@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.4.23
+
+### Changed
+
+- redesign(epics): the Epics screen now follows the **AIDLC Workspace v3** design — a two-column master/detail layout (epic list at 316px, collapsible to a 46px rail) with the charter strip, epic header, Project Context, parallel epics, flow canvas + step lifecycle, epic config, human-gate banner, step list, step detail + history, ship strip and action bar. Filter, search, follow/unfollow, drag-to-follow and every run action keep their existing behaviour and host messages.
+- redesign(theme): the whole extension moves off the teal/aqua accent onto the v3 green palette. All shadcn colour roles (`primary`, `card`, `popover`, `sidebar`, `border`, `destructive`, `warning`, `info`, `success`) now resolve to v3 token values in both light and dark. Colour-only change — no layout geometry was altered.
+- change(epics): Reject, Rerun, Run-with-feedback, Request-update and Delete-epic dialogs are restyled to v3. Reject keeps its send-back-to-upstream target picker.
+
+### Notes
+
+- Controls the extension host cannot populate yet (autonomy mode, Project Context payload, epic run-mode, gate consequence detail) are rendered disabled and tagged `data-mock` so an unwired control can't be mistaken for a working one.
+- The v3 Epic subtree scales through a single `--v3-zoom` knob in `styles/v3-tokens.css` (default `1.12`), since the design targets a 1440px frame that is wider than a typical editor panel.
+
 ## 3.4.21
 
 ### Changed

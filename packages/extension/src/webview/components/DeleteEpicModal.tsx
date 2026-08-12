@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
-import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
+import { Btn, Mono } from './epic-v3/primitives';
+import { V3Input, V3Modal, V3ModalFooter, V3ModalHeader } from './epic-v3/V3Modal';
 
 interface Props {
   epicId: string;
@@ -18,6 +18,10 @@ interface Props {
  * `deleteRun` behaviour. Ticking the checkbox opts into deleting the whole
  * `docs/epics/<id>` folder, which is irreversible, so that path additionally
  * requires the user to type the epic id to confirm.
+ *
+ * v3-styled; the guard conditions (`canConfirm`) and the `onConfirm` payload
+ * are unchanged. Backdrop click still does not dismiss — an accidental click
+ * must not discard a typed confirmation.
  */
 export function DeleteEpicModal({ epicId, epicDir, hasRun, onConfirm, onClose }: Props) {
   const [deleteFolder, setDeleteFolder] = useState(false);
@@ -31,63 +35,73 @@ export function DeleteEpicModal({ epicId, epicDir, hasRun, onConfirm, onClose }:
   };
 
   return (
-    <Modal
-      title={`Delete epic ${epicId}`}
-      onClose={onClose}
-      onSubmit={submit}
+    <V3Modal
+      width={560}
+      paddingTop={110}
+      danger={deleteFolder}
+      // Esc and the header button close; a backdrop click must not throw away
+      // the typed confirmation (matches the previous closeOnBackdrop={false}).
       closeOnBackdrop={false}
-    >
-      <div className="space-y-3 text-[12px] leading-relaxed text-foreground/85">
-        <p>
-          {hasRun
-            ? 'This removes the live run-state JSON from .aidlc/runs/.'
-            : 'This epic has no live run state.'}{' '}
-          By default the epic folder and its artifacts are kept.
-        </p>
-
-        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-card/50 px-3 py-2">
-          <input
-            type="checkbox"
-            checked={deleteFolder}
-            onChange={(e) => { setDeleteFolder(e.target.checked); setTyped(''); }}
-            className="mt-0.5 shrink-0"
+      onClose={onClose}
+      header={<V3ModalHeader title={`Delete epic ${epicId}`} onClose={onClose} tone="err" icon="🗑" />}
+      footer={
+        <V3ModalFooter cli={`aidlc epic delete ${epicId}${deleteFolder ? ' --delete-folder' : ''}`}>
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn
+            label={deleteFolder ? 'Delete epic + folder' : 'Delete run state'}
+            variant="danger"
+            onClick={submit}
+            disabled={!canConfirm}
+            title={canConfirm ? undefined : `Nhập đúng ${epicId} để xác nhận`}
+            pad="9px 16px"
+            fs={12.5}
           />
-          <span>
-            Also delete the folder{' '}
-            <code className="break-all font-mono text-[11px] text-foreground">{epicDir}</code>{' '}
-            — state, inputs, and every artifact.
-          </span>
-        </label>
-
-        {deleteFolder && (
-          <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3">
-            <div className="flex items-center gap-1.5 font-semibold text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              This permanently deletes the folder and cannot be undone.
-            </div>
-            <p className="text-muted-foreground">
-              Type <span className="font-mono font-semibold text-foreground">{epicId}</span> to confirm:
-            </p>
-            <input
-              autoFocus
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              placeholder={epicId}
-              className="w-full rounded-md border border-border bg-input/50 px-2.5 py-1.5 font-mono text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-destructive focus:outline-none focus:ring-1 focus:ring-destructive/40"
-            />
-          </div>
-        )}
+        </V3ModalFooter>
+      }
+    >
+      <div style={{ fontSize: 12.5, color: 'var(--txt2)', lineHeight: 1.65 }}>
+        {hasRun
+          ? <>Xoá run-state JSON trong <Mono>.aidlc/runs/</Mono>.</>
+          : 'Epic này không có run state.'}{' '}
+        Mặc định thư mục epic và artifact được giữ lại.
       </div>
 
-      <ModalFooter>
-        <ModalCancelButton onClick={onClose} />
-        <ModalConfirmButton
-          onClick={submit}
-          label={deleteFolder ? 'Delete epic + folder' : 'Delete run state'}
-          danger
-          disabled={!canConfirm}
+      <label
+        style={{
+          display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 12px',
+          borderRadius: 7, border: '1px solid var(--bd)', background: 'var(--panel)',
+          cursor: 'pointer', fontSize: 12, color: 'var(--txt)', lineHeight: 1.6,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={deleteFolder}
+          onChange={(e) => { setDeleteFolder(e.target.checked); setTyped(''); }}
+          style={{ marginTop: 2, flex: 'none', accentColor: 'var(--acc)' }}
         />
-      </ModalFooter>
-    </Modal>
+        <span>
+          Xoá luôn thư mục <Mono style={{ fontSize: 11, wordBreak: 'break-all' }}>{epicDir}</Mono>
+          {' '}— state, inputs và toàn bộ artifact.
+        </span>
+      </label>
+
+      {deleteFolder && (
+        <div
+          style={{
+            display: 'flex', flexDirection: 'column', gap: 7, padding: '11px 12px',
+            borderRadius: 7, border: '1px solid var(--err-bd)', background: 'var(--err-bg)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--err)', fontWeight: 600 }}>
+            <span>▲</span>
+            <span>Xoá vĩnh viễn thư mục này, không thể hoàn tác.</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>
+            Nhập <Mono style={{ color: 'var(--txt)', fontWeight: 600 }}>{epicId}</Mono> để xác nhận:
+          </div>
+          <V3Input value={typed} onChange={setTyped} placeholder={epicId} mono />
+        </div>
+      )}
+    </V3Modal>
   );
 }

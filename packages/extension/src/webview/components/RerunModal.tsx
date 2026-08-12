@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
+import { useState } from 'react';
+import { Btn, Mono } from './epic-v3/primitives';
+import {
+  V3Callout, V3Field, V3Modal, V3ModalFooter, V3ModalHeader, V3Textarea,
+} from './epic-v3/V3Modal';
 
 interface Props {
   runId: string;
@@ -10,6 +13,15 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Rerun step. v3-styled (V3_HANDOFF §11) — logic unchanged: the same trimmed
+ * feedback string goes to the same `onSubmit` the caller passes, which still
+ * posts `rerunStepInline`.
+ *
+ * Rendered inside the `.aidlc-v3` subtree, so the v3 tokens resolve. It no
+ * longer uses the shared components/Modal.tsx shell — that shell is used by
+ * 20 modals on other screens and must keep its current look.
+ */
 export function RerunModal({
   runId,
   agent,
@@ -19,12 +31,6 @@ export function RerunModal({
   onClose,
 }: Props) {
   const [feedback, setFeedback] = useState(initialFeedback);
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
-  }, []);
 
   const submit = () => {
     onSubmit(feedback.trim());
@@ -32,44 +38,38 @@ export function RerunModal({
   };
 
   return (
-    <Modal
-      title="Rerun step"
-      subtitle={
-        <>
-          <span className="font-mono text-foreground/80">{agent}</span> · run{' '}
-          <span className="font-mono text-foreground/80">{runId}</span>
-        </>
-      }
+    <V3Modal
+      width={560}
+      paddingTop={110}
       onClose={onClose}
-      onSubmit={submit}
+      header={
+        <V3ModalHeader
+          title="Rerun step"
+          sub={`${agent} · run ${runId}`}
+          onClose={onClose}
+        />
+      }
+      footer={
+        <V3ModalFooter cli={`aidlc step rerun ${runId}`}>
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn label="Rerun" variant="primary" onClick={submit} pad="9px 16px" fs={12.5} />
+        </V3ModalFooter>
+      }
     >
       {rejectReason && (
-        <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5">
-          <div className="text-[9.5px] font-bold uppercase tracking-wider text-destructive">
-            Last reject reason
-          </div>
-          <div className="mt-0.5 font-mono text-[10.5px] text-destructive/90">
-            ↳ {rejectReason}
-          </div>
-        </div>
+        <V3Callout tone="err" label="Last reject reason">
+          <Mono>↳ {rejectReason}</Mono>
+        </V3Callout>
       )}
-
-      <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-        Feedback <span className="font-normal normal-case tracking-normal">(optional — kept on the step)</span>
-      </label>
-      <textarea
-        ref={ref}
-        value={feedback}
-        onChange={(e) => setFeedback(e.target.value)}
-        placeholder={rejectReason ?? 'e.g. address reviewer concern about test coverage'}
-        rows={3}
-        className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
-      />
-
-      <ModalFooter>
-        <ModalCancelButton onClick={onClose} />
-        <ModalConfirmButton onClick={submit} label="Rerun" />
-      </ModalFooter>
-    </Modal>
+      <V3Field label="Feedback" hint="(tuỳ chọn — được giữ lại trên step)">
+        <V3Textarea
+          value={feedback}
+          onChange={setFeedback}
+          placeholder={rejectReason ?? 'ví dụ: xử lý phản hồi của reviewer về test coverage'}
+          autoFocus
+          selectOnFocus
+        />
+      </V3Field>
+    </V3Modal>
   );
 }

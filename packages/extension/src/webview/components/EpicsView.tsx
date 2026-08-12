@@ -1,20 +1,15 @@
-import { useCallback, useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react';
-import { Plus, Brain, FolderOpen, Pencil, Search, ChevronDown, Star, Sparkles } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
-import { EpicCard, EPIC_DND_MIME } from './EpicCard';
+import { EPIC_DND_MIME } from './EpicCard';
 import { StartEpicModal } from './StartEpicModal';
 import { CharterBoard } from './CharterBoard';
 import { AutonomousDeliveryModal } from './AutonomousDeliveryModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
-
-const FILTERS: { id: EpicFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'in_progress', label: 'In progress' },
-  { id: 'pending', label: 'Pending' },
-  { id: 'done', label: 'Done' },
-  { id: 'failed', label: 'Failed' },
-];
+import '@/styles/v3-tokens.css';
+import { EpicListPanel } from './epic-v3/EpicListPanel';
+import { EpicDetail } from './epic-v3/EpicDetail';
+import { MockProvider } from './epic-v3/mock';
+import { Btn } from './epic-v3/primitives';
 
 /** Slice of Epics UI prefs persisted on the extension host (workspaceState). */
 interface PersistedEpicsView {
@@ -44,6 +39,18 @@ function writeEpicsPersist(patch: PersistedEpicsView): void {
   postMessage({ type: 'persistEpicsUi', epicsView: patch });
 }
 
+/**
+ * Epics screen, v3 design (AIDLC Workspace v3.dc.html §6).
+ *
+ * Two columns: the epic list (316px open / 46px rail) and the selected epic's
+ * detail stack. Everything below the presentation layer is unchanged from the
+ * previous version of this file — same state, same `persistEpicsUi` patches,
+ * same host message types.
+ *
+ * Selection / list-collapse / tools-open are new UI-only state and are
+ * deliberately NOT persisted: `EpicsViewPrefs` on the host is a fixed shape and
+ * the brief forbids changing it.
+ */
 export function EpicsView({ state }: { state: WorkspaceState }) {
   const seed = state.epicsViewUi ?? {};
   const [filter, setFilter] = useState<EpicFilter>(seed.filter ?? 'all');
@@ -57,6 +64,12 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
   const [autonomousDeliveryOpen, setAutonomousDeliveryOpen] = useState(false);
   const [dragEpicId, setDragEpicId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<'follow' | 'no-follow' | null>(null);
+
+  // v3 view state (session-only).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [listCollapsed, setListCollapsed] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [charterOpen, setCharterOpen] = useState(false);
 
   useEffect(() => {
     return onHostMessage((msg) => {
@@ -157,18 +170,11 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
     [visible, followedIds],
   );
 
-  const [editingDir, setEditingDir] = useState(false);
-  const [dirDraft, setDirDraft] = useState(state.epicsDir);
-
-  useEffect(() => { setDirDraft(state.epicsDir); }, [state.epicsDir]);
-
-  const commitDirChange = () => {
-    const val = dirDraft.trim();
-    if (val && val !== state.epicsDir) {
-      postMessage({ type: 'changeEpicsDir', dir: val });
-    }
-    setEditingDir(false);
-  };
+  // Keep the selection valid: fall back to the first visible epic.
+  const selected = useMemo(() => {
+    const byId = selectedId ? visible.find((e) => e.id === selectedId) : undefined;
+    return byId ?? visible[0] ?? null;
+  }, [visible, selectedId]);
 
   const onSectionDragOver = (section: 'follow' | 'no-follow') => (e: DragEvent) => {
     if (![...e.dataTransfer.types].includes(EPIC_DND_MIME) && dragEpicId === null) {
@@ -177,6 +183,12 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     if (dropTarget !== section) { setDropTarget(section); }
+  };
+
+  const onSectionDragLeave = (section: 'follow' | 'no-follow') => (e: DragEvent) => {
+    if (!(e.currentTarget as Node).contains(e.relatedTarget as Node)) {
+      setDropTarget((t) => (t === section ? null : t));
+    }
   };
 
   const onSectionDrop = (section: 'follow' | 'no-follow') => (e: DragEvent) => {
@@ -199,216 +211,84 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
     }
   };
 
-  const emptyMessage = (() => {
-    if (state.epics.length === 0) { return 'No epics yet.'; }
-    if (visible.length === 0) {
-      if (search.trim()) { return 'No epics match this search.'; }
-      return `No ${filter.replace('_', ' ')} epics.`;
-    }
-    return null;
-  })();
+  const themeClass = useThemeClass();
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-foreground">AIDLC Epics</h1>
-          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-            <FolderOpen className="h-3 w-3 shrink-0" />
-            {editingDir ? (
-              <span className="flex items-center gap-1">
-                <input
-                  type="text"
-                  value={dirDraft}
-                  autoFocus
-                  onChange={(e) => setDirDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); commitDirChange(); }
-                    if (e.key === 'Escape') { setEditingDir(false); setDirDraft(state.epicsDir); }
-                  }}
-                  onBlur={commitDirChange}
-                  className="w-40 rounded border border-border bg-input/50 px-1.5 py-0.5 font-mono text-[11px] text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
-                />
-              </span>
-            ) : (
-              <span className="flex items-center gap-1">
-                <span className="font-mono text-[11px]">{state.epicsDir}</span>
-                <button
-                  type="button"
-                  onClick={() => setEditingDir(true)}
-                  title="Edit epics directory"
-                  className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <Pencil className="h-2.5 w-2.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => postMessage({ type: 'browseEpicsDir' })}
-                  title="Browse for epics directory"
-                  className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <FolderOpen className="h-2.5 w-2.5" />
-                </button>
-              </span>
+    <MockProvider>
+      <div
+        data-v3="epics"
+        className={`aidlc-v3 ${themeClass}`}
+        style={{ height: '100%', display: 'flex', minHeight: 0 }}
+      >
+        <EpicListPanel
+          epics={state.epics}
+          visible={visible}
+          followed={followed}
+          unfollowed={unfollowed}
+          counts={counts}
+          filter={filter}
+          search={search}
+          selectedId={selected?.id ?? null}
+          followedIds={followedIds}
+          followOpen={followOpen}
+          noFollowOpen={noFollowOpen}
+          listCollapsed={listCollapsed}
+          toolsOpen={toolsOpen}
+          dragEpicId={dragEpicId}
+          dropTarget={dropTarget}
+          onFilter={onFilterChange}
+          onSearch={onSearchChange}
+          onSelect={setSelectedId}
+          onToggleFollow={toggleFollow}
+          onToggleFollowOpen={toggleFollowOpen}
+          onToggleNoFollowOpen={toggleNoFollowOpen}
+          onToggleCollapsed={() => setListCollapsed((v) => !v)}
+          onToggleTools={() => setToolsOpen((v) => !v)}
+          onResetFilters={() => { onFilterChange('all'); onSearchChange(''); }}
+          onNewEpic={() => setStartEpicOpen(true)}
+          onAutonomousDelivery={() => setAutonomousDeliveryOpen(true)}
+          onDragStart={setDragEpicId}
+          onDragEnd={() => { setDragEpicId(null); setDropTarget(null); }}
+          onSectionDragOver={onSectionDragOver}
+          onSectionDragLeave={onSectionDragLeave}
+          onSectionDrop={onSectionDrop}
+        />
+
+        {selected ? (
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            {/* Project-scoped controls the v3 Epic screen has no slot for. They
+                live in the sidebar in the design, which is out of scope for this
+                change, so they stay here rather than being dropped. */}
+            <ProjectStrip state={state} />
+            <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex' }}>
+              <EpicDetail
+                epic={selected}
+                state={state}
+                onOpenCharter={() => setCharterOpen((v) => !v)}
+              />
+            </div>
+            {charterOpen && (
+              <div
+                style={{
+                  flex: 'none', maxHeight: '38%', overflow: 'auto', padding: '12px 18px',
+                  borderTop: '1px solid var(--bd)', background: 'var(--panel)',
+                }}
+              >
+                <CharterBoard charter={state.charter} />
+              </div>
             )}
           </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              postMessage({ type: 'toggleEpicMemoryHook', enabled: !state.epicMemoryHookEnabled })
-            }
-            title={
-              state.epicMemoryHookEnabled
-                ? 'Epic-memory auto-load is ON — prompts mentioning an epic auto-load its memory. Click to turn off.'
-                : 'Turn ON epic-memory auto-load — a Claude Code hook injects an epic’s memory whenever a prompt refers to it.'
-            }
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-colors',
-              state.epicMemoryHookEnabled
-                ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20'
-                : 'border-border bg-card text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Brain className="h-3.5 w-3.5" />
-            Memory auto-load: {state.epicMemoryHookEnabled ? 'On' : 'Off'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setAutonomousDeliveryOpen(true)}
-            title="Start or manage Existing Project Autonomous Delivery"
-            className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Autonomous Delivery
-          </button>
-          <button
-            type="button"
-            onClick={() => setStartEpicOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Start Epic
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => onFilterChange(f.id)}
-            className={cn(
-              'inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-              filter === f.id
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-secondary text-secondary-foreground hover:bg-accent',
-            )}
-          >
-            {f.label}
-            <span
-              className={cn(
-                'text-[10px] tabular-nums',
-                filter === f.id ? 'text-primary-foreground/70' : 'text-muted-foreground',
-              )}
-            >
-              {counts[f.id]}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search epics by title or description…"
-          spellCheck={false}
-          className="w-full rounded-md border border-border bg-input/50 py-2 pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
-        />
-      </div>
-
-      <CharterBoard charter={state.charter} />
-
-      {emptyMessage ? (
-        <div className="rounded-md border border-dashed border-border bg-surface/50 p-6 text-center text-xs text-muted-foreground">
-          {emptyMessage}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <EpicSection
-            label="Follow"
-            count={followed.length}
-            open={followOpen}
-            onToggle={toggleFollowOpen}
-            isDropTarget={dropTarget === 'follow'}
-            onDragOver={onSectionDragOver('follow')}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                setDropTarget((t) => (t === 'follow' ? null : t));
-              }
+        ) : (
+          <div
+            style={{
+              flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 12.5, color: 'var(--txt3)',
             }}
-            onDrop={onSectionDrop('follow')}
-            emptyHint="Drag epics here or star them to follow."
           >
-            {followed.map((e) => (
-              <EpicCard
-                key={e.id}
-                epic={e}
-                agentMeta={state.agentMeta}
-                slashCommandsByAgent={state.slashCommandsByAgent}
-                followed
-                onToggleFollow={() => toggleFollow(e.id)}
-                isDragging={dragEpicId === e.id}
-                onDragStart={() => setDragEpicId(e.id)}
-                onDragEnd={() => {
-                  setDragEpicId(null);
-                  setDropTarget(null);
-                }}
-                diffIgnore={state.diffIgnore}
-              />
-            ))}
-          </EpicSection>
-
-          <EpicSection
-            label="No-follow"
-            count={unfollowed.length}
-            open={noFollowOpen}
-            onToggle={toggleNoFollowOpen}
-            isDropTarget={dropTarget === 'no-follow'}
-            onDragOver={onSectionDragOver('no-follow')}
-            onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                setDropTarget((t) => (t === 'no-follow' ? null : t));
-              }
-            }}
-            onDrop={onSectionDrop('no-follow')}
-            emptyHint="No unfollowed epics in this filter."
-          >
-            {unfollowed.map((e) => (
-              <EpicCard
-                key={e.id}
-                epic={e}
-                agentMeta={state.agentMeta}
-                slashCommandsByAgent={state.slashCommandsByAgent}
-                followed={false}
-                onToggleFollow={() => toggleFollow(e.id)}
-                isDragging={dragEpicId === e.id}
-                onDragStart={() => setDragEpicId(e.id)}
-                onDragEnd={() => {
-                  setDragEpicId(null);
-                  setDropTarget(null);
-                }}
-                diffIgnore={state.diffIgnore}
-              />
-            ))}
-          </EpicSection>
-        </div>
-      )}
+            Chọn một epic ở danh sách bên trái.
+          </div>
+        )}
+      </div>
 
       {startEpicOpen && (
         <StartEpicModal
@@ -432,75 +312,116 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           onClose={() => setAutonomousDeliveryOpen(false)}
         />
       )}
-    </div>
+    </MockProvider>
   );
 }
 
-function EpicSection({
-  label,
-  count,
-  open,
-  onToggle,
-  isDropTarget,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  emptyHint,
-  children,
-}: {
-  label: string;
-  count: number;
-  open: boolean;
-  onToggle: () => void;
-  isDropTarget: boolean;
-  onDragOver: (e: DragEvent) => void;
-  onDragLeave: (e: DragEvent) => void;
-  onDrop: (e: DragEvent) => void;
-  emptyHint: string;
-  children: ReactNode;
-}) {
+/**
+ * Resolve the v3 theme class from the `.dark` class the existing theme bridge
+ * already maintains on <html>. No new theme control is introduced — the design
+ * file's Dark/Light switcher is design-doc chrome (V3_HANDOFF §2, §13.15).
+ */
+function useThemeClass(): 'thm-dark' | 'thm-light' {
+  const read = (): 'thm-dark' | 'thm-light' =>
+    typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+      ? 'thm-dark'
+      : 'thm-light';
+  const [cls, setCls] = useState<'thm-dark' | 'thm-light'>(read);
+  useEffect(() => {
+    if (typeof document === 'undefined') { return; }
+    const observer = new MutationObserver(() => setCls(read()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    setCls(read());
+    return () => observer.disconnect();
+  }, []);
+  return cls;
+}
+
+/**
+ * Epics-directory control + epic-memory hook toggle. Both existed on the
+ * previous Epics screen; the v3 design puts project-level controls in the
+ * sidebar, which this change does not touch, so they are preserved here.
+ */
+function ProjectStrip({ state }: { state: WorkspaceState }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(state.epicsDir);
+  useEffect(() => { setDraft(state.epicsDir); }, [state.epicsDir]);
+
+  const commit = () => {
+    const val = draft.trim();
+    if (val && val !== state.epicsDir) {
+      postMessage({ type: 'changeEpicsDir', dir: val });
+    }
+    setEditing(false);
+  };
+
   return (
-    <section
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      className={cn(
-        'rounded-lg border border-border/60 bg-surface/30 transition-colors',
-        isDropTarget && 'border-primary/50 bg-primary/5',
-      )}
+    <div
+      style={{
+        flex: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 18px',
+        borderBottom: '1px solid var(--bd)', background: 'var(--panel)',
+      }}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-accent/40"
+      <div
+        style={{
+          fontSize: 10, letterSpacing: '.09em', textTransform: 'uppercase',
+          color: 'var(--txt3)', fontWeight: 600, flex: 'none',
+        }}
       >
-        <ChevronDown
-          className={cn(
-            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-            !open && '-rotate-90',
-          )}
+        Epics dir
+      </div>
+      {editing ? (
+        <input
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commit(); }
+            if (e.key === 'Escape') { setEditing(false); setDraft(state.epicsDir); }
+          }}
+          onBlur={commit}
+          className="v3-mono"
+          style={{
+            width: 240, background: 'var(--panel2)', border: '1px solid var(--bd)',
+            borderRadius: 5, padding: '3px 7px', color: 'var(--txt)', fontSize: 11, outline: 'none',
+          }}
         />
-        {label === 'Follow' && (
-          <Star className="h-3 w-3 shrink-0 fill-primary text-primary" />
-        )}
-        <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-          {label}
-        </span>
-        <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-          {count}
-        </span>
-      </button>
-      {open && (
-        <div className="space-y-2 px-2 pb-2">
-          {count === 0 ? (
-            <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-center text-[11px] text-muted-foreground">
-              {emptyHint}
-            </div>
-          ) : (
-            children
-          )}
+      ) : (
+        <div
+          onClick={() => setEditing(true)}
+          title="Sửa epics directory"
+          className="v3-mono"
+          style={{ fontSize: 11, color: 'var(--txt2)', cursor: 'pointer' }}
+        >
+          {state.epicsDir}
         </div>
       )}
-    </section>
+      <Btn
+        label="Browse"
+        pad="3px 8px"
+        fs={11}
+        onClick={() => postMessage({ type: 'browseEpicsDir' })}
+        title="Chọn epics directory"
+      />
+      <div style={{ flex: 1 }} />
+      <Btn
+        label={`Memory auto-load: ${state.epicMemoryHookEnabled ? 'On' : 'Off'}`}
+        pad="3px 8px"
+        fs={11}
+        onClick={() =>
+          postMessage({ type: 'toggleEpicMemoryHook', enabled: !state.epicMemoryHookEnabled })
+        }
+        title={
+          state.epicMemoryHookEnabled
+            ? 'Epic-memory auto-load đang BẬT — prompt nhắc tới epic sẽ tự nạp memory. Click để tắt.'
+            : 'BẬT epic-memory auto-load — hook của Claude Code sẽ chèn memory của epic khi prompt nhắc tới nó.'
+        }
+        style={
+          state.epicMemoryHookEnabled
+            ? { borderColor: 'var(--acc-bd)', background: 'var(--acc-bg)', color: 'var(--acc-txt)' }
+            : undefined
+        }
+      />
+    </div>
   );
 }

@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
-import { X } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useState } from 'react';
 import { postMessage } from '@/lib/bridge';
+import { Btn, Ellipsis, SectionLabel } from './epic-v3/primitives';
+import { V3Field, V3Modal, V3ModalFooter, V3ModalHeader, V3Textarea } from './epic-v3/V3Modal';
 
 interface Props {
   runId: string;
@@ -10,26 +10,15 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Reject step. v3-styled; the send-back target picker is retained — it is the
+ * only place in the UI that can rewind a rejection to an UPSTREAM step, and the
+ * v3 gate modal has no control for it. The emitted message is unchanged:
+ * `rejectStepInline { runId, reason, targetIdx, stepIdx }`.
+ */
 export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Props) {
   const [reason, setReason] = useState('');
   const [targetIdx, setTargetIdx] = useState(currentStepIdx);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    textareaRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        submit();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reason, targetIdx]);
 
   const submit = () => {
     postMessage({
@@ -48,106 +37,69 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
     .filter((s) => s.idx < currentStepIdx);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border border-border bg-popover p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="reject-modal-title"
-      >
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <h2 id="reject-modal-title" className="text-sm font-semibold text-foreground">
-              Reject step
-            </h2>
-            <p className="mt-0.5 text-[11.5px] text-muted-foreground">
-              Step {currentStepIdx + 1} —{' '}
-              <span className="font-mono text-foreground/80">{currentAgent}</span>
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Cancel (Esc)"
-            className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-
-        <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-          Reason <span className="font-normal normal-case tracking-normal">(optional)</span>
-        </label>
-        <textarea
-          ref={textareaRef}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="e.g. PRD missing performance acceptance criteria"
-          rows={3}
-          className="w-full resize-none rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+    <V3Modal
+      width={560}
+      paddingTop={110}
+      onClose={onClose}
+      header={
+        <V3ModalHeader
+          icon="✕"
+          tone="err"
+          title={`Reject step ${currentStepIdx + 1}`}
+          sub={`${currentAgent} · run ${runId}`}
+          onClose={onClose}
         />
+      }
+      footer={
+        <V3ModalFooter cli={`aidlc step reject ${runId} --target ${targetIdx}`}>
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn label="Reject" variant="danger" onClick={submit} pad="9px 16px" fs={12.5} />
+        </V3ModalFooter>
+      }
+    >
+      <V3Field label="Lý do" hint="(tuỳ chọn)">
+        <V3Textarea
+          value={reason}
+          onChange={setReason}
+          placeholder="ví dụ: PRD thiếu acceptance criteria về performance"
+          autoFocus
+        />
+      </V3Field>
 
-        {upstreamOptions.length > 0 && (
-          <div className="mt-4">
-            <div className="mb-1.5 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-              Send work back to
-            </div>
-            <div className="space-y-1">
-              <RadioOption
-                checked={targetIdx === currentStepIdx}
-                onSelect={() => setTargetIdx(currentStepIdx)}
-                label={`Stay on step ${currentStepIdx + 1}`}
-                detail={`Rerun in place — ${currentAgent}`}
-                hint="Default"
-              />
-              {upstreamOptions
-                .slice()
-                .reverse()
-                .map((s) => (
-                  <RadioOption
-                    key={s.idx}
-                    checked={targetIdx === s.idx}
-                    onSelect={() => setTargetIdx(s.idx)}
-                    label={`Send back to step ${s.idx + 1}`}
-                    detail={s.agent}
-                    hint={`Resets ${s.idx + 2}–${currentStepIdx + 1} to pending`}
-                  />
-                ))}
-            </div>
+      {upstreamOptions.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <SectionLabel fs={10.5} tracking=".09em">Gửi việc về đâu</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <RadioRow
+              checked={targetIdx === currentStepIdx}
+              onSelect={() => setTargetIdx(currentStepIdx)}
+              label={`Ở lại step ${currentStepIdx + 1}`}
+              detail={`Rerun tại chỗ — ${currentAgent}`}
+              hint="Mặc định"
+            />
+            {upstreamOptions
+              .slice()
+              .reverse()
+              .map((s) => (
+                <RadioRow
+                  key={s.idx}
+                  checked={targetIdx === s.idx}
+                  onSelect={() => setTargetIdx(s.idx)}
+                  label={`Gửi về step ${s.idx + 1}`}
+                  detail={s.agent}
+                  hint={`Reset ${s.idx + 2}–${currentStepIdx + 1} về pending`}
+                />
+              ))}
           </div>
-        )}
-
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-border px-3 py-1.5 text-[11.5px] font-medium text-muted-foreground hover:border-border/80 hover:bg-accent hover:text-foreground"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            className="rounded-md border border-destructive/50 bg-destructive/15 px-3 py-1.5 text-[11.5px] font-semibold text-destructive hover:border-destructive hover:bg-destructive/25"
-          >
-            Reject
-          </button>
         </div>
-      </div>
-    </div>
+      )}
+    </V3Modal>
   );
 }
 
-function RadioOption({
-  checked,
-  onSelect,
-  label,
-  detail,
-  hint,
+/** dc.html:840 — RadioRow: mark ◉/○ + label + note, acc-tinted when selected. */
+function RadioRow({
+  checked, onSelect, label, detail, hint,
 }: {
   checked: boolean;
   onSelect: () => void;
@@ -159,31 +111,31 @@ function RadioOption({
     <button
       type="button"
       onClick={onSelect}
-      className={cn(
-        'flex w-full items-start gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors',
-        checked
-          ? 'border-primary/60 bg-primary/10'
-          : 'border-border bg-transparent hover:border-border/80 hover:bg-accent/50',
-      )}
+      style={{
+        display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 11px', borderRadius: 6,
+        border: `1px solid ${checked ? 'var(--acc-bd)' : 'var(--bd)'}`,
+        background: checked ? 'var(--acc-bg)' : 'var(--panel)',
+        cursor: 'pointer', textAlign: 'left', width: '100%', fontFamily: 'inherit',
+      }}
     >
-      <div
-        className={cn(
-          'mt-0.5 grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full border-2',
-          checked ? 'border-primary' : 'border-muted-foreground/40',
-        )}
-      >
-        {checked && <div className="h-1.5 w-1.5 rounded-full bg-primary" />}
+      <div style={{ fontSize: 11, color: checked ? 'var(--acc-txt)' : 'var(--txt3)', flex: 'none' }}>
+        {checked ? '◉' : '○'}
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[12px] font-medium text-foreground">{label}</span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+          <span style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 600 }}>{label}</span>
           {hint && (
-            <span className="text-[9.5px] uppercase tracking-wider text-muted-foreground">
+            <span
+              style={{
+                fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase',
+                color: 'var(--txt3)',
+              }}
+            >
               {hint}
             </span>
           )}
         </div>
-        <div className="truncate font-mono text-[10.5px] text-muted-foreground">{detail}</div>
+        <Ellipsis mono style={{ fontSize: 10.5, color: 'var(--txt3)' }}>{detail}</Ellipsis>
       </div>
     </button>
   );

@@ -1,6 +1,9 @@
 .vscode/**
 node_modules/**
 src/**
+harness/**
+vitest.config.ts
+test/**
 .gitignore
 tsconfig.json
 tsconfig.webview.json
