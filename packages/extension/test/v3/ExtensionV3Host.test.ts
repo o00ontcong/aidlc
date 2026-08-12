@@ -22,6 +22,7 @@ const V3_COMMAND_NAMES = [
   'migration.preview',
   'registry.pipeline.run', 'registry.step.run', 'registry.step.rerun', 'registry.gate.approve', 'registry.gate.reject',
   'registry.step.complete', 'preset.redrawDesign.apply',
+  'quota.list', 'quota.refresh', 'quota.setEnabled',
 ] as const;
 
 const roots: string[] = [];
@@ -99,5 +100,28 @@ describe('ExtensionV3Host', () => {
     subscription.dispose();
     host.notifyDurableStateChanged();
     expect(states).toHaveLength(1);
+  });
+
+  it('lists, refreshes, and toggles quota providers, and projects them into workspaceState().quota', async () => {
+    const root = tempWorkspace();
+    const host = new ExtensionV3Host({ workspaceRoot: () => root });
+
+    const listed = await host.handleMessage({ type: 'aidlc.v3.command', command: { id: 'q1', name: 'quota.list', payload: {} } });
+    expect(listed).toMatchObject({ commandId: 'q1', status: 'ok' });
+
+    const refreshed = await host.handleMessage({ type: 'aidlc.v3.command', command: { id: 'q2', name: 'quota.refresh', payload: {} } });
+    expect(refreshed).toMatchObject({ commandId: 'q2', status: 'ok' });
+    const projected = (refreshed as { data: { cards: unknown[] } }).data;
+    expect(projected.cards).toHaveLength(4); // claude-code, openai-codex, kimi, xai-grok
+
+    const toggled = await host.handleMessage({
+      type: 'aidlc.v3.command',
+      command: { id: 'q3', name: 'quota.setEnabled', payload: { providerId: 'xai-grok', enabled: false } },
+    });
+    expect(toggled).toMatchObject({ commandId: 'q3', status: 'ok' });
+
+    const state = host.workspaceState() as { quota: { cards: Array<{ provider: string; enabled: boolean }> } };
+    expect(state.quota.cards).toHaveLength(4);
+    expect(state.quota.cards.find((c) => c.provider === 'xAI (Grok)')).toMatchObject({ enabled: false, connected: false });
   });
 });

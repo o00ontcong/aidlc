@@ -42,6 +42,16 @@ export class V3WorkspacePanel {
     void V3WorkspacePanel.current?.panel.webview.postMessage({ type: 'aidlc.v3.mockVisible', value });
   }
 
+  /** Whether a panel is open at all — used to skip quota polling when AIDLC was never opened. */
+  static exists(): boolean {
+    return !!V3WorkspacePanel.current;
+  }
+
+  /** Whether the open panel's tab is the foreground tab — drives the 60s/5min adaptive quota poll. */
+  static isVisible(): boolean {
+    return !!V3WorkspacePanel.current?.panel.visible;
+  }
+
   private async handleMessage(message: unknown): Promise<void> {
     if (isReadyMessage(message)) {
       this.pushState();

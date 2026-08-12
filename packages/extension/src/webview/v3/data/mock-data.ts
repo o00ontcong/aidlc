@@ -9,7 +9,7 @@
 //             danh sách platform…) — KHÔNG cần tô đỏ, nhưng vẫn nên đọc từ file thật.
 
 import type {
-  EpicRowVM, QuotaCardVM, RecentEpicVM, McpServerVM, ParallelEpicVM, ConfigRowVM,
+  EpicRowVM, RecentEpicVM, McpServerVM, ParallelEpicVM, ConfigRowVM,
   StepRowVM, HistoryVM, ShipVM, LifecycleVM, FlowSummaryVM, AgentVM, SkillVM,
   PresetStepVM, PackVM, ProviderVM, CapabilityVM, CodeLineVM, DoctorVM,
   TestStepVM, AnalysisVM, ReadinessVM, ActionVM,
@@ -22,22 +22,8 @@ export const MOCK_BRANCH = 'epic-142-partial-refunds';               // status b
 
 /* ═══ SIDEBAR ═════════════════════════════════════════════ */
 
-// MOCK: sidebar.quota — thay bằng API quota của từng provider (cache ở globalState)
-export const MOCK_QUOTA: QuotaCardVM[] = [
-  { provider: 'Claude Code',  initial: 'C', iconBg: 'rgba(226,114,91,0.22)', iconFg: '#E2725B',
-    connected: true, accountLabel: 'Account 1', enabled: true,
-    quotas: [ { label: 'session (5h)', used: 15, limit: 100, resetAt: 'in 4h 40m' },
-              { label: 'weekly (7d)',  used: 12, limit: 100, resetAt: 'in 6d 7h'  } ] },
-  { provider: 'OpenAI Codex', initial: 'O', iconBg: 'rgba(255,255,255,0.08)', iconFg: '#E6E8E8',
-    connected: true, accountLabel: 'Account 1', enabled: true,
-    quotas: [ { label: 'session (5h)', used: 68, limit: 100, resetAt: 'in 1h 12m' },
-              { label: 'weekly (7d)',  used: 41, limit: 100, resetAt: 'in 3d 4h'  } ] },
-  { provider: 'Kimi',         initial: 'K', iconBg: 'rgba(0,136,255,0.18)',  iconFg: 'rgb(90,175,255)',
-    connected: true, accountLabel: 'Account 1', enabled: true,
-    quotas: [ { label: 'daily (24h)',  used: 92, limit: 100, resetAt: 'in 3h 05m' } ] },
-  { provider: 'xAI (Grok)',   initial: 'X', iconBg: 'rgba(255,255,255,0.06)', iconFg: '#6E7574',
-    connected: false, enabled: false, quotas: [] },
-];
+// sidebar.quota is wired to real data: see quota.list/quota.refresh/quota.setEnabled
+// (ExtensionV3Host → AidlcApplication.quota) and useQuota() in the webview.
 
 // CATALOG: chip template — đọc từ PipelineStore.list()
 export const CATALOG_TEMPLATES = ['sdlc-core', 'speckit', 'cohesive', 'regulated'];
@@ -486,7 +472,6 @@ export const MOCK_REGISTRY: { id: string; where: string; replaceWith: string }[]
   { id: 'shell.workspaceName', where: 'Title bar + Sidebar project bar',            replaceWith: 'workspace.name từ VS Code API' },
   { id: 'shell.editorTabs',    where: 'Editor tab strip',                            replaceWith: 'window.tabGroups (chỉ trang trí — có thể bỏ trong extension thật)' },
   { id: 'shell.branch',        where: 'Status bar ⎇',                                replaceWith: 'Git extension API, branch hiện tại' },
-  { id: 'sidebar.quota',       where: 'Quota tracker (4 card + quota rows + toggle)', replaceWith: 'aidlc.quota.refresh → API quota từng provider, cache globalState' },
   { id: 'sidebar.mcp',         where: 'MCP servers list',                            replaceWith: 'MCP registry của VS Code / .mcp.json' },
   { id: 'sidebar.recent',      where: 'Recent epics (3 dòng)',                       replaceWith: '3 epic mới nhất theo updatedAt trong .aidlc/epics' },
   { id: 'epics.list',          where: 'Cột trái Epics + rail + filter count',        replaceWith: '.aidlc/epics/*/state.json (projection từ events.ndjson)' },

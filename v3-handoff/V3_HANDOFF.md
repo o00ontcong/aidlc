@@ -190,6 +190,17 @@ card.availPct = Math.min(...quotas.map(q => q.pctAvailable)) // '—' nếu chư
 ```
 Với mock hiện tại: Claude Code 85% (acc), OpenAI Codex 32% (warn), Kimi 8% (err), xAI `—`.
 
+> **Cập nhật (quota-tracker-implementation):** khối này không còn đọc `MOCK_QUOTA` — dữ
+> liệu thật đi qua `quota.list` / `quota.refresh` / `quota.setEnabled` (xem
+> `packages/core/src/providers/quota/`, `ExtensionV3Host` §quota, `useQuota()` ở
+> webview). Layout/formula ở trên giữ nguyên pixel-perfect; phần bổ sung duy nhất
+> là một nút refresh nhỏ (↻) cạnh caret trong header, cùng các trạng thái mới
+> không đổi kích thước khung: `loading` (skeleton), `stale` (nhãn "cập nhật Xm
+> trước" nối vào dòng account, ellipsis như cũ), `error` (dot đỏ + "Probe failed"
+> thay cho account line, tooltip chứa lý do), và số `estimated` (tiền tố `~`).
+> Không có provider nào lộ credential; provider không expose quota (Claude Code,
+> Kimi hôm nay) hiện `—` đúng công thức trên, kèm tooltip giải thích tại sao.
+
 ---
 
 ## 5. Component primitives (16)

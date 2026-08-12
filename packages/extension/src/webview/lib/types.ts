@@ -97,6 +97,40 @@ export interface SkillTemplateRef {
   category: string;
 }
 
+export type QuotaProviderStatus = 'loading' | 'ready' | 'stale' | 'error' | 'not-connected';
+
+export interface QuotaRowInfo {
+  label: string;
+  used: number;
+  limit: number;
+  resetAt: string;
+  source: string;
+  confidence: string;
+}
+
+export interface QuotaProviderInfo {
+  id: string;
+  provider: string;
+  initial: string;
+  iconBg: string;
+  iconFg: string;
+  connected: boolean;
+  accountLabel?: string;
+  enabled: boolean;
+  quotas: QuotaRowInfo[];
+  status: QuotaProviderStatus;
+  detectionReason?: string;
+  error?: string;
+  lastProbedAt?: string;
+}
+
+export interface QuotaSidebarState {
+  cards: QuotaProviderInfo[];
+  connectedCount: number;
+  notConnectedCount: number;
+  generatedAt: string;
+}
+
 export type McpStatus = 'connected' | 'needs_auth' | 'failed' | 'unknown';
 
 export interface McpServerInfo {
@@ -376,6 +410,9 @@ export interface SidebarState {
   mcpServers: McpServerInfo[] | null;
   mcpLoading: boolean;
   mcpError: string | null;
+  /** Detected AI coding provider quota (Claude Code, Codex, Kimi, xAI). null
+   * when no workspace folder is open — quota policy is project-scoped. */
+  quota: QuotaSidebarState | null;
   /** Extra projects from any in-progress epic (for sidebar display). */
   extraProjects?: ExtraProject[];
   /** Value of the `aidlc.autopilot.enabled` setting. Drives whether the

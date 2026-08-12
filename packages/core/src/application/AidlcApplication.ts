@@ -23,6 +23,8 @@ import { ProjectIntelligenceService } from '../project';
 import { installClaudeAidlcCommand, ProjectLayoutMigrationService } from '../release';
 import { LegacyMigrationService } from '../migration';
 import { CompiledWorkflowStore, WorkflowRuntimeService, compileWorkflow, type CompiledWorkflow } from '../workflows';
+import { createDefaultProviderRegistry, QuotaPolicyStore, QuotaService, type ProbeEnv } from '../providers';
+import * as os from 'os';
 import { CommandBus } from './CommandBus';
 
 function ok(
@@ -43,6 +45,11 @@ function ok(
     recoveryActions: extras.recoveryActions ?? [],
   };
 }
+
+/** Quota-provider id → ModelProvider id, for providers that have both. */
+const QUOTA_TO_MODEL_PROVIDER: Readonly<Record<string, string>> = Object.freeze({
+  'claude-code': 'claude',
+});
 
 function epicOutcome(status: string): CommandResult['status'] {
   return status === 'waiting-for-user' ? 'waiting-for-user' : status === 'blocked' ? 'blocked' : 'ok';
@@ -66,13 +73,22 @@ export class AidlcApplication {
   readonly guide: GuideService;
   readonly layout: ProjectLayoutMigrationService;
   readonly migration: LegacyMigrationService;
+  readonly quota: QuotaService;
+  readonly quotaPolicy: QuotaPolicyStore;
   private readonly workspaceRoot: string;
 
-  constructor(workspaceRoot: string, options: { models?: ModelProviderRegistry } = {}) {
+  constructor(workspaceRoot: string, options: { models?: ModelProviderRegistry; quotaAllowNetworkProbes?: boolean } = {}) {
     this.workspaceRoot = workspaceRoot;
     this.gates = new AutonomyController();
     this.capabilityPolicy = new CapabilityPolicyStore(workspaceRoot);
     this.capabilities = new CapabilityRegistry(this.capabilityPolicy.load());
+    this.quotaPolicy = new QuotaPolicyStore(workspaceRoot);
+    const quotaEnv = (): ProbeEnv => ({
+      home: os.homedir(),
+      env: process.env,
+      allowNetworkProbes: options.quotaAllowNetworkProbes ?? false,
+    });
+    this.quota = new QuotaService(createDefaultProviderRegistry(), this.quotaPolicy, quotaEnv);
     this.models = options.models ?? createDefaultModelProviderRegistry();
     this.modelProviderConfig = new ModelProviderConfigStore(workspaceRoot);
     const providerConfig = this.modelProviderConfig.load();
@@ -306,6 +322,20 @@ export class AidlcApplication {
       this.capabilities.setEnabled(command.payload.capabilityId, command.payload.enabled);
       this.capabilityPolicy.save(this.capabilities.getPolicy());
       return ok(command, { capabilityId: command.payload.capabilityId, enabled: this.capabilities.isEnabled(command.payload.capabilityId) });
+    });
+    this.bus.register<Record<string, never>>('quota.list', (command) => ok(command, this.quota.list()));
+    this.bus.register<Record<string, never>>('quota.refresh', async (command) => ok(command, await this.quota.refresh()));
+    this.bus.register<{ providerId: string; enabled: boolean }>('quota.enabled.set', (command) => {
+      const snapshot = this.quota.setEnabled(command.payload.providerId, command.payload.enabled);
+      // Toggling a quota provider off also excludes its model provider from
+      // auto-selection for new step runs (§4.1) — only 'claude-code' maps to
+      // a registered ModelProvider today; other quota providers have no
+      // corresponding runner yet, so toggling them has no run-time effect.
+      const modelProviderId = QUOTA_TO_MODEL_PROVIDER[command.payload.providerId];
+      if (modelProviderId && this.models.list().some((provider) => provider.id === modelProviderId)) {
+        this.models.setEnabled(modelProviderId, command.payload.enabled);
+      }
+      return ok(command, snapshot);
     });
     this.bus.register<Record<string, never>>('model.diagnose', async (command) => ok(command, await this.models.diagnose()));
     this.bus.register<{ providerId: string }>('model.provider.default.set', (command) => {

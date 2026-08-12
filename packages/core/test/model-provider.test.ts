@@ -76,6 +76,32 @@ describe('ModelProviderRegistry', () => {
     const explicit = await registry.resolve({ tier: 'fast' }, { providerId: 'alpha' });
     expect(explicit.provider).toBe('alpha');
   });
+
+  it('excludes a disabled provider from auto-selection but never returns an empty candidate list', async () => {
+    const registry = new ModelProviderRegistry();
+    registry.register(new FakeModelProvider('alpha', [descriptor('alpha', 'alpha-fast', { tiers: ['fast'] })]));
+    registry.register(new FakeModelProvider('beta', [descriptor('beta', 'beta-fast', { tiers: ['fast'] })]));
+
+    registry.setEnabled('alpha', false);
+    expect(registry.isEnabled('alpha')).toBe(false);
+    expect(registry.listEnabled().map((p) => p.id)).toEqual(['beta']);
+    await expect(registry.resolve({ tier: 'fast' })).resolves.toMatchObject({ provider: 'beta' });
+
+    // Disabling every provider falls back to the full list — a step must
+    // always have somewhere to run rather than silently blocking forever.
+    registry.setEnabled('beta', false);
+    expect(registry.listEnabled().map((p) => p.id).sort()).toEqual(['alpha', 'beta']);
+
+    registry.setEnabled('alpha', true);
+    registry.setEnabled('beta', true);
+  });
+
+  it('honors an explicit providerId even when that provider is disabled', async () => {
+    const registry = new ModelProviderRegistry();
+    registry.register(new FakeModelProvider('alpha', [descriptor('alpha', 'alpha-fast', { tiers: ['fast'] })]));
+    registry.setEnabled('alpha', false);
+    await expect(registry.resolve({ tier: 'fast' }, { providerId: 'alpha' })).resolves.toMatchObject({ provider: 'alpha' });
+  });
 });
 
 describe('ClaudeCliProvider', () => {

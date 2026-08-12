@@ -11,7 +11,7 @@ export function Toggle({
 }: {
   on: boolean;
   size?: keyof typeof SIZE;
-  onClick?: () => void;
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   className?: string;
 }) {
   const s = SIZE[size];

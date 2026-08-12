@@ -161,4 +161,34 @@ describe('AidlcApplication command boundary', () => {
     await app.bus.dispatch(app.bus.command('start', 'epic.start', actor, { id: 'EPIC-LOCKED-PROFILE', title: 'Locked profile' }));
     expect(app.epics.require('EPIC-LOCKED-PROFILE').profile).toBe('quick');
   });
+
+  it('propagates a quota-tracker toggle to the mapped model provider, and back on re-enable', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-application-quota-model-'));
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'quota-model' }));
+    const app = new AidlcApplication(root);
+    const actor = { kind: 'user' as const, id: 'toggler' };
+    expect(app.models.isEnabled('claude')).toBe(true);
+
+    const off = await app.bus.dispatch(app.bus.command('off', 'quota.enabled.set', actor, { providerId: 'claude-code', enabled: false }));
+    expect(off.status).toBe('ok');
+    expect(app.models.isEnabled('claude')).toBe(false);
+    // Claude is the only registered model provider — the never-empty
+    // fallback means auto-selection still resolves to it (nothing else to
+    // run steps with), which is the intended safety behavior, not a bug.
+    await expect(app.models.resolve({ tier: 'balanced' })).resolves.toMatchObject({ provider: 'claude' });
+
+    const on = await app.bus.dispatch(app.bus.command('on', 'quota.enabled.set', actor, { providerId: 'claude-code', enabled: true }));
+    expect(on.status).toBe('ok');
+    expect(app.models.isEnabled('claude')).toBe(true);
+  });
+
+  it('does not affect model providers when toggling a quota provider with no ModelProvider mapping', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-application-quota-unmapped-'));
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'quota-unmapped' }));
+    const app = new AidlcApplication(root);
+    const actor = { kind: 'user' as const, id: 'toggler' };
+    const result = await app.bus.dispatch(app.bus.command('off', 'quota.enabled.set', actor, { providerId: 'openai-codex', enabled: false }));
+    expect(result.status).toBe('ok');
+    expect(app.models.isEnabled('claude')).toBe(true);
+  });
 });

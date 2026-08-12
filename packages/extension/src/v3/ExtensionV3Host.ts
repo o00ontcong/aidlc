@@ -14,6 +14,8 @@ import {
   SkillStore,
   PipelineStore,
   PipelineRunStore,
+  type QuotaSnapshot,
+  presentQuotaSnapshot,
 } from '@aidlc/core';
 
 import {
@@ -34,6 +36,12 @@ export interface ExtensionV3HostOptions {
   readonly hostDispatcher?: (command: ExtensionV3Command) => Promise<ExtensionV3CommandResult | undefined>;
   /** Reads the `aidlc.language` setting. Defaults to `'en'` — kept as a callback (like `workspaceRoot`) so this class stays vscode-agnostic and testable. */
   readonly language?: () => 'en' | 'vi';
+  /** Reads `aidlc.quota.allowNetworkProbes` (default false — opt-in per §3). */
+  readonly quotaAllowNetworkProbes?: () => boolean;
+  /** Seeds the in-memory quota cache from a persisted (globalState) snapshot at startup. */
+  readonly initialQuotaSnapshot?: QuotaSnapshot;
+  /** Called whenever a fresh quota snapshot is produced, so the caller can persist it (e.g. globalState) across restarts. */
+  readonly onQuotaSnapshot?: (snapshot: QuotaSnapshot) => void;
 }
 
 /** Kept local because the public core migration export currently exposes the application class, not this helper contract. */
@@ -65,7 +73,13 @@ interface EpicProjectionSource {
 /** Browser names kept during the UI migration, mapped only at the transport edge. */
 const V3_COMMAND_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   'epic.create': 'epic.start',
+  // Browser-facing name matches docs/prompts/quota-tracker-implementation.md
+  // §2.1; the bus name matches the existing `capability.enabled.set` convention
+  // (CommandNameSchema requires lowercase-dotted segments, so no `setEnabled`).
+  'quota.setEnabled': 'quota.enabled.set',
 });
+
+const QUOTA_COMMAND_NAMES = new Set(['quota.list', 'quota.refresh', 'quota.setEnabled']);
 
 export function toApplicationCommandName(v3Name: string): string {
   return V3_COMMAND_ALIASES[v3Name] ?? v3Name;
@@ -93,11 +107,14 @@ export class ExtensionV3Host {
   private readonly actor: V3ActorRef;
   private compiledWorkflow?: { profile: string; stages: string[]; summary: string };
   private providerDiagnostics?: Array<{ providerId: string; status: 'ready' | 'needs-auth' | 'unavailable'; message: string; selected?: boolean }>;
+  private lastQuotaSnapshot: QuotaSnapshot | undefined;
   private readonly stateListeners = new Set<(state: Record<string, unknown>) => void>();
 
   constructor(private readonly options: ExtensionV3HostOptions) {
-    this.applicationFactory = options.applicationFactory ?? ((root) => new AidlcApplication(root));
+    this.applicationFactory = options.applicationFactory
+      ?? ((root) => new AidlcApplication(root, { quotaAllowNetworkProbes: options.quotaAllowNetworkProbes?.() ?? false }));
     this.actor = options.actor ?? { kind: 'user', id: 'vscode-extension', label: 'VS Code extension' };
+    this.lastQuotaSnapshot = options.initialQuotaSnapshot;
     this.client = new ExtensionV3ApplicationClient((command) => this.dispatch(command));
   }
 
@@ -112,6 +129,13 @@ export class ExtensionV3Host {
 
   notifyDurableStateChanged(): void {
     this.emitState();
+  }
+
+  /** Force a fresh provider probe (poll tick / fs-watcher debounce / panel open) without a webview round-trip. */
+  async refreshQuota(): Promise<void> {
+    const root = this.options.workspaceRoot();
+    if (!root) return;
+    await this.dispatch({ id: `quota-refresh-${Date.now()}`, name: 'quota.refresh', payload: {} });
   }
 
   /**
@@ -193,6 +217,7 @@ export class ExtensionV3Host {
           : undefined,
       },
       registry: registryProjection(root, sourceEpics.map((epic) => epic.id)),
+      quota: presentQuotaSnapshot(this.lastQuotaSnapshot ?? application.quota.list()),
     };
   }
 
@@ -202,13 +227,27 @@ export class ExtensionV3Host {
       if (hostResult) return hostResult;
       const root = this.requireWorkspaceRoot();
       const application = this.applicationFactory(root);
+      // `applicationFactory` builds a fresh AidlcApplication per dispatch (file-backed
+      // services don't need cross-call state), but QuotaService's cache is in-memory —
+      // seed it from the host-lifetime cache so `quota.list` never regresses to
+      // 'loading' just because a new instance was constructed.
+      if (QUOTA_COMMAND_NAMES.has(command.name) && this.lastQuotaSnapshot) {
+        application.quota.seed(this.lastQuotaSnapshot);
+      }
       const applicationCommand = application.bus.command(
         command.id,
         toApplicationCommandName(command.name),
         this.actor,
         command.payload,
       );
-      const result = await application.bus.dispatch(applicationCommand);
+      let result = await application.bus.dispatch(applicationCommand);
+      if (result.status === 'ok' && QUOTA_COMMAND_NAMES.has(command.name)) {
+        this.lastQuotaSnapshot = result.data as QuotaSnapshot;
+        this.options.onQuotaSnapshot?.(this.lastQuotaSnapshot);
+        // The bus deals in the core QuotaSnapshot; the webview only ever sees
+        // the projected VM (types.ts rule: no math/formatting in the webview).
+        result = { ...result, data: presentQuotaSnapshot(this.lastQuotaSnapshot) };
+      }
       if (result.status === 'ok' && command.name === 'workflow.compile') {
         const workflow = result.data as { profile?: unknown; visibleStageIds?: unknown; hash?: unknown };
         if (typeof workflow.profile === 'string' && Array.isArray(workflow.visibleStageIds)) {

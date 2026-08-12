@@ -5,15 +5,22 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { spawn } from 'child_process';
-import { discoverLegacyRecords } from '@aidlc/core';
+import { discoverLegacyRecords, type QuotaSnapshot } from '@aidlc/core';
 
 import { ExtensionV3Host } from './ExtensionV3Host';
 import { V3WorkspacePanel } from './V3WorkspacePanel';
+
+const QUOTA_SNAPSHOT_GLOBAL_STATE_KEY = 'aidlc.quota.snapshot.v1';
 
 export function registerV3Extension(context: vscode.ExtensionContext, output: vscode.OutputChannel): vscode.Disposable[] {
   const host = new ExtensionV3Host({
     workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     language: () => (vscode.workspace.getConfiguration('aidlc').get<string>('language') === 'vi' ? 'vi' : 'en'),
+    quotaAllowNetworkProbes: () => vscode.workspace.getConfiguration('aidlc.quota').get<boolean>('allowNetworkProbes', false),
+    // Renders the last known quota instantly on activation instead of a
+    // 'loading' skeleton every time VS Code restarts (§2.5).
+    initialQuotaSnapshot: context.globalState.get<QuotaSnapshot>(QUOTA_SNAPSHOT_GLOBAL_STATE_KEY),
+    onQuotaSnapshot: (snapshot) => { void context.globalState.update(QUOTA_SNAPSHOT_GLOBAL_STATE_KEY, snapshot); },
     hostDispatcher: async (command) => {
       if (command.name === 'capability.ast.graph.open') {
         await vscode.commands.executeCommand('aidlc.astGraph.openReport');
@@ -111,6 +118,41 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
     await config.update('showMockData', next, vscode.ConfigurationTarget.Global);
     V3WorkspacePanel.setMockVisible(next);
   };
+
+  // Adaptive poll (§2.5): 60s while the AIDLC panel is the foreground tab,
+  // 5min while it's open-but-backgrounded, and skipped entirely when no panel
+  // has ever been opened — never probes providers a user isn't looking at.
+  let quotaPollTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleQuotaPoll = () => {
+    const cfg = vscode.workspace.getConfiguration('aidlc.quota');
+    if (cfg.get<boolean>('enabled', true) && V3WorkspacePanel.exists()) {
+      void host.refreshQuota();
+      const pollSeconds = V3WorkspacePanel.isVisible() ? cfg.get<number>('pollSeconds', 60) : 300;
+      quotaPollTimer = setTimeout(scheduleQuotaPoll, pollSeconds * 1000);
+    } else {
+      quotaPollTimer = setTimeout(scheduleQuotaPoll, 30_000);
+    }
+  };
+  scheduleQuotaPoll();
+
+  // Refresh on provider log changes (Claude transcripts, Codex rollout logs),
+  // debounced ≥2s per §2.5 so a burst of writes during an active CLI session
+  // doesn't trigger a probe per line.
+  let quotaWatchDebounce: ReturnType<typeof setTimeout> | undefined;
+  const onProviderLogChanged = () => {
+    if (quotaWatchDebounce) clearTimeout(quotaWatchDebounce);
+    quotaWatchDebounce = setTimeout(() => void host.refreshQuota(), 2_000);
+  };
+  const providerLogWatchers = [
+    new vscode.RelativePattern(vscode.Uri.file(path.join(os.homedir(), '.claude', 'projects')), '**/*.jsonl'),
+    new vscode.RelativePattern(vscode.Uri.file(path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex'), 'sessions')), '**/*.jsonl'),
+  ].map((pattern) => {
+    const fsWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+    fsWatcher.onDidCreate(onProviderLogChanged);
+    fsWatcher.onDidChange(onProviderLogChanged);
+    return fsWatcher;
+  });
+
   return [
     vscode.commands.registerCommand('aidlc.v3.open', open),
     vscode.commands.registerCommand('aidlc.debug.toggleMock', toggleMock),
@@ -125,5 +167,7 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
     vscode.commands.registerCommand('aidlc.epic.resume', () => withEpicId('epic.resume')),
     languageConfigReg,
     ...(watcher ? [watcher] : []),
+    ...providerLogWatchers,
+    { dispose: () => { if (quotaPollTimer) clearTimeout(quotaPollTimer); if (quotaWatchDebounce) clearTimeout(quotaWatchDebounce); } },
   ];
 }

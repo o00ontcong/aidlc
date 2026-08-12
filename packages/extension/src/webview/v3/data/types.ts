@@ -20,13 +20,22 @@ export type ButtonVariant = 'primary' | 'default' | 'danger' | 'ghost';
 export interface ActionVM { label: string; command: string; args?: unknown; variant?: ButtonVariant }
 
 /* ── Sidebar ─────────────────────────────────────────────── */
+export type QuotaSource = 'cli' | 'api' | 'local-log' | 'estimated';
+export type QuotaConfidence = 'exact' | 'derived' | 'estimated';
+export type ProviderStatus = 'loading' | 'ready' | 'stale' | 'error' | 'not-connected';
+
 export interface QuotaRowVM {
   label: string;          // 'session (5h)'
   used: number;           // 15
   limit: number;          // 100
   resetAt: string;        // 'in 4h 40m'
+  // Optional — every real (non-mock) row carries these so the UI can render
+  // §4.6's honesty requirements (estimated marker, tooltip). Absent on mock rows.
+  source?: QuotaSource;
+  confidence?: QuotaConfidence;
 }
 export interface QuotaCardVM {
+  id?: string;            // 'claude-code' — provider id for quota.setEnabled; absent on mock rows
   provider: string;       // 'Claude Code'
   initial: string;        // 'C'
   iconBg: string;         // riêng từng provider (xem mock-data)
@@ -35,6 +44,11 @@ export interface QuotaCardVM {
   accountLabel?: string;  // 'Account 1'
   enabled: boolean;       // trạng thái toggle
   quotas: QuotaRowVM[];
+  // Optional real-data extras (§4.6): loading/stale/error/unknown state.
+  status?: ProviderStatus;
+  detectionReason?: string; // why not-connected — shown in the add-provider wizard
+  error?: string;           // why status === 'error'
+  lastProbedAt?: string;    // ISO — UI derives 'cập nhật 4m trước'
 }
 export interface RecentEpicVM { id: string; title: string; tone: Tone; starred: boolean }
 export interface McpServerVM { name: string; state: string; healthy: boolean }

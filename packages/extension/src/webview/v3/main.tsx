@@ -15,6 +15,7 @@ import '../styles.css';
 import './styles/tokens.css';
 import { UiStoreProvider } from './state/store';
 import type { ThemeId } from './data/types';
+import { getVsCodeApi } from './lib/vscodeApi';
 
 declare global {
   interface Window {
@@ -47,7 +48,7 @@ function Root() {
   }, [mockVisible]);
 
   React.useEffect(() => {
-    const vscode = window.acquireVsCodeApi?.();
+    const vscode = getVsCodeApi();
     vscode?.postMessage({ type: 'aidlc.v3.ready' });
     const onMessage = (event: MessageEvent) => {
       const message = event.data as { type?: string; value?: unknown } | undefined;

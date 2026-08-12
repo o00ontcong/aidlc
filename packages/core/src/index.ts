@@ -22,6 +22,7 @@ export * from './migration';
 export * from './packs';
 export * from './validators';
 export * from './release';
+export * from './providers';
 export {
   EpicSchema as UnifiedEpicSchema,
   EpicProfileSchema,

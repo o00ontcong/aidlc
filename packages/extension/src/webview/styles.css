@@ -209,4 +209,11 @@
     -webkit-font-smoothing: antialiased;
     margin: 0;
   }
+  /* Without an explicit height, #root shrinks to its content's height
+     instead of the webview viewport's — any bundle whose root component
+     relies on `h-full` (v3's App.tsx among them) would then show the
+     browser's default white background below/around it. */
+  #root {
+    height: 100%;
+  }
 }

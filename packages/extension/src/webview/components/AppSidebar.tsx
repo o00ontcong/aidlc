@@ -25,6 +25,8 @@ import type {
   RecentEpicRef,
   TemplateRef,
   McpServerInfo,
+  QuotaProviderInfo,
+  QuotaSidebarState,
 } from '@/lib/types';
 import { ConfirmModal } from './ConfirmModal';
 import { SavePresetModal } from './SavePresetModal';
@@ -111,6 +113,7 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
             <AnalyzeRequirementsButton />
 
             <QuotaTrackerSection
+              quota={state.quota}
               collapsed={collapsed.quotaTracker}
               onToggle={() => toggleSection('quotaTracker')}
             />
@@ -549,27 +552,67 @@ function EpicDot({ status }: { status: string }) {
 }
 
 /**
- * No real quota data source exists anywhere in the codebase yet (confirmed:
- * not in V2 or V3, only hardcoded numbers in the `re-design` mockup) — every
- * row here is `<NeedsLogic>` until a real provider-quota reader is wired up.
+ * `pctAvailable`/tone bucketing — mirrors the formula frozen in
+ * `webview/v3/lib/quota.ts` §4.1 (kept in sync manually; also duplicated in
+ * `packages/core/src/providers/quota/aggregator.ts` for the CLI). This
+ * sidebar is a separate Vite bundle from the v3 panel, so it can't import
+ * that module — same reasoning as the core copy's own comment.
  */
-function QuotaTrackerSection({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+function pctAvailable(used: number, limit: number): number | undefined {
+  return limit > 0 ? Math.round(((limit - used) / limit) * 100) : undefined;
+}
+function toneDotClass(pct: number | undefined): string {
+  if (pct === undefined) { return 'bg-muted-foreground/40'; }
+  if (pct >= 60) { return 'bg-success shadow-[0_0_4px_var(--color-success)]'; }
+  if (pct >= 25) { return 'bg-warning'; }
+  return 'bg-destructive';
+}
+
+function QuotaTrackerSection({
+  quota,
+  collapsed,
+  onToggle,
+}: {
+  quota: QuotaSidebarState | null;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
   const t = useI18n();
+  const summary = quota
+    ? `${quota.connectedCount} connected · ${quota.notConnectedCount} chưa nối`
+    : t.sidebar.noProvidersConnected;
   return (
     <div>
       <SectionHeader
         label={t.sidebar.quotaTracker}
         collapsed={collapsed}
         onToggle={onToggle}
-        trailing={<span className="text-[10px] text-muted-foreground">{t.sidebar.noProvidersConnected}</span>}
+        trailing={
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-muted-foreground">{summary}</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                postMessage({ type: 'quotaRefresh' });
+              }}
+              title="Refresh quota"
+              className="grid h-5 w-5 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          </div>
+        }
       />
       {!collapsed && (
         <div className="mt-1.5 space-y-1.5">
-          <NeedsLogic block note="No provider quota reader is wired up yet">
-            <div className="w-full rounded-md border border-dashed border-border bg-surface/50 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
-              {t.sidebar.noProviderQuotaWired}
+          {quota === null && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span>Loading…</span>
             </div>
-          </NeedsLogic>
+          )}
+          {quota?.cards.map((card) => <QuotaRow key={card.id} card={card} />)}
           <div className="flex gap-1.5">
             <NeedsLogic block><button type="button" className="flex-1 rounded border border-border py-1 text-[10.5px] text-muted-foreground">{t.sidebar.addProvider}</button></NeedsLogic>
             <NeedsLogic block><button type="button" className="flex-1 rounded border border-border py-1 text-[10.5px] text-muted-foreground">{t.sidebar.routing}</button></NeedsLogic>
@@ -577,6 +620,71 @@ function QuotaTrackerSection({ collapsed, onToggle }: { collapsed: boolean; onTo
         </div>
       )}
     </div>
+  );
+}
+
+function QuotaRow({ card }: { card: QuotaProviderInfo }) {
+  const availablePcts = card.quotas.map((q) => pctAvailable(q.used, q.limit)).filter((p): p is number => p !== undefined);
+  const avail = card.connected && availablePcts.length > 0 ? Math.min(...availablePcts) : undefined;
+  const subtitle = card.status === 'error'
+    ? (card.error ?? 'Probe failed')
+    : card.connected
+      ? `${card.accountLabel ?? 'Account 1'} · ${card.quotas.length} quota`
+      : 'No connections';
+  const title = card.status === 'error'
+    ? card.error
+    : card.status === 'not-connected' && card.detectionReason
+      ? card.detectionReason
+      : card.connected && card.quotas.length === 0
+        ? 'Provider does not expose quota locally'
+        : undefined;
+
+  return (
+    <div
+      className="flex items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-[11px]"
+      title={title}
+    >
+      <span
+        className="grid h-4 w-4 shrink-0 place-items-center rounded text-[9px] font-bold"
+        style={{ background: card.iconBg, color: card.iconFg }}
+      >
+        {card.initial}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium text-foreground">{card.provider}</div>
+        <div className="flex items-center gap-1 truncate text-[10px] text-muted-foreground">
+          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', card.status === 'error' ? 'bg-destructive' : toneDotClass(avail))} />
+          <span className="truncate">{subtitle}</span>
+        </div>
+      </div>
+      <span className="shrink-0 text-[11px] font-semibold text-foreground">{avail === undefined ? '—' : `${avail}%`}</span>
+      <QuotaToggle
+        on={card.enabled}
+        onClick={() => postMessage({ type: 'quotaSetEnabled', providerId: card.id, enabled: !card.enabled })}
+      />
+    </div>
+  );
+}
+
+function QuotaToggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={cn(
+        'relative h-3.5 w-6 shrink-0 rounded-full transition-colors',
+        on ? 'bg-primary' : 'bg-muted-foreground/30',
+      )}
+    >
+      <span
+        className={cn(
+          'absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background transition-transform',
+          on ? 'translate-x-3' : 'translate-x-0.5',
+        )}
+      />
+    </button>
   );
 }
 

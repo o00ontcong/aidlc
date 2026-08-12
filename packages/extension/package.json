@@ -386,6 +386,36 @@
           "default": "docs/epics",
           "description": "Relative path (from the project root) where epics are stored. Changing this updates `state.root` in workspace.yaml. The epic list and Start Epic wizard use this directory immediately.",
           "scope": "resource"
+        },
+        "aidlc.quota.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detect installed AI coding providers (Claude Code, Codex, Kimi, xAI) and show their quota in the AIDLC sidebar."
+        },
+        "aidlc.quota.pollSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 15,
+          "description": "How often to re-probe provider quota while the AIDLC panel is visible (seconds). Polling backs off automatically while the panel is hidden."
+        },
+        "aidlc.quota.warnThreshold": {
+          "type": "number",
+          "default": 25,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Available-quota percentage at or below which a provider is shown in the warning tone."
+        },
+        "aidlc.quota.criticalThreshold": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Available-quota percentage at or below which a provider is shown in the critical tone and can trigger a low-quota toast."
+        },
+        "aidlc.quota.allowNetworkProbes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow quota adapters to call a provider's API over the network (e.g. Kimi/Moonshot usage endpoint) when a local log/CLI doesn't expose quota. Off by default — quota otherwise comes only from local files/CLIs already on this machine."
         }
       }
     },

@@ -24,6 +24,7 @@ import { WorkspaceWebview } from './v2/workspaceWebview';
 import { themeManager } from './v2/themeManager';
 import { workspaceUiPrefs } from './v2/workspaceUiPrefs';
 import { registerTokenMonitor } from './v2/tokenMonitor';
+import { registerQuotaStatusBar } from './v2/quotaStatusBar';
 import { registerAidlcMonitor } from './v2/aidlcMonitor';
 import { registerAstGraph } from './v2/astGraph';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
@@ -243,6 +244,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // Token monitor — reads ~/.claude/projects/*.jsonl and shows today/month spend.
   // Ported from claude-token-monitor (https://github.com/novapizza/claude-token-monitor).
   registerTokenMonitor(context, output, context.extensionUri);
+
+  // Quota status bar — lowest available % among enabled providers, click
+  // opens the AIDLC panel; also fires threshold/reset notifications (§4.4).
+  registerQuotaStatusBar(context, output);
 
   // AIDLC Monitor — optional agent observability via agents-observe. Adds a
   // status bar item that polls the observe server and a unified Monitor panel

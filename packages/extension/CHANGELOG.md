@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.4.22
+
+### Changed
+
+- feat(quota): the sidebar Quota Tracker now shows real provider quota instead of mock data. New `packages/core/src/providers/quota/` detects installed AI coding providers (Claude Code, OpenAI Codex, Kimi, xAI/Grok), reads quota from whatever each one actually exposes locally (verified per-provider — Codex's own rollout logs report an exact rate-limit percentage; Claude Code and Kimi expose no local quota source today, so their cards honestly show `—` rather than a fabricated number), and surfaces `quota.list`/`quota.refresh`/`quota.enabled.set` through the existing V3 command bus. The sidebar renders instantly from cache, backs off polling while the panel is hidden, refreshes on provider log changes, and never lets one provider's failure blank out the others. Routing rules, the add-provider wizard, low-quota toasts, and usage history/forecast are follow-up work, not part of this change.
+
 ## 3.4.21
 
 ### Changed
