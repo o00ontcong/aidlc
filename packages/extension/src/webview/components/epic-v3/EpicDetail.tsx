@@ -81,18 +81,18 @@ export function EpicDetail({
             {tokenLine && <Mono style={{ fontSize: 11.5, color: 'var(--txt3)' }}>{tokenLine}</Mono>}
           </div>
         </div>
-        {/* Autonomy chip. No host field carries the guide/assist/auto/unattended
-            axis (V3_HANDOFF §13.8), so this is display-only and marked mock. */}
+        {/* Mirrors the persisted run mode selected in the config card below. */}
         <div
-          {...mock('epic.mode')}
-          title="Autonomy mode chưa có field ở host — hiển thị tham khảo, chưa nối handler."
+          title={epic.runMode === 'autonomous'
+            ? 'Claude master sẽ chạy từ checkpoint hiện có.'
+            : 'Các phase được chạy và review thủ công.'}
           style={{
             flex: 'none', display: 'flex', alignItems: 'center', gap: 7, padding: '7px 11px',
             borderRadius: 999, border: '1px solid var(--acc-bd)', background: 'var(--acc-bg)',
             color: 'var(--acc-txt)', fontSize: 12, fontWeight: 600, opacity: 0.75,
           }}
         >
-          <Mono>{epic.runId ? 'guided' : 'draft'}</Mono>
+          <Mono>{epic.runMode}</Mono>
         </div>
       </div>
 
@@ -328,6 +328,11 @@ function FlowCard({
 
 function EpicConfigCard({ epic }: { epic: EpicSummary }) {
   const rows = useMemo(() => configRows(epic), [epic]);
+  const hasPipelineCheckpoint = Boolean(epic.pipeline && epic.runId);
+  const setRunMode = (mode: 'guided' | 'autonomous') => {
+    if (!hasPipelineCheckpoint || epic.runMode === mode) { return; }
+    postMessage({ type: 'setEpicRunMode', epicId: epic.id, mode });
+  };
   return (
     <Card>
       <CardHeader>
@@ -359,41 +364,85 @@ function EpicConfigCard({ epic }: { epic: EpicSummary }) {
       ))}
       <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 7 }}>
         <SectionLabel>Cách vận hành epic này</SectionLabel>
-        <div {...mock('epic.config.runMode', 'block')} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {[
-            ['Guided', 'Bạn chạy và review từng step'],
-            ['Autonomous Delivery', 'Claude master chạy trọn flow, dừng ở human gate'],
-          ].map(([label, desc], i) => {
-            // No RunMode field on EpicSummary (V3_HANDOFF §13.8) — first option
-            // reflects today's actual behaviour and neither is clickable.
-            const selected = i === 0;
-            return (
-              <div
-                key={label}
-                title="Chưa có field run-mode ở host"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', borderRadius: 6,
-                  border: `1px solid ${selected ? 'var(--acc-bd)' : 'var(--bd)'}`,
-                  background: selected ? 'var(--acc-bg)' : 'var(--panel2)',
-                  flex: 1, minWidth: 0, cursor: 'not-allowed', opacity: 0.75,
-                }}
-              >
-                <div style={{ fontSize: 11, color: selected ? 'var(--acc-txt)' : 'var(--txt3)' }}>
-                  {selected ? '◉' : '○'}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 600 }}>{label}</div>
-                  <div style={{ fontSize: 11, color: 'var(--txt3)', lineHeight: 1.45 }}>{desc}</div>
-                </div>
-              </div>
-            );
-          })}
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <RunModeOption
+            label="Guided"
+            desc="Bạn chạy và review từng step"
+            selected={epic.runMode === 'guided'}
+            disabled={!hasPipelineCheckpoint}
+            title={hasPipelineCheckpoint
+              ? 'Dừng master tại checkpoint trước phase kế tiếp.'
+              : 'Epic này không có pipeline checkpoint để chuyển mode.'}
+            onClick={() => setRunMode('guided')}
+          />
+          <RunModeOption
+            label="Autonomous Delivery"
+            desc="Claude master chạy trọn flow, dừng ở human gate"
+            selected={epic.runMode === 'autonomous'}
+            disabled={!hasPipelineCheckpoint}
+            title={hasPipelineCheckpoint
+              ? 'Mở Claude master để chạy pipeline từ checkpoint hiện có.'
+              : 'Epic này không có pipeline checkpoint để chạy autonomous.'}
+            onClick={() => setRunMode('autonomous')}
+          />
         </div>
-        <div style={{ fontSize: 11, color: 'var(--txt3)', lineHeight: 1.5 }}>
-          Không có CLI cohesive chạy ngầm — mọi thao tác đều mở lệnh nhìn thấy được trong terminal Claude.
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ flex: 1, fontSize: 11, color: 'var(--txt3)', lineHeight: 1.5 }}>
+            Không có CLI cohesive chạy ngầm — mọi thao tác đều mở lệnh nhìn thấy được trong terminal Claude.
+          </div>
+          <Btn
+            label="Run / resume Claude master"
+            variant="primary"
+            pad="7px 11px"
+            fs={11.5}
+            disabled={!hasPipelineCheckpoint || epic.runMode !== 'autonomous'}
+            title={!hasPipelineCheckpoint
+              ? 'Epic này không có pipeline checkpoint để chạy.'
+              : epic.runMode !== 'autonomous'
+                ? 'Chọn Autonomous Delivery trước khi chạy Claude master.'
+                : 'Chạy hoặc tiếp tục pipeline từ checkpoint hiện có; có thể dùng lại sau khi pause/fail.'}
+            onClick={() => postMessage({ type: 'runEpicAutonomously', epicId: epic.id })}
+          />
         </div>
       </div>
     </Card>
+  );
+}
+
+function RunModeOption({
+  label, desc, selected, disabled = false, title, onClick,
+}: {
+  label: string;
+  desc: string;
+  selected: boolean;
+  disabled?: boolean;
+  title: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', borderRadius: 6,
+        border: `1px solid ${selected ? 'var(--acc-bd)' : 'var(--bd)'}`,
+        background: selected ? 'var(--acc-bg)' : 'var(--panel2)',
+        flex: 1, minWidth: 0, textAlign: 'left', fontFamily: 'inherit',
+        cursor: disabled || !onClick ? 'default' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      <div style={{ fontSize: 11, color: selected ? 'var(--acc-txt)' : 'var(--txt3)' }}>
+        {selected ? '◉' : '○'}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 600 }}>{label}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt3)', lineHeight: 1.45 }}>{desc}</div>
+      </div>
+    </button>
   );
 }
 

@@ -4,7 +4,7 @@ import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { listEpics } from '../src/v2/epicsList';
+import { listEpics, setEpicRunMode } from '../src/v2/epicsList';
 
 /**
  * Regression coverage for issue #57: a step showed "IN PROGRESS" with no
@@ -112,6 +112,28 @@ describe('listEpics run-state overlay with a multi-step agent', () => {
     // Earlier single-agent steps are unaffected.
     expect(steps[0].runStatus).toBe('approved');
     expect(steps[1].runStatus).toBe('approved');
+  });
+
+  it('reports guided mode until a durable Cohesive Delivery checkpoint exists', () => {
+    expect(listEpics(root, doc).find((epic) => epic.id === epicId)?.runMode).toBe('guided');
+
+    const deliveryDir = path.join(root, '.aidlc', 'deliveries', epicId);
+    fs.mkdirSync(deliveryDir, { recursive: true });
+    fs.writeFileSync(path.join(deliveryDir, 'state.json'), JSON.stringify({
+      schemaVersion: 1,
+      id: epicId,
+      status: 'feature-contract',
+      workerRunIds: [],
+    }));
+
+    expect(listEpics(root, doc).find((epic) => epic.id === epicId)?.runMode).toBe('autonomous');
+  });
+
+  it('persists a user mode switch for the generic autonomous master', () => {
+    expect(setEpicRunMode(root, doc, epicId, 'autonomous')).toBe(true);
+    expect(listEpics(root, doc).find((epic) => epic.id === epicId)?.runMode).toBe('autonomous');
+    expect(setEpicRunMode(root, doc, epicId, 'guided')).toBe(true);
+    expect(listEpics(root, doc).find((epic) => epic.id === epicId)?.runMode).toBe('guided');
   });
 });
 

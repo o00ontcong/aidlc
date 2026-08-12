@@ -69,23 +69,19 @@ export function MockBoundary({
  *
  * id                        replaceWith
  * ─────────────────────────────────────────────────────────────────────────
- * epic.mode                 EpicSummary.executionMode (autonomy axis — absent today, V3_HANDOFF §13.8)
  * epic.projectContext       published Project Context revision + step states
  * epic.parallelEpics        per-epic branch / PR / worker state
  * epic.flow.atLabel         run-state cursor label for the flow badge
  * epic.flow.loop            pipeline reject-edge metadata
- * epic.config.runMode       EpicSummary RunMode (guided | autonomous)
  * epic.gate.consequence     gate consequence text + diff stat from the run
  * epic.ship.policy          artifact-policy counters
  * epic.independence         cohesive-delivery independence checklist
  */
 export const MOCK_IDS = {
-  mode: 'epic.mode',
   projectContext: 'epic.projectContext',
   parallelEpics: 'epic.parallelEpics',
   flowAtLabel: 'epic.flow.atLabel',
   flowLoop: 'epic.flow.loop',
-  configRunMode: 'epic.config.runMode',
   gateConsequence: 'epic.gate.consequence',
   shipPolicy: 'epic.ship.policy',
   independence: 'epic.independence',

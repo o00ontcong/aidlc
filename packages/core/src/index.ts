@@ -169,6 +169,8 @@ export {
 } from './delivery/DeliveryTypes';
 export {
   AUTONOMOUS_MASTER_COMMAND,
+  AUTONOMOUS_EPIC_MASTER_COMMAND,
+  ensureAutonomousEpicMasterCommand,
   ensureAutonomousMasterCommand,
   writeAutonomousRequest,
   ensureCohesiveBundleInstalled,

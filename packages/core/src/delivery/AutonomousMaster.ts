@@ -12,6 +12,60 @@ import type { DeliveryRequest } from './DeliveryTypes';
  * decomposition is Claude's decision, not a TypeScript state machine's.
  */
 export const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery';
+export const AUTONOMOUS_EPIC_MASTER_COMMAND = '/aidlc-autonomous-epic';
+
+/**
+ * Install the generic, visible Claude master command used by any pipeline
+ * epic. It deliberately relies on the pipeline's own step commands and run
+ * state rather than reimplementing pipeline semantics in TypeScript.
+ */
+export function ensureAutonomousEpicMasterCommand(workspaceRoot: string): void {
+  const file = path.join(workspaceRoot, '.claude', 'commands', 'aidlc-autonomous-epic.md');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `---
+description: Run one AIDLC epic's configured pipeline autonomously. Usage: /aidlc-autonomous-epic <epic-id>
+---
+
+# AIDLC Autonomous Epic Master
+
+Own epic \`$ARGUMENTS\` until its configured pipeline completes, it reaches a
+configured human gate, its saved mode switches to Guided, or a real external
+blocker requires a person. Work visibly in this Claude session.
+
+## Source of truth
+
+1. Read the epic \`state.json\`, \`inputs.json\`, and matching
+   \`.aidlc/runs/<epic-id>.json\`.
+2. Read \`.aidlc/workspace.yaml\`, resolve the epic's \`pipeline\`, and read
+   the corresponding slash-command documents for every phase.
+3. Before starting **every** next phase, re-read epic \`state.json\`.
+
+## Mode and checkpoint contract
+
+- Continue only while \`state.json.runMode\` is \`autonomous\`.
+- If it becomes \`guided\`, stop cleanly at the current durable checkpoint;
+  report the next phase and do not start it.
+- Preserve approved steps. Resume from the first incomplete, rejected, or
+  retryable step; never recreate or reset an existing run, artifact, branch,
+  or approved phase.
+
+## Execution contract
+
+1. Run pipeline phases in their declared dependency order, following each
+   phase's command document for its inputs, outputs, validation, and state
+   transition.
+2. Keep run and epic state aligned after every completed phase so refresh and
+   resume remain accurate.
+3. Stop at every configured human-review or merge gate. Do not approve, merge,
+   bypass credentials, or perform unsafe/destructive work without the required
+   human decision.
+4. For recoverable failures, diagnose and retry only the failed phase and its
+   required downstream dependants. For a real blocker, state the evidence and
+   exact next action.
+5. Never invoke a hidden global AIDLC CLI; narrate commands, transitions,
+   validation, and failures in this Claude session.
+`, 'utf8');
+}
 
 /** Write (or refresh) the master command document the delivery hands off to. */
 export function ensureAutonomousMasterCommand(workspaceRoot: string): void {

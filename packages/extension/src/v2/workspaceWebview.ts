@@ -222,6 +222,7 @@ import {
   openClaudeLoginTerminalCommand,
   runAutonomousDoctorCommand,
   reconcileValidatorConflictsCommand,
+  runEpicAutonomouslyCommand,
 } from './autonomousDeliveryCommands';
 
 const autonomousDeliveryOutput = vscode.window.createOutputChannel('AIDLC Autonomous Delivery');
@@ -241,6 +242,7 @@ import {
   listEpics,
   enrichEpicsWithUsage,
   mirrorRunStateToEpic,
+  setEpicRunMode,
   type EpicSummary as CoreEpicSummary,
 } from './epicsList';
 import { themeManager } from './themeManager';
@@ -463,6 +465,7 @@ interface EpicSummaryUi {
   pipeline: string | null;
   agent: string | null;
   runId: string | null;
+  runMode: 'guided' | 'autonomous';
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
@@ -1015,6 +1018,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     pipeline: e.pipeline,
     agent: e.agent,
     runId: e.runId,
+    runMode: e.runMode,
     inputs: e.inputs,
     epicDir,
     existingArtifacts: e.existingArtifacts ?? [],
@@ -1907,6 +1911,36 @@ export class WorkspaceWebview {
               : undefined,
           },
         }, autonomousDeliveryOutput);
+        return;
+      }
+      case 'setEpicRunMode': {
+        const epicId = String(msg.epicId ?? '').trim();
+        const mode = msg.mode === 'autonomous' ? 'autonomous' : msg.mode === 'guided' ? 'guided' : null;
+        const root = this.getRootOrWarn();
+        if (!epicId || !mode || !root) { return; }
+        const doc = readYaml(root);
+        if (!setEpicRunMode(root, doc, epicId, mode)) {
+          void vscode.window.showWarningMessage(`Không thể đổi mode cho epic "${epicId}".`);
+          return;
+        }
+        this.refresh();
+        if (mode === 'guided') {
+          void vscode.window.showInformationMessage(
+            'Epic sẽ dừng Autonomous Delivery ở checkpoint trước phase kế tiếp.',
+          );
+        }
+        return;
+      }
+      case 'runEpicAutonomously': {
+        const epicId = String(msg.epicId ?? '').trim();
+        if (!epicId) { return; }
+        try {
+          await runEpicAutonomouslyCommand(epicId);
+        } catch (error) {
+          void vscode.window.showErrorMessage(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
         return;
       }
       case 'resumeAutonomousDelivery':

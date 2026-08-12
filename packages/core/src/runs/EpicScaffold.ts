@@ -170,6 +170,11 @@ export interface ScaffoldEpicArgs {
    */
   enableAutopilot?: boolean;
   /**
+   * Persisted execution preference. Autonomous runs are still visible Claude
+   * sessions and must honor every configured human gate.
+   */
+  runMode?: 'guided' | 'autonomous';
+  /**
    * Charter alignment seed for `cohesive-feature`: writes `ALIGNMENT.md`
    * (serves G-x + feature-only narrower constraints). Replaces per-epic
    * GOALS/ARCHITECTURE/TECH thinking seeds.
@@ -193,6 +198,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const {
     workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraProjects, pipeline,
     enableAutopilot = false,
+    runMode = 'guided',
   } = args;
 
   if (!epicId.trim()) { throw new EpicScaffoldError('Epic id is required.'); }
@@ -267,6 +273,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     agents,
     currentStep: 0,
     status: 'pending' as const,
+    runMode,
     createdAt: new Date().toISOString(),
     stepStates: agents.map((a) => ({
       agent: a,

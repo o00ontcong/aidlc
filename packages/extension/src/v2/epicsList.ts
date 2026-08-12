@@ -11,7 +11,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { RunStateStore, normalizeStep, resolvePath, mirrorRunStateToEpic, getBuiltinStepHelp, getBuiltinWorkflowByPipelineId } from '@aidlc/core';
+import {
+  DeliveryStateStore,
+  RunStateStore,
+  normalizeStep,
+  resolvePath,
+  mirrorRunStateToEpic,
+  getBuiltinStepHelp,
+  getBuiltinWorkflowByPipelineId,
+} from '@aidlc/core';
 import type {
   RunState,
   StepStatus,
@@ -112,6 +120,11 @@ export interface EpicSummary {
    * When set, the panel can dispatch `aidlc.markStepDone` etc. with this id.
    */
   runId: string | null;
+  /**
+   * Persisted execution preference. The master command checks it between
+   * phases, so switching to Guided takes effect at the next checkpoint.
+   */
+  runMode: 'guided' | 'autonomous';
   /** Resolved inputs (capability id → user-supplied value). Keys may be empty. */
   inputs: Record<string, string>;
   inputsCount: number;
@@ -145,6 +158,31 @@ export interface EpicSummary {
   ship?: EpicShipInfo;
   /** REVIEW-DIFF.md text for diff-first human review. */
   reviewDiff?: string;
+}
+
+/** Persist a mode switch atomically; the autonomous master observes it before each phase. */
+export function setEpicRunMode(
+  workspaceRoot: string,
+  doc: YamlDocument | null,
+  epicId: string,
+  runMode: EpicSummary['runMode'],
+): boolean {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(epicId)) { return false; }
+  const stateFile = path.join(epicsRoot(workspaceRoot, doc), epicId, 'state.json');
+  if (!fs.existsSync(stateFile)) { return false; }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || (typeof parsed.id === 'string' && parsed.id !== epicId)) {
+      return false;
+    }
+    const next = { ...parsed, runMode, updatedAt: new Date().toISOString() };
+    const temp = `${stateFile}.tmp`;
+    fs.writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+    fs.renameSync(temp, stateFile);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -447,6 +485,7 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
     existingArtifacts: ordered.slice().sort((a, b) => a.localeCompare(b)),
     artifactPaths,
     runId: null,
+    runMode: 'guided',
     artifactsOnly: true,
   };
 }
@@ -482,6 +521,17 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       : [];
 
     const epicId = typeof parsed.id === 'string' ? parsed.id : folder;
+    // Keep older Cohesive Delivery epics autonomous after upgrade when they
+    // have a delivery checkpoint but no explicit persisted mode yet.
+    const delivery = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(epicId)
+      ? DeliveryStateStore.load(workspaceRoot, epicId)
+      : null;
+    const savedRunMode = parsed.runMode;
+    const runMode: EpicSummary['runMode'] = savedRunMode === 'guided' || savedRunMode === 'autonomous'
+      ? savedRunMode
+      : delivery && (!delivery.featureRunId || delivery.featureRunId === epicId)
+      ? 'autonomous'
+      : 'guided';
 
     // Overlay run-state if there's a matching pipeline run. The runId
     // convention is `runId === epic.id`, set by `startPipelineRunCommand`.
@@ -733,6 +783,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       existingArtifacts,
       artifactPaths,
       runId: runState ? runState.runId : null,
+      runMode,
       alignment: readEpicAlignment(epicDir),
       ship: readEpicShip(epicDir, pipeline),
       reviewDiff: readReviewDiff(epicDir),

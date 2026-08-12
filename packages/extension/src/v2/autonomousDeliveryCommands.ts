@@ -10,7 +10,10 @@ import {
   listValidatorConflicts,
   resolveValidatorConflict,
   AUTONOMOUS_MASTER_COMMAND,
+  AUTONOMOUS_EPIC_MASTER_COMMAND,
+  ensureAutonomousEpicMasterCommand,
   ensureAutonomousMasterCommand,
+  RunStateStore,
   writeAutonomousRequest,
   ensureCohesiveBundleInstalled,
   type DeliveryRequest,
@@ -44,6 +47,22 @@ async function launchAutonomousMaster(
     'aidlc.runStepWithFeedback',
     AUTONOMOUS_MASTER_COMMAND,
     deliveryId,
+    '',
+  );
+}
+
+/** Launch the visible generic master for any already-scaffolded pipeline epic. */
+export async function runEpicAutonomouslyCommand(epicId: string): Promise<void> {
+  const workspaceRoot = root();
+  if (!workspaceRoot) return;
+  if (!RunStateStore.load(workspaceRoot, epicId)) {
+    throw new Error(`Epic "${epicId}" does not have a runnable pipeline checkpoint.`);
+  }
+  ensureAutonomousEpicMasterCommand(workspaceRoot);
+  await vscode.commands.executeCommand(
+    'aidlc.runStepWithFeedback',
+    AUTONOMOUS_EPIC_MASTER_COMMAND,
+    epicId,
     '',
   );
 }

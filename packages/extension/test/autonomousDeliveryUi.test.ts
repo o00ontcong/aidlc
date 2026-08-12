@@ -140,6 +140,28 @@ describe('Autonomous Delivery UI', () => {
     expect(host).not.toContain("case 'startAutonomousDelivery':\n        await vscode.commands.executeCommand");
   });
 
+  it('switches any pipeline epic into a persisted autonomous run mode', () => {
+    const root = path.resolve(process.cwd());
+    const detail = fs.readFileSync(path.join(root, 'src/webview/components/epic-v3/EpicDetail.tsx'), 'utf8');
+    const host = fs.readFileSync(path.join(root, 'src/v2/workspaceWebview.ts'), 'utf8');
+
+    expect(detail).toContain("type: 'setEpicRunMode'");
+    expect(detail).toContain("setRunMode('autonomous')");
+    expect(detail).toContain("setRunMode('guided')");
+    expect(detail).not.toContain("mock('epic.config.runMode'");
+    expect(detail).toContain('<Mono>{epic.runMode}</Mono>');
+    expect(host).toContain("case 'setEpicRunMode'");
+    expect(host).toContain('setEpicRunMode(root, doc, epicId, mode)');
+    expect(host).toContain("case 'runEpicAutonomously'");
+    expect(host).toContain('await runEpicAutonomouslyCommand(epicId)');
+    expect(detail).toContain('Run / resume Claude master');
+    expect(detail).toContain("type: 'runEpicAutonomously'");
+    const master = fs.readFileSync(path.join(root, '../core/src/delivery/AutonomousMaster.ts'), 'utf8');
+    expect(master).toContain("AUTONOMOUS_EPIC_MASTER_COMMAND = '/aidlc-autonomous-epic'");
+    expect(master).toContain('Continue only while');
+    expect(master).toContain('configured human-review or merge gate');
+  });
+
   it('launches the full Cohesive Delivery through a visible Claude master command', () => {
     const root = path.resolve(process.cwd());
     const commands = fs.readFileSync(path.join(root, 'src/v2/autonomousDeliveryCommands.ts'), 'utf8');

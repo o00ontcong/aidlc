@@ -624,6 +624,8 @@ export interface EpicSummary {
   pipeline: string | null;
   agent: string | null;
   runId: string | null;
+  /** Derived from the matching durable Cohesive Delivery checkpoint. */
+  runMode: 'guided' | 'autonomous';
   inputs: Record<string, string>;
   epicDir: string;
   existingArtifacts: string[];
