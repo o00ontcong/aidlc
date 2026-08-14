@@ -55,7 +55,6 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
   const [zoom, setZoom] = useState(100);
-  const [isPanning, setIsPanning] = useState(false);
   const diagramRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ pointerId: number; clientX: number; clientY: number; scrollLeft: number; scrollTop: number } | undefined>(undefined);
   useEffect(() => {
@@ -97,18 +96,20 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
     const viewport = event.currentTarget;
     viewport.setPointerCapture(event.pointerId);
     panRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop };
-    setIsPanning(true);
+    viewport.style.cursor = 'grabbing';
+    event.preventDefault();
   };
   const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
     const pan = panRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
     event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.clientX);
     event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.clientY);
+    event.preventDefault();
   };
   const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
     if (panRef.current?.pointerId !== event.pointerId) return;
     panRef.current = undefined;
-    setIsPanning(false);
+    event.currentTarget.style.cursor = 'grab';
   };
   if (!source) return <p className="p-6 text-sm text-muted-foreground">{empty}</p>;
   if (error) return <p className="p-6 text-sm text-destructive">{error}</p>;
@@ -121,7 +122,7 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
       <button type="button" title={text.zoomIn} aria-label={text.zoomIn} onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">+</button>
       </div>
     </div>
-    <div ref={diagramRef} onWheel={zoomAtPointer} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} className={`min-h-0 flex-1 overflow-auto p-5 select-none [&_svg]:max-w-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`} dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
+    <div ref={diagramRef} onWheel={zoomAtPointer} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-auto p-5 select-none [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
   </div>;
 }
 
