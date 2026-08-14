@@ -265,6 +265,7 @@ import {
   markdownOutputLanguageInstruction,
   resolveAidlcLanguage,
 } from './outputLanguage';
+import { buildArchifySvgPreview, renderArchifyOverview } from './archifyOverview';
 
 // ── Shared helper: open/reuse the agent terminal and send a slash command ───
 
@@ -517,6 +518,9 @@ interface ArchitectureExplorerStateUi {
   available: boolean; message?: string; layers: ArchitectureNodeUi[]; edges: ArchitectureEdgeUi[];
   features: ArchitectureFeatureUi[]; structuralNodes: ArchitectureNodeUi[]; structuralEdges: ArchitectureEdgeUi[];
   featureFlows: Record<string, ArchitectureFeatureFlowUi>;
+  /** Host-only absolute path; encoded for the sandboxed webview per refresh. */
+  archifyOverviewPath?: string;
+  archifyOverviewSvgBase64?: string;
 }
 
 interface AutonomousDeliverySummaryUi {
@@ -826,6 +830,9 @@ function readArchitectureExplorer(workspaceRoot: string): ArchitectureExplorerSt
     structuralNodes: jsonObjects(structural.nodes) as unknown as ArchitectureNodeUi[],
     structuralEdges: jsonObjects(structural.edges) as unknown as ArchitectureEdgeUi[],
     featureFlows,
+    ...(fs.existsSync(path.join(dir, 'ARCHIFY-OVERVIEW.html'))
+      ? { archifyOverviewPath: path.join(dir, 'ARCHIFY-OVERVIEW.html') }
+      : {}),
   };
 }
 
@@ -1507,7 +1514,10 @@ export class WorkspaceWebview {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [extensionUri],
+        localResourceRoots: [
+          extensionUri,
+          ...(vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri),
+        ],
       },
     );
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'icon.svg');
@@ -1601,6 +1611,15 @@ export class WorkspaceWebview {
     initialView: WorkspaceView,
   ) {
     this.currentView = initialView;
+    // Restored panels do not retain the dynamic workspace resource root. Set
+    // it here as well so generated Archify HTML can load after a window reload.
+    this.panel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        this.extensionUri,
+        ...(vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri),
+      ],
+    };
     this.panel.webview.html = this.getHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
@@ -1692,9 +1711,25 @@ export class WorkspaceWebview {
   private async refreshAsync(): Promise<void> {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (root) { this.ensureWorkflowTemplates(root); }
-    const state = buildState(this.currentView);
+    const state = this.buildWebviewState();
     await mergeEpicTokenUsageInto(state);
     void this.panel.webview.postMessage({ type: 'state', state });
+  }
+
+  /** Extract a script-free preview so VS Code's webview CSP cannot blank it. */
+  private buildWebviewState(): WorkspaceState {
+    const state = buildState(this.currentView);
+    const overviewPath = state.architecture.archifyOverviewPath;
+    if (overviewPath && fs.existsSync(overviewPath)) {
+      try {
+        const size = fs.statSync(overviewPath).size;
+        if (size <= 5 * 1024 * 1024) {
+          const preview = buildArchifySvgPreview(fs.readFileSync(overviewPath, 'utf8'));
+          if (preview) state.architecture.archifyOverviewSvgBase64 = Buffer.from(preview).toString('base64');
+        }
+      } catch { /* Technical Overview remains available as the fallback. */ }
+    }
+    return state;
   }
 
   setView(view: WorkspaceView): void {
@@ -2284,13 +2319,40 @@ export class WorkspaceWebview {
       case 'generateArchitectureProjectMap': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!root) { return; }
-        const contextState = path.join(root, 'docs', 'epics', 'PROJECT-CONTEXT', 'state.json');
-        if (!fs.existsSync(contextState)) {
+        const workspaceDoc = readYaml(root);
+        const contextState = path.join(epicsRoot(root, workspaceDoc), 'PROJECT-CONTEXT', 'state.json');
+        const contextManifest = path.join(root, 'docs', 'project', 'context', 'CONTEXT-MANIFEST.json');
+        const hasProjectContext = fs.existsSync(contextState)
+          || fs.existsSync(contextManifest)
+          || Boolean(RunStateStore.load(root, 'PROJECT-CONTEXT'));
+        if (!hasProjectContext) {
           void vscode.window.showWarningMessage('AIDLC: Project Context is required before generating an architecture map.');
           return;
         }
         runSlashCommandInClaude('/project-context-map-features PROJECT-CONTEXT', root, this.extensionUri.fsPath);
         void vscode.window.showInformationMessage('AIDLC started Map Features in Claude. The Architecture tab refreshes when the diagram artifacts are written.');
+        return;
+      }
+      case 'renderArchifyOverview': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const architecture = readArchitectureExplorer(root);
+        if (!architecture.available) {
+          void vscode.window.showWarningMessage('AIDLC: Generate the architecture map before rendering its visual overview.');
+          return;
+        }
+        const result = await renderArchifyOverview({
+          workspaceRoot: root,
+          extensionPath: this.extensionUri.fsPath,
+          layers: architecture.layers,
+          edges: architecture.edges,
+        });
+        if (!result.ok) {
+          void vscode.window.showErrorMessage(`AIDLC: Archify overview could not be rendered. ${result.message ?? ''}`.trim());
+          return;
+        }
+        void vscode.window.showInformationMessage('AIDLC: Verified visual architecture overview created.');
+        this.refresh();
         return;
       }
       case 'generateArchitectureFeatureFlow': {
@@ -5113,7 +5175,7 @@ export class WorkspaceWebview {
     if (fallback) { return fallback; }
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (root) { this.ensureWorkflowTemplates(root); }
-    const initialState = buildState(this.currentView);
+    const initialState = this.buildWebviewState();
     const initialTheme = themeManager.current;
 
     const assetsRoot = vscode.Uri.joinPath(this.extensionUri, 'out', 'webviews');
@@ -5136,7 +5198,8 @@ export class WorkspaceWebview {
            img-src ${cspSource} https: data:;
            font-src ${cspSource} https: data:;
            style-src ${cspSource} 'unsafe-inline';
-           script-src 'nonce-${nonce}' ${cspSource};">
+           script-src 'nonce-${nonce}' ${cspSource};
+           frame-src ${cspSource};">
 <title>AIDLC Workspace</title>
 <link rel="stylesheet" href="${cssUri}">
 </head>

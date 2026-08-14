@@ -857,6 +857,8 @@ export interface ArchitectureExplorerState {
   structuralNodes: ArchitectureNode[];
   structuralEdges: ArchitectureEdge[];
   featureFlows: Record<string, ArchitectureFeatureFlow>;
+  /** Script-free Archify SVG preview encoded for the webview image sandbox. */
+  archifyOverviewSvgBase64?: string;
 }
 
 export interface TestAgentTarget {

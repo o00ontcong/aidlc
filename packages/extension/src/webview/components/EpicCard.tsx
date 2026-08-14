@@ -344,6 +344,7 @@ export function EpicCard({
               focusedIdx={focusedIdx}
               focused={focused}
               meta={agentMeta[focused.agent]}
+              providerConfig={providerConfig}
               slashCommand={
                 // Use the host-resolved command (matched against the actual
                 // workspace.yaml slash_commands — bare `/implement` or
@@ -675,12 +676,14 @@ function StepDetail({
   focusedIdx,
   focused,
   meta,
+  providerConfig,
   slashCommand,
 }: {
   epic: EpicSummary;
   focusedIdx: number;
   focused: EpicStepDetailFull;
   meta: AgentMeta | undefined;
+  providerConfig?: ProviderConfig;
   slashCommand: string | undefined;
 }) {
   const total = epic.stepDetails.length;
@@ -902,6 +905,7 @@ function StepDetail({
         focusedIdx={focusedIdx}
         slashCommand={slashCommand}
         artifactExists={artifactExists}
+        providerConfig={providerConfig}
       />
       <RequestUpdateAction epic={epic} focused={focused} focusedIdx={focusedIdx} />
       <StepHistory step={focused} />
@@ -1159,12 +1163,14 @@ function RunGate({
   focusedIdx,
   slashCommand,
   artifactExists,
+  providerConfig,
 }: {
   epic: EpicSummary;
   focused: EpicStepDetailFull;
   focusedIdx: number;
   slashCommand: string | undefined;
   artifactExists: boolean;
+  providerConfig?: ProviderConfig;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);

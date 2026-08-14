@@ -12,6 +12,7 @@ const copy = {
     title: 'Architecture', intro: 'Read the project from its overall shape to a feature, then its code flow.',
     overview: '1. Overview', features: '2. Features', flow: '3. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
     generateProject: 'Generate Overview + Features', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
+    visualOverview: 'Visual overview', technicalOverview: 'Technical overview', renderVisual: 'Render verified overview',
     zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom', panHint: 'Drag to pan · scroll to zoom',
     notStarted: 'Not started', inProgress: 'In progress', done: 'Done',
   },
@@ -19,6 +20,7 @@ const copy = {
     title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, đến tính năng, rồi đến luồng mã nguồn.',
     overview: '1. Tổng quan', features: '2. Tính năng', flow: '3. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
     generateProject: 'Tạo Tổng quan + Tính năng', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
+    visualOverview: 'Tổng quan trực quan', technicalOverview: 'Tổng quan kỹ thuật', renderVisual: 'Tạo tổng quan đã kiểm chứng',
     zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ', panHint: 'Giữ chuột để kéo · lăn chuột để zoom',
     notStarted: 'Chưa làm', inProgress: 'Đang làm', done: 'Đã làm',
   },
@@ -193,6 +195,10 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
   const text = copy[language];
   const [level, setLevel] = useState<Level>('overview');
   const [featureId, setFeatureId] = useState<string>();
+  const [overviewRenderer, setOverviewRenderer] = useState<'visual' | 'technical'>(architecture.archifyOverviewSvgBase64 ? 'visual' : 'technical');
+  useEffect(() => {
+    if (architecture.archifyOverviewSvgBase64) setOverviewRenderer('visual');
+  }, [architecture.archifyOverviewSvgBase64]);
   const flow = featureId ? architecture.featureFlows[featureId] : undefined;
   const source = useMemo(() => {
     if (level === 'overview') return overviewDiagram(architecture.layers, architecture.edges);
@@ -211,17 +217,36 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
       <button type="button" onClick={() => setLevel('features')} className={tabClass(level === 'features')}>{text.features}</button>
       <button type="button" onClick={() => setLevel('flow')} className={tabClass(level === 'flow')}>{text.flow}</button>
     </div>
-    <DiagramActions compact text={text} />
+    <DiagramActions compact text={text} canRender />
+    {level === 'overview' && architecture.archifyOverviewSvgBase64 && (
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => setOverviewRenderer('visual')} className={tabClass(overviewRenderer === 'visual')}>{text.visualOverview}</button>
+        <button type="button" onClick={() => setOverviewRenderer('technical')} className={tabClass(overviewRenderer === 'technical')}>{text.technicalOverview}</button>
+      </div>
+    )}
     {level === 'flow' && <div className="flex flex-wrap gap-2">{architecture.features.map((feature) => <button key={feature.id} type="button" onClick={() => setFeatureId(feature.id)} className={`rounded-md border px-2.5 py-1 text-xs ${feature.id === featureId ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}>{feature.name}</button>)}</div>}
     <section className="min-h-[520px] overflow-hidden rounded-md border border-border bg-card">
-      <MermaidDiagram source={source} empty={level === 'flow' && !featureId ? text.selectFeature : text.noDiagram} text={text} />
+      {level === 'overview' && overviewRenderer === 'visual' && architecture.archifyOverviewSvgBase64
+        ? <ArchifyOverview svgBase64={architecture.archifyOverviewSvgBase64} title={text.visualOverview} />
+        : <MermaidDiagram source={source} empty={level === 'flow' && !featureId ? text.selectFeature : text.noDiagram} text={text} />}
     </section>
   </div>;
 }
 
-function DiagramActions({ compact = false, text }: { compact?: boolean; text: typeof copy.en | typeof copy.vi }) {
+function ArchifyOverview({ svgBase64, title }: { svgBase64: string; title: string }) {
+  return <div className="h-[720px] overflow-auto bg-background p-4">
+    <img
+      src={`data:image/svg+xml;base64,${svgBase64}`}
+      alt={title}
+      className="block h-auto min-w-[1200px] max-w-none w-full"
+    />
+  </div>;
+}
+
+function DiagramActions({ compact = false, text, canRender = false }: { compact?: boolean; text: typeof copy.en | typeof copy.vi; canRender?: boolean }) {
   return <div className={`flex flex-wrap gap-2 ${compact ? '' : 'mt-4'}`}>
     <button type="button" onClick={() => postMessage({ type: 'generateArchitectureProjectMap' })} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">{text.generateProject}</button>
+    {canRender && <button type="button" onClick={() => postMessage({ type: 'renderArchifyOverview' })} className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent">{text.renderVisual}</button>}
     <button type="button" onClick={() => postMessage({ type: 'generateArchitectureFeatureFlow' })} className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent">{text.generateFlow}</button>
   </div>;
 }
