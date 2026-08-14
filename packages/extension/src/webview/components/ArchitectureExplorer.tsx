@@ -12,13 +12,13 @@ const copy = {
     title: 'Architecture', intro: 'Read the project from its overall shape to a feature, then its code flow.',
     overview: '1. Overview', features: '2. Features', flow: '3. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
     generateProject: 'Generate Overview + Features', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
-    zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom',
+    zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom', panHint: 'Drag to pan · scroll to zoom',
   },
   vi: {
     title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, đến tính năng, rồi đến luồng mã nguồn.',
     overview: '1. Tổng quan', features: '2. Tính năng', flow: '3. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
     generateProject: 'Tạo Tổng quan + Tính năng', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
-    zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ',
+    zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ', panHint: 'Giữ chuột để kéo · lăn chuột để zoom',
   },
 } as const;
 
@@ -55,7 +55,9 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
   const [zoom, setZoom] = useState(100);
+  const [isPanning, setIsPanning] = useState(false);
   const diagramRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<{ pointerId: number; clientX: number; clientY: number; scrollLeft: number; scrollTop: number } | undefined>(undefined);
   useEffect(() => {
     if (!source) { setSvg(undefined); setError(undefined); return; }
     let active = true;
@@ -73,15 +75,53 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
     element.style.height = 'auto';
     element.style.maxWidth = 'none';
   }, [svg, zoom]);
+  const zoomAtPointer = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const viewport = event.currentTarget;
+    const rect = viewport.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+    const contentX = viewport.scrollLeft + offsetX;
+    const contentY = viewport.scrollTop + offsetY;
+    const nextZoom = Math.max(50, Math.min(250, zoom - event.deltaY * 0.08));
+    if (nextZoom === zoom) return;
+    const ratio = nextZoom / zoom;
+    setZoom(nextZoom);
+    requestAnimationFrame(() => {
+      viewport.scrollLeft = contentX * ratio - offsetX;
+      viewport.scrollTop = contentY * ratio - offsetY;
+    });
+  };
+  const startPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const viewport = event.currentTarget;
+    viewport.setPointerCapture(event.pointerId);
+    panRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop };
+    setIsPanning(true);
+  };
+  const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+    event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.clientX);
+    event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.clientY);
+  };
+  const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (panRef.current?.pointerId !== event.pointerId) return;
+    panRef.current = undefined;
+    setIsPanning(false);
+  };
   if (!source) return <p className="p-6 text-sm text-muted-foreground">{empty}</p>;
   if (error) return <p className="p-6 text-sm text-destructive">{error}</p>;
   return <div className="flex min-h-[520px] flex-col">
-    <div className="flex items-center justify-end gap-1 border-b border-border px-3 py-2">
+    <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+      <span className="text-xs text-muted-foreground">{text.panHint}</span>
+      <div className="flex items-center gap-1">
       <button type="button" title={text.zoomOut} aria-label={text.zoomOut} onClick={() => setZoom((value) => Math.max(50, value - 25))} disabled={zoom <= 50} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">−</button>
       <button type="button" title={text.resetZoom} aria-label={text.resetZoom} onClick={() => setZoom(100)} className="min-w-12 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent">{zoom}%</button>
       <button type="button" title={text.zoomIn} aria-label={text.zoomIn} onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">+</button>
+      </div>
     </div>
-    <div ref={diagramRef} className="min-h-0 flex-1 overflow-auto p-5 [&_svg]:min-w-full" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
+    <div ref={diagramRef} onWheel={zoomAtPointer} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} className={`min-h-0 flex-1 overflow-auto p-5 select-none [&_svg]:max-w-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`} dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
   </div>;
 }
 
