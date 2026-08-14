@@ -455,7 +455,6 @@
   },
   "dependencies": {
     "@aidlc/core": "workspace:*",
-    "@xyflow/react": "^12.11.3",
     "js-yaml": "^4.1.1",
     "mermaid": "^11.16.1"
   },
