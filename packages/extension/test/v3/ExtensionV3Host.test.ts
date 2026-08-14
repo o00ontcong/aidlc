@@ -56,6 +56,27 @@ describe('ExtensionV3Host', () => {
     expect(result).toMatchObject({ commandId: 'ui-2', status: 'error' });
   });
 
+  it('projects legacy sidebar state without requiring a migration first', () => {
+    const root = tempWorkspace();
+    const epicDir = path.join(root, 'docs', 'epics', 'EPIC-LEGACY');
+    fs.mkdirSync(epicDir, { recursive: true });
+    fs.mkdirSync(path.join(root, 'docs', 'project', 'context'), { recursive: true });
+    fs.writeFileSync(path.join(epicDir, 'state.json'), JSON.stringify({
+      id: 'EPIC-LEGACY', title: 'Existing feature', status: 'done', runMode: 'autonomous', createdAt: '2026-08-14T00:00:00.000Z',
+      stepStates: [{ status: 'done', finishedAt: '2026-08-14T00:01:00.000Z', artifactsProduced: ['docs/epics/EPIC-LEGACY/artifacts/SPEC.md'] }],
+    }));
+    fs.writeFileSync(path.join(root, 'docs', 'project', 'context', 'CONTEXT-MANIFEST.json'), JSON.stringify({ revision: 2 }));
+
+    const state = new ExtensionV3Host({ workspaceRoot: () => root }).workspaceState() as {
+      project: { readiness: string; contextRevision?: string };
+      epics: Array<{ id: string; status: string; autonomy: string; artifacts: Array<{ path: string }> }>;
+    };
+
+    expect(state.project).toMatchObject({ readiness: 'ready', contextRevision: '2' });
+    expect(state.epics).toContainEqual(expect.objectContaining({ id: 'EPIC-LEGACY', status: 'completed', autonomy: 'unattended' }));
+    expect(state.epics[0]?.artifacts).toContainEqual(expect.objectContaining({ path: 'docs/epics/EPIC-LEGACY/artifacts/SPEC.md' }));
+  });
+
   it('publishes durable state subscriptions and projects artifact evidence', async () => {
     const root = tempWorkspace();
     const app = new AidlcApplication(root);

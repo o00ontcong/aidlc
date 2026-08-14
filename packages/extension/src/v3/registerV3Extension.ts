@@ -13,6 +13,7 @@ import { V3WorkspacePanel } from './V3WorkspacePanel';
 export function registerV3Extension(context: vscode.ExtensionContext, output: vscode.OutputChannel): vscode.Disposable[] {
   const host = new ExtensionV3Host({
     workspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    templatesRoot: () => context.extensionUri.fsPath,
     hostDispatcher: async (command) => {
       if (command.name === 'capability.ast.graph.open') {
         await vscode.commands.executeCommand('aidlc.astGraph.openReport');
@@ -70,7 +71,7 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
       ).then((choice) => { if (choice === 'Open Unified AIDLC') open(); });
     }
     try {
-      const preview = new CohesiveDeliveryUpgradeService(legacyRoot).preview();
+      const preview = new CohesiveDeliveryUpgradeService(legacyRoot, undefined, context.extensionUri.fsPath).preview();
       const pending = preview.items.some((item) => item.disposition === 'upgrade' || item.disposition === 'missing' || item.disposition === 'conflict');
       if (pending) {
         output.appendLine(`Cohesive Delivery ${preview.fromVersion} → ${preview.toVersion} is available. No files were changed.`);
@@ -96,6 +97,7 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
   const root = vscode.workspace.workspaceFolders?.[0];
   const watcher = root ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '.aidlc/{epics/**,runs/**,project.yaml,autonomy.yaml,artifacts.yaml,catalog/**}')) : undefined;
   const architectureWatcher = root ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '{docs/project/context/visualization/**,docs/epics/*/artifacts/FEATURE-FLOW.*}')) : undefined;
+  const legacyStateWatcher = root ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '{docs/epics/*/state.json,docs/project/context/CONTEXT-MANIFEST.json}')) : undefined;
   if (watcher) {
     watcher.onDidCreate(() => host.notifyDurableStateChanged());
     watcher.onDidChange(() => host.notifyDurableStateChanged());
@@ -105,6 +107,11 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
     architectureWatcher.onDidCreate(() => host.notifyDurableStateChanged());
     architectureWatcher.onDidChange(() => host.notifyDurableStateChanged());
     architectureWatcher.onDidDelete(() => host.notifyDurableStateChanged());
+  }
+  if (legacyStateWatcher) {
+    legacyStateWatcher.onDidCreate(() => host.notifyDurableStateChanged());
+    legacyStateWatcher.onDidChange(() => host.notifyDurableStateChanged());
+    legacyStateWatcher.onDidDelete(() => host.notifyDurableStateChanged());
   }
   return [
     vscode.commands.registerCommand('aidlc.v3.open', open),
@@ -121,7 +128,7 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!workspaceRoot) { void vscode.window.showInformationMessage('Open a workspace folder before upgrading Cohesive Delivery.'); return; }
       try {
-        const service = new CohesiveDeliveryUpgradeService(workspaceRoot);
+        const service = new CohesiveDeliveryUpgradeService(workspaceRoot, undefined, context.extensionUri.fsPath);
         const preview = service.preview();
         const conflicts = preview.items.filter((item) => item.disposition === 'conflict');
         if (conflicts.length) {
@@ -140,5 +147,6 @@ export function registerV3Extension(context: vscode.ExtensionContext, output: vs
     }),
     ...(watcher ? [watcher] : []),
     ...(architectureWatcher ? [architectureWatcher] : []),
+    ...(legacyStateWatcher ? [legacyStateWatcher] : []),
   ];
 }

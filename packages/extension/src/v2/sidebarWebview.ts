@@ -474,8 +474,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('aidlc.openBuilder');
         return;
       case 'openWorkspace':
-        // Reveal panel only — keep whatever tab the user was on (Epics, etc.).
-        WorkspaceWebview.reveal(this.extensionUri);
+        // The sidebar's primary entry point now opens the feature-centric V3
+        // workspace. V2 remains available through its legacy commands while
+        // users migrate, but it must not silently shadow the new product.
+        await vscode.commands.executeCommand('aidlc.v3.open');
         return;
       case 'openBuilderTab': {
         const tab = String(msg.tab ?? '');
@@ -777,4 +779,3 @@ function readExtensionVersion(extensionRoot: string): string {
   } catch { /* fall through */ }
   return '';
 }
-
