@@ -18,6 +18,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { runSlashCommandWithProvider } from './providerRunService';
+
 // ── Shared types ─────────────────────────────────────────────────────────────
 
 export interface RequirementInputs {
@@ -268,45 +270,10 @@ export async function analyzeRequirementsCommand(extensionPath: string): Promise
   if (!runId) { return; }
 
   const slash = `/analyze-requirements ${runId}`;
-  runSlashCommandInClaude(slash, root);
+  runSlashCommandWithProvider(slash, root, extensionPath);
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-const CLAUDE_TERMINAL_NAME = 'AIDLC · Claude';
-
-function runSlashCommandInClaude(slash: string, root: string): void {
-  const escaped = slash.replace(/'/g, "'\\''");
-  const oneShot = `claude '${escaped}'`;
-
-  const existing = vscode.window.terminals.find((t) => t.name === CLAUDE_TERMINAL_NAME);
-  if (existing) {
-    existing.show(false);
-    existing.sendText(oneShot, true);
-    return;
-  }
-
-  const cwd = fs.existsSync(root) ? root : undefined;
-  const terminal = vscode.window.createTerminal({
-    name: CLAUDE_TERMINAL_NAME,
-    cwd,
-    iconPath: new vscode.ThemeIcon('rocket'),
-    location: vscode.TerminalLocation.Panel,
-    env: { DISABLE_AUTO_UPDATE: 'true', DISABLE_UPDATE_PROMPT: 'true' },
-  });
-  terminal.show(false);
-  let sent = false;
-  const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
-    if (e.terminal === terminal && e.shellIntegration && !sent) {
-      sent = true;
-      e.shellIntegration.executeCommand(oneShot);
-      integ.dispose();
-    }
-  });
-  setTimeout(() => {
-    if (!sent) { sent = true; terminal.sendText(oneShot, true); integ.dispose(); }
-  }, 2000);
-}
 
 function nextRunId(root: string): string {
   const dir = path.resolve(root, BREAKDOWN_ROOT);

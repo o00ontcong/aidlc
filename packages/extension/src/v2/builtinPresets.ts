@@ -40,5 +40,8 @@ export {
   unprovisionedPhases,
   provisionShortcutDocs,
   CANONICAL_PHASE_IDS,
+  syncPipelineCommands,
+  syncPipelineCommandsForProvider,
+  writeTwoLayerCommandsForProvider,
 } from '@aidlc/core';
 export type { BuiltinWorkflow } from '@aidlc/core';

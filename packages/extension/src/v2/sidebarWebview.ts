@@ -44,6 +44,9 @@ import {
 } from './runCommands';
 import { WorkspaceWebview } from './workspaceWebview';
 import { missingBundleHtml } from './webviewBundleGuard';
+import { buildProviderConfigUi, getProviderConfigStore } from './providerConfig';
+import type { ProviderConfigUi } from './providerConfig';
+import { syncBuiltinPipelineCommands } from './presetWizards';
 
 // VS Code reuses output channels by name, so this resolves to the same
 // channel created in extension.ts activate().
@@ -135,6 +138,8 @@ interface SidebarState {
   /** `aidlc.autopilot.enabled` setting — drives the AIDLC Autopilot row's
    * "Coming soon" vs "On" state in the Common workflows. */
   autopilotEnabled: boolean;
+  /** Agent CLI providers (Claude / Cursor / Codex). */
+  providerConfig?: ProviderConfigUi;
 }
 
 interface McpSnapshot {
@@ -152,6 +157,7 @@ function buildState(
     .getConfiguration('aidlc')
     .get<boolean>('autopilot.enabled', false);
   const folder = vscode.workspace.workspaceFolders?.[0];
+  const providerConfig = buildProviderConfigUi(folder?.uri.fsPath);
   if (!folder) {
     return {
       hasFolder: false,
@@ -168,6 +174,7 @@ function buildState(
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
       autopilotEnabled,
+      providerConfig,
     };
   }
 
@@ -235,6 +242,7 @@ function buildState(
       mcpError: mcp.error,
       extraProjects: sidebarExtraProjects,
       autopilotEnabled,
+      providerConfig,
     };
   }
 
@@ -277,6 +285,7 @@ function buildState(
     mcpError: mcp.error,
     extraProjects: sidebarExtraProjects,
     autopilotEnabled,
+    providerConfig,
   };
 }
 
@@ -709,6 +718,44 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         return;
       case 'refreshMcp':
         void this.loadMcp();
+        return;
+      case 'setDefaultProvider': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const providerId = String(msg.providerId ?? '');
+        if (!root || !providerId) { return; }
+        try {
+          getProviderConfigStore(root).setDefaultProvider(providerId);
+          this.refresh();
+          WorkspaceWebview.refreshCurrent();
+        } catch (e) {
+          void vscode.window.showErrorMessage(
+            e instanceof Error ? e.message : String(e),
+          );
+        }
+        return;
+      }
+      case 'applyProvider': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const providerId = String(msg.providerId ?? '');
+        if (!root || !providerId) { return; }
+        try {
+          getProviderConfigStore(root).enableProvider(providerId);
+          syncBuiltinPipelineCommands(root, this.extensionUri.fsPath, { providers: [providerId] });
+          this.refresh();
+          WorkspaceWebview.refreshCurrent();
+        } catch (e) {
+          void vscode.window.showErrorMessage(
+            e instanceof Error ? e.message : String(e),
+          );
+        }
+        return;
+      }
+      case 'refreshProviderDiagnostics':
+        this.refresh();
+        WorkspaceWebview.refreshCurrent();
+        return;
+      case 'openAgentTerminal':
+        await vscode.commands.executeCommand('aidlc.openAgentTerminal');
         return;
       case 'pickAndReadFile': {
         const requestId = String(msg.requestId ?? '');

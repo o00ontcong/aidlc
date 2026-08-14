@@ -128,6 +128,17 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.openAgentTerminal",
+        "title": "Open Agent CLI Terminal",
+        "icon": "$(terminal)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.runStepWithProvider",
+        "title": "Run Step with Agent Provider",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.savePreset",
         "title": "Save Workspace as Template",
         "icon": "$(save)",

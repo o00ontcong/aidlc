@@ -379,6 +379,29 @@ export type {
   EligiblePhase,
   WriteCommandsResult,
 } from './presets/commandModel';
+// ── Multi-provider command adapters ──────────────────────────────────
+export {
+  BUNDLED_MODEL_MAPPINGS,
+  BUILTIN_COMMAND_PROVIDER_IDS,
+  BUILTIN_COMMAND_PROVIDERS,
+  buildStepCommandBody,
+  buildStepCommandSpec,
+  renderClaudeCommandFile,
+  getCommandProviderAdapter,
+  listCommandProviderAdapters,
+  commandProviderRegistry,
+  syncPipelineCommands,
+  syncPipelineCommandsForProvider,
+  syncAutonomousCommandsForProvider,
+  writeTwoLayerCommandsForProvider,
+} from './providers';
+export type {
+  StepCommandSpec,
+  CommandProviderAdapter,
+  OneShotInvocation,
+  SyncPipelineCommandsResult,
+  BuiltinCommandProviderId,
+} from './providers';
 // Annotation + epic-memory tooling install (shared by ext + CLI).
 export {
   installAnnotationTools,

@@ -187,30 +187,34 @@ describe('Autonomous Delivery UI', () => {
     expect(commands).not.toContain('.resumeAfterMerge(');
   });
 
-  it('offers one-click Claude retry for failed or previously attempted workflow steps', () => {
+  it('offers one-click agent retry for failed or previously attempted workflow steps', () => {
     const root = path.resolve(process.cwd());
     const card = fs.readFileSync(path.join(root, 'src/webview/components/EpicCard.tsx'), 'utf8');
+    const detail = fs.readFileSync(path.join(root, 'src/webview/components/epic-v3/EpicDetail.tsx'), 'utf8');
     const host = fs.readFileSync(path.join(root, 'src/v2/workspaceWebview.ts'), 'utf8');
-    expect(card).toContain('Run again with Claude');
-    expect(card).toContain("type: 'rerunAndRunWithClaude'");
-    expect(card).toContain('hasPreviousAttempt');
+    const runSvc = fs.readFileSync(path.join(root, 'src/v2/providerRunLogic.ts'), 'utf8');
+    expect(card).toContain('runStepButtonLabel');
+    expect(detail).toContain('runStepButtonLabel');
     expect(host).toContain("case 'rerunAndRunWithClaude'");
     expect(host).toContain("'aidlc.runStepWithFeedback', slash, runId, feedback");
+    expect(runSvc).toContain('buildTaskPrompt');
+    expect(runSvc).toContain('terminalNameForProvider');
   });
 
-  it('keeps general and per-step help aligned with Claude-only execution and recovery', () => {
+  it('keeps general and per-step help aligned with provider-aware execution', () => {
     const root = path.resolve(process.cwd());
     const cohesiveGuide = fs.readFileSync(path.join(root, 'media/guides/cohesive-delivery.md'), 'utf8');
     const gettingStarted = fs.readFileSync(path.join(root, 'media/getting-started.md'), 'utf8');
     const ask = fs.readFileSync(path.join(root, 'src/v2/askCommand.ts'), 'utf8');
     const stepHelp = fs.readFileSync(path.join(root, '../core/src/presets/builtinWorkflows.ts'), 'utf8');
+    const providers = fs.readFileSync(path.join(root, 'src/webview/lib/providers.ts'), 'utf8');
 
     for (const contents of [cohesiveGuide, gettingStarted, ask, stepHelp]) {
       expect(contents).toContain('/aidlc-autonomous-delivery');
-      expect(contents).toContain('Run again with Claude');
     }
+    expect(providers).toContain('runStepButtonLabel');
+    expect(providers).toContain('isRunStepDisabled');
     expect(cohesiveGuide).toContain('không chạy lại từ đầu');
-    expect(cohesiveGuide).toContain('nhiều feature epic độc lập');
     expect(gettingStarted).toContain('does not launch a global `aidlc cohesive`');
   });
 });

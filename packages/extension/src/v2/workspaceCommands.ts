@@ -19,7 +19,6 @@ import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   stepAgentId,
-  writeTwoLayerCommands,
 } from '@aidlc/core';
 
 import {
@@ -35,18 +34,16 @@ import {
   savePresetInlineCommand,
   applyPresetCommand,
   deletePresetCommand,
-  syncBuiltinPipelineCommands,
 } from './presetWizards';
 import { loadAllBuiltinPresets, BUILTIN_WORKFLOWS } from './builtinPresets';
+import {
+  openAgentTerminal,
+  runStepWithProvider,
+} from './providerRunService';
 import { installWorkflowGlobalsCommand } from './installWorkflowGlobalsCommand';
 import { uninstallWorkflowGlobalsCommand } from './uninstallWorkflowGlobalsCommand';
 import { StandardPickerWebview } from './standardPickerWebview';
 import { startEpicCommand } from './epicWizard';
-import {
-  ensureMarkdownOutputLanguagePolicy,
-  markdownOutputLanguageInstruction,
-  resolveAidlcLanguage,
-} from './outputLanguage';
 import { analyzeRequirementsCommand } from './requirementWizard';
 import { registerAskCommand } from './askCommand';
 import { insertDemoEpicCommand } from './demoEpic';
@@ -311,155 +308,63 @@ export function registerV2WorkspaceCommands(
   // wondering what happened. Shell integration's onDidChange fires
   // exactly when the prompt is ready, so executeCommand lands cleanly.
   /**
-   * Ensure .claude/commands/*.md files exist so slash commands don't fail with
-   * "Unknown command". Syncs built-in pipeline-namespaced commands (including
-   * companion pipelines like project-context / cohesive-work-package) from the
-   * workspace's pipelines, then emits the two-layer shortcuts. Idempotent.
-   * (GH-73 Problem A + cohesive companion command migration)
+   * Run a pipeline step via the workspace default agent provider (Claude /
+   * Cursor / Codex). Ensures provider command files exist, maps the step
+   * model when known, and opens a fresh terminal with the one-shot CLI.
    */
-  function ensureCommandFiles(root: string): void {
-    try {
-      const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
-      ensureMarkdownOutputLanguagePolicy(root, resolveAidlcLanguage(configured, vscode.env.language));
-      syncBuiltinPipelineCommands(root, context.extensionPath);
-      writeTwoLayerCommands(root);
-    } catch (err) {
-      // Log but don't fail — command files might already exist or permission
-      // issues are rare in a workspace root.
-      console.warn('[ensureCommandFiles]', err);
-    }
-  }
-
-  /**
-   * Send a slash command + carried feedback to the Claude REPL. Used by
-   * the "Update with feedback" button on awaiting_work steps that have a
-   * non-empty `feedback` field (cascade reject blame OR rerun feedback).
-   *
-   * Always creates a fresh terminal for the run to ensure a Claude REPL
-   * is actually running (GH-73 Problem B). Never reuses an existing terminal
-   * because it might be at a shell prompt, causing silent failures. Bakes the
-   * prompt into the `claude '<prompt>'` one-shot launch command so it executes
-   * immediately on boot. Single-quote-escaped via `'\''` POSIX trick.
-   *
-   * Before running, ensures .claude/commands/*.md files exist (GH-73 Problem A).
-   */
-  const runWithFeedbackCmd = vscode.commands.registerCommand(
-    'aidlc.runStepWithFeedback',
-    (slashCommand?: unknown, runId?: unknown, feedback?: unknown) => {
+  const runStepWithProviderCmd = vscode.commands.registerCommand(
+    'aidlc.runStepWithProvider',
+    (
+      slashCommand?: unknown,
+      runId?: unknown,
+      feedback?: unknown,
+      providerId?: unknown,
+    ) => {
       const slash = typeof slashCommand === 'string' ? slashCommand.trim() : '';
       const id = typeof runId === 'string' ? runId.trim() : '';
       const fb = typeof feedback === 'string' ? feedback.trim() : '';
+      const provider = typeof providerId === 'string' ? providerId.trim() : undefined;
       if (!slash || !id) { return; }
 
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) { return; }
 
-      ensureCommandFiles(root);
-
-      // If review-context left a NO-GO, inject Required Corrections so a plain
-      // "Run with Claude" applies fixes without manual Markdown edits.
-      let effectiveFb = fb;
-      if (!effectiveFb) {
-        effectiveFb = loadContextReviewFixFeedback(root) ?? '';
-      }
-
-      const taskPrompt = effectiveFb
-        ? `${slash} ${id} — Update artifact per feedback: "${effectiveFb.replace(/"/g, '\\"')}"`
-        : `${slash} ${id}`;
-      const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
-      const language = resolveAidlcLanguage(configured, vscode.env.language);
-      const prompt = `${taskPrompt}\n\n${markdownOutputLanguageInstruction(language)}`;
-
-      // GH-73 Problem B: Always create fresh terminal; never reuse existing
-      // one since it might be at shell prompt, not Claude REPL.
-      const TERMINAL_NAME = 'AIDLC · Claude';
-      const cwd = fs.existsSync(root) ? root : undefined;
-      const terminal = vscode.window.createTerminal({
-        name: TERMINAL_NAME,
-        cwd,
-        iconPath: new vscode.ThemeIcon('rocket'),
-        location: vscode.TerminalLocation.Panel,
-        env: {
-          DISABLE_AUTO_UPDATE: 'true',
-          DISABLE_UPDATE_PROMPT: 'true',
-        },
+      runStepWithProvider({
+        slashCommand: slash,
+        runId: id,
+        feedback: fb,
+        providerId: provider,
+        root,
+        extensionPath: context.extensionPath,
       });
-      terminal.show(false);
-
-      // POSIX single-quote escape: the only risky character in single-
-      // quoted strings is the single quote itself, replaced with '\''.
-      const escaped = prompt.replace(/'/g, "'\\''");
-      const oneShot = `claude '${escaped}'`;
-
-      let sent = false;
-      const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
-        if (e.terminal === terminal && e.shellIntegration && !sent) {
-          sent = true;
-          e.shellIntegration.executeCommand(oneShot);
-          integ.dispose();
-        }
-      });
-      // Fallback for shells without integration — same 2s window as
-      // openClaudeTerminal. addNewLine=true so claude actually launches.
-      setTimeout(() => {
-        if (!sent) {
-          sent = true;
-          terminal.sendText(oneShot, true);
-          integ.dispose();
-        }
-      }, 2000);
     },
   );
 
+  /** Back-compat alias — delegates to {@link runStepWithProvider}. */
+  const runWithFeedbackCmd = vscode.commands.registerCommand(
+    'aidlc.runStepWithFeedback',
+    (slashCommand?: unknown, runId?: unknown, feedback?: unknown) => {
+      void vscode.commands.executeCommand(
+        'aidlc.runStepWithProvider',
+        slashCommand,
+        runId,
+        feedback,
+      );
+    },
+  );
+
+  const openAgentTerminalCmd = vscode.commands.registerCommand(
+    'aidlc.openAgentTerminal',
+    (providerId?: unknown) => {
+      openAgentTerminal(typeof providerId === 'string' ? providerId : undefined);
+    },
+  );
+
+  /** Back-compat alias — delegates to {@link openAgentTerminal}. */
   const openClaudeTerminalCmd = vscode.commands.registerCommand(
     'aidlc.openClaudeTerminal',
     () => {
-      const TERMINAL_NAME = 'AIDLC · Claude';
-      const existing = vscode.window.terminals.find((t) => t.name === TERMINAL_NAME);
-      if (existing) { existing.show(false); return; }
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      const cwd = root && fs.existsSync(root) ? root : undefined;
-      const terminal = vscode.window.createTerminal({
-        name: TERMINAL_NAME,
-        cwd,
-        // Inherit user's default shell + their full rc init. Forcing
-        // /bin/zsh skipped some users' login shell config (chsh) so we
-        // let VS Code pick.
-        iconPath: new vscode.ThemeIcon('rocket'),
-        location: vscode.TerminalLocation.Panel,
-        env: {
-          // oh-my-zsh's weekly update check is an INTERACTIVE Y/n
-          // prompt. It blocks .zshrc from finishing, which means shell
-          // integration never installs, and our sendText fallback
-          // ends up answering the prompt instead of running `claude`.
-          // Disable update auto-check for this terminal only so init
-          // completes cleanly. Users still see updates in their other
-          // terminals.
-          DISABLE_AUTO_UPDATE: 'true',
-          DISABLE_UPDATE_PROMPT: 'true',
-        },
-      });
-      terminal.show(false);
-
-      let sent = false;
-      const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
-        if (e.terminal === terminal && e.shellIntegration && !sent) {
-          sent = true;
-          e.shellIntegration.executeCommand('claude');
-          integ.dispose();
-        }
-      });
-      // Fallback for shells without integration (custom shells, or
-      // VS Code shellIntegration disabled in settings). 2s is enough
-      // for typical .zshrc init; more than that and the user can run
-      // `claude` themselves.
-      setTimeout(() => {
-        if (!sent) {
-          sent = true;
-          terminal.sendText('claude', true);
-          integ.dispose();
-        }
-      }, 2000);
+      openAgentTerminal();
     },
   );
 
@@ -566,7 +471,9 @@ export function registerV2WorkspaceCommands(
       addPipelineCmd,
       generateFromRecipeCmd,
       openBuilderCmd,
+      openAgentTerminalCmd,
       openClaudeTerminalCmd,
+      runStepWithProviderCmd,
       runWithFeedbackCmd,
       savePresetCmd,
       savePresetInlineCmd,
@@ -869,25 +776,3 @@ function openGettingStartedGuide(context: vscode.ExtensionContext): void {
   );
 }
 
-/**
- * If CONTEXT-REVIEW.md is NO-GO, return feedback that tells Claude to apply
- * Required Corrections and rewrite with **Verdict:** GO.
- */
-function loadContextReviewFixFeedback(root: string): string | undefined {
-  const reviewPath = path.join(root, 'docs', 'project', 'context', 'CONTEXT-REVIEW.md');
-  if (!fs.existsSync(reviewPath)) { return undefined; }
-  let text = '';
-  try { text = fs.readFileSync(reviewPath, 'utf8'); } catch { return undefined; }
-  if (!/\*\*Verdict:\*\*\s*NO-GO/i.test(text)) { return undefined; }
-  const correctionsMatch = text.match(
-    /##\s*Required Corrections[\s\S]*?(?=\n##\s+|\n\*\*Verdict:\*\*|\s*$)/i,
-  );
-  const corrections = correctionsMatch?.[0]?.trim()
-    ?? 'Apply every Required Correction listed in docs/project/context/CONTEXT-REVIEW.md.';
-  return (
-    'CONTEXT-REVIEW has **Verdict:** NO-GO. Apply ALL Required Corrections yourself to the ' +
-    'owning files under docs/project/context/ (do not ask the user to edit Markdown by hand). ' +
-    'Then rewrite CONTEXT-REVIEW.md ending with exactly `**Verdict:** GO`.\n\n' +
-    corrections
-  );
-}

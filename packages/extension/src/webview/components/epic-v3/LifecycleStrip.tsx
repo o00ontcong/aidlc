@@ -64,7 +64,13 @@ export function lifecycleKinds(
   }
 }
 
-export function LifecycleStrip({ kinds }: { kinds: LcKind[] }) {
+export function LifecycleStrip({
+  kinds,
+  runStepHint = 'Run step',
+}: {
+  kinds: LcKind[];
+  runStepHint?: string;
+}) {
   return (
     <div
       style={{
@@ -128,7 +134,7 @@ export function LifecycleStrip({ kinds }: { kinds: LcKind[] }) {
 
           <div style={{ position: 'absolute', left: 208, top: 100, fontSize: 14, color: 'var(--warn)' }}>Rerun</div>
           <div style={{ position: 'absolute', left: 420, top: 110, fontSize: 14, color: 'var(--err)' }}>Reject → về AwaitingWork</div>
-          <div style={{ position: 'absolute', left: 152, top: 2, fontSize: 13.5, color: 'var(--txt3)' }}>Run with Claude</div>
+          <div style={{ position: 'absolute', left: 152, top: 2, fontSize: 13.5, color: 'var(--txt3)' }}>{runStepHint}</div>
           <div style={{ position: 'absolute', left: 340, top: 2, fontSize: 13.5, color: 'var(--txt3)' }}>Mark step done</div>
           <div style={{ position: 'absolute', left: 530, top: 2, fontSize: 13.5, color: 'var(--txt3)' }}>pass + cần approve</div>
           <div style={{ position: 'absolute', left: 744, top: 2, fontSize: 13.5, color: 'var(--txt3)' }}>Approve</div>

@@ -2,6 +2,7 @@
 import type {
   AgentMeta, EpicStepDetailFull, EpicSummary, WorkspaceState,
 } from '../src/webview/lib/types';
+import { MOCK_PROVIDER_CONFIG } from '../src/webview/lib/providers';
 
 const step = (
   o: Partial<EpicStepDetailFull> & { agent: string },
@@ -152,5 +153,16 @@ export const STATE: WorkspaceState = {
     techRules: [],
   },
   diffIgnore: ['*.lock'],
+  architecture: {
+    available: false,
+    layers: [],
+    edges: [],
+    features: [],
+    structuralNodes: [],
+    structuralEdges: [],
+    featureFlows: {},
+  },
+  displayLanguage: 'vi',
+  providerConfig: MOCK_PROVIDER_CONFIG,
 };
 

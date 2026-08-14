@@ -1,0 +1,233 @@
+import * as vscode from 'vscode';
+import * as fs from 'fs';
+
+import { getCommandProviderAdapter } from '@aidlc/core';
+
+import { syncBuiltinPipelineCommands } from './presetWizards';
+import { getProviderConfigStore } from './providerConfig';
+import {
+  buildCodexRunPrompt,
+  buildTaskPrompt,
+  canonicalModelForSlash,
+  loadContextReviewFixFeedback,
+  terminalNameForProvider,
+} from './providerRunLogic';
+import {
+  ensureMarkdownOutputLanguagePolicy,
+  markdownOutputLanguageInstruction,
+  resolveAidlcLanguage,
+} from './outputLanguage';
+
+export {
+  buildCodexRunPrompt,
+  buildTaskPrompt,
+  canonicalModelForSlash,
+  loadContextReviewFixFeedback,
+  slashCommandName,
+  terminalNameForProvider,
+} from './providerRunLogic';
+
+const TERMINAL_ENV: Record<string, string> = {
+  DISABLE_AUTO_UPDATE: 'true',
+  DISABLE_UPDATE_PROMPT: 'true',
+};
+
+export function ensureCommandFilesForProvider(
+  root: string,
+  extensionPath: string,
+  providerId: string,
+): void {
+  try {
+    const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+    ensureMarkdownOutputLanguagePolicy(root, resolveAidlcLanguage(configured, vscode.env.language));
+    syncBuiltinPipelineCommands(root, extensionPath, { providers: [providerId] });
+  } catch (err) {
+    console.warn('[ensureCommandFilesForProvider]', err);
+  }
+}
+
+export function spawnTerminalOneShot(opts: {
+  oneShot: string;
+  terminalName: string;
+  cwd?: string;
+  fresh?: boolean;
+}): void {
+  const cwd = opts.cwd && fs.existsSync(opts.cwd) ? opts.cwd : undefined;
+
+  if (!opts.fresh) {
+    const existing = vscode.window.terminals.find((t) => t.name === opts.terminalName);
+    if (existing) {
+      existing.show(false);
+      existing.sendText(opts.oneShot, true);
+      return;
+    }
+  }
+
+  const terminal = vscode.window.createTerminal({
+    name: opts.terminalName,
+    cwd,
+    iconPath: new vscode.ThemeIcon('rocket'),
+    location: vscode.TerminalLocation.Panel,
+    env: TERMINAL_ENV,
+  });
+  terminal.show(false);
+
+  let sent = false;
+  const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
+    if (e.terminal === terminal && e.shellIntegration && !sent) {
+      sent = true;
+      e.shellIntegration.executeCommand(opts.oneShot);
+      integ.dispose();
+    }
+  });
+  setTimeout(() => {
+    if (!sent) {
+      sent = true;
+      terminal.sendText(opts.oneShot, true);
+      integ.dispose();
+    }
+  }, 2000);
+}
+
+export function spawnReplTerminal(opts: {
+  replCommand: string;
+  terminalName: string;
+  cwd?: string;
+}): void {
+  const existing = vscode.window.terminals.find((t) => t.name === opts.terminalName);
+  if (existing) {
+    existing.show(false);
+    return;
+  }
+
+  const cwd = opts.cwd && fs.existsSync(opts.cwd) ? opts.cwd : undefined;
+  const terminal = vscode.window.createTerminal({
+    name: opts.terminalName,
+    cwd,
+    iconPath: new vscode.ThemeIcon('rocket'),
+    location: vscode.TerminalLocation.Panel,
+    env: TERMINAL_ENV,
+  });
+  terminal.show(false);
+
+  let sent = false;
+  const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
+    if (e.terminal === terminal && e.shellIntegration && !sent) {
+      sent = true;
+      e.shellIntegration.executeCommand(opts.replCommand);
+      integ.dispose();
+    }
+  });
+  setTimeout(() => {
+    if (!sent) {
+      sent = true;
+      terminal.sendText(opts.replCommand, true);
+      integ.dispose();
+    }
+  }, 2000);
+}
+
+export function openAgentTerminal(providerId?: string): void {
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const cwd = root && fs.existsSync(root) ? root : undefined;
+  const store = root ? getProviderConfigStore(root) : null;
+  const config = store?.loadOrDefault();
+  const id = providerId ?? config?.defaultProvider ?? 'claude';
+  const adapter = getCommandProviderAdapter(id);
+  const cli = store?.cliFor(id, config!) ?? adapter.cliBinary;
+  spawnReplTerminal({
+    replCommand: cli,
+    terminalName: terminalNameForProvider(adapter.displayName),
+    cwd,
+  });
+}
+
+export function runStepWithProvider(opts: {
+  slashCommand: string;
+  runId: string;
+  feedback?: string;
+  providerId?: string;
+  root: string;
+  extensionPath: string;
+}): void {
+  const store = getProviderConfigStore(opts.root);
+  const config = store.loadOrDefault();
+  const providerId = opts.providerId ?? config.defaultProvider;
+  const adapter = getCommandProviderAdapter(providerId);
+  const cli = store.cliFor(providerId, config);
+
+  ensureCommandFilesForProvider(opts.root, opts.extensionPath, providerId);
+
+  let effectiveFb = (opts.feedback ?? '').trim();
+  if (!effectiveFb) {
+    effectiveFb = loadContextReviewFixFeedback(opts.root) ?? '';
+  }
+
+  const taskPrompt = buildTaskPrompt(
+    opts.slashCommand,
+    opts.runId,
+    effectiveFb,
+    providerId,
+    opts.root,
+  );
+  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+  const language = resolveAidlcLanguage(configured, vscode.env.language);
+  const prompt = `${taskPrompt}\n\n${markdownOutputLanguageInstruction(language)}`;
+
+  const canonicalModel = canonicalModelForSlash(opts.slashCommand);
+  const mappedModel = canonicalModel
+    ? store.mapModel(canonicalModel, providerId, config)
+    : undefined;
+
+  const invocation = adapter.buildOneShotInvocation({
+    slashOrPrompt: prompt,
+    mappedModel,
+    cwd: opts.root,
+  });
+  const oneShot = invocation.shellOneLiner
+    ?? [cli, ...invocation.argv.slice(1)].join(' ');
+
+  spawnTerminalOneShot({
+    oneShot,
+    terminalName: terminalNameForProvider(adapter.displayName),
+    cwd: opts.root,
+    fresh: true,
+  });
+}
+
+export function runSlashCommandWithProvider(
+  slash: string,
+  root: string,
+  extensionPath: string,
+  providerId?: string,
+): void {
+  const store = getProviderConfigStore(root);
+  const config = store.loadOrDefault();
+  const id = providerId ?? config.defaultProvider;
+  const adapter = getCommandProviderAdapter(id);
+
+  ensureCommandFilesForProvider(root, extensionPath, id);
+
+  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+  const language = resolveAidlcLanguage(configured, vscode.env.language);
+  try { ensureMarkdownOutputLanguagePolicy(root, language); } catch { /* prompt still enforces */ }
+
+  let prompt = slash;
+  if (id === 'codex') {
+    const runId = slash.trim().split(/\s+/).slice(1).join(' ') || 'PROJECT-CONTEXT';
+    prompt = buildCodexRunPrompt(root, slash, runId, '');
+  }
+  prompt = `${prompt}\n\n${markdownOutputLanguageInstruction(language)}`;
+
+  const canonicalModel = canonicalModelForSlash(slash);
+  const mappedModel = canonicalModel ? store.mapModel(canonicalModel, id, config) : undefined;
+  const invocation = adapter.buildOneShotInvocation({ slashOrPrompt: prompt, mappedModel, cwd: root });
+  const oneShot = invocation.shellOneLiner ?? invocation.argv.join(' ');
+
+  spawnTerminalOneShot({
+    oneShot,
+    terminalName: terminalNameForProvider(adapter.displayName),
+    cwd: root,
+    fresh: false,
+  });
+}

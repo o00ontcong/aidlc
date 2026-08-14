@@ -310,7 +310,7 @@ export class AidlcApplication {
     this.bus.register<Record<string, never>>('model.diagnose', async (command) => ok(command, await this.models.diagnose()));
     this.bus.register<{ providerId: string }>('model.provider.default.set', (command) => {
       this.models.setDefault(command.payload.providerId);
-      return ok(command, this.modelProviderConfig.save(command.payload.providerId));
+      return ok(command, this.modelProviderConfig.saveDefaultProvider(command.payload.providerId));
     });
     this.bus.register<Record<string, never>>('project.recommend.accept', (command) => ok(command, this.project.accept()));
     this.bus.register<{ workflowProfile?: 'quick' | 'standard' | 'parallel' | 'regulated'; roles?: Parameters<ProjectIntelligenceService['override']>[0]['roles'] }>('project.recommend.override', (command) => ok(command, this.project.override(command.payload)));

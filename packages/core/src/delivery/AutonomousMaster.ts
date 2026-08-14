@@ -14,23 +14,13 @@ import type { DeliveryRequest } from './DeliveryTypes';
 export const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery';
 export const AUTONOMOUS_EPIC_MASTER_COMMAND = '/aidlc-autonomous-epic';
 
-/**
- * Install the generic, visible Claude master command used by any pipeline
- * epic. It deliberately relies on the pipeline's own step commands and run
- * state rather than reimplementing pipeline semantics in TypeScript.
- */
-export function ensureAutonomousEpicMasterCommand(workspaceRoot: string): void {
-  const file = path.join(workspaceRoot, '.claude', 'commands', 'aidlc-autonomous-epic.md');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `---
-description: Run one AIDLC epic's configured pipeline autonomously. Usage: /aidlc-autonomous-epic <epic-id>
----
-
-# AIDLC Autonomous Epic Master
+/** Body for multi-provider sync (provider adapters add their own frontmatter). */
+export function autonomousEpicMasterCommandBody(): string {
+  return `# AIDLC Autonomous Epic Master
 
 Own epic \`$ARGUMENTS\` until its configured pipeline completes, its saved
 mode switches to Guided, or an unresolved product/architecture question needs
-a human answer. Work visibly in this Claude session.
+a human answer. Work visibly in this session.
 
 ## Source of truth
 
@@ -75,19 +65,13 @@ a human answer. Work visibly in this Claude session.
    exact question needed to proceed. The only normal wait is a human answer to
    an unresolved product, architecture, or policy question.
 6. Never invoke a hidden global AIDLC CLI; narrate commands, transitions,
-   validation, and failures in this Claude session.
-`, 'utf8');
+   validation, and failures in this session.
+`;
 }
 
-/** Write (or refresh) the master command document the delivery hands off to. */
-export function ensureAutonomousMasterCommand(workspaceRoot: string): void {
-  const file = path.join(workspaceRoot, '.claude', 'commands', 'aidlc-autonomous-delivery.md');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `---
-description: Run an entire AIDLC Cohesive Delivery autonomously. Usage: /aidlc-autonomous-delivery <delivery-id>
----
-
-# AIDLC Autonomous Delivery Master
+/** Body for multi-provider sync (provider adapters add their own frontmatter). */
+export function autonomousMasterCommandBody(): string {
+  return `# AIDLC Autonomous Delivery Master
 
 You are the master executor for delivery \`$ARGUMENTS\`. Own the entire delivery
 until it completes, a real external blocker occurs, or an unresolved question
@@ -125,10 +109,8 @@ click "Mark step done" or approve a phase between phases.
    manage work-package/worker epics, choose a worker count, or wait on an
    internal worker board. You may choose internal task decomposition yourself
    when it helps, but it is not a user-visible parallelism control.
-4. For every phase, follow the corresponding namespaced command document in
-   \`.claude/commands/\` (for example
-   \`project-context-project-rules-sync.md\`) as the authoritative persona,
-   skill, input, output, and acceptance contract.
+4. For every phase, follow the corresponding namespaced command document as
+   the authoritative persona, skill, input, output, and acceptance contract.
 5. A phase with \`human_review: true\` is automatically approved once its
    declared outputs and auto-review validator pass. Persist it as \`approved\`
    in run state and \`done\` in epic state; do not wait for or create aggregate
@@ -142,9 +124,35 @@ click "Mark step done" or approve a phase between phases.
    consent, or a genuine unresolved product, architecture, or ship-policy
    question. State the exact question and the next command to resume.
 
-Work visibly in this Claude session: narrate stage transitions, commands,
+Work visibly in this session: narrate stage transitions, commands,
 validation results, and failures. Never invoke a global \`aidlc\` CLI.
-`, 'utf8');
+`;
+}
+
+/**
+ * Install the generic, visible Claude master command used by any pipeline
+ * epic. It deliberately relies on the pipeline's own step commands and run
+ * state rather than reimplementing pipeline semantics in TypeScript.
+ */
+export function ensureAutonomousEpicMasterCommand(workspaceRoot: string): void {
+  const file = path.join(workspaceRoot, '.claude', 'commands', 'aidlc-autonomous-epic.md');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `---
+description: Run one AIDLC epic's configured pipeline autonomously. Usage: /aidlc-autonomous-epic <epic-id>
+---
+
+${autonomousEpicMasterCommandBody()}`, 'utf8');
+}
+
+/** Write (or refresh) the master command document the delivery hands off to. */
+export function ensureAutonomousMasterCommand(workspaceRoot: string): void {
+  const file = path.join(workspaceRoot, '.claude', 'commands', 'aidlc-autonomous-delivery.md');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `---
+description: Run an entire AIDLC Cohesive Delivery autonomously. Usage: /aidlc-autonomous-delivery <delivery-id>
+---
+
+${autonomousMasterCommandBody()}`, 'utf8');
 }
 
 /** Write the human-authored delivery request the master command reads as its brief. */

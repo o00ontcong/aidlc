@@ -107,6 +107,31 @@ export interface McpServerInfo {
   statusText: string;
 }
 
+/** Per-provider CLI diagnostic surfaced in the sidebar Provider section. */
+export interface ProviderDiagnostic {
+  ok: boolean;
+  message: string;
+}
+
+export interface ProviderInfo {
+  id: string;
+  displayName: string;
+  /** True after user clicks Apply — one-way; syncs commands for this provider. */
+  enabled: boolean;
+  cli: string;
+  isDefault: boolean;
+  diagnostic: ProviderDiagnostic;
+}
+
+/** Canonical Claude model id → provider-specific model id. */
+export type ModelMappings = Record<string, Record<string, string>>;
+
+export interface ProviderConfig {
+  defaultProvider: string;
+  providers: ProviderInfo[];
+  modelMappings?: ModelMappings;
+}
+
 export type SuggestionSeverity = 'high' | 'med' | 'low';
 
 export interface CostSuggestion {
@@ -380,6 +405,8 @@ export interface SidebarState {
    * AIDLC Autopilot row in the Common workflows shows "Coming soon"
    * (disabled) or an active "On" state. */
   autopilotEnabled: boolean;
+  /** Agent CLI providers (Claude / Cursor / Codex). Mocked in harness step 1. */
+  providerConfig?: ProviderConfig;
 }
 
 export type AssetScope = 'project' | 'aidlc' | 'global';
@@ -787,6 +814,8 @@ export interface WorkspaceState {
   architecture: ArchitectureExplorerState;
   /** Resolved once in the extension host from aidlc.displayLanguage / VS Code. */
   displayLanguage: 'en' | 'vi';
+  /** Active agent provider — mirrored from sidebar for Epic Run / model display. */
+  providerConfig?: ProviderConfig;
 }
 
 export interface ArchitectureNode {

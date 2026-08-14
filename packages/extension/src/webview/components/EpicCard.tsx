@@ -37,7 +37,9 @@ import type {
   StepHistoryEntry,
   StepStatus,
   UiStatus,
+  ProviderConfig,
 } from '@/lib/types';
+import { runStepButtonLabel, isRunStepDisabled, runStepDisabledHint } from '@/lib/providers';
 import { StatusBadge } from './StatusBadge';
 import { RejectModal } from './RejectModal';
 import { RerunModal } from './RerunModal';
@@ -126,6 +128,7 @@ interface Props {
   onDragEnd?: () => void;
   /** Patterns from `.aidlc/diffignore` for display-only filtering. */
   diffIgnore?: string[];
+  providerConfig?: ProviderConfig;
 }
 
 export function EpicCard({
@@ -138,6 +141,7 @@ export function EpicCard({
   onDragStart,
   onDragEnd,
   diffIgnore,
+  providerConfig,
 }: Props) {
   const [expanded, setExpanded] = useState<boolean>(false);
   const [focusedIdx, setFocusedIdx] = useState<number>(epic.currentStep ?? 0);
@@ -1275,10 +1279,19 @@ function RunGate({
           <>
             {slashCommand && (() => {
               const hasFeedback = !!focused.feedback;
+              const runDisabled = isRunStepDisabled(providerConfig);
+              const runLabel = hasFeedback
+                ? runStepButtonLabel(providerConfig, 'feedback')
+                : hasPreviousAttempt
+                  ? runStepButtonLabel(providerConfig, 'again')
+                  : runStepButtonLabel(providerConfig, 'default');
               return (
                 <GateButton
                   variant="approve"
+                  disabled={runDisabled}
+                  title={runDisabled ? runStepDisabledHint() : undefined}
                   onClick={() => {
+                    if (runDisabled) { return; }
                     if (hasFeedback) {
                       setRunOpen(true);
                     } else {
@@ -1292,11 +1305,7 @@ function RunGate({
                   }}
                 >
                   <Play className="h-3 w-3" />
-                  {hasFeedback
-                    ? 'Update with feedback'
-                    : hasPreviousAttempt
-                      ? 'Run again with Claude'
-                      : 'Run with Claude'}
+                  {runLabel}
                 </GateButton>
               );
             })()}
@@ -1399,17 +1408,24 @@ function GateButton({
   children,
   variant,
   onClick,
+  disabled,
+  title,
 }: {
   children: React.ReactNode;
   variant: 'primary' | 'approve' | 'reject';
   onClick: () => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
+      title={title}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-semibold transition-colors',
+        disabled && 'cursor-not-allowed opacity-45',
         variant === 'primary' &&
           'border-primary/40 bg-primary/15 text-primary hover:border-primary/60 hover:bg-primary/25',
         variant === 'approve' &&

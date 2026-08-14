@@ -227,6 +227,8 @@ import {
 
 const autonomousDeliveryOutput = vscode.window.createOutputChannel('AIDLC Autonomous Delivery');
 import { syncBuiltinPipelineCommands } from './presetWizards';
+import { buildProviderConfigUi, type ProviderConfigUi } from './providerConfig';
+import { runSlashCommandWithProvider } from './providerRunService';
 import type {
   PipelineStepConfig,
   AssetScope,
@@ -264,62 +266,10 @@ import {
   resolveAidlcLanguage,
 } from './outputLanguage';
 
-// ── Shared helper: open/reuse the Claude terminal and send a slash command ───
+// ── Shared helper: open/reuse the agent terminal and send a slash command ───
 
-const CLAUDE_TERMINAL_NAME = 'AIDLC · Claude';
-
-/**
- * Open (or reuse) the Claude REPL terminal and run `slash` immediately.
- *
- * Always sends `claude '<slash>'` rather than the bare slash command.
- * This handles two cases safely:
- *   - Terminal exists but claude already exited (zsh is active) → `claude 'cmd'`
- *     boots a new claude session and runs the command as the first message.
- *   - No terminal yet → create one, wait for shell integration, then run.
- *
- * The previous approach of `sendText(slash, true)` to an existing terminal
- * broke when claude had exited — zsh received the slash as a file path.
- */
-function runSlashCommandInClaude(slash: string, root: string): void {
-  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
-  const language = resolveAidlcLanguage(configured, vscode.env.language);
-  // Persist a project instruction for manually invoked slash commands too;
-  // the prompt copy makes the setting apply immediately to this run.
-  try { ensureMarkdownOutputLanguagePolicy(root, language); } catch { /* prompt below still enforces it */ }
-  const prompt = `${slash}\n\n${markdownOutputLanguageInstruction(language)}`;
-  const escaped = prompt.replace(/'/g, "'\\''");
-  const oneShot = `claude '${escaped}'`;
-
-  const existing = vscode.window.terminals.find((t) => t.name === CLAUDE_TERMINAL_NAME);
-  if (existing) {
-    existing.show(false);
-    // Send `claude 'slash'` — works whether claude is running or not:
-    // - Shell prompt: starts claude with slash as the first message.
-    // - Claude REPL: unlikely during a fresh analyze submit, but harmless.
-    existing.sendText(oneShot, true);
-    return;
-  }
-
-  const cwd = fs.existsSync(root) ? root : undefined;
-  const terminal = vscode.window.createTerminal({
-    name: CLAUDE_TERMINAL_NAME,
-    cwd,
-    iconPath: new vscode.ThemeIcon('rocket'),
-    location: vscode.TerminalLocation.Panel,
-    env: { DISABLE_AUTO_UPDATE: 'true', DISABLE_UPDATE_PROMPT: 'true' },
-  });
-  terminal.show(false);
-  let sent = false;
-  const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
-    if (e.terminal === terminal && e.shellIntegration && !sent) {
-      sent = true;
-      e.shellIntegration.executeCommand(oneShot);
-      integ.dispose();
-    }
-  });
-  setTimeout(() => {
-    if (!sent) { sent = true; terminal.sendText(oneShot, true); integ.dispose(); }
-  }, 2000);
+function runSlashCommandInClaude(slash: string, root: string, extensionPath: string): void {
+  runSlashCommandWithProvider(slash, root, extensionPath);
 }
 
 // ── Webview-side type shapes (must mirror src/webview/lib/types.ts) ───────
@@ -555,6 +505,8 @@ interface WorkspaceState {
   diffIgnore?: string[];
   architecture: ArchitectureExplorerStateUi;
   displayLanguage: 'en' | 'vi';
+  /** Active agent CLI provider — mirrored from sidebar config. */
+  providerConfig?: ProviderConfigUi;
 }
 
 interface ArchitectureNodeUi { id: string; label: string; kind?: string; layer?: string; file?: string; symbol?: string; role?: string; }
@@ -641,6 +593,7 @@ function buildRecipeSummary(
 
 function buildState(initialView: WorkspaceView): WorkspaceState {
   const folder = vscode.workspace.workspaceFolders?.[0];
+  const providerConfig = buildProviderConfigUi(folder?.uri.fsPath);
   if (!folder) {
     return {
       hasFolder: false,
@@ -664,6 +617,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       diffIgnore: [],
       architecture: emptyArchitectureExplorer('Open a project to view its architecture.'),
       displayLanguage: resolveDisplayLanguage(),
+      providerConfig,
     };
   }
 
@@ -755,6 +709,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       diffIgnore: readDiffIgnore(root),
       architecture,
       displayLanguage: resolveDisplayLanguage(),
+      providerConfig,
     };
   }
 
@@ -823,6 +778,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     diffIgnore: readDiffIgnore(root),
     architecture,
     displayLanguage: resolveDisplayLanguage(),
+    providerConfig,
   };
 }
 
@@ -2140,7 +2096,7 @@ export class WorkspaceWebview {
       case 'addAgent':     await vscode.commands.executeCommand('aidlc.addAgent');      return;
       case 'addSkill':     await vscode.commands.executeCommand('aidlc.addSkill');      return;
       case 'addPipeline':  await vscode.commands.executeCommand('aidlc.addPipeline');   return;
-      case 'openClaude':   await vscode.commands.executeCommand('aidlc.openClaudeTerminal'); return;
+      case 'openClaude':   await vscode.commands.executeCommand('aidlc.openAgentTerminal'); return;
       case 'openEpicsList':
         // Same-panel switch — don't re-execute the command (avoid recursion).
         this.setView('epics');
@@ -2226,7 +2182,7 @@ export class WorkspaceWebview {
         });
         if (!runId) { return; }
         this.refresh();
-        runSlashCommandInClaude(`/analyze-requirements ${runId}`, root);
+        runSlashCommandInClaude(`/analyze-requirements ${runId}`, root, this.extensionUri.fsPath);
         return;
       }
       case 'openAddPipeline':
@@ -2333,7 +2289,7 @@ export class WorkspaceWebview {
           void vscode.window.showWarningMessage('AIDLC: Project Context is required before generating an architecture map.');
           return;
         }
-        runSlashCommandInClaude('/project-context-map-features PROJECT-CONTEXT', root);
+        runSlashCommandInClaude('/project-context-map-features PROJECT-CONTEXT', root, this.extensionUri.fsPath);
         void vscode.window.showInformationMessage('AIDLC started Map Features in Claude. The Architecture tab refreshes when the diagram artifacts are written.');
         return;
       }
@@ -2352,7 +2308,7 @@ export class WorkspaceWebview {
           epicId: epic.id,
         })), { placeHolder: 'Choose the feature whose flow you want to generate.' });
         if (!picked) { return; }
-        runSlashCommandInClaude(`/cohesive-feature-map-feature-flow ${picked.epicId}`, root);
+        runSlashCommandInClaude(`/cohesive-feature-map-feature-flow ${picked.epicId}`, root, this.extensionUri.fsPath);
         void vscode.window.showInformationMessage(`AIDLC started Feature Flow mapping for ${picked.epicId}. The Architecture tab refreshes when the artifacts are written.`);
         return;
       }

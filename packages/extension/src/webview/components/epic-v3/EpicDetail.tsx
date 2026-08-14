@@ -10,7 +10,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { postMessage } from '@/lib/bridge';
-import type { AgentMeta, EpicStepDetailFull, EpicSummary, WorkspaceState } from '@/lib/types';
+import { runStepButtonLabel, isRunStepDisabled, runStepDisabledHint } from '@/lib/providers';
+import type { AgentMeta, EpicStepDetailFull, EpicSummary, ProviderConfig, WorkspaceState } from '@/lib/types';
 import { DeleteEpicModal } from '../DeleteEpicModal';
 import { DiffPane } from '../DiffPane';
 import { RejectModal } from '../RejectModal';
@@ -107,14 +108,26 @@ export function EpicDetail({
 
       {/* ⑤ flow */}
       {steps.length > 0 && (
-        <FlowCard epic={epic} focused={focused} onNodeClick={setFocusedIdx} />
+        <FlowCard
+          epic={epic}
+          focused={focused}
+          onNodeClick={setFocusedIdx}
+          providerConfig={state.providerConfig}
+        />
       )}
 
       {/* ⑥ epic config */}
       <EpicConfigCard epic={epic} />
 
       {/* ⑦ gate banner */}
-      {focused && <GateBanner epic={epic} focused={focused} focusedIdx={focusedIdx} />}
+      {focused && (
+        <GateBanner
+          epic={epic}
+          focused={focused}
+          focusedIdx={focusedIdx}
+          providerConfig={state.providerConfig}
+        />
+      )}
 
       {/* ⑧ step list */}
       {steps.length > 0 && (
@@ -122,6 +135,7 @@ export function EpicDetail({
           epic={epic}
           focusedIdx={focusedIdx}
           onFocus={setFocusedIdx}
+          providerConfig={state.providerConfig}
         />
       )}
 
@@ -139,7 +153,12 @@ export function EpicDetail({
       {/* ⑨ step detail + history */}
       {focused && (
         <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: GAP, flex: 'none' }}>
-          <StepDetailCard epic={epic} step={focused} agentMeta={state.agentMeta} />
+          <StepDetailCard
+            epic={epic}
+            step={focused}
+            agentMeta={state.agentMeta}
+            providerConfig={state.providerConfig}
+          />
           <HistoryCard step={focused} />
         </div>
       )}
@@ -337,11 +356,12 @@ function prNumber(url: string): string {
 /* ── ⑤ dc.html:751-818 ──────────────────────────────────────────────────── */
 
 function FlowCard({
-  epic, focused, onNodeClick,
+  epic, focused, onNodeClick, providerConfig,
 }: {
   epic: EpicSummary;
   focused: EpicStepDetailFull | null;
   onNodeClick: (idx: number) => void;
+  providerConfig?: ProviderConfig;
 }) {
   const nodes = useMemo(() => flowNodes(epic), [epic]);
   // DEFAULT_LOOP is keyed by pipeline id (V3_HANDOFF §6.3); only apply it when
@@ -382,7 +402,10 @@ function FlowCard({
         <Spacer />
       </CardHeader>
       <FlowCanvas nodes={nodes} loop={loop} flowNote={flowNote} onNodeClick={onNodeClick} />
-      <LifecycleStrip kinds={kinds} />
+      <LifecycleStrip
+        kinds={kinds}
+        runStepHint={runStepButtonLabel(providerConfig, 'default')}
+      />
     </Card>
   );
 }
@@ -512,11 +535,12 @@ function RunModeOption({
 /* ── ⑦ dc.html:853-870 ──────────────────────────────────────────────────── */
 
 function GateBanner({
-  epic, focused, focusedIdx,
+  epic, focused, focusedIdx, providerConfig,
 }: {
   epic: EpicSummary;
   focused: EpicStepDetailFull;
   focusedIdx: number;
+  providerConfig?: ProviderConfig;
 }) {
   const [gateOpen, setGateOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
@@ -573,7 +597,12 @@ function GateBanner({
           onClick={() => postMessage({ type: 'runAutoReview', runId, stepIdx: focusedIdx })}
         />
         {slashCommand && (
-          <Btn label="Run with Claude" pad="8px 13px" fs={12.5} onClick={() => setRunOpen(true)} />
+          <Btn
+            label={runStepButtonLabel(providerConfig, 'default')}
+            pad="8px 13px"
+            fs={12.5}
+            onClick={() => setRunOpen(true)}
+          />
         )}
       </div>
 
@@ -621,20 +650,22 @@ function GateBanner({
 /* ── ⑧ dc.html:872-904 ──────────────────────────────────────────────────── */
 
 function StepListCard({
-  epic, focusedIdx, onFocus,
+  epic, focusedIdx, onFocus, providerConfig,
 }: {
   epic: EpicSummary;
   focusedIdx: number;
   onFocus: (idx: number) => void;
+  providerConfig?: ProviderConfig;
 }) {
   const rows = useMemo(() => stepRows(epic), [epic]);
+  const runAgainHint = runStepButtonLabel(providerConfig, 'again');
   return (
     <Card>
       <CardHeader>
         <CardTitle>Step của epic</CardTitle>
         <Spacer />
         <CardNote>
-          lệnh Claude có thể fail hoặc đóng — Run again with Claude mở lại đúng slash command và run id
+          lệnh agent có thể fail hoặc đóng — {runAgainHint} mở lại đúng slash command và run id
         </CardNote>
       </CardHeader>
       {rows.map((r) => {
@@ -672,7 +703,12 @@ function StepListCard({
                   {r.meta}
                 </Mono>
               </div>
-              <StepActions epic={epic} step={step} stepIdx={r.idx} />
+              <StepActions
+                epic={epic}
+                step={step}
+                stepIdx={r.idx}
+                providerConfig={providerConfig}
+              />
             </div>
             {r.error && (
               <Mono
@@ -687,7 +723,7 @@ function StepListCard({
           </div>
         );
       })}
-      <StepListFooter epic={epic} focusedIdx={focusedIdx} />
+      <StepListFooter epic={epic} focusedIdx={focusedIdx} providerConfig={providerConfig} />
     </Card>
   );
 }
@@ -697,11 +733,12 @@ function StepListCard({
  * conditions, same message types, same payloads.
  */
 function StepActions({
-  epic, step, stepIdx,
+  epic, step, stepIdx, providerConfig,
 }: {
   epic: EpicSummary;
   step: EpicStepDetailFull;
   stepIdx: number;
+  providerConfig?: ProviderConfig;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
@@ -716,6 +753,8 @@ function StepActions({
   const slashCommand = step.slashCommand;
   const hasPreviousAttempt = (step.tokenUsage?.calls ?? 0) > 0 || (step.history?.length ?? 0) > 0;
   const hasFeedback = !!step.feedback;
+  const runDisabled = isRunStepDisabled(providerConfig);
+  const runHint = runDisabled ? runStepDisabledHint() : undefined;
 
   const stop = (fn: () => void) => () => fn();
 
@@ -726,8 +765,17 @@ function StepActions({
           {slashCommand && (
             <StepBtn
               kind="primary"
-              label={hasFeedback ? 'Update with feedback' : hasPreviousAttempt ? 'Run again with Claude' : 'Run with Claude'}
+              label={
+                hasFeedback
+                  ? runStepButtonLabel(providerConfig, 'feedback')
+                  : hasPreviousAttempt
+                    ? runStepButtonLabel(providerConfig, 'again')
+                    : runStepButtonLabel(providerConfig, 'default')
+              }
+              title={runHint}
+              disabled={runDisabled}
               onClick={stop(() => {
+                if (runDisabled) { return; }
                 if (hasFeedback) { setRunOpen(true); return; }
                 postMessage({ type: 'runStepWithFeedback', runId, slashCommand, feedback: '' });
               })}
@@ -761,14 +809,19 @@ function StepActions({
           {slashCommand && (
             <StepBtn
               kind="primary"
-              label="Run again with Claude"
-              onClick={stop(() => postMessage({
-                type: 'rerunAndRunWithClaude',
-                runId,
-                stepIdx,
-                slashCommand,
-                feedback: step.rejectReason ?? '',
-              }))}
+              label={runStepButtonLabel(providerConfig, 'again')}
+              title={runHint}
+              disabled={runDisabled}
+              onClick={stop(() => {
+                if (runDisabled) { return; }
+                postMessage({
+                  type: 'rerunAndRunWithClaude',
+                  runId,
+                  stepIdx,
+                  slashCommand,
+                  feedback: step.rejectReason ?? '',
+                });
+              })}
             />
           )}
           <StepBtn label="Edit feedback first" onClick={stop(() => setRerunOpen(true))} />
@@ -808,11 +861,13 @@ function StepActions({
 
 /* dc.html:888 — step action button */
 function StepBtn({
-  label, onClick, kind = 'default',
+  label, onClick, kind = 'default', disabled = false, title,
 }: {
   label: string;
   onClick: () => void;
   kind?: 'default' | 'primary' | 'danger';
+  disabled?: boolean;
+  title?: string;
 }) {
   const skin =
     kind === 'primary'
@@ -823,9 +878,13 @@ function StepBtn({
   return (
     <button
       type="button"
+      title={title}
+      disabled={disabled}
       onClick={onClick}
       style={{
-        cursor: 'pointer', fontSize: 11, padding: '5px 9px', borderRadius: 6,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
+        fontSize: 11, padding: '5px 9px', borderRadius: 6,
         whiteSpace: 'nowrap', fontFamily: 'inherit', ...skin,
       }}
     >
@@ -835,22 +894,35 @@ function StepBtn({
 }
 
 /* dc.html:897-903 */
-function StepListFooter({ epic, focusedIdx }: { epic: EpicSummary; focusedIdx: number }) {
+function StepListFooter({
+  epic, focusedIdx, providerConfig,
+}: {
+  epic: EpicSummary;
+  focusedIdx: number;
+  providerConfig?: ProviderConfig;
+}) {
   const step = epic.stepDetails[focusedIdx];
   const canRerun = !!epic.runId && !!step?.slashCommand;
   const canStart = !epic.runId && !!epic.pipeline;
+  const runDisabled = isRunStepDisabled(providerConfig);
+  const runHint = runDisabled ? runStepDisabledHint() : undefined;
   return (
     <div style={{ padding: '10px 14px', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       {canRerun && (
         <Btn
-          label="Run again with Claude"
+          label={runStepButtonLabel(providerConfig, 'again')}
           pad="6px 11px"
-          onClick={() => postMessage({
-            type: 'runStepWithFeedback',
-            runId: epic.runId!,
-            slashCommand: step.slashCommand!,
-            feedback: '',
-          })}
+          title={runHint}
+          disabled={runDisabled}
+          onClick={() => {
+            if (runDisabled) { return; }
+            postMessage({
+              type: 'runStepWithFeedback',
+              runId: epic.runId!,
+              slashCommand: step.slashCommand!,
+              feedback: '',
+            });
+          }}
         />
       )}
       {canStart && (
@@ -892,14 +964,15 @@ function StepListFooter({ epic, focusedIdx }: { epic: EpicSummary; focusedIdx: n
 /* ── ⑨ dc.html:906-938 ─────────────────────────────────────────────────── */
 
 function StepDetailCard({
-  epic, step, agentMeta,
+  epic, step, agentMeta, providerConfig,
 }: {
   epic: EpicSummary;
   step: EpicStepDetailFull;
   agentMeta: Record<string, AgentMeta>;
+  providerConfig?: ProviderConfig;
 }) {
   const [updateOpen, setUpdateOpen] = useState(false);
-  const rows = stepDetailRows(step, agentMeta[step.agent]);
+  const rows = stepDetailRows(step, agentMeta[step.agent], providerConfig);
   const name = step.stepName ?? step.agent;
   const fallbackArtifact = step.artifact || agentMeta[step.agent]?.artifact || '';
   const artifactNames = step.artifacts?.length

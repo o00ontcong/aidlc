@@ -16,7 +16,6 @@ import {
   Plug,
   Loader2,
   HelpCircle,
-  ListTree,
   Github,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -27,6 +26,7 @@ import type {
   McpServerInfo,
 } from '@/lib/types';
 import { ConfirmModal } from './ConfirmModal';
+import { ProviderSection } from './ProviderSection';
 import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
 import { ThemeToggle } from './ThemeToggle';
@@ -119,16 +119,8 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
               </div>
             )}
 
-            {/* Analyze Requirements — always visible when a folder is open */}
-            <button
-              type="button"
-              onClick={() => postMessage({ type: 'openAnalyzeView' })}
-              className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-            >
-              <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>Analyze Requirements</span>
-              <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-50" />
-            </button>
+            {/* Agent provider — replaces Analyze Requirements entry (step 1 UI mock). */}
+            <ProviderSection providerConfig={state.providerConfig} />
 
             {state.configExists && (
               <>

@@ -9,7 +9,8 @@
  * the mapping cannot drift from the picture.
  */
 
-import type { EpicSummary, EpicStepDetailFull } from '@/lib/types';
+import type { AgentMeta, EpicStepDetailFull, EpicSummary, ProviderConfig } from '@/lib/types';
+import { mapModelForProvider } from '@/lib/providers';
 import type { FlowKind, FlowNode } from './flow-layout';
 
 /* dc.html:1458 — const g = 'var(--acc)', am = 'var(--warn)', rd = 'var(--err)', gr = 'var(--track)' */
@@ -269,6 +270,7 @@ export interface DetailRowVM { k: string; v: string }
 export function stepDetailRows(
   step: EpicStepDetailFull,
   meta: { description: string; inputs: string; outputs: string; artifact: string } | undefined,
+  providerConfig?: ProviderConfig,
 ): DetailRowVM[] {
   const m = meta ?? { description: '', inputs: '', outputs: '', artifact: '' };
   const rows: DetailRowVM[] = [];
@@ -276,7 +278,14 @@ export function stepDetailRows(
   if (desc) { rows.push({ k: 'mục tiêu', v: desc }); }
   rows.push({ k: 'input', v: step.stepHelp?.inputs || m.inputs || '—' });
   rows.push({ k: 'output', v: step.stepHelp?.outputs || m.outputs || '—' });
-  if (step.stepHelp?.model) { rows.push({ k: 'model', v: step.stepHelp.model }); }
+  if (step.stepHelp?.model) {
+    const canonical = step.stepHelp.model;
+    const mapped = providerConfig
+      ? mapModelForProvider(canonical, providerConfig.defaultProvider, providerConfig.modelMappings)
+      : canonical;
+    const v = mapped !== canonical ? `${mapped} (${canonical})` : mapped;
+    rows.push({ k: 'model', v });
+  }
   const gates: string[] = [];
   if (step.stepHasAutoReview) { gates.push('auto-review'); }
   if (step.stepHasHumanReview) { gates.push('human review'); }

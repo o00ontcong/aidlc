@@ -24,11 +24,10 @@ import {
   getBuiltinWorkflow,
   BUILTIN_WORKFLOWS,
   loadBuiltinPreset,
-  builtinClaudeCommand,
   pipelineCommandId,
   workflowCommandPhases,
   writeBuiltinAutoReviewValidators,
-  writeTwoLayerCommands,
+  syncPipelineCommands,
   type BuiltinWorkflow,
 } from './builtinPresets';
 import {
@@ -253,14 +252,7 @@ export async function applyPresetCommand(
   // so the Claude Code slash commands work without an extra manual step.
   const builtin = getBuiltinWorkflow(preset.id);
   if (builtin) {
-    const epicRoot = readEpicRootFrom(root);
-    writeBuiltinClaudeCommands(root, builtin, preset, epicRoot, overwrite);
-    // Migrate legacy /cohesive-feature-<companion-phase> slash names + fill any
-    // missing companion command files (project-context / work-package).
-    syncBuiltinPipelineCommands(root, extensionPath);
-    // Scaffold the JS auto-review runner(s) the workflow references so
-    // auto-review can load them — otherwise "Mark step done" crashes with a
-    // missing-module error (issue #27).
+    syncBuiltinPipelineCommands(root, extensionPath, { overwrite });
     writeBuiltinAutoReviewValidators(extensionPath, root, builtin);
   }
 
@@ -392,44 +384,8 @@ function readEpicRootFrom(root: string): string {
 }
 
 /**
- * Write `.claude/commands/<slug>-<phase>.md` for each phase in a built-in
- * preset. Namespacing by workflow slug means multiple presets can coexist
- * in one project without overwriting each other's slash commands.
- * Idempotent — never overwrites an existing command file unless `overwrite`
- * is set, which is wired to the same Overwrite confirmation as workspace.yaml.
- */
-function writeBuiltinClaudeCommands(
-  root: string,
-  workflow: BuiltinWorkflow,
-  preset: WorkspacePreset,
-  epicRoot: string,
-  overwrite: boolean,
-): string[] {
-  const commandsDir = path.join(root, '.claude', 'commands');
-  fs.mkdirSync(commandsDir, { recursive: true });
-  const written: string[] = [];
-  for (const { pipelineId, phase } of workflowCommandPhases(workflow)) {
-    // Namespaced filename (pipeline-phase) so coexisting pipelines don't
-    // overwrite each other's commands; body is keyed by the bare phase id.
-    const commandFile = path.join(commandsDir, `${pipelineCommandId(pipelineId, phase.id)}.md`);
-    if (fs.existsSync(commandFile) && !overwrite) { continue; }
-    const skillBody = preset.skillContents[phase.id] ?? `# ${phase.name}\n\n${phase.description}\n`;
-    fs.writeFileSync(commandFile, builtinClaudeCommand(phase, skillBody, epicRoot), 'utf8');
-    written.push(commandFile);
-  }
-
-  // GH-71: also emit the pipeline-agnostic two-layer command set — the fixed
-  // shortcut phases (`/plan`, `/design`, …) + the `/aidlc <epic> [phase]`
-  // backbone dispatcher. These resolve composition at runtime from the epic's
-  // pipeline binding, so they're written once (not per pipeline) and left
-  // alongside the namespaced files above for back-compat. Idempotent.
-  writeTwoLayerCommands(root, { epicRoot, overwrite });
-  return written;
-}
-
-/**
  * Ensure every built-in pipeline present in workspace.yaml has:
- *   1. correctly namespaced `.claude/commands/<pipelineId>-<phase>.md` files
+ *   1. command files under each enabled provider's commands directory
  *   2. matching `slash_commands` entries in workspace.yaml
  *
  * Fixes installs that predated companion-pipeline command namespacing
@@ -438,20 +394,24 @@ function writeBuiltinClaudeCommands(
  * the Epic card shows `/project-context-publish-context` but Claude reports
  * "Unknown command".
  *
- * Safe to call on every Run with Claude — only writes missing files and
+ * Safe to call on every Run — only writes missing files and
  * appends/renames slash_commands entries; never clobbers hand-edited bodies.
  */
 export function syncBuiltinPipelineCommands(
   root: string,
   extensionPath: string,
+  opts: { overwrite?: boolean; providers?: string[] } = {},
 ): { commandsWritten: string[]; slashAdded: string[]; slashRenamed: string[] } {
   const doc = readYaml(root);
   const empty = { commandsWritten: [] as string[], slashAdded: [] as string[], slashRenamed: [] as string[] };
   if (!doc) { return empty; }
 
+  const syncResult = syncPipelineCommands(root, extensionPath, {
+    overwrite: opts.overwrite ?? false,
+    providers: opts.providers,
+  });
+  const commandsWritten = syncResult.commandsWritten;
   const pipelineIds = new Set(doc.pipelines.map((p) => String(p.id)));
-  const epicRoot = readEpicRootFrom(root);
-  const commandsWritten: string[] = [];
   const slashAdded: string[] = [];
   const slashRenamed: string[] = [];
   let yamlDirty = false;
@@ -465,18 +425,6 @@ export function syncBuiltinPipelineCommands(
     ].some((id) => pipelineIds.has(id));
     if (!ownsPipeline) { continue; }
 
-    let preset: WorkspacePreset;
-    try {
-      preset = loadBuiltinPreset(extensionPath, workflow);
-    } catch {
-      continue;
-    }
-
-    commandsWritten.push(
-      ...writeBuiltinClaudeCommands(root, workflow, preset, epicRoot, false),
-    );
-
-    // Expected slash command per phase for this bundle.
     const expectedByPhase = new Map<string, { name: string; agent: string; pipelineId: string }>();
     for (const { pipelineId, phase } of workflowCommandPhases(workflow)) {
       expectedByPhase.set(phase.id, {

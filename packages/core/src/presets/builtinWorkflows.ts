@@ -1611,33 +1611,9 @@ export function builtinClaudeCommand(
   skillBody: string,
   epicRoot: string,
 ): string {
-  const explicitOutputs = phase.produces?.map((output) =>
-    output.replaceAll('{epic}', '$ARGUMENTS')) ?? [];
-  const isFilePath = !phase.artifact.includes('<') && !phase.artifact.includes('>');
-  const artifactInstruction = explicitOutputs.length > 0
-    ? `3. Produce every declared output below. These paths are pipeline gates; do not create placeholders or report completion before their contents are valid:\n${explicitOutputs.map((output) => `   - \`${output}\``).join('\n')}`
-    : isFilePath
-      ? `3. Write your output to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.artifact}\`. The AIDLC validator checks for this file when the step is marked done.`
-      : `3. Complete the work (${phase.artifact}), then write a summary to \`${epicRoot}/$ARGUMENTS/artifacts/${phase.id.toUpperCase()}-SUMMARY.md\` so the AIDLC validator has a file to check.`;
-
-  return `---
-description: ${phase.description}
-model: ${phase.model}
----
-
-${skillBody.trim()}
-
-## Task
-
-The user invoked you with epic id \`$ARGUMENTS\`.
-
-1. Read \`${epicRoot}/$ARGUMENTS/state.json\` to understand the current run state.
-   - If the step has \`feedback\` from a prior rejection, address it explicitly in this revision.
-   - Check \`history\` entries for rejection reasons and context.
-2. Read \`${epicRoot}/$ARGUMENTS/inputs.json\` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.).
-${artifactInstruction}
-4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.
-`;
+  const { buildStepCommandSpec, renderClaudeCommandFile } = require('../providers/stepCommand') as typeof import('../providers/stepCommand');
+  const spec = buildStepCommandSpec(phase, skillBody, epicRoot, phase.id);
+  return renderClaudeCommandFile(spec, phase.model);
 }
 
 /** Back-compat alias — older call sites import `sdlcClaudeCommand`. */

@@ -894,7 +894,7 @@ async function offerApplyContextReviewCorrections(
   }
   if (!slash) {
     void vscode.window.showWarningMessage(
-      'AIDLC: could not resolve the step slash command. Use Help on the step card, then Run with Claude.',
+      'AIDLC: could not resolve the step slash command. Use Help on the step card, then run the step from the epic panel.',
     );
     return true;
   }
