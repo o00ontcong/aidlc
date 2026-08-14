@@ -3,7 +3,7 @@ import { Background, Controls, ReactFlow, type Edge, type Node, type NodeMouseHa
 import '@xyflow/react/dist/style.css';
 import mermaid from 'mermaid';
 
-import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureNode } from '@/lib/types';
+import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureFeature, ArchitectureNode } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { Modal } from './Modal';
 
@@ -40,6 +40,51 @@ function graphEdges(edges: readonly ArchitectureEdge[]): Edge[] {
     // across the graph where it obscures the architecture shape.
     label: edge.label && edge.label.length <= 28 ? edge.label : undefined,
   }));
+}
+
+/**
+ * The catalog currently identifies feature participants/layers, not a second
+ * call graph. Derive only the small set of shared-layer links so Level 2 has
+ * a useful product map, and label them as dependencies rather than calls.
+ */
+function featureGraph(features: readonly ArchitectureFeature[], language: Language): { nodes: ArchitectureNode[]; edges: ArchitectureEdge[] } {
+  const primaryLayer = (feature: ArchitectureFeature): string | undefined => {
+    const layers = feature.layers ?? [];
+    return layers.find((layer) => feature.id.includes(layer) || layer.includes(feature.id))
+      ?? layers.find((layer) => feature.name.toLowerCase().includes(layer.replace(/-/g, ' ')))
+      ?? (layers.length === 1 ? layers[0] : undefined);
+  };
+  const layerOwners = new Map<string, ArchitectureFeature>();
+  for (const feature of features) {
+    const layer = primaryLayer(feature);
+    if (layer) layerOwners.set(layer, feature);
+  }
+  const labelFor = (layer: string): string => {
+    if (language === 'vi') {
+      if (layer === 'pet-shell') return 'mở từ';
+      if (layer === 'persistence') return 'lưu vào';
+      return 'dùng chung';
+    }
+    if (layer === 'pet-shell') return 'opens from';
+    if (layer === 'persistence') return 'persists to';
+    return 'uses shared';
+  };
+  const edges: ArchitectureEdge[] = [];
+  const seen = new Set<string>();
+  for (const feature of features) {
+    for (const layer of feature.layers ?? []) {
+      const owner = layerOwners.get(layer);
+      if (!owner || owner.id === feature.id) continue;
+      const key = `${feature.id}:${owner.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({ source: `feature:${feature.id}`, target: `feature:${owner.id}`, label: labelFor(layer), confidence: 'inferred-shared-layer' });
+    }
+  }
+  return {
+    nodes: features.map((feature) => ({ id: `feature:${feature.id}`, label: feature.name, kind: 'feature', layer: primaryLayer(feature), role: feature.summary })),
+    edges,
+  };
 }
 
 function MermaidFlow({ source, title }: { source?: string; title: string }) {
@@ -88,12 +133,9 @@ export function ArchitectureExplorer({ architecture, language }: { architecture:
   const flow = featureId ? architecture.featureFlows[featureId] : undefined;
   const graph = useMemo(() => {
     if (level === 'overview') return { nodes: architecture.layers, edges: architecture.edges };
-    if (level === 'features') return {
-      nodes: architecture.features.map((feature) => ({ id: `feature:${feature.id}`, label: feature.name, kind: 'feature', role: feature.summary })),
-      edges: [],
-    };
+    if (level === 'features') return featureGraph(architecture.features, language);
     return { nodes: flow?.nodes ?? [], edges: flow?.edges ?? [] };
-  }, [architecture, flow, level]);
+  }, [architecture, flow, language, level]);
   const selectNode: NodeMouseHandler = (_event, node) => {
     const item = graph.nodes.find((candidate) => candidate.id === node.id || `feature:${candidate.id}` === node.id);
     if (item) setSelected(item);
