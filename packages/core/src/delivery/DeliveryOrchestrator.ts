@@ -7,6 +7,7 @@ import { normalizeStep, stepAgentId, type PipelineConfig } from '../schema/Works
 import { scaffoldEpic } from '../runs/EpicScaffold';
 import { requestStepUpdate } from '../runs/PipelineRunner';
 import { RunStateStore } from '../runs/RunStateStore';
+import { pipelineForRun } from '../runs/PipelineSnapshot';
 import { runExecLoop, type ExecHooks, type ExecOutcome } from '../runs/execEngine';
 import { writeDeliveryReviewBundle } from './DeliveryReview';
 import { DeliveryStateStore } from './DeliveryStateStore';
@@ -221,7 +222,7 @@ export class DeliveryOrchestrator {
     if (input.target?.runId && input.target.step) {
       const run = RunStateStore.load(this.workspaceRoot, input.target.runId);
       if (!run) throw new Error(`Explicit review target run "${input.target.runId}" not found.`);
-      const idx = stepIndex(this.pipeline(run.pipelineId), input.target.step);
+      const idx = stepIndex(this.pipelineForRun(run), input.target.step);
       if (run.steps[idx]?.status !== 'approved') {
         throw new Error('Explicit review task target must be a previously completed/approved step.');
       }
@@ -269,7 +270,7 @@ export class DeliveryOrchestrator {
       if (!target.runId || !target.step) throw new Error('Review task target must identify a run and step.');
       const run = RunStateStore.load(this.workspaceRoot, target.runId);
       if (!run) throw new Error(`Run "${target.runId}" not found.`);
-      const idx = stepIndex(this.pipeline(run.pipelineId), target.step);
+      const idx = stepIndex(this.pipelineForRun(run), target.step);
       const existing = grouped.get(target.runId);
       if (!existing) {
         grouped.set(target.runId, { target, stepIdx: idx, feedback: [`${task.id}: ${task.title}`] });
@@ -595,7 +596,7 @@ export class DeliveryOrchestrator {
   private reopenApprovedStep(runId: string, stepName: string, feedback: string): void {
     const run = RunStateStore.load(this.workspaceRoot, runId);
     if (!run) throw new Error(`Run "${runId}" not found.`);
-    const pipeline = this.pipeline(run.pipelineId);
+    const pipeline = this.pipelineForRun(run);
     const idx = stepIndex(pipeline, stepName);
     if (run.steps[idx]?.status !== 'approved') return;
     const next = requestStepUpdate({ state: run, pipeline, stepIdx: idx, feedback });
@@ -606,6 +607,10 @@ export class DeliveryOrchestrator {
     const pipeline = WorkspaceLoader.load(this.workspaceRoot).config.pipelines.find((item) => item.id === id);
     if (!pipeline) throw new Error(`Required Cohesive Delivery pipeline "${id}" is not installed.`);
     return pipeline;
+  }
+
+  private pipelineForRun(run: import('../runs/RunState').RunState): PipelineConfig {
+    return pipelineForRun(run, this.pipeline(run.pipelineId)) ?? this.pipeline(run.pipelineId);
   }
 
   private saveStage(state: DeliveryState, hooks: DeliveryHooks, stage: string): void {

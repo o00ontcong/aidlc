@@ -23,6 +23,7 @@ export function isCodeHumanReviewStep(step: EpicStepDetailFull | null): boolean 
     || name.includes('package-review')
     || name.includes('review-diff')
     || !!step.artifact?.toLowerCase().includes('review-diff')
+    || !!step.artifacts?.some((artifact) => artifact.toLowerCase().includes('review-diff'))
   );
 }
 

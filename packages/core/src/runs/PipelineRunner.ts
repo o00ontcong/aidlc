@@ -27,6 +27,7 @@ import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { RunState, StepRecord, AutoReviewVerdict, StepHistoryEntry } from './RunState';
 import { resolvePath } from './RunState';
+import { snapshotPipeline } from './PipelineSnapshot';
 
 export class PipelineRunError extends Error {
   constructor(message: string, public readonly missing?: string[]) {
@@ -79,6 +80,7 @@ export function startRun(args: {
     schemaVersion: 1,
     runId,
     pipelineId: pipeline.id,
+    pipelineSnapshot: snapshotPipeline(pipeline, now),
     context: { ...context },
     startedAt: now,
     updatedAt: now,

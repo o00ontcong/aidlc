@@ -87,7 +87,9 @@ export function stepMeta(step: EpicStepDetailFull): string {
   const isAwaitingUpdate = step.status === 'pending' && (step.history ?? []).length > 0;
   parts.push(isAwaitingUpdate ? 'awaiting update' : step.runStatus ?? step.status.replace('_', ' '));
   if (step.artifact) {
-    parts.push(step.artifactExists ? step.artifact : `${step.artifact} · chưa tạo`);
+    const extra = Math.max(0, (step.artifacts?.length ?? 1) - 1);
+    const label = `${step.artifact}${extra > 0 ? ` +${extra}` : ''}`;
+    parts.push(step.artifactExists ? label : `${label} · chưa tạo`);
   }
   if (step.stepName && step.stepName !== step.agent) { parts.push(`agent ${step.agent}`); }
   const u = step.tokenUsage;

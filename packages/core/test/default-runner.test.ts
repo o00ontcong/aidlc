@@ -51,6 +51,15 @@ describe('DefaultRunner — stream-json parsing', () => {
     await p;
   });
 
+  it('passes a per-step model override to Claude', async () => {
+    const runner = new DefaultRunner();
+    const p = runner.run(ctx({ model: 'claude-sonnet-5' }));
+    expect(lastArgs).toContain('--model');
+    expect(lastArgs[lastArgs.indexOf('--model') + 1]).toBe('claude-sonnet-5');
+    lastChild.emit('close', 0);
+    await p;
+  });
+
   it('streams assistant text and captures total_cost_usd from the result event', async () => {
     const runner = new DefaultRunner();
     const chunks: string[] = [];

@@ -176,8 +176,10 @@ For **Existing Project Autonomous Delivery**, use **Autonomous Delivery** beside
 `/aidlc-autonomous-delivery <delivery-id>` to drive the complete delivery; do not
 click **Mark step done** between its phases. **Resume interrupted delivery** opens
 that same master command again and resumes from the saved checkpoint rather than
-restarting approved work. The extension does not launch a global `aidlc cohesive`
-process in the background.
+restarting approved work. In Autonomous Delivery, validated `human_review` gates
+are approved automatically; Claude pauses only for a real unresolved question or
+external blocker. The extension does not launch a global `aidlc cohesive` process
+in the background.
 
 For Cohesive Delivery, **parallel** means several independent feature epics running
 at the same time. It does not mean creating worker/work-package epics or choosing

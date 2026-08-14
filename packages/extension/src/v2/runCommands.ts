@@ -42,6 +42,7 @@ import {
   renderRunReport,
   PipelineRunError,
   AutoReviewerError,
+  pipelineForRun,
 } from '@aidlc/core';
 import type { PipelineConfig, RunState } from '@aidlc/core';
 
@@ -82,11 +83,11 @@ function requireRoot(action: string): string | undefined {
 }
 
 /** Find a pipeline definition by id in the current workspace.yaml. */
-function loadPipeline(root: string, pipelineId: string): PipelineConfig | undefined {
+function loadPipeline(root: string, pipelineId: string, state?: RunState): PipelineConfig | undefined {
   const doc = readYaml(root);
   if (!doc) { return undefined; }
   const found = (doc.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
-  return found;
+  return state ? pipelineForRun(state, found) ?? undefined : found;
 }
 
 /**
@@ -254,7 +255,7 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
   const state = RunStateStore.load(root, runId);
   if (!state) { void vscode.window.showWarningMessage(`Run "${runId}" not found.`); return; }
 
-  const pipeline = loadPipeline(root, state.pipelineId);
+  const pipeline = loadPipeline(root, state.pipelineId, state);
   if (!pipeline) {
     void vscode.window.showErrorMessage(
       `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
@@ -304,7 +305,7 @@ export async function runAutoReviewCommand(runIdArg?: string, stepIdxArg?: numbe
 
   const state = RunStateStore.load(root, runId);
   if (!state) { return; }
-  const pipeline = loadPipeline(root, state.pipelineId);
+  const pipeline = loadPipeline(root, state.pipelineId, state);
   if (!pipeline) {
     void vscode.window.showErrorMessage(
       `Pipeline "${state.pipelineId}" missing from workspace.yaml.`,
@@ -358,7 +359,7 @@ export async function approveStepCommand(runIdArg?: string, stepIdxArg?: number)
 
   const state = RunStateStore.load(root, runId);
   if (!state) { return; }
-  const pipeline = loadPipeline(root, state.pipelineId);
+  const pipeline = loadPipeline(root, state.pipelineId, state);
   if (!pipeline) {
     void vscode.window.showErrorMessage(
       `Pipeline "${state.pipelineId}" missing from workspace.yaml.`,
@@ -407,7 +408,7 @@ export async function rejectStepCommand(runIdArg?: string, stepIdxArg?: number):
   if (targetIdx === undefined) { return; }
 
   try {
-    const pipeline = loadPipeline(root, state.pipelineId);
+    const pipeline = loadPipeline(root, state.pipelineId, state);
     const next = rejectStep({
       state,
       reason: reason.trim() || undefined,
@@ -453,7 +454,7 @@ export async function rejectStepInlineCommand(
   if (!Number.isInteger(targetIdx) || targetIdx < 0 || targetIdx > idx) { return; }
 
   try {
-    const pipeline = loadPipeline(root, state.pipelineId);
+    const pipeline = loadPipeline(root, state.pipelineId, state);
     const next = rejectStep({
       state,
       reason: reason.trim() || undefined,
@@ -594,7 +595,7 @@ export async function requestStepUpdateInlineCommand(
   if (!root) { return; }
   const state = RunStateStore.load(root, runId);
   if (!state) { return; }
-  const pipeline = loadPipeline(root, state.pipelineId);
+  const pipeline = loadPipeline(root, state.pipelineId, state);
   if (!pipeline) {
     void vscode.window.showErrorMessage(
       `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
@@ -731,7 +732,7 @@ export async function verifyRunCommand(runIdArg?: string): Promise<void> {
 
   const state = RunStateStore.load(root, runId);
   if (!state) { void vscode.window.showWarningMessage(`Run "${runId}" not found.`); return; }
-  const pipeline = loadPipeline(root, state.pipelineId);
+  const pipeline = loadPipeline(root, state.pipelineId, state);
   if (!pipeline) {
     void vscode.window.showErrorMessage(
       `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
@@ -774,7 +775,7 @@ export async function runReportCommand(runIdArg?: string): Promise<void> {
 
   const state = RunStateStore.load(root, runId);
   if (!state) { void vscode.window.showWarningMessage(`Run "${runId}" not found.`); return; }
-  const pipeline = loadPipeline(root, state.pipelineId);
+  const pipeline = loadPipeline(root, state.pipelineId, state);
 
   const md = renderRunReport({ state, pipeline: pipeline ?? undefined });
   const doc = await vscode.workspace.openTextDocument({ content: md, language: 'markdown' });

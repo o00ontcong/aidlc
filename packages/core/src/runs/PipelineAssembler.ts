@@ -116,6 +116,7 @@ export function assemblePipeline(
     const step: Record<string, unknown> = {
       agent: norm.agent,
       name: norm.name ?? id,
+      ...(norm.model ? { model: norm.model } : {}),
       enabled: norm.enabled,
       produces: norm.produces,
       requires: norm.requires,

@@ -63,8 +63,8 @@ export function autonomousDeliveryActions(
 }
 
 export const REQUIRED_AUTONOMOUS_PIPELINES = [
-  { id: 'project-context', steps: 7 },
-  { id: 'cohesive-feature', steps: 13 },
+  { id: 'project-context', steps: 8 },
+  { id: 'cohesive-feature', steps: 14 },
 ] as const;
 
 export function autonomousDeliveryReadiness(pipelines: AutonomousPipelineLike[]): {

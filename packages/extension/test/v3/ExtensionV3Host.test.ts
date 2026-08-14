@@ -29,7 +29,7 @@ describe('ExtensionV3Host', () => {
   it('routes every browser command to the shared application bus or an explicit host capability', () => {
     const app = new AidlcApplication(tempWorkspace());
     const applicationNames = new Set(app.bus.names());
-    const hostNames = new Set(['capability.ast.graph.open', 'capability.annotation.open']);
+    const hostNames = new Set(['capability.ast.graph.open', 'capability.annotation.open', 'architecture.source.open', 'cohesive.upgrade.open']);
     const missing = V3_COMMAND_NAMES.filter((name) => !hostNames.has(name) && !applicationNames.has(toApplicationCommandName(name)));
     expect(missing).toEqual([]);
   });

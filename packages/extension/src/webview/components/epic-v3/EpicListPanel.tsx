@@ -310,37 +310,31 @@ function OpenList(p: EpicListPanelProps) {
             </Section>
           </>
         )}
-      </div>
-
-      {/* footer — dc.html:652 */}
-      <div
-        style={{
-          flex: 'none', padding: '8px 10px', borderTop: '1px solid var(--bd)',
-          display: 'flex', gap: 6,
-        }}
-      >
-        <button
-          type="button"
-          onClick={p.onNewEpic}
-          style={{
-            cursor: 'pointer', flex: 1, textAlign: 'center', padding: 7, borderRadius: 6,
-            background: 'var(--acc)', color: 'var(--on-acc)', fontSize: 11.5, fontWeight: 600,
-            border: 'none', fontFamily: 'inherit',
-          }}
-        >
-          + New Epic
-        </button>
-        <button
-          type="button"
-          onClick={p.onAutonomousDelivery}
-          title="Start Autonomous Delivery"
-          style={{
-            cursor: 'pointer', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--bd)',
-            color: 'var(--txt2)', fontSize: 11.5, background: 'transparent', fontFamily: 'inherit',
-          }}
-        >
-          ⚡
-        </button>
+        {/* Actions follow the epic rows instead of remaining pinned to the panel bottom. */}
+        <div style={{ display: 'flex', gap: 6, paddingTop: 1 }}>
+          <button
+            type="button"
+            onClick={p.onNewEpic}
+            style={{
+              cursor: 'pointer', flex: 1, textAlign: 'center', padding: 7, borderRadius: 6,
+              background: 'var(--acc)', color: 'var(--on-acc)', fontSize: 11.5, fontWeight: 600,
+              border: 'none', fontFamily: 'inherit',
+            }}
+          >
+            + New Epic
+          </button>
+          <button
+            type="button"
+            onClick={p.onAutonomousDelivery}
+            title="Start Autonomous Delivery"
+            style={{
+              cursor: 'pointer', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--bd)',
+              color: 'var(--txt2)', fontSize: 11.5, background: 'transparent', fontFamily: 'inherit',
+            }}
+          >
+            ⚡
+          </button>
+        </div>
       </div>
     </div>
   );

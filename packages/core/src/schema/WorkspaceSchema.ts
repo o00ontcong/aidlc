@@ -117,6 +117,12 @@ const PipelineStepObjectSchema = z
     agent: z.string().min(1),
     /** Display name for the step. Falls back to the agent id when omitted. */
     name: z.string().optional(),
+    /**
+     * Model used for this invocation. When omitted, the agent's model remains
+     * the backwards-compatible default. This lets a single role use a deep
+     * model for architecture or review and a balanced model for execution.
+     */
+    model: z.string().min(1).optional(),
     /** Step is part of the pipeline but skipped at run time when false. Defaults to true. */
     enabled: z.boolean().default(true),
     /** Artifact paths the step is expected to produce. Checked after work. */
@@ -249,6 +255,8 @@ export type PipelineStepConfig = z.infer<typeof PipelineStepSchema>;
 export interface NormalizedStep {
   agent: string;
   name?: string;
+  /** Per-step model override. Falls back to the owning agent's model. */
+  model?: string;
   /** Skill ids this step makes available — overrides the agent's defaults. */
   skills?: string[];
   enabled: boolean;
@@ -312,6 +320,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
   return {
     agent: typeof obj.agent === 'string' ? obj.agent : '',
     name: typeof obj.name === 'string' ? obj.name : undefined,
+    model: typeof obj.model === 'string' && obj.model.length > 0 ? obj.model : undefined,
     skills,
     enabled: typeof obj.enabled === 'boolean' ? obj.enabled : true,
     produces,

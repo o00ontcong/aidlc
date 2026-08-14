@@ -15,6 +15,7 @@ const initialState: V3WorkspaceState = {
   providerDiagnostics: [],
   artifactPolicy: {},
   capabilities: [],
+  architecture: { available: false, layers: [], edges: [], features: [], structuralNodes: [], structuralEdges: [], featureFlows: {} },
   guide: { title: 'AIDLC guide', why: 'Loading workspace state.', inputs: [], outputs: [], doneWhen: '', next: '', recovery: [] },
 };
 

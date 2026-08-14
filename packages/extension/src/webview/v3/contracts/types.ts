@@ -12,7 +12,7 @@ export type V3StageId = (typeof V3_STAGE_IDS)[number];
 export const V3_AUTONOMY_MODES = ['guide', 'assist', 'auto', 'unattended'] as const;
 export type V3AutonomyMode = (typeof V3_AUTONOMY_MODES)[number];
 
-export type V3ViewId = 'home' | 'epics' | 'studio' | 'guide';
+export type V3ViewId = 'home' | 'architecture' | 'epics' | 'studio' | 'guide';
 export type V3EpicStatus =
   | 'draft'
   | 'ready'
@@ -164,6 +164,38 @@ export interface V3Guide {
   readonly advancedLog?: string;
 }
 
+/** Curated architecture artifact projection. Raw AST databases stay host-side. */
+export interface V3ArchitectureNode {
+  readonly id: string;
+  readonly label: string;
+  readonly kind?: string;
+  readonly layer?: string;
+  readonly file?: string;
+  readonly symbol?: string;
+  readonly role?: string;
+}
+export interface V3ArchitectureEdge { readonly source: string; readonly target: string; readonly label?: string; readonly confidence?: string; }
+export interface V3ArchitectureFeature {
+  readonly id: string;
+  readonly name: string;
+  readonly summary?: string;
+  readonly confidence?: 'high' | 'medium' | 'low' | string;
+  readonly evidence?: readonly string[];
+  readonly entrypoints?: readonly { readonly label: string; readonly file: string; readonly symbol?: string }[];
+  readonly layers?: readonly string[];
+}
+export interface V3FeatureFlow { readonly featureId: string; readonly title?: string; readonly nodes: readonly V3ArchitectureNode[]; readonly edges: readonly V3ArchitectureEdge[]; readonly mermaid?: string; }
+export interface V3ArchitectureState {
+  readonly available: boolean;
+  readonly message?: string;
+  readonly layers: readonly V3ArchitectureNode[];
+  readonly edges: readonly V3ArchitectureEdge[];
+  readonly features: readonly V3ArchitectureFeature[];
+  readonly structuralNodes: readonly V3ArchitectureNode[];
+  readonly structuralEdges: readonly V3ArchitectureEdge[];
+  readonly featureFlows: Readonly<Record<string, V3FeatureFlow>>;
+}
+
 /** Complete, serializable screen state supplied by the extension host. */
 export interface V3WorkspaceState {
   readonly project: V3ProjectState;
@@ -174,6 +206,9 @@ export interface V3WorkspaceState {
   readonly providerDiagnostics: readonly V3ProviderDiagnostic[];
   readonly artifactPolicy: Readonly<Record<string, unknown>>;
   readonly legacyMigration?: { readonly id: string; readonly itemCount: number; readonly command: string };
+  /** Persistent, actionable notice for a generated Cohesive bundle that predates the feature-centric workflow. */
+  readonly cohesiveUpgrade?: { readonly id: string; readonly fromVersion: string; readonly toVersion: string; readonly activeRunCount: number; readonly hasConflicts: boolean };
   readonly capabilities: readonly V3Capability[];
+  readonly architecture: V3ArchitectureState;
   readonly guide: V3Guide;
 }

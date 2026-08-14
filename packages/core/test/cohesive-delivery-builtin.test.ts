@@ -40,7 +40,7 @@ describe('Cohesive Delivery built-in bundle', () => {
     ]);
     expect(config.agents).toHaveLength(3);
     expect(config.skills).toHaveLength(3);
-    expect(config.slash_commands).toHaveLength(20);
+    expect(config.slash_commands).toHaveLength(22);
     const slashNames = config.slash_commands.map((c) => c.name);
     expect(slashNames).toContain('/project-context-define-charter');
     expect(slashNames).toContain('/project-context-scan-project');
@@ -54,8 +54,8 @@ describe('Cohesive Delivery built-in bundle', () => {
 
     const project = config.pipelines.find((pipeline) => pipeline.id === 'project-context')!;
     const feature = config.pipelines.find((pipeline) => pipeline.id === 'cohesive-feature')!;
-    expect(project.steps).toHaveLength(7);
-    expect(feature.steps).toHaveLength(13);
+    expect(project.steps).toHaveLength(8);
+    expect(feature.steps).toHaveLength(14);
 
     expect(feature.steps[0].requires).toContain('docs/project/context/CONTEXT-MANIFEST.json');
     const specify = feature.steps.find((s) => s.name === 'specify')!;
@@ -84,15 +84,25 @@ describe('Cohesive Delivery built-in bundle', () => {
     const cohesion = feature.steps.find((s) => s.name === 'cohesion-review')!;
     expect(cohesion.agent).toBe('aidlc-cohesive-reviewer-agent');
 
+    // A role is reused across the feature, but the actual model is selected
+    // by the step: deep reasoning/review stays on Opus; routine execution is
+    // on Sonnet. This prevents the agent-level fallback from flattening the
+    // delivery into one expensive model.
+    expect(feature.steps.find((s) => s.name === 'specify')?.model).toBe('claude-opus-5');
+    expect(feature.steps.find((s) => s.name === 'implement')?.model).toBe('claude-sonnet-5');
+    expect(cohesion.model).toBe('claude-opus-5');
+    expect(project.steps.find((s) => s.name === 'scan-project')?.model).toBe('claude-sonnet-5');
+    expect(project.steps.find((s) => s.name === 'model-project')?.model).toBe('claude-opus-5');
+
   });
 
   it('keeps companion pipeline lookup compatible with existing extension code', () => {
     const project = getBuiltinWorkflowByPipelineId('project-context');
     expect(project?.phases.map((phase) => phase.id)).toEqual([
-      'define-charter', 'scan-project', 'model-project', 'check-drift',
+      'define-charter', 'scan-project', 'model-project', 'map-features', 'check-drift',
       'review-context', 'publish-context', 'project-rules-sync',
     ]);
-    expect(getBuiltinPipelineSummary(workflow).steps).toHaveLength(13);
+    expect(getBuiltinPipelineSummary(workflow).steps).toHaveLength(14);
     expect(getBuiltinWorkflowByPipelineId('cohesive-work-package')).toBeUndefined();
   });
 
@@ -106,8 +116,11 @@ describe('Cohesive Delivery built-in bundle', () => {
     expect(ids).not.toContain('integrate');
 
     const implement = feature.phases.find((phase) => phase.id === 'implement')!;
-    expect(implement.dependsOn).toContain('analyze-contract');
+    expect(implement.dependsOn).toContain('map-feature-flow');
     expect(implement.produces).toContain('docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md');
+    expect(builtinClaudeCommand(implement, '# Implementation skill', 'docs/epics')).toContain(
+      'model: claude-sonnet-5',
+    );
   });
 
   it('does not pre-seed gate outputs with empty artifact templates', () => {

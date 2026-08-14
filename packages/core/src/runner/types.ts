@@ -10,6 +10,8 @@
 export interface RunnerContext {
   /** Skill markdown content (system prompt). */
   skill: string;
+  /** Model resolved for this pipeline step, when the runner supports it. */
+  model?: string;
   /** Resolved environment variables (workspace + agent layered, secrets expanded). */
   env: Record<string, string>;
   /** Slash command args, already split. */

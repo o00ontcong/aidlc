@@ -174,6 +174,37 @@ Write `docs/project/conformance/DRIFT-REPORT.md` with:
 
 First bootstrap may list many advisory findings — that is expected.
 
+## Phase: `map-features`
+
+Build the Architecture Explorer's **small, evidence-backed** navigation model.
+People must enter through `Overview → Feature → Code`, never through one giant file graph.
+
+1. Prefer the workspace AST graph when it is available. Use imports/calls/routes as evidence, then read source only for role and naming. If it is unavailable or stale, state that in the manifest and use repository evidence instead.
+2. Detect candidate product features from routes, screens, public commands, use cases, tests, and module ownership. AI may group/rename candidates, but never invent a feature without a path or symbol as evidence.
+3. Keep Level 1 to roughly 3–8 layers and Level 2 to human-sized feature groups. Ambiguous groupings stay low-confidence and visible for correction.
+
+Write all files under `docs/project/context/visualization/`:
+
+### `PROJECT-ARCHITECTURE.json`
+
+```json
+{"schemaVersion":1,"generatedAt":"ISO-8601","source":{"commit":"full-git-sha","staticAnalysis":"ast-graph|repository-scan"},"layers":[{"id":"presentation","label":"Presentation","role":"Screens and UI state","evidence":["src/features"]}],"edges":[{"source":"presentation","target":"domain","label":"uses"}]}
+```
+
+### `FEATURE-CATALOG.json`
+
+```json
+{"schemaVersion":1,"generatedAt":"ISO-8601","features":[{"id":"auth","name":"Authentication","summary":"Signs users in and out","confidence":"high","evidence":["src/features/auth/LoginView.swift"],"entrypoints":[{"label":"Login","file":"src/features/auth/LoginView.swift","symbol":"LoginView"}],"layers":["presentation","domain","data"]}]}
+```
+
+### `STRUCTURAL-GRAPH-MANIFEST.json`
+
+```json
+{"schemaVersion":1,"generatedAt":"ISO-8601","source":{"kind":"ast-graph|repository-scan","graphRevision":"optional"},"nodes":[{"id":"symbol:LoginViewModel","label":"LoginViewModel","kind":"class","file":"src/features/auth/LoginViewModel.swift","role":"presentation"}],"edges":[{"source":"symbol:LoginView","target":"symbol:LoginViewModel","kind":"calls|imports|owns","confidence":"observed"}]}
+```
+
+All file paths are workspace-relative. Do not include source text, secrets, or an unbounded list of low-level nodes; use `truncated: true` when necessary.
+
 ## Phase: `review-context`
 
 Review the five context documents against repository evidence (and note drift). Write `CONTEXT-REVIEW.md` containing:
@@ -203,7 +234,7 @@ Write `docs/project/context/CONTEXT-MANIFEST.json` using this schema:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "revision": 1,
   "sourceCommit": "full-git-sha",
   "generatedAt": "ISO-8601",
@@ -214,7 +245,10 @@ Write `docs/project/context/CONTEXT-MANIFEST.json` using this schema:
     "ARCHITECTURE-MAP.md": "sha256:...",
     "DOMAIN-MODEL.md": "sha256:...",
     "SHARED-CONTRACTS.md": "sha256:...",
-    "ENGINEERING-RULES.md": "sha256:..."
+    "ENGINEERING-RULES.md": "sha256:...",
+    "visualization/PROJECT-ARCHITECTURE.json": "sha256:...",
+    "visualization/FEATURE-CATALOG.json": "sha256:...",
+    "visualization/STRUCTURAL-GRAPH-MANIFEST.json": "sha256:..."
   }
 }
 ```

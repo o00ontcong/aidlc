@@ -18,6 +18,7 @@ export * from './project';
 export * from './workflows';
 export * from './application';
 export * from './migration';
+export * from './runs/PipelineSnapshot';
 export * from './packs';
 export * from './validators';
 export * from './release';

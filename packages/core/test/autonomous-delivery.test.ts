@@ -8,6 +8,8 @@ import {
   BUILTIN_WORKFLOWS,
   DeliveryOrchestrator,
   DeliveryStateStore,
+  ensureAutonomousEpicMasterCommand,
+  ensureAutonomousMasterCommand,
   RunStateStore,
   builtinTemplatesRoot,
   loadBuiltinPreset,
@@ -58,6 +60,26 @@ function deliveryState(id = 'FEATURE-1'): DeliveryState {
 }
 
 describe('Existing Project Autonomous Delivery contracts', () => {
+  it('auto-approves validated human-review gates and pauses only for questions', () => {
+    const root = temp();
+    ensureAutonomousEpicMasterCommand(root);
+    ensureAutonomousMasterCommand(root);
+
+    const epicMaster = fs.readFileSync(
+      path.join(root, '.claude', 'commands', 'aidlc-autonomous-epic.md'),
+      'utf8',
+    );
+    const deliveryMaster = fs.readFileSync(
+      path.join(root, '.claude', 'commands', 'aidlc-autonomous-delivery.md'),
+      'utf8',
+    );
+    for (const command of [epicMaster, deliveryMaster]) {
+      expect(command).toMatch(/autonomous approval|automatically approved/i);
+      expect(command).toMatch(/question[\s\S]*human answer|human answer[\s\S]*question/i);
+      expect(command).not.toContain('Stop at every configured human-review or merge gate');
+    }
+  });
+
   it('ships an opt-in project-level profile with cohesive-delivery only', () => {
     const cohesive = BUILTIN_WORKFLOWS.find((workflow) => workflow.id === 'cohesive-delivery')!;
     const preset = loadBuiltinPreset(builtinTemplatesRoot(), cohesive);

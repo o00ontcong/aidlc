@@ -129,8 +129,9 @@ một Autonomous Delivery cho mỗi feature; chúng hiện thành các delivery 
 trong các terminal Claude riêng.
 
 Master không yêu cầu **Mark step done** giữa phase. Nó ghi checkpoint durable,
-narrate stage transitions/validation trong terminal, và dừng chỉ ở human review,
-human merge, blocker thật hoặc quyết định sản phẩm cần bạn trả lời.
+narrate stage transitions/validation trong terminal, và tự approve mọi phase đã
+pass output validation + auto-review. Nó chỉ dừng ở blocker thật hoặc câu hỏi
+product/architecture/ship-policy cần bạn trả lời.
 
 ### Resume không chạy lại từ đầu
 
@@ -140,16 +141,17 @@ việc, giữ artifact/phase đã approve, rồi chỉ chạy phase failed/chưa
 downstream cần thiết. Nó không được tạo lại một run hoặc chạy lại upstream đã approve
 chỉ vì bạn bấm Resume.
 
-### Review và merge
+### Approval và merge
 
-Tại aggregate review, dùng:
+Không cần aggregate review hoặc bấm **Approve** từng phase. Bạn vẫn có thể mở
+review summary hoặc thêm rework task khi muốn chủ động kiểm tra/sửa.
 
-- **Open review summary** để kiểm tra bundle;
-- **Add review task** nếu cần rework chọn lọc trong feature đó;
-- **Complete after merge** sau khi human đã merge PR.
+Ở `await-merge`, master đọc `shipPolicy`: nếu policy cho phép agent merge thì nó
+merge và xác minh branch đã vào base; nếu policy cấm agent merge, master hỏi một
+câu rõ ràng để bạn thay đổi policy. Nó không tự bịa human approval hoặc trạng thái
+merged.
 
-Agent không merge default branch. Project-sync chỉ chạy sau bằng chứng merge hoặc
-local human approval được policy cho phép.
+Project-sync chỉ chạy sau bằng chứng merge thực tế.
 
 ## 6. Quy tắc an toàn khi nhiều epic cùng chạy
 

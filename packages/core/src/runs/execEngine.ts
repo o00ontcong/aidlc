@@ -26,8 +26,9 @@ import { checkBudget } from './budget';
 import { mirrorRunStateToEpic } from './EpicScaffold';
 import { recordExecutionFailure, type RecordExecutionFailureInput } from './ExecutionFailureLog';
 import type { ExecutionFailureRef, RunState } from './RunState';
-import type { PipelineConfig, AgentConfig } from '../schema/WorkspaceSchema';
+import { normalizeStep, type PipelineConfig, type AgentConfig } from '../schema/WorkspaceSchema';
 import type { RunnerResult } from '../runner/types';
+import { pipelineForRun } from './PipelineSnapshot';
 
 type StepExecutionResult =
   | { success: true }
@@ -143,7 +144,7 @@ export interface ExecHooks {
 function loadPipelineForRun(root: string, state: RunState): PipelineConfig | null {
   try {
     const ws = WorkspaceLoader.load(root);
-    return ws.config.pipelines.find((p) => p.id === state.pipelineId) ?? null;
+    return pipelineForRun(state, ws.config.pipelines.find((p) => p.id === state.pipelineId));
   } catch {
     return null;
   }
@@ -282,8 +283,12 @@ export async function runExecLoop(
 }
 
 /** Skill text for an agent — concatenated when it declares multiple skills. */
-function loadAgentSkills(ws: ReturnType<typeof WorkspaceLoader.load>, agent: AgentConfig): string {
-  return agent.skills.map((id) => ws.skills.load(id)).join('\n\n---\n\n');
+function loadAgentSkills(
+  ws: ReturnType<typeof WorkspaceLoader.load>,
+  agent: AgentConfig,
+  stepSkillIds?: string[],
+): string {
+  return (stepSkillIds ?? agent.skills).map((id) => ws.skills.load(id)).join('\n\n---\n\n');
 }
 
 /** Execute one `awaiting_work` step: spawn the runner, then mark it done. */
@@ -321,7 +326,7 @@ async function execStep(
     return fail({ code: 'runner.workspace_invalid', summary: `Failed to load workspace: ${errMsg(err)}` });
   }
 
-  const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId);
+  const pipeline = pipelineForRun(state, ws.config.pipelines.find((p) => p.id === state.pipelineId));
   if (!pipeline) {
     return fail({ code: 'runner.pipeline_missing', summary: `Pipeline "${state.pipelineId}" not found in workspace.yaml.` });
   }
@@ -331,9 +336,17 @@ async function execStep(
     return fail({ code: 'runner.agent_missing', summary: `Agent "${agentId}" not found in workspace.yaml.` });
   }
 
+  const rawStep = pipeline.steps[stepIdx];
+  if (!rawStep) {
+    return fail({ code: 'runner.step_missing', summary: `Step ${stepIdx} is missing from pipeline "${state.pipelineId}".` });
+  }
+  const step = normalizeStep(rawStep);
+  const model = step.model ?? agent.model;
+  const skills = step.skills ?? agent.skills;
+
   let skillText: string;
   try {
-    skillText = loadAgentSkills(ws, agent);
+    skillText = loadAgentSkills(ws, agent, step.skills);
   } catch (err) {
     return fail({ code: 'runner.skill_load_failed', summary: `Failed to load skills for agent "${agentId}": ${errMsg(err)}` });
   }
@@ -347,7 +360,7 @@ async function execStep(
 
   if (opts.dryRun) {
     hooks.onDryRunPreview?.({
-      skills: agent.skills.join(', '),
+      skills: skills.join(', '),
       skillText,
       userMessage,
       env,
@@ -357,7 +370,7 @@ async function execStep(
 
   hooks.onStepStart?.({
     stepIdx, agent: agentId, revision: stepRec.revision,
-    skills: agent.skills, model: agent.model, context: userMessage,
+    skills, model, context: userMessage,
   });
 
   const runner = ws.runners.resolve(agent);
@@ -367,6 +380,7 @@ async function execStep(
   try {
     result = await runner.run({
       skill: skillText,
+      model,
       env,
       args: userMessage ? [userMessage] : [],
       workspaceRoot: root,
@@ -488,7 +502,8 @@ async function runAutoReviewStep(root: string, runId: string, hooks: ExecHooks):
 /** Auto-approve a human_review step (--auto-approve). */
 async function autoApproveStep(root: string, state: RunState, hooks: ExecHooks): Promise<void> {
   const ws = WorkspaceLoader.load(root);
-  const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId)!;
+  const pipeline = pipelineForRun(state, ws.config.pipelines.find((p) => p.id === state.pipelineId));
+  if (!pipeline) throw new Error(`Pipeline "${state.pipelineId}" not found.`);
   const next = approveStep({ state, pipeline });
   RunStateStore.save(root, next);
   mirrorEpicBestEffort(root, next);
@@ -502,7 +517,8 @@ async function deferReviewStep(
   hooks: ExecHooks,
 ): Promise<void> {
   const ws = WorkspaceLoader.load(root);
-  const pipeline = ws.config.pipelines.find((p) => p.id === state.pipelineId)!;
+  const pipeline = pipelineForRun(state, ws.config.pipelines.find((p) => p.id === state.pipelineId));
+  if (!pipeline) throw new Error(`Pipeline "${state.pipelineId}" not found.`);
   const stepIdx = state.currentStepIdx;
   const next = approveStep({ state, pipeline });
   const approved = next.steps[stepIdx];

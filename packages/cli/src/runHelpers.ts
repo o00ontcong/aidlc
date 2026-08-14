@@ -12,6 +12,7 @@ import {
   type PipelineConfig,
   type AgentConfig,
   type SkillLoader,
+  pipelineForRun,
 } from '@aidlc/core';
 
 // ── Run loading ───────────────────────────────────────────────────────────────
@@ -63,7 +64,8 @@ export function requirePipeline(root: string, pipelineId: string): {
 
 /** Load workspace and find the pipeline that matches a run's pipelineId. */
 export function requirePipelineForRun(root: string, state: RunState): PipelineConfig {
-  return requirePipeline(root, state.pipelineId).pipeline;
+  const current = requirePipeline(root, state.pipelineId).pipeline;
+  return pipelineForRun(state, current) ?? current;
 }
 
 // ── Step resolution ───────────────────────────────────────────────────────────

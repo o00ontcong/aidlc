@@ -67,6 +67,8 @@ export interface EpicSummary {
     /** Basename of the first `produces:` path — surfaced as the step's
      *  artifact label on the Epic detail panel. */
     artifact?: string;
+    /** Every artifact declared/recorded for this step, in pipeline order. */
+    artifacts?: string[];
     /** True when `artifact` exists on disk (epic artifacts/ or produces: path). */
     artifactExists?: boolean;
     status: EpicStatus;
@@ -247,7 +249,58 @@ export function collectArtifactIndex(args: {
 const STATUS_VALUES: ReadonlyArray<EpicStatus> = ['pending', 'in_progress', 'done', 'failed'];
 
 function asStatus(v: unknown): EpicStatus {
-  return STATUS_VALUES.includes(v as EpicStatus) ? (v as EpicStatus) : 'pending';
+  if (STATUS_VALUES.includes(v as EpicStatus)) { return v as EpicStatus; }
+  // Autonomous Claude sessions historically wrote the natural-language
+  // aliases `completed` / `approved` into epic state even though the durable
+  // epic schema uses `done`. Read them leniently so a valid completed run does
+  // not regress to 0% / pending in the panel.
+  switch (String(v ?? '').trim().toLowerCase()) {
+    case 'approved':
+    case 'completed':
+      return 'done';
+    case 'running':
+    case 'awaiting_work':
+    case 'awaiting_auto_review':
+    case 'awaiting_review':
+      return 'in_progress';
+    case 'rejected':
+    case 'blocked':
+      return 'failed';
+    default:
+      return 'pending';
+  }
+}
+
+/** Normalize lenient on-disk aliases onto the canonical run-step schema. */
+function asRunStepStatus(v: unknown): StepStatus | null {
+  switch (String(v ?? '').trim().toLowerCase()) {
+    case 'pending': return 'pending';
+    case 'awaiting_work':
+    case 'in_progress':
+    case 'running':
+      return 'awaiting_work';
+    case 'awaiting_auto_review': return 'awaiting_auto_review';
+    case 'awaiting_review': return 'awaiting_review';
+    case 'approved':
+    case 'done':
+    case 'completed':
+      return 'approved';
+    case 'rejected':
+    case 'failed':
+    case 'blocked':
+      return 'rejected';
+    default:
+      return null;
+  }
+}
+
+function artifactBasenames(values: unknown): string[] {
+  if (!Array.isArray(values)) { return []; }
+  const names = values
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => path.posix.basename(value.replace(/\\/g, '/')))
+    .filter(Boolean);
+  return [...new Set(names)];
 }
 
 /**
@@ -555,15 +608,19 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const runVerdictByIdx = new Map<number, AutoReviewVerdict>();
     const runHistoryByIdx = new Map<number, StepHistoryEntry[]>();
     const runFeedbackByIdx = new Map<number, string>();
+    const runArtifactsByIdx = new Map<number, string[]>();
     if (runState) {
       for (const sr of runState.steps) {
-        runStepByIdx.set(sr.stepIdx, sr.status);
+        const status = asRunStepStatus(sr.status);
+        if (status) { runStepByIdx.set(sr.stepIdx, status); }
         if (sr.rejectReason) { runRejectByIdx.set(sr.stepIdx, sr.rejectReason); }
         if (sr.autoReviewVerdict) { runVerdictByIdx.set(sr.stepIdx, sr.autoReviewVerdict); }
         if (sr.history && sr.history.length > 0) {
           runHistoryByIdx.set(sr.stepIdx, sr.history);
         }
         if (sr.feedback) { runFeedbackByIdx.set(sr.stepIdx, sr.feedback); }
+        const artifacts = artifactBasenames(sr.artifactsProduced);
+        if (artifacts.length > 0) { runArtifactsByIdx.set(sr.stepIdx, artifacts); }
       }
     }
     const runCurrentStepIdx = runState ? runState.currentStepIdx : undefined;
@@ -577,22 +634,18 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const stepGateByIdx = new Map<number, { auto: boolean; human: boolean }>();
     const stepDependsByIdx = new Map<number, string[]>();
     const stepNameByIdx = new Map<number, string>();
-    const stepArtifactByIdx = new Map<number, string>();
+    const stepArtifactsByIdx = new Map<number, string[]>();
     if (pipelineCfg && Array.isArray(pipelineCfg.steps)) {
       pipelineCfg.steps.forEach((raw, i) => {
         const norm = normalizeStep(raw as PipelineStepConfig);
         stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review });
         stepDependsByIdx.set(i, norm.depends_on);
         if (norm.name) { stepNameByIdx.set(i, norm.name); }
-        // Surface the produced artifact for the per-step detail panel —
-        // `step.produces[0]` is the canonical artifact path on built-in
-        // pipelines. The UI displays the basename; absolute path comes from
-        // `collectArtifactIndex` (epic artifacts/ OR resolved produces:).
-        const first = norm.produces[0];
-        if (typeof first === 'string' && first.length > 0) {
-          const basename = first.split('/').pop() ?? first;
-          if (basename) { stepArtifactByIdx.set(i, basename); }
-        }
+        // Keep every declared output. Project-context phases commonly emit a
+        // bundle of Markdown files; retaining only produces[0] made the other
+        // files impossible to open from the Artifacts row.
+        const artifacts = artifactBasenames(norm.produces);
+        if (artifacts.length > 0) { stepArtifactsByIdx.set(i, artifacts); }
       });
 
       // GH-TBD: Fall back to detecting artifacts from disk for steps that
@@ -617,12 +670,13 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
           // For each on-disk artifact not yet mapped, try to find its step by convention
           for (const fileBase of onDiskFiles) {
             // Check if already mapped
-            if (Array.from(stepArtifactByIdx.values()).some((v) =>
+            if (Array.from(stepArtifactsByIdx.values()).flat().some((v) =>
               v.replace(/\.md$/i, '').toUpperCase() === fileBase)) { continue; }
             // Try to match by step name (e.g., "IMPLEMENT" → implement step)
             const stepIdx = stepNameToIdx.get(fileBase);
             if (stepIdx !== undefined) {
-              stepArtifactByIdx.set(stepIdx, fileBase + '.md');
+              const current = stepArtifactsByIdx.get(stepIdx) ?? [];
+              stepArtifactsByIdx.set(stepIdx, [...new Set([...current, `${fileBase}.md`])]);
             }
           }
         } catch { /* Ignore read errors */ }
@@ -678,10 +732,15 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       const agent = typeof s.agent === 'string' ? s.agent : '';
       const gate = stepGateByIdx.get(i) ?? { auto: false, human: false };
       const runStatus = runStepByIdx.get(i) ?? null;
-      const artifactForStep = stepArtifactByIdx.get(i);
+      const artifactsForStep = [...new Set([
+        ...(stepArtifactsByIdx.get(i) ?? []),
+        ...(runArtifactsByIdx.get(i) ?? []),
+        ...artifactBasenames(s.artifactsProduced),
+      ])];
+      const artifactForStep = artifactsForStep[0];
       const history = mergeHistory(
         runHistoryByIdx.get(i),
-        artifactForStep ? annotationHistory[artifactForStep] : undefined,
+        artifactsForStep.flatMap((name) => annotationHistory[name] ?? []),
       );
       const rejectCount = history
         ? history.filter((e) => e.kind === 'reject').length
@@ -705,7 +764,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
           : asStatus(s.status);
 
       // GH-74 Part 2: Parse branch info from artifact summary (for implement/branch-artifact steps)
-      const branchInfo = artifactForStep?.toUpperCase() === 'IMPLEMENT-SUMMARY.MD'
+      const branchInfo = artifactsForStep.some((name) => name.toUpperCase() === 'IMPLEMENT-SUMMARY.MD')
         ? parseBranchInfoFromSummary(path.join(epicDir, 'artifacts', 'IMPLEMENT-SUMMARY.md'))
         : undefined;
 
@@ -719,6 +778,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         name: stepName,
         slashCommand: slashForStep(stepName),
         artifact: artifactForStep,
+        artifacts: artifactsForStep,
         artifactExists: artifactForStep ? existingArtifacts.includes(artifactForStep) : false,
         status: displayStatus,
         startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,
@@ -752,10 +812,15 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     // machine either, so when a runState is present, derive epic status
     // from it (completed → done; any rejected step → failed; otherwise
     // in_progress). Falls back to state.json when no runState exists.
+    const normalizedRunStatuses = runState?.steps.map((step) => asRunStepStatus(step.status)) ?? [];
+    const persistedRunStatus = String(runState?.status ?? '').toLowerCase();
     const epicStatus = runState
-      ? runState.status === 'completed'
+      ? persistedRunStatus === 'completed'
+        || persistedRunStatus === 'done'
+        || (normalizedRunStatuses.length > 0 && normalizedRunStatuses.every((status) => status === 'approved'))
         ? 'done' as const
-        : runState.steps.some((sr) => sr.status === 'rejected')
+        : persistedRunStatus === 'failed'
+        || normalizedRunStatuses.some((status) => status === 'rejected')
         ? 'failed' as const
         : 'in_progress' as const
       : asStatus(parsed.status);

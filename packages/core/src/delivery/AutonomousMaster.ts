@@ -28,9 +28,9 @@ description: Run one AIDLC epic's configured pipeline autonomously. Usage: /aidl
 
 # AIDLC Autonomous Epic Master
 
-Own epic \`$ARGUMENTS\` until its configured pipeline completes, it reaches a
-configured human gate, its saved mode switches to Guided, or a real external
-blocker requires a person. Work visibly in this Claude session.
+Own epic \`$ARGUMENTS\` until its configured pipeline completes, its saved
+mode switches to Guided, or an unresolved product/architecture question needs
+a human answer. Work visibly in this Claude session.
 
 ## Source of truth
 
@@ -56,13 +56,25 @@ blocker requires a person. Work visibly in this Claude session.
    transition.
 2. Keep run and epic state aligned after every completed phase so refresh and
    resume remain accurate.
-3. Stop at every configured human-review or merge gate. Do not approve, merge,
-   bypass credentials, or perform unsafe/destructive work without the required
-   human decision.
-4. For recoverable failures, diagnose and retry only the failed phase and its
+   - Run-step status must use the run schema: \`approved\` (never \`completed\`).
+   - Epic step status must use the epic schema: \`done\` (never \`completed\`).
+   - Only the top-level run status uses \`completed\`; the top-level epic status
+     uses \`done\`.
+   - Record every validated output path in that step's \`artifactsProduced\`.
+3. Treat \`human_review: true\` as an **autonomous approval**, not a pause:
+   after the step's declared outputs and auto-review validator pass, record the
+   run step as \`approved\` and continue. Do not create, defer to, or wait for
+   a human review bundle.
+  4. Do not pause merely for a configured human-review or merge gate. At
+   \`await-merge\`, execute only the merge behavior allowed by the checked-in
+   ship policy; never fabricate an approval, a merge, or a policy exception.
+   If that policy requires a human-only merge, ask one explicit question about
+   changing the policy rather than treating it as an approval request.
+5. For recoverable failures, diagnose and retry only the failed phase and its
    required downstream dependants. For a real blocker, state the evidence and
-   exact next action.
-5. Never invoke a hidden global AIDLC CLI; narrate commands, transitions,
+   exact question needed to proceed. The only normal wait is a human answer to
+   an unresolved product, architecture, or policy question.
+6. Never invoke a hidden global AIDLC CLI; narrate commands, transitions,
    validation, and failures in this Claude session.
 `, 'utf8');
 }
@@ -78,9 +90,9 @@ description: Run an entire AIDLC Cohesive Delivery autonomously. Usage: /aidlc-a
 # AIDLC Autonomous Delivery Master
 
 You are the master executor for delivery \`$ARGUMENTS\`. Own the entire delivery
-until it reaches aggregate human review, a real external blocker, or a required
-human decision. Do **not** stop after one phase and do not ask the user to click
-"Mark step done" between phases.
+until it completes, a real external blocker occurs, or an unresolved question
+needs a human answer. Do **not** stop after one phase and do not ask the user to
+click "Mark step done" or approve a phase between phases.
 
 ## Source of truth
 
@@ -106,7 +118,7 @@ human decision. Do **not** stop after one phase and do not ask the user to click
 
 ## Execute autonomously
 
-1. Complete all seven project-context phases in dependency order.
+1. Complete every configured project-context phase in dependency order.
 2. Complete the cohesive-feature phases end-to-end: contract, task plan,
    implementation, validation, test, and the single feature PR/review bundle.
 3. This delivery is one independent epic. Do not create or ask the user to
@@ -117,13 +129,18 @@ human decision. Do **not** stop after one phase and do not ask the user to click
    \`.claude/commands/\` (for example
    \`project-context-project-rules-sync.md\`) as the authoritative persona,
    skill, input, output, and acceptance contract.
-5. Validate declared outputs before treating a phase as complete. Keep the
-   AIDLC run/epic state files aligned with the completed phase so progress
-   stays inspectable after a refresh or resume.
-6. If a recoverable failure occurs, diagnose, repair, and retry that phase.
+5. A phase with \`human_review: true\` is automatically approved once its
+   declared outputs and auto-review validator pass. Persist it as \`approved\`
+   in run state and \`done\` in epic state; do not wait for or create aggregate
+   human review.
+6. Do not stop at \`await-merge\` solely because it is a human gate. Follow the
+   checked-in ship policy exactly; if it allows an agent merge, merge and verify
+   it. If it forbids agent merge, ask one explicit policy question — never
+   invent a human approval or a merged status.
+7. If a recoverable failure occurs, diagnose, repair, and retry that phase.
    Stop only for missing credentials, an unsafe/destructive action requiring
-   consent, a genuine ambiguity that needs product input, or an enforced human
-   review/merge gate. State the exact blocker and the next command to resume.
+   consent, or a genuine unresolved product, architecture, or ship-policy
+   question. State the exact question and the next command to resume.
 
 Work visibly in this Claude session: narrate stage transitions, commands,
 validation results, and failures. Never invoke a global \`aidlc\` CLI.

@@ -52,6 +52,19 @@ Cross-check `Project Context Snapshot ↔ SPEC ↔ PLAN ↔ TASKS`. Write `ANALY
 
 On GO, write frozen `FEATURE-CONTRACT.md` containing goal, context/base identity, revision, charter hash, `## Invariants`, `## Charter Invariants`, `## Shared Contracts`, domain vocabulary, NFRs, `## Definition of Done`, `## Change Request Protocol`, links to SPEC/PLAN/TASKS, `**Status:** FROZEN`, and a normalized `**Contract Hash:** sha256:...`.
 
+## Phase: `map-feature-flow`
+
+Create Level 3 of the Architecture Explorer for **this one feature**, not a repository-wide graph.
+Start at a real user/API/event entry point, then follow only the observed or explicitly inferred path through presentation, domain, data, and external boundaries. Prefer the static AST graph where available; mark an edge `inferred` if evidence is indirect.
+
+Write `FEATURE-FLOW.json`:
+
+```json
+{"schemaVersion":1,"featureId":"auth","title":"Login flow","nodes":[{"id":"login-view","label":"LoginView","kind":"view","layer":"presentation","file":"features/auth/LoginView.swift","symbol":"LoginView","role":"Captures credentials"}],"edges":[{"source":"login-view","target":"login-view-model","label":"submit","confidence":"observed"}]}
+```
+
+Each node needs an id, readable label, layer, workspace-relative `file`, and a one-line role. Keep it to the human-comprehensible participants in this feature flow; link to source instead of embedding source code. Then write matching `FEATURE-FLOW.mmd` Mermaid `flowchart` or `sequenceDiagram` source.
+
 ## Phase: `implement`
 
 Implement the complete feature on branch `feature/$0` according to the frozen contract and task plan. Run focused tests as you work. Write `IMPLEMENTATION-SUMMARY.md` with completed tasks, changed files/contracts, test commands/results, deviations/approved variances, and the implementation commit. Do not open a separate worker/package epic or PR.
@@ -74,7 +87,13 @@ After system-test GO, open one PR from `feature/$0` to the charter’s default b
 
 ## Phase: `await-merge`
 
-Wait for human approval/merge. Never merge the default branch. Update `PR-LINK.md` only with the actual approved/merged status and human merger.
+Do not wait merely for a human approval. Read the checked-in `shipPolicy`:
+
+- when it permits an agent merge, merge the feature PR with the repository's
+  configured tooling, verify the branch is reachable from the base branch, and
+  record the actual merged status in `PR-LINK.md`;
+- when it forbids an agent merge, ask one explicit question to change that
+  policy. Never invent a human approval or a merged status.
 
 ## Phase: `project-sync`
 

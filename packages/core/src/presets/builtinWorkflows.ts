@@ -500,7 +500,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
   {
     id: 'scan-project', name: 'Scan Project', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
+    skillFiles: ['project-context-workflow'], model: 'claude-sonnet-5',
     description: 'Inventory repository structure, quality commands, boundaries, and existing documentation.',
     inputs: 'Repository files and version-control history',
     outputs: 'Repository scan shared by the project-context modeling steps',
@@ -529,6 +529,25 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
     capabilities: ['files', 'github'],
   },
   {
+    id: 'map-features', name: 'Map Features', persona: 'project-context-agent',
+    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
+    description: 'Build the feature-centric architecture model from static-analysis evidence, repository structure, and cautious AI classification.',
+    inputs: 'Modeled project context, source tree, and AST graph when available',
+    outputs: 'Project architecture, feature catalog, and structural graph manifests for the interactive explorer',
+    artifact: 'FEATURE-CATALOG.json', humanReview: false, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/architecture-visualization.mjs', dependsOn: ['model-project'],
+    requires: [
+      'docs/project/context/PROJECT-CONTEXT.md',
+      'docs/project/context/ARCHITECTURE-MAP.md',
+    ],
+    produces: [
+      'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
+      'docs/project/context/visualization/FEATURE-CATALOG.json',
+      'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
+    ],
+    capabilities: ['files', 'github', 'ast-graph'],
+  },
+  {
     id: 'check-drift', name: 'Check Drift', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description:
@@ -536,12 +555,14 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
     inputs: 'Charter Intent and modeled project context',
     outputs: 'Drift report covering every INV-x',
     artifact: 'DRIFT-REPORT.md', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/charter.mjs', dependsOn: ['model-project'],
+    autoReviewRunner: '.aidlc/validators/charter.mjs', dependsOn: ['map-features'],
     requires: [
       'docs/project/charter/CHARTER.json',
       'docs/project/context/PROJECT-CONTEXT.md',
       'docs/project/context/ARCHITECTURE-MAP.md',
       'docs/project/context/ENGINEERING-RULES.md',
+      'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
+      'docs/project/context/visualization/FEATURE-CATALOG.json',
     ],
     produces: ['docs/project/conformance/DRIFT-REPORT.md'],
     producesContains: ['## Invariants'],
@@ -560,6 +581,8 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
       'docs/project/context/DOMAIN-MODEL.md',
       'docs/project/context/SHARED-CONTRACTS.md',
       'docs/project/context/ENGINEERING-RULES.md',
+      'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
+      'docs/project/context/visualization/FEATURE-CATALOG.json',
       'docs/project/conformance/DRIFT-REPORT.md',
     ],
     produces: ['docs/project/context/CONTEXT-REVIEW.md'],
@@ -567,17 +590,22 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
   {
     id: 'publish-context', name: 'Publish Context', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
+    skillFiles: ['project-context-workflow'], model: 'claude-sonnet-5',
     description: 'Publish a versioned manifest that features can capture as an immutable context identity.',
     inputs: 'Approved context review and canonical documents', outputs: 'Versioned context manifest',
     artifact: 'CONTEXT-MANIFEST.json', humanReview: true, autoReview: true,
     autoReviewRunner: '.aidlc/validators/project-context.mjs', dependsOn: ['review-context'],
-    requires: ['docs/project/context/CONTEXT-REVIEW.md'],
+    requires: [
+      'docs/project/context/CONTEXT-REVIEW.md',
+      'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
+      'docs/project/context/visualization/FEATURE-CATALOG.json',
+      'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
+    ],
     produces: ['docs/project/context/CONTEXT-MANIFEST.json'], capabilities: ['files', 'github'],
   },
   {
     id: 'project-rules-sync', name: 'Project Rules Sync', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
+    skillFiles: ['project-context-workflow'], model: 'claude-sonnet-5',
     description:
       'Project charter + conventions into CLAUDE.md, AGENTS.md, and .cursor/rules/aidlc-charter.mdc with revision markers.',
     inputs: 'Published context manifest, CHARTER.json, and CONVENTIONS.md',
@@ -602,7 +630,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
 const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   {
     id: 'capture-context', name: 'Capture Context', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
     description: 'Capture an immutable feature snapshot of the current canonical project context.',
     inputs: 'Published project context manifest', outputs: 'Feature-scoped project-context snapshot',
     artifact: 'PROJECT-CONTEXT-SNAPSHOT.md', humanReview: false, autoReview: false,
@@ -663,7 +691,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'plan-tasks', name: 'Plan Tasks', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
     description: 'Create one traceable task plan for this feature. Internal agent delegation is Claude’s decision, not a user-managed worker graph.',
     inputs: 'Feature spec and plan', outputs: 'Traceable feature task plan',
     artifact: 'TASKS.md', humanReview: true, autoReview: false, dependsOn: ['plan'],
@@ -690,15 +718,33 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
     ], capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
-    id: 'implement', name: 'Implement Feature', persona: 'cohesive-feature-agent',
+    id: 'map-feature-flow', name: 'Map Feature Flow', persona: 'cohesive-feature-agent',
     skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
+    description: 'Turn the frozen feature contract into a human-scale interaction flow: entry point, layer transitions, code participants, and source references.',
+    inputs: 'Frozen feature contract, plan, and static project context',
+    outputs: 'Feature Flow JSON and Mermaid source for the Architecture Explorer', artifact: 'FEATURE-FLOW.json',
+    humanReview: true, autoReview: true, autoReviewRunner: '.aidlc/validators/feature-flow.mjs', dependsOn: ['analyze-contract'],
+    requires: [
+      'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
+      'docs/project/context/visualization/FEATURE-CATALOG.json',
+    ],
+    produces: [
+      'docs/epics/{epic}/artifacts/FEATURE-FLOW.json',
+      'docs/epics/{epic}/artifacts/FEATURE-FLOW.mmd',
+    ],
+    capabilities: ['files', 'github', 'ast-graph'],
+  },
+  {
+    id: 'implement', name: 'Implement Feature', persona: 'cohesive-feature-agent',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
     description: 'Implement the complete feature on its feature branch, run focused tests, and record the resulting behavior.',
     inputs: 'Frozen feature contract, task plan, and repository context',
     outputs: 'Complete feature implementation and implementation summary', artifact: 'IMPLEMENTATION-SUMMARY.md',
-    humanReview: true, autoReview: false, dependsOn: ['analyze-contract'],
+    humanReview: true, autoReview: false, dependsOn: ['map-feature-flow'],
     requires: [
       'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
       'docs/epics/{epic}/artifacts/TASKS.md',
+      'docs/epics/{epic}/artifacts/FEATURE-FLOW.json',
     ],
     produces: [
       'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
@@ -706,7 +752,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'implementation-context', name: 'Implementation Context', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
     description: 'Record actual feature behavior, changed contracts, and traceability after implementation.',
     inputs: 'Implementation summary and implemented code', outputs: 'Post-implementation context',
     artifact: 'IMPLEMENTATION-CONTEXT.md', humanReview: false, autoReview: false,
@@ -730,7 +776,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'system-test', name: 'System Test', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
     description: 'Run project-level quality commands against the completed feature.',
     inputs: 'Approved cohesion report and implemented repository', outputs: 'System test report',
     artifact: 'SYSTEM-TEST-REPORT.md', humanReview: true, autoReview: true,
@@ -741,7 +787,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'open-pr', name: 'Open PR', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
     description: 'Open exactly one pull request for this independent feature epic (feature/$0 → defaultBranch).',
     inputs: 'Passed system test and feature branch', outputs: 'PR link record',
     artifact: 'PR-LINK.md', humanReview: false, autoReview: true,
@@ -753,7 +799,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'await-merge', name: 'Await Merge', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
     description: 'Human-only merge gate: wait for PR approval/merge. Agents must not merge the default branch.',
     inputs: 'Open feature PR', outputs: 'Merged (or human-approved local) ship record',
     artifact: 'PR-LINK.md', humanReview: true, autoReview: true,
@@ -765,7 +811,7 @@ const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
   },
   {
     id: 'project-sync', name: 'Project Sync', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
+    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
     description: 'After merge: update Reality (context) only. Never edit charter Intent or conventions.',
     inputs: 'Merged feature and system test evidence', outputs: 'Project update record',
     artifact: 'PROJECT-UPDATE.md', humanReview: true, autoReview: true,
@@ -1282,6 +1328,7 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
       const step: Record<string, unknown> = {
         name: p.id,
         agent: `aidlc-${p.persona}`,
+        model: p.model,
         skills: skillIdsOf(p),
         enabled: true,
         requires: p.requires ?? [],
@@ -1412,6 +1459,7 @@ export function getBuiltinPipelineSummary(workflow: BuiltinWorkflow) {
       // workspace.yaml.
       name: p.id,
       agent: `aidlc-${p.persona}`,
+      model: p.model,
       skills: p.skillFiles.map((f) => `aidlc-${f}`),
       enabled: true,
       produces: p.produces ?? (artifactPathFor(p) ? [artifactPathFor(p)!] : []),
@@ -1574,6 +1622,7 @@ export function builtinClaudeCommand(
 
   return `---
 description: ${phase.description}
+model: ${phase.model}
 ---
 
 ${skillBody.trim()}

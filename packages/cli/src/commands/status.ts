@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { RunStateStore, normalizeStep, WorkspaceLoader } from '@aidlc/core';
+import { RunStateStore, normalizeStep, WorkspaceLoader, pipelineForRun } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 
 export function registerStatus(program: Command): void {
@@ -43,7 +43,7 @@ export function registerStatus(program: Command): void {
       }
 
       const ws = await WorkspaceLoader.load(root);
-      const pipeline = ws.config.pipelines.find((p) => p.id === run.pipelineId);
+      const pipeline = pipelineForRun(run, ws.config.pipelines.find((p) => p.id === run.pipelineId));
 
       console.log(`Run:      ${run.runId}`);
       console.log(`Pipeline: ${run.pipelineId}`);

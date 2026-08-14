@@ -11,6 +11,9 @@ const REQUIRED = [
   'DOMAIN-MODEL.md',
   'SHARED-CONTRACTS.md',
   'ENGINEERING-RULES.md',
+  'visualization/PROJECT-ARCHITECTURE.json',
+  'visualization/FEATURE-CATALOG.json',
+  'visualization/STRUCTURAL-GRAPH-MANIFEST.json',
 ];
 
 function isProjectSync(ctx) {
@@ -65,7 +68,7 @@ export default async function projectContext(ctx) {
         problems.push('CONTEXT-MANIFEST.json is required after project-sync');
       } else {
         const manifest = readJson(manifestFile);
-        if (manifest.schemaVersion !== 1) problems.push('Context manifest schemaVersion must be 1');
+        if (manifest.schemaVersion !== 2) problems.push('Context manifest schemaVersion must be 2');
         if (!Number.isInteger(manifest.revision) || manifest.revision < 1) {
           problems.push('Context manifest revision must be a positive integer');
         }
@@ -98,7 +101,7 @@ export default async function projectContext(ctx) {
     if (!exists(manifestFile)) return reject('CONTEXT-MANIFEST.json is missing.');
 
     const manifest = readJson(manifestFile);
-    if (manifest.schemaVersion !== 1) return reject('Context manifest schemaVersion must be 1.');
+    if (manifest.schemaVersion !== 2) return reject('Context manifest schemaVersion must be 2.');
     if (!Number.isInteger(manifest.revision) || manifest.revision < 1) {
       return reject('Context manifest revision must be a positive integer.');
     }

@@ -339,6 +339,8 @@ interface SkillSummary {
 interface PipelineStepSummary {
   agent: string;
   name?: string;
+  /** Per-step execution model; falls back to the agent model when absent. */
+  model?: string;
   skills?: string[];
   enabled: boolean;
   produces: string[];
@@ -407,6 +409,8 @@ interface EpicStepDetailFull {
   /** Step's artifact filename (basename of `produces[0]`). Empty when the
    *  step's output is a non-file artifact (branch / tag). */
   artifact?: string;
+  /** Every artifact declared/recorded for this step, in pipeline order. */
+  artifacts?: string[];
   /** Host-computed: true when `artifact` exists on disk right now. */
   artifactExists?: boolean;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
@@ -509,6 +513,7 @@ interface WorkspaceState {
   recipes: RecipeSummary[];
   epics: EpicSummaryUi[];
   deliveries: AutonomousDeliverySummaryUi[];
+  projectContext?: ProjectContextSummaryUi;
   agentMeta: Record<string, AgentMeta>;
   slashCommandsByAgent: Record<string, string>;
   agentsCount: number;
@@ -560,6 +565,16 @@ interface AutonomousDeliverySummaryUi {
   };
   failureCount: number;
   lastEventKind?: string;
+}
+
+interface ProjectContextSummaryUi {
+  revision: number;
+  generatedAt?: string;
+  sourceCommit?: string;
+  manifestPath: string;
+  artifacts: string[];
+  completedSteps?: number;
+  totalSteps?: number;
 }
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
@@ -631,6 +646,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const doc = readYaml(root);
   const discovered = discoverAssets(root);
   const deliveries = listAutonomousDeliverySummaries(root);
+  const projectContext = readProjectContextSummary(root, doc);
 
   // agent display metadata + slash commands — only AIDLC agents have these
   // since they're declared in workspace.yaml.
@@ -693,6 +709,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       recipes: getBuiltinRecipeSummaries(),
       epics,
       deliveries,
+      projectContext,
       agentMeta, slashCommandsByAgent,
       agentsCount: agents.length,
       skillsCount: skills.length,
@@ -755,6 +772,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     workspaceName: folder.name,
     configExists: true,
     agents, skills, pipelines, recipes, epics, deliveries,
+    projectContext,
     agentMeta, slashCommandsByAgent,
     agentsCount: agents.length,
     skillsCount: skills.length,
@@ -776,6 +794,41 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     charter: readCharterSnapshot(root),
     diffIgnore: readDiffIgnore(root),
   };
+}
+
+/** Read the manifest as the single durable identity of published Project Context. */
+function readProjectContextSummary(
+  workspaceRoot: string,
+  doc: YamlDocument | null,
+): ProjectContextSummaryUi | undefined {
+  const manifestPath = path.join(workspaceRoot, 'docs', 'project', 'context', 'CONTEXT-MANIFEST.json');
+  if (!fs.existsSync(manifestPath)) { return undefined; }
+  try {
+    const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
+    const revision = raw.revision;
+    if (!Number.isInteger(revision) || (revision as number) < 1) { return undefined; }
+    const artifactMap = raw.artifacts;
+    const artifacts = artifactMap && typeof artifactMap === 'object' && !Array.isArray(artifactMap)
+      ? Object.keys(artifactMap as Record<string, unknown>).sort()
+      : [];
+    const run = RunStateStore.load(workspaceRoot, 'PROJECT-CONTEXT');
+    const pipeline = doc?.pipelines.find((item) => item.id === 'project-context');
+    const totalSteps = pipeline && Array.isArray(pipeline.steps) ? pipeline.steps.length : undefined;
+    const completedSteps = run?.steps.filter((step) =>
+      ['approved', 'completed', 'done'].includes(String(step.status).toLowerCase()),
+    ).length;
+    return {
+      revision: revision as number,
+      generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : undefined,
+      sourceCommit: typeof raw.sourceCommit === 'string' ? raw.sourceCommit : undefined,
+      manifestPath,
+      artifacts,
+      completedSteps,
+      totalSteps,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function listAutonomousDeliverySummaries(workspaceRoot: string): AutonomousDeliverySummaryUi[] {
@@ -984,6 +1037,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       stepName: s.name,
       slashCommand: s.slashCommand,
       artifact: s.artifact,
+      artifacts: s.artifacts,
       artifactExists: s.artifactExists,
       status: s.status,
       runStatus: s.runStatus,
@@ -2176,6 +2230,13 @@ export class WorkspaceWebview {
         await vscode.window.showTextDocument(doc, { preview: false });
         return;
       }
+      case 'refreshProjectContextView': {
+        // Re-read the durable manifest and its run state. This intentionally
+        // refreshes presentation only; re-running project-context is a
+        // separate, explicit delivery action.
+        this.refresh();
+        return;
+      }
       case 'openPath': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const targetPathArg = String(msg.path ?? '');
@@ -3285,6 +3346,7 @@ export class WorkspaceWebview {
       const builtinSteps = getBuiltinPipelineSummary(builtin).steps.map((s) => {
         const step: Record<string, unknown> = {
           agent: s.agent,
+          model: s.model,
           enabled: true,
           requires: [],
           produces: [],

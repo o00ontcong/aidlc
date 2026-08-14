@@ -16,6 +16,8 @@ import {
   ensureAutonomousMasterCommand,
   writeAutonomousRequest,
   ensureCohesiveBundleInstalled,
+  CohesiveDeliveryUpgradeService,
+  COHESIVE_DELIVERY_BUNDLE_VERSION,
   type DeliveryRequest,
   type ValidatorConflict,
 } from '@aidlc/core';
@@ -111,6 +113,68 @@ function spawnClaudeMaster(root: string, deliveryId: string): Promise<void> {
 export function registerCohesive(program: Command): void {
   const cmd = program.command('cohesive')
     .description('Run project-level Cohesive Delivery orchestration');
+
+  const upgrade = cmd.command('upgrade')
+    .description('Safely migrate a legacy Cohesive Delivery bundle to the current feature-centric workflow');
+
+  upgrade.command('status')
+    .description('Show the read-only Cohesive bundle upgrade preview')
+    .option('--json', 'Print machine-readable JSON')
+    .action((opts: { json?: boolean }, actionCmd: Command) => {
+      try {
+        const preview = new CohesiveDeliveryUpgradeService(resolveWorkspaceRoot(actionCmd)).preview();
+        if (opts.json) console.log(JSON.stringify(preview, null, 2));
+        else {
+          console.log(`${preview.fromVersion} → ${preview.toVersion}`);
+          for (const item of preview.items) console.log(`${item.pipelineId}\t${item.disposition}\t${item.currentSteps.join(' → ') || 'missing'}`);
+          for (const warning of preview.warnings) console.log(chalk.yellow(`! ${warning}`));
+          console.log(chalk.dim(`Preview id: ${preview.id}`));
+        }
+      } catch (error) { reportError(error); }
+    });
+
+  upgrade.command('preview')
+    .description('Print the read-only Cohesive bundle upgrade plan')
+    .action((_opts: unknown, actionCmd: Command) => {
+      try { console.log(JSON.stringify(new CohesiveDeliveryUpgradeService(resolveWorkspaceRoot(actionCmd)).preview(), null, 2)); } catch (error) { reportError(error); }
+    });
+
+  upgrade.command('apply <id>')
+    .description('Apply a previewed Cohesive bundle upgrade; snapshots active runs and creates a backup')
+    .requiredOption('--confirm', 'Required acknowledgement that workspace.yaml will be updated')
+    .action((id: string, opts: { confirm?: boolean }, actionCmd: Command) => {
+      try {
+        const service = new CohesiveDeliveryUpgradeService(resolveWorkspaceRoot(actionCmd));
+        const preview = service.preview();
+        if (preview.id !== id) throw new Error(`Preview id changed (${preview.id}). Re-run "aidlc cohesive upgrade preview" and use its current id.`);
+        const manifest = service.apply(preview, { confirm: opts.confirm === true });
+        console.log(chalk.green(`✔ Cohesive Delivery upgraded to ${COHESIVE_DELIVERY_BUNDLE_VERSION} (${manifest.id}).`));
+        console.log(chalk.dim(`Backup: ${manifest.backupDir}`));
+      } catch (error) { reportError(error); }
+    });
+
+  upgrade.command('resume <id>')
+    .description('Resume an interrupted Cohesive bundle upgrade using its current preview')
+    .requiredOption('--confirm', 'Required acknowledgement that workspace.yaml will be updated')
+    .action((id: string, opts: { confirm?: boolean }, actionCmd: Command) => {
+      try {
+        const service = new CohesiveDeliveryUpgradeService(resolveWorkspaceRoot(actionCmd));
+        const preview = service.preview();
+        if (preview.id !== id) throw new Error(`Preview id changed (${preview.id}); inspect a new preview before resuming.`);
+        const manifest = service.apply(preview, { confirm: opts.confirm === true });
+        console.log(chalk.green(`✔ Cohesive upgrade ${manifest.status}: ${manifest.id}`));
+      } catch (error) { reportError(error); }
+    });
+
+  upgrade.command('rollback <id>')
+    .description('Restore workspace.yaml from this upgrade backup when it has not changed since apply')
+    .requiredOption('--confirm', 'Required acknowledgement that generated Cohesive configuration will be restored')
+    .action((id: string, opts: { confirm?: boolean }, actionCmd: Command) => {
+      try {
+        const manifest = new CohesiveDeliveryUpgradeService(resolveWorkspaceRoot(actionCmd)).rollback(id, { confirm: opts.confirm === true });
+        console.log(chalk.green(`✔ Rolled back Cohesive upgrade ${manifest.id}.`));
+      } catch (error) { reportError(error); }
+    });
 
   cmd.command('run')
     .description('Create a delivery and hand it off to the Claude autonomous master')

@@ -11,6 +11,7 @@ import {
   rerunStep,
   markStepDone,
   PipelineRunError,
+  pipelineForRun,
   type RunState,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
@@ -198,14 +199,14 @@ function handleAction(req: http.IncomingMessage, res: http.ServerResponse, root:
       switch (payload.type) {
         case 'mark-done': {
           const ws = WorkspaceLoader.load(root);
-          const pipeline = ws.config.pipelines.find(p => p.id === state.pipelineId);
+          const pipeline = pipelineForRun(state, ws.config.pipelines.find(p => p.id === state.pipelineId));
           if (!pipeline) { throw new Error(`pipeline ${state.pipelineId} not found`); }
           next = markStepDone({ state, pipeline, workspaceRoot: root });
           break;
         }
         case 'approve': {
           const ws = WorkspaceLoader.load(root);
-          const pipeline = ws.config.pipelines.find(p => p.id === state.pipelineId);
+          const pipeline = pipelineForRun(state, ws.config.pipelines.find(p => p.id === state.pipelineId));
           if (!pipeline) { throw new Error(`pipeline ${state.pipelineId} not found`); }
           next = approveStep({ state, pipeline });
           if (payload.comment) {

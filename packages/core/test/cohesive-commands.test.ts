@@ -23,10 +23,10 @@ describe('cohesive companion command files', () => {
     for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('expects 20 distinct command ids for Project Context and independent Feature Epics', () => {
+  it('expects 22 distinct command ids for Project Context and independent Feature Epics', () => {
     const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
     const pairs = workflowCommandPhases(workflow);
-    expect(pairs).toHaveLength(20);
+    expect(pairs).toHaveLength(22);
 
     const ids = pairs.map(({ pipelineId, phase }) => pipelineCommandId(pipelineId, phase.id));
     expect(ids).toContain('project-context-define-charter');
@@ -42,7 +42,7 @@ describe('cohesive companion command files', () => {
     expect(ids).not.toContain('cohesive-feature-publish-context');
     expect(ids).not.toContain('cohesive-feature-load-package');
     expect(ids).not.toContain('cohesive-work-package-load-package');
-    expect(new Set(ids).size).toBe(20);
+    expect(new Set(ids).size).toBe(22);
   });
 
   it('loadBuiltinPreset has skill content for every cohesive phase', () => {
@@ -72,8 +72,8 @@ describe('cohesive companion command files', () => {
     expect(files).toContain('project-context-publish-context.md');
     expect(files).toContain('project-context-define-charter.md');
     expect(files).toContain('project-context-project-rules-sync.md');
-    expect(files.filter((f) => f.startsWith('project-context-'))).toHaveLength(7);
+    expect(files.filter((f) => f.startsWith('project-context-'))).toHaveLength(8);
     expect(files.filter((f) => f.startsWith('cohesive-work-package-'))).toHaveLength(0);
-    expect(files.filter((f) => f.startsWith('cohesive-feature-'))).toHaveLength(13);
+    expect(files.filter((f) => f.startsWith('cohesive-feature-'))).toHaveLength(14);
   });
 });

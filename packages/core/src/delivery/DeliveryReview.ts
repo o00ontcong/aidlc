@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { RunStateStore } from '../runs/RunStateStore';
+import { pipelineForRun } from '../runs/PipelineSnapshot';
 import { WorkspaceLoader } from '../loader/WorkspaceLoader';
 import { renderRunReport } from '../runs/runReport';
 import type { DeliveryState } from './DeliveryTypes';
@@ -51,7 +52,7 @@ function runSection(root: string, runId: string): string {
   if (!state) return `- Run \`${runId}\`: state missing`;
   let pipeline;
   try {
-    pipeline = WorkspaceLoader.load(root).config.pipelines.find((p) => p.id === state.pipelineId);
+    pipeline = pipelineForRun(state, WorkspaceLoader.load(root).config.pipelines.find((p) => p.id === state.pipelineId)) ?? undefined;
   } catch { /* report still works without labels */ }
   return renderRunReport({ state, pipeline });
 }

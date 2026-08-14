@@ -6,6 +6,8 @@ export const V3_COMMAND_NAMES = [
   'epic.create', 'epic.prepare', 'epic.next', 'epic.status', 'epic.explain', 'epic.resume', 'epic.review', 'epic.ship',
   'epic.stage.autonomy.set', 'gate.approve', 'gate.reject', 'recovery.apply', 'workflow.compile', 'model.diagnose',
   'artifact.policy.update', 'model.provider.default.set', 'capability.enabled.set', 'capability.ast.graph.open', 'capability.annotation.open', 'epic.review.feedback',
+  'architecture.source.open',
+  'cohesive.upgrade.open',
   'migration.preview',
 ] as const;
 export type V3CommandName = (typeof V3_COMMAND_NAMES)[number];

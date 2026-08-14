@@ -244,6 +244,14 @@ describe('listEpics indexes produces: outside epic artifacts/', () => {
       path.join(root, 'docs', 'project', 'context', 'PROJECT-SCAN.md'),
       '# Scan\n',
     );
+    fs.writeFileSync(
+      path.join(root, 'docs', 'project', 'context', 'PROJECT-CONTEXT.md'),
+      '# Context\n',
+    );
+    fs.writeFileSync(
+      path.join(root, 'docs', 'project', 'context', 'ARCHITECTURE-MAP.md'),
+      '# Architecture\n',
+    );
   });
 
   afterEach(() => {
@@ -259,7 +267,70 @@ describe('listEpics indexes produces: outside epic artifacts/', () => {
     expect(epic!.artifactPaths['PROJECT-SCAN.md']).toBe(
       path.join(root, 'docs', 'project', 'context', 'PROJECT-SCAN.md'),
     );
-    // Sibling produces not yet written stay absent.
-    expect(epic!.existingArtifacts).not.toContain('PROJECT-CONTEXT.md');
+    expect(epic!.stepDetails[1].artifacts).toEqual([
+      'PROJECT-CONTEXT.md',
+      'ARCHITECTURE-MAP.md',
+    ]);
+    expect(epic!.existingArtifacts).toContain('PROJECT-CONTEXT.md');
+    expect(epic!.existingArtifacts).toContain('ARCHITECTURE-MAP.md');
+    expect(epic!.artifactPaths['ARCHITECTURE-MAP.md']).toBe(
+      path.join(root, 'docs', 'project', 'context', 'ARCHITECTURE-MAP.md'),
+    );
+  });
+
+  it('normalizes completed aliases written by an autonomous master', () => {
+    const epicDir = path.join(root, 'docs', 'epics', epicId);
+    fs.writeFileSync(
+      path.join(epicDir, 'state.json'),
+      JSON.stringify({
+        id: epicId,
+        title: 'Init context',
+        pipeline: 'project-context',
+        currentStep: 1,
+        status: 'completed',
+        stepStates: [
+          {
+            agent: 'aidlc-project-context-agent',
+            status: 'completed',
+            artifactsProduced: ['docs/project/context/PROJECT-SCAN.md'],
+          },
+          {
+            agent: 'aidlc-project-context-agent',
+            status: 'completed',
+            artifactsProduced: [
+              'docs/project/context/PROJECT-CONTEXT.md',
+              'docs/project/context/ARCHITECTURE-MAP.md',
+            ],
+          },
+        ],
+      }),
+    );
+    fs.mkdirSync(path.join(root, '.aidlc', 'runs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.aidlc', 'runs', `${epicId}.json`),
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: epicId,
+        pipelineId: 'project-context',
+        context: { epic: epicId },
+        startedAt: '2026-08-13T00:00:00.000Z',
+        updatedAt: '2026-08-13T01:00:00.000Z',
+        currentStepIdx: 1,
+        status: 'completed',
+        steps: [
+          { stepIdx: 0, agent: 'aidlc-project-context-agent', revision: 1, status: 'completed', artifactsProduced: ['docs/project/context/PROJECT-SCAN.md'] },
+          { stepIdx: 1, agent: 'aidlc-project-context-agent', revision: 1, status: 'completed', artifactsProduced: ['docs/project/context/PROJECT-CONTEXT.md', 'docs/project/context/ARCHITECTURE-MAP.md'] },
+        ],
+      }),
+    );
+
+    const epic = listEpics(root, doc).find((entry) => entry.id === epicId);
+    expect(epic?.status).toBe('done');
+    expect(epic?.stepStatuses).toEqual(['done', 'done']);
+    expect(epic?.stepDetails.map((step) => step.runStatus)).toEqual(['approved', 'approved']);
+    expect(epic?.stepDetails[1].artifacts).toEqual([
+      'PROJECT-CONTEXT.md',
+      'ARCHITECTURE-MAP.md',
+    ]);
   });
 });

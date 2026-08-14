@@ -410,6 +410,8 @@ export interface SkillSummary {
 export interface PipelineStepSummary {
   agent: string;
   name?: string;
+  /** Per-step execution model; falls back to the agent model when absent. */
+  model?: string;
   /** Skills this step makes available to the agent. */
   skills?: string[];
   enabled: boolean;
@@ -534,6 +536,8 @@ export interface EpicStepDetailFull {
    *  expects to see written by this step (e.g. `PRD.md`). Falls back to
    *  the agent meta artifact when the step doesn't declare one. */
   artifact?: string;
+  /** Every artifact declared/recorded for this step, in pipeline order. */
+  artifacts?: string[];
   /** Host-computed: true when `artifact` exists on disk right now. */
   artifactExists?: boolean;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
@@ -708,6 +712,20 @@ export interface AutonomousDeliverySummary {
   lastEventKind?: string;
 }
 
+/** Published, repository-wide context consumed by Cohesive feature epics. */
+export interface ProjectContextSummary {
+  revision: number;
+  generatedAt?: string;
+  sourceCommit?: string;
+  /** Absolute path to CONTEXT-MANIFEST.json for the Open action. */
+  manifestPath: string;
+  /** Canonical context artifact filenames declared by the manifest. */
+  artifacts: string[];
+  /** Completed versus configured Project Context pipeline phases, when known. */
+  completedSteps?: number;
+  totalSteps?: number;
+}
+
 export interface WorkspaceState {
   hasFolder: boolean;
   workspaceName: string;
@@ -720,6 +738,8 @@ export interface WorkspaceState {
   epics: EpicSummary[];
   /** Durable Cohesive Delivery states used to render direct, state-aware actions. */
   deliveries?: AutonomousDeliverySummary[];
+  /** Current published Project Context, if the workspace has one. */
+  projectContext?: ProjectContextSummary;
   /** id → display metadata (pulled from workspace.yaml) for the step-detail card. */
   agentMeta: Record<string, AgentMeta>;
   /** id → slash command string (with leading /). First wins on duplicates. */

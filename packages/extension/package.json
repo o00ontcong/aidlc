@@ -184,6 +184,12 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.cohesiveUpgrade",
+        "title": "Upgrade Cohesive Delivery Bundle",
+        "icon": "$(versions)",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.startEpic",
         "title": "Start Epic",
         "icon": "$(rocket)",
@@ -509,7 +515,9 @@
   },
   "dependencies": {
     "@aidlc/core": "workspace:*",
-    "js-yaml": "^4.1.1"
+    "@xyflow/react": "^12.11.3",
+    "js-yaml": "^4.1.1",
+    "mermaid": "^11.16.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",

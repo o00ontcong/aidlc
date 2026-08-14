@@ -97,7 +97,7 @@ export function EpicDetail({
       </div>
 
       {/* ③ project context */}
-      <ProjectContextCard />
+      <ProjectContextCard context={state.projectContext} />
 
       {/* ④ parallel epics */}
       {!isPackage && <ParallelEpicsCard epics={state.epics} currentId={epic.id} />}
@@ -191,28 +191,41 @@ function AlignmentStripV3({ epic, onOpenCharter }: { epic: EpicSummary; onOpenCh
 
 /* ── ③ dc.html:703-722 ──────────────────────────────────────────────────── */
 
-/**
- * The host has no Project Context payload yet (no revision, no per-step state),
- * so the card keeps the design's shell but shows `—` instead of inventing
- * values, and both buttons are disabled. Marked mock at block level.
- */
-function ProjectContextCard() {
+function ProjectContextCard({ context }: { context: WorkspaceState['projectContext'] }) {
+  const published = !!context;
+  const revision = context ? `r${context.revision}` : 'chưa publish';
+  const phaseProgress = context?.completedSteps !== undefined && context?.totalSteps !== undefined
+    ? `${context.completedSteps}/${context.totalSteps} phase hoàn tất`
+    : undefined;
+  const source = context?.sourceCommit ? context.sourceCommit.slice(0, 8) : undefined;
   return (
-    <Card mockId="epic.projectContext">
+    <Card>
       <CardHeader pad="10px 14px">
         <CardTitle>Project Context</CardTitle>
         <Chip label="project-context" mono />
-        <Chip label="—" radius={999} bg="var(--acc-bg)" fg="var(--acc-txt)" weight={600} />
+        <Chip label={revision} radius={999} bg={published ? 'var(--acc-bg)' : 'var(--warn-bg)'} fg={published ? 'var(--acc-txt)' : 'var(--warn)'} weight={600} />
         <Spacer />
-        <CardNote>baseline chung — mỗi feature epic capture snapshot để chạy độc lập</CardNote>
+        <CardNote>{source ? `commit ${source}` : 'baseline chung — mỗi feature epic capture snapshot để chạy độc lập'}</CardNote>
       </CardHeader>
       <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>
-          Chưa có payload Project Context từ extension host.
+          {context
+            ? `${context.artifacts.length} canonical artifact${context.artifacts.length === 1 ? '' : 's'} đã publish${phaseProgress ? ` · ${phaseProgress}` : ''}.`
+            : 'Chưa publish Project Context. Chạy project-context trước khi bắt đầu feature epic.'}
         </div>
         <Spacer />
-        <Btn label="Mở context" disabled title="Chưa có handler ở host" />
-        <Btn label="Refresh context" variant="warn" disabled title="Chưa có handler ở host" />
+        <Btn
+          label="Mở context"
+          disabled={!context}
+          title={context ? 'Mở CONTEXT-MANIFEST.json' : 'Chưa có context manifest'}
+          onClick={context ? () => postMessage({ type: 'openPath', path: context.manifestPath }) : undefined}
+        />
+        <Btn
+          label="Refresh context"
+          variant="warn"
+          title="Đọc lại context manifest từ disk (không chạy lại pipeline)"
+          onClick={() => postMessage({ type: 'refreshProjectContextView' })}
+        />
       </div>
     </Card>
   );
@@ -838,10 +851,14 @@ function StepDetailCard({
   const [updateOpen, setUpdateOpen] = useState(false);
   const rows = stepDetailRows(step, agentMeta[step.agent]);
   const name = step.stepName ?? step.agent;
-  const artifactName = step.artifact || agentMeta[step.agent]?.artifact || '';
-  const artifactExists = step.artifactExists === true
-    || (!!artifactName && (epic.existingArtifacts ?? []).includes(artifactName))
-    || (!!artifactName && !!epic.artifactPaths?.[artifactName]);
+  const fallbackArtifact = step.artifact || agentMeta[step.agent]?.artifact || '';
+  const artifactNames = step.artifacts?.length
+    ? step.artifacts
+    : fallbackArtifact ? [fallbackArtifact] : [];
+  const artifactExists = (artifactName: string) =>
+    (artifactName === step.artifact && step.artifactExists === true)
+    || (epic.existingArtifacts ?? []).includes(artifactName)
+    || !!epic.artifactPaths?.[artifactName];
 
   // EpicCard's Request-Update precondition, unchanged.
   const canRequestUpdate = !!epic.runId && step.runStatus === 'approved';
@@ -875,14 +892,15 @@ function StepDetailCard({
         </div>
       ))}
       <div style={{ padding: '10px 13px', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        {artifactName ? (
-          <>
+        {artifactNames.length > 0 ? (
+          artifactNames.map((artifactName) => (
             <ArtifactChip
+              key={artifactName}
               name={artifactName}
-              exists={artifactExists}
+              exists={artifactExists(artifactName)}
               epicDir={epic.epicDir}
             />
-          </>
+          ))
         ) : (
           <Mono style={{ fontSize: 11, color: 'var(--txt3)' }}>chưa có artifact</Mono>
         )}
@@ -915,7 +933,7 @@ function StepDetailCard({
   );
 }
 
-/** dc.html:920 — artifact chip. Carries the same three actions EpicCard offers. */
+/** Artifact chip — opens the produced file directly in a new editor tab. */
 function ArtifactChip({
   name, exists, epicDir,
 }: {
@@ -923,59 +941,20 @@ function ArtifactChip({
   exists: boolean;
   epicDir: string;
 }) {
-  const [open, setOpen] = useState(false);
   return (
-    <div style={{ position: 'relative', flex: 'none' }}>
-      <button
-        type="button"
-        onClick={() => exists && setOpen((v) => !v)}
-        title={exists ? `Mở ${name}` : 'File chưa được tạo'}
-        className="v3-mono"
-        style={{
-          fontSize: 11, padding: '4px 8px', borderRadius: 5, background: 'var(--panel2)',
-          border: '1px solid var(--bd)', color: exists ? 'var(--txt2)' : 'var(--txt3)',
-          cursor: exists ? 'pointer' : 'default', opacity: exists ? 1 : 0.7,
-        }}
-      >
-        {exists ? name : `${name} · chưa tạo`}
-      </button>
-      {open && (
-        <>
-          <div style={{ position: 'fixed', inset: 0, zIndex: 10 }} onClick={() => setOpen(false)} />
-          <div
-            style={{
-              position: 'absolute', left: 0, top: '100%', marginTop: 4, zIndex: 20, minWidth: 210,
-              overflow: 'hidden', borderRadius: 7, border: '1px solid var(--bd)',
-              background: 'var(--panel2)', boxShadow: '0 16px 40px rgba(0,0,0,0.35)',
-            }}
-          >
-            {([
-              ['Open Markdown', 'openArtifactFile'],
-              ['Preview', 'viewArtifact'],
-              ['Feedback', 'annotateArtifact'],
-            ] as const).map(([label, type], i) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  postMessage({ type, epicDir, filename: name });
-                }}
-                className="v3-hover"
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left', padding: '9px 11px',
-                  fontSize: 11.5, color: 'var(--txt)', background: 'transparent',
-                  border: 'none', borderTop: i === 0 ? undefined : '1px solid var(--bd2)',
-                  cursor: 'pointer', fontFamily: 'inherit',
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={() => exists && postMessage({ type: 'openArtifactFile', epicDir, filename: name })}
+      title={exists ? `Mở ${name} trong tab mới` : 'File chưa được tạo'}
+      className="v3-mono"
+      style={{
+        flex: 'none', fontSize: 11, padding: '4px 8px', borderRadius: 5, background: 'var(--panel2)',
+        border: '1px solid var(--bd)', color: exists ? 'var(--txt2)' : 'var(--txt3)',
+        cursor: exists ? 'pointer' : 'default', opacity: exists ? 1 : 0.7,
+      }}
+    >
+      {exists ? name : `${name} · chưa tạo`}
+    </button>
   );
 }
 

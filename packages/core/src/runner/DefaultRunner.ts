@@ -49,6 +49,7 @@ export class DefaultRunner implements AidlcRunner {
       '--dangerously-skip-permissions',
       '--output-format', 'stream-json',
       '--verbose',
+      ...(ctx.model ? ['--model', ctx.model] : []),
       '--append-system-prompt', ctx.skill,
       ...(this.opts.extraArgs ?? []),
       userMessage,

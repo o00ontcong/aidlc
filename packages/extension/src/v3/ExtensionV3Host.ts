@@ -7,8 +7,10 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 import {
   AidlcApplication,
+  CohesiveDeliveryUpgradeService,
   listBuiltinWorkflowPacks,
 } from '@aidlc/core';
 
@@ -126,6 +128,7 @@ export class ExtensionV3Host {
     const stageId = currentSource?.stages.find((stage) => stage.status === 'active')?.id ?? 'understand';
     const guide = application.guide.explain(stageId);
     const migration = application.migration.preview();
+    const cohesiveUpgrade = cohesiveUpgradeProjection(root);
 
     return {
       project: {
@@ -163,6 +166,7 @@ export class ExtensionV3Host {
       })),
       artifactPolicy: application.artifacts.load(),
       legacyMigration: migration.items.length ? { id: migration.id, itemCount: migration.items.length, command: `aidlc migration apply ${migration.id} --confirm` } : undefined,
+      cohesiveUpgrade,
       capabilities: application.capabilities.list().map((capability) => ({
         id: capability.id,
         label: capability.name,
@@ -171,6 +175,7 @@ export class ExtensionV3Host {
         healthy: capability.category === 'bundled',
         message: capability.category === 'optional' ? 'Optional capability requires an installed provider.' : undefined,
       })),
+      architecture: architectureProjection(root),
       guide: {
         stage: stageId,
         title: `${stageId[0]!.toUpperCase()}${stageId.slice(1)} guide`,
@@ -235,6 +240,50 @@ export class ExtensionV3Host {
       // Workspace close/change races are surfaced on the next explicit read.
     }
   }
+}
+
+function cohesiveUpgradeProjection(root: string): Record<string, unknown> | undefined {
+  try {
+    const preview = new CohesiveDeliveryUpgradeService(root).preview();
+    const needsUpgrade = preview.items.some((item) => item.disposition === 'upgrade' || item.disposition === 'missing' || item.disposition === 'conflict');
+    if (!needsUpgrade) return undefined;
+    return { id: preview.id, fromVersion: preview.fromVersion, toVersion: preview.toVersion, activeRunCount: preview.activeRunIds.length, hasConflicts: preview.items.some((item) => item.disposition === 'conflict') };
+  } catch { return undefined; }
+}
+
+function readJson(file: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch { return null; }
+}
+
+function asArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
+}
+
+/** Read only the curated JSON artifacts; never expose the AST sqlite database to the webview. */
+function architectureProjection(root: string): Record<string, unknown> {
+  const dir = path.join(root, 'docs', 'project', 'context', 'visualization');
+  const project = readJson(path.join(dir, 'PROJECT-ARCHITECTURE.json'));
+  const catalog = readJson(path.join(dir, 'FEATURE-CATALOG.json'));
+  const structural = readJson(path.join(dir, 'STRUCTURAL-GRAPH-MANIFEST.json'));
+  if (!project || !catalog || !structural) return { available: false, message: 'Run Project Context through Map Features to publish the Architecture Explorer model.', layers: [], edges: [], features: [], structuralNodes: [], structuralEdges: [], featureFlows: {} };
+  const featureFlows: Record<string, unknown> = {};
+  const epics = path.join(root, 'docs', 'epics');
+  if (fs.existsSync(epics)) for (const entry of fs.readdirSync(epics, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const artifacts = path.join(epics, entry.name, 'artifacts');
+    const flow = readJson(path.join(artifacts, 'FEATURE-FLOW.json'));
+    if (!flow || typeof flow.featureId !== 'string') continue;
+    const mermaidFile = path.join(artifacts, 'FEATURE-FLOW.mmd');
+    featureFlows[flow.featureId] = { ...flow, mermaid: fs.existsSync(mermaidFile) ? fs.readFileSync(mermaidFile, 'utf8') : undefined };
+  }
+  return {
+    available: true,
+    layers: asArray(project.layers), edges: asArray(project.edges), features: asArray(catalog.features),
+    structuralNodes: asArray(structural.nodes), structuralEdges: asArray(structural.edges), featureFlows,
+  };
 }
 
 function projectRecommendation(recommendation: RecommendationProjectionSource | null): Record<string, unknown> | undefined {

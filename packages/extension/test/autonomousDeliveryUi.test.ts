@@ -9,8 +9,8 @@ import {
 import type { AutonomousDeliverySummary } from '../src/webview/lib/types';
 
 const complete = [
-  { id: 'project-context', steps: Array(7) },
-  { id: 'cohesive-feature', steps: Array(13) },
+  { id: 'project-context', steps: Array(8) },
+  { id: 'cohesive-feature', steps: Array(14) },
 ];
 
 describe('Autonomous Delivery UI', () => {
@@ -42,7 +42,7 @@ describe('Autonomous Delivery UI', () => {
     );
     expect(autonomousDeliveryReadiness(pipelines)).toEqual({
       ready: false,
-      missingOrOutdated: ['project-context (4/7 steps)'],
+      missingOrOutdated: ['project-context (4/8 steps)'],
     });
   });
 
