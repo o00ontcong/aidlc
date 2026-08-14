@@ -75,7 +75,7 @@ export function ArchitectureExplorer({ architecture }: { architecture: Architect
   };
 
   if (!architecture.available) {
-    return <div className="rounded-md border border-dashed border-border bg-card p-6"><h1 className="text-lg font-semibold text-foreground">Architecture</h1><p className="mt-2 text-sm text-muted-foreground">{architecture.message}</p></div>;
+    return <div className="rounded-md border border-dashed border-border bg-card p-6"><h1 className="text-lg font-semibold text-foreground">Architecture</h1><p className="mt-2 text-sm text-muted-foreground">{architecture.message}</p><DiagramActions /></div>;
   }
 
   return (
@@ -89,6 +89,7 @@ export function ArchitectureExplorer({ architecture }: { architecture: Architect
         <button type="button" onClick={() => setLevel('features')} className={tabClass(level === 'features')}>2. Features</button>
         <button type="button" onClick={() => setLevel('flow')} className={tabClass(level === 'flow')}>3. Feature Flow</button>
       </div>
+      <DiagramActions compact />
       {level !== 'overview' && <div className="flex flex-wrap gap-2">{architecture.features.map((feature) => <button key={feature.id} type="button" onClick={() => { setFeatureId(feature.id); setLevel('flow'); }} className={`rounded-md border px-2.5 py-1 text-xs ${feature.id === featureId ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}>{feature.name}</button>)}</div>}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_250px]">
         <section className="h-[430px] overflow-hidden rounded-md border border-border bg-card">
@@ -102,6 +103,13 @@ export function ArchitectureExplorer({ architecture }: { architecture: Architect
       {level === 'flow' && <MermaidFlow source={flow?.mermaid} />}
     </div>
   );
+}
+
+function DiagramActions({ compact = false }: { compact?: boolean }) {
+  return <div className={`flex flex-wrap gap-2 ${compact ? '' : 'mt-4'}`}>
+    <button type="button" onClick={() => postMessage({ type: 'generateArchitectureProjectMap' })} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">Generate Overview + Features</button>
+    <button type="button" onClick={() => postMessage({ type: 'generateArchitectureFeatureFlow' })} className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent">Generate Feature Flow…</button>
+  </div>;
 }
 
 function tabClass(active: boolean): string {

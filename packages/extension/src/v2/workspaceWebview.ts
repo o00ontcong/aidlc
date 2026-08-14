@@ -2305,6 +2305,37 @@ export class WorkspaceWebview {
         this.refresh();
         return;
       }
+      case 'generateArchitectureProjectMap': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const contextState = path.join(root, 'docs', 'epics', 'PROJECT-CONTEXT', 'state.json');
+        if (!fs.existsSync(contextState)) {
+          void vscode.window.showWarningMessage('AIDLC: Project Context is required before generating an architecture map.');
+          return;
+        }
+        runSlashCommandInClaude('/project-context-map-features PROJECT-CONTEXT', root);
+        void vscode.window.showInformationMessage('AIDLC started Map Features in Claude. The Architecture tab refreshes when the diagram artifacts are written.');
+        return;
+      }
+      case 'generateArchitectureFeatureFlow': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const epics = listEpics(root, readYaml(root)).filter((epic) => epic.id !== 'PROJECT-CONTEXT');
+        if (!epics.length) {
+          void vscode.window.showWarningMessage('AIDLC: Create a feature Epic before generating a feature flow.');
+          return;
+        }
+        const picked = await vscode.window.showQuickPick(epics.map((epic) => ({
+          label: epic.title || epic.id,
+          description: epic.id,
+          detail: epic.description || 'Generate this feature\'s human-scale code flow.',
+          epicId: epic.id,
+        })), { placeHolder: 'Choose the feature whose flow you want to generate.' });
+        if (!picked) { return; }
+        runSlashCommandInClaude(`/cohesive-feature-map-feature-flow ${picked.epicId}`, root);
+        void vscode.window.showInformationMessage(`AIDLC started Feature Flow mapping for ${picked.epicId}. The Architecture tab refreshes when the artifacts are written.`);
+        return;
+      }
       case 'openPath': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const targetPathArg = String(msg.path ?? '');
