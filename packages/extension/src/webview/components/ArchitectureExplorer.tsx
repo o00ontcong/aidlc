@@ -21,15 +21,17 @@ const copy = {
 } as const;
 
 function id(value: string): string { return `n_${value.replace(/[^A-Za-z0-9_]/g, '_')}`; }
-function label(value: string): string { return value.replace(/"/g, '\\"').replace(/\n/g, '<br/>'); }
+function label(value: string): string {
+  // Mermaid's parser is stricter than HTML: preserve readable text while
+  // removing grammar tokens that can turn generated repository labels into
+  // diagram syntax.
+  return value.replace(/[\\"\[\]{}|<>]/g, '').replace(/[\r\n]+/g, ' ').trim();
+}
 
 function overviewDiagram(nodes: readonly ArchitectureNode[], edges: readonly ArchitectureEdge[]): string {
   const lines = ['flowchart TD'];
   for (const node of nodes) lines.push(`  ${id(node.id)}["${label(node.label)}"]`);
-  for (const edge of edges) {
-    const edgeLabel = edge.label && edge.label.length <= 28 ? `|${label(edge.label)}|` : '';
-    lines.push(`  ${id(edge.source)} -->${edgeLabel} ${id(edge.target)}`);
-  }
+  for (const edge of edges) lines.push(`  ${id(edge.source)} --> ${id(edge.target)}`);
   return lines.join('\n');
 }
 
@@ -41,8 +43,7 @@ function featureMapDiagram(features: readonly ArchitectureFeature[]): string {
     lines.push(`  app --> ${featureId}["${label(feature.name)}"]`);
     for (const [index, entry] of (feature.entrypoints ?? []).slice(0, 4).entries()) {
       const participantId = id(`entry_${feature.id}_${index}`);
-      const participant = entry.symbol ? `${entry.label}<br/><small>${entry.symbol}</small>` : entry.label;
-      lines.push(`  ${featureId} --> ${participantId}["${label(participant)}"]`);
+      lines.push(`  ${featureId} --> ${participantId}["${label(entry.label)}"]`);
     }
   }
   return lines.join('\n');
@@ -50,16 +51,19 @@ function featureMapDiagram(features: readonly ArchitectureFeature[]): string {
 
 function MermaidDiagram({ source, empty }: { source?: string; empty: string }) {
   const [svg, setSvg] = useState<string>();
+  const [error, setError] = useState<string>();
   useEffect(() => {
-    if (!source) { setSvg(undefined); return; }
+    if (!source) { setSvg(undefined); setError(undefined); return; }
     let active = true;
-    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default', flowchart: { curve: 'basis', htmlLabels: true } });
+    setError(undefined);
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default', flowchart: { curve: 'basis', htmlLabels: false } });
     void mermaid.render(`aidlc-diagram-${Date.now()}`, source)
       .then((result) => { if (active) setSvg(result.svg); })
-      .catch(() => { if (active) setSvg(undefined); });
+      .catch((reason: unknown) => { if (active) { setSvg(undefined); setError(reason instanceof Error ? reason.message : 'Mermaid could not render this diagram.'); } });
     return () => { active = false; };
   }, [source]);
   if (!source) return <p className="p-6 text-sm text-muted-foreground">{empty}</p>;
+  if (error) return <p className="p-6 text-sm text-destructive">{error}</p>;
   return <div className="overflow-auto p-5 [&_svg]:min-w-full [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />;
 }
 
