@@ -337,6 +337,12 @@
           "default": "docs/epics",
           "description": "Relative path (from the project root) where epics are stored. Changing this updates `state.root` in workspace.yaml. The epic list and Start Epic wizard use this directory immediately.",
           "scope": "resource"
+        },
+        "aidlc.displayLanguage": {
+          "type": "string",
+          "enum": ["auto", "en", "vi"],
+          "default": "auto",
+          "description": "Language for AIDLC interface labels. Auto follows VS Code's display language."
         }
       }
     },

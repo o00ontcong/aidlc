@@ -543,6 +543,7 @@ interface WorkspaceState {
   charter?: ReturnType<typeof readCharterSnapshot>;
   diffIgnore?: string[];
   architecture: ArchitectureExplorerStateUi;
+  displayLanguage: 'en' | 'vi';
 }
 
 interface ArchitectureNodeUi { id: string; label: string; kind?: string; layer?: string; file?: string; symbol?: string; role?: string; }
@@ -651,6 +652,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       charter: { present: false, goals: [], invariants: [], techRules: [] },
       diffIgnore: [],
       architecture: emptyArchitectureExplorer('Open a project to view its architecture.'),
+      displayLanguage: resolveDisplayLanguage(),
     };
   }
 
@@ -741,6 +743,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       charter: readCharterSnapshot(root),
       diffIgnore: readDiffIgnore(root),
       architecture,
+      displayLanguage: resolveDisplayLanguage(),
     };
   }
 
@@ -808,7 +811,14 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     charter: readCharterSnapshot(root),
     diffIgnore: readDiffIgnore(root),
     architecture,
+    displayLanguage: resolveDisplayLanguage(),
   };
+}
+
+function resolveDisplayLanguage(): 'en' | 'vi' {
+  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+  if (configured === 'vi' || configured === 'en') return configured;
+  return vscode.env.language.toLowerCase().startsWith('vi') ? 'vi' : 'en';
 }
 
 function emptyArchitectureExplorer(message: string): ArchitectureExplorerStateUi {

@@ -785,6 +785,8 @@ export interface WorkspaceState {
   diffIgnore?: string[];
   /** Curated, feature-centric diagram model. It is read-only and never replaces workspace state. */
   architecture: ArchitectureExplorerState;
+  /** Resolved once in the extension host from aidlc.displayLanguage / VS Code. */
+  displayLanguage: 'en' | 'vi';
 }
 
 export interface ArchitectureNode {
