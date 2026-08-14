@@ -62,32 +62,6 @@
     },
     "commands": [
       {
-        "command": "aidlc.project.analyze",
-        "title": "Analyze Project (Unified)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.project.setup",
-        "title": "Preview Project Setup (Unified)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.epic.next",
-        "title": "Run Next Epic Action (Unified)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.epic.resume",
-        "title": "Resume Epic (Unified)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.v3.open",
-        "title": "Open AIDLC Workspace",
-        "icon": "$(rocket)",
-        "category": "AIDLC"
-      },
-      {
         "command": "aidlc.openBuilder",
         "title": "Open Workspace Builder",
         "icon": "$(layout-panel)",
@@ -181,12 +155,6 @@
         "command": "aidlc.migrateEpics",
         "title": "Migrate Epic State Files",
         "icon": "$(sync)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.cohesiveUpgrade",
-        "title": "Upgrade Cohesive Delivery Bundle",
-        "icon": "$(versions)",
         "category": "AIDLC"
       },
       {
