@@ -1,7 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { useEffect, useState } from 'react';
 
-import { useThemeBridge } from '../hooks/useThemeBridge';
 import { createV3ApplicationClient, type V3WorkspaceState } from './contracts';
 import { V3WorkspaceShell } from './shell';
 
@@ -21,9 +20,6 @@ const initialState: V3WorkspaceState = {
 };
 
 function App() {
-  // V3 shares the extension stylesheet with V2. Keep its token mode in sync
-  // with VS Code instead of falling back to the stylesheet's light defaults.
-  useThemeBridge();
   const [state, setState] = useState<V3WorkspaceState>(initialState);
   useEffect(() => {
     const receive = (event: MessageEvent<unknown>) => {

@@ -783,6 +783,49 @@ export interface WorkspaceState {
   charter?: CharterSnapshot;
   /** Display-only ignore patterns for the epic diff pane. */
   diffIgnore?: string[];
+  /** Curated, feature-centric diagram model. It is read-only and never replaces workspace state. */
+  architecture: ArchitectureExplorerState;
+}
+
+export interface ArchitectureNode {
+  id: string;
+  label: string;
+  kind?: string;
+  layer?: string;
+  file?: string;
+  symbol?: string;
+  role?: string;
+}
+
+export interface ArchitectureEdge { source: string; target: string; label?: string; confidence?: string; }
+
+export interface ArchitectureFeature {
+  id: string;
+  name: string;
+  summary?: string;
+  confidence?: string;
+  evidence?: string[];
+  entrypoints?: Array<{ label: string; file: string; symbol?: string }>;
+  layers?: string[];
+}
+
+export interface ArchitectureFeatureFlow {
+  featureId: string;
+  title?: string;
+  nodes: ArchitectureNode[];
+  edges: ArchitectureEdge[];
+  mermaid?: string;
+}
+
+export interface ArchitectureExplorerState {
+  available: boolean;
+  message?: string;
+  layers: ArchitectureNode[];
+  edges: ArchitectureEdge[];
+  features: ArchitectureFeature[];
+  structuralNodes: ArchitectureNode[];
+  structuralEdges: ArchitectureEdge[];
+  featureFlows: Record<string, ArchitectureFeatureFlow>;
 }
 
 export interface TestAgentTarget {
@@ -792,7 +835,7 @@ export interface TestAgentTarget {
   url?: string;
 }
 
-export type WorkspaceView = 'builder' | 'epics' | 'analyze' | 'tests';
+export type WorkspaceView = 'builder' | 'architecture' | 'epics' | 'analyze' | 'tests';
 
 export type EpicFilter = 'all' | 'in_progress' | 'pending' | 'done' | 'failed';
 

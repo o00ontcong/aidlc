@@ -8,6 +8,7 @@ import { ThemeToggle } from './ThemeToggle';
 import { StartEpicModal } from './StartEpicModal';
 import { AnalyzeView } from './AnalyzeView';
 import { TestAgentView } from './TestAgentView';
+import { ArchitectureExplorer } from './ArchitectureExplorer';
 import { onHostMessage, postMessage } from '@/lib/bridge';
 
 export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
@@ -21,7 +22,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
     return onHostMessage((msg) => {
       if (msg.type === 'setView') {
         const next = msg.view;
-        if (next === 'builder' || next === 'epics' || next === 'analyze' || next === 'tests') {
+        if (next === 'builder' || next === 'architecture' || next === 'epics' || next === 'analyze' || next === 'tests') {
           setView(next);
           seededView.current = true;
         }
@@ -141,6 +142,8 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
           <div className="p-6">
             {view === 'builder' ? (
               <BuilderView state={state} />
+            ) : view === 'architecture' ? (
+              <ArchitectureExplorer architecture={state.architecture} />
             ) : view === 'analyze' ? (
               <AnalyzeView state={state} />
             ) : (
@@ -166,6 +169,9 @@ function TopBar({
     <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/80 px-6 py-2.5 backdrop-blur-sm">
       <PillButton active={view === 'builder'} onClick={() => onView('builder')}>
         Builder
+      </PillButton>
+      <PillButton active={view === 'architecture'} onClick={() => onView('architecture')}>
+        Architecture
       </PillButton>
       <PillButton active={view === 'epics'} onClick={() => onView('epics')}>
         Epics

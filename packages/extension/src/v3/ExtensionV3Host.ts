@@ -26,8 +26,6 @@ export interface V3HostApplicationFactory {
 
 export interface ExtensionV3HostOptions {
   readonly workspaceRoot: () => string | undefined;
-  /** Templates live beside the packaged extension, not beside the bundled core module. */
-  readonly templatesRoot?: () => string | undefined;
   readonly applicationFactory?: V3HostApplicationFactory;
   readonly actor?: V3ActorRef;
   readonly hostDispatcher?: (command: ExtensionV3Command) => Promise<ExtensionV3CommandResult | undefined>;
@@ -123,32 +121,20 @@ export class ExtensionV3Host {
     const recommendation = application.project.loadRecommendationLock()?.recommendation
       ?? application.project.loadProposal();
     const sourceEpics = application.epics.list();
-    const legacy = sourceEpics.length ? undefined : legacyWorkspaceProjection(root);
-    // A V2 workspace remains fully readable in V3. Migration is an explicit
-    // workflow upgrade, never a prerequisite for seeing existing work.
-    const epics = sourceEpics.length
-      ? sourceEpics.map((epic) => projectEpic(epic, application.guide.next(epic)))
-      : legacy?.epics ?? [];
     const currentSource = sourceEpics.find((epic) => epic.status === 'running' || epic.status === 'waiting-for-user' || epic.status === 'blocked') ?? sourceEpics[0];
-    const current = epics.find((epic) => epic.id === currentSource?.id)
-      ?? epics.find((epic) => epic.status !== 'completed')
-      ?? epics[0];
+    const epics = sourceEpics.map((epic) => projectEpic(epic, application.guide.next(epic)));
+    const current = epics.find((epic) => epic.id === currentSource?.id);
     const durableWorkflow = currentSource ? application.workflows.load(currentSource.id) : null;
-    const legacyActiveStage = asArray(current?.stages).find((stage) => stage.status === 'running')?.id;
-    const stageId = currentSource?.stages.find((stage) => stage.status === 'active')?.id
-      ?? (typeof legacyActiveStage === 'string' ? legacyActiveStage : undefined)
-      ?? 'understand';
-    const guide = application.guide.explain(
-      ['understand', 'plan', 'build', 'verify', 'ship'].includes(stageId) ? stageId as 'understand' | 'plan' | 'build' | 'verify' | 'ship' : 'understand',
-    );
+    const stageId = currentSource?.stages.find((stage) => stage.status === 'active')?.id ?? 'understand';
+    const guide = application.guide.explain(stageId);
     const migration = application.migration.preview();
-    const cohesiveUpgrade = cohesiveUpgradeProjection(root, this.options.templatesRoot?.());
+    const cohesiveUpgrade = cohesiveUpgradeProjection(root);
 
     return {
       project: {
         name: path.basename(root),
-        readiness: context?.analysisStatus === 'published' || legacy?.context ? 'ready' : 'not-ready',
-        contextRevision: context ? String(context.revision) : legacy?.context?.revision,
+        readiness: context?.analysisStatus === 'published' ? 'ready' : 'not-ready',
+        contextRevision: context ? String(context.revision) : undefined,
         recommendation: projectRecommendation(recommendation),
         diagnostics: application.guide.doctor().filter((item) => !item.ok).map((item) => ({
           id: item.id,
@@ -256,9 +242,9 @@ export class ExtensionV3Host {
   }
 }
 
-function cohesiveUpgradeProjection(root: string, templatesRoot?: string): Record<string, unknown> | undefined {
+function cohesiveUpgradeProjection(root: string): Record<string, unknown> | undefined {
   try {
-    const preview = new CohesiveDeliveryUpgradeService(root, undefined, templatesRoot).preview();
+    const preview = new CohesiveDeliveryUpgradeService(root).preview();
     const needsUpgrade = preview.items.some((item) => item.disposition === 'upgrade' || item.disposition === 'missing' || item.disposition === 'conflict');
     if (!needsUpgrade) return undefined;
     return { id: preview.id, fromVersion: preview.fromVersion, toVersion: preview.toVersion, activeRunCount: preview.activeRunIds.length, hasConflicts: preview.items.some((item) => item.disposition === 'conflict') };
@@ -274,86 +260,6 @@ function readJson(file: string): Record<string, unknown> | null {
 
 function asArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
-}
-
-interface LegacyContextProjection { readonly revision: string; }
-interface LegacyWorkspaceProjection { readonly epics: Record<string, unknown>[]; readonly context?: LegacyContextProjection; }
-
-/**
- * The original sidebar persists one state.json file inside each docs/epics directory. V3's
- * application store intentionally does not mutate that format, but it must
- * project it while a user decides whether to run the explicit migration.
- */
-function legacyWorkspaceProjection(root: string): LegacyWorkspaceProjection | undefined {
-  const rootDir = path.join(root, 'docs', 'epics');
-  if (!fs.existsSync(rootDir)) return undefined;
-  const epics = fs.readdirSync(rootDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .flatMap((entry) => legacyEpicProjection(root, entry.name));
-  const manifest = readJson(path.join(root, 'docs', 'project', 'context', 'CONTEXT-MANIFEST.json'));
-  const revision = manifest && (typeof manifest.revision === 'number' || typeof manifest.revision === 'string')
-    ? String(manifest.revision)
-    : undefined;
-  return { epics, ...(revision ? { context: { revision } } : {}) };
-}
-
-function legacyEpicProjection(root: string, folder: string): Record<string, unknown>[] {
-  const state = readJson(path.join(root, 'docs', 'epics', folder, 'state.json'));
-  if (!state) return [];
-  const id = typeof state.id === 'string' ? state.id : folder;
-  const title = typeof state.title === 'string' && state.title.trim() ? state.title : id;
-  const rawSteps = asArray(state.stepStates);
-  const stages = legacyStages(rawSteps);
-  const artifacts = [...new Set(rawSteps.flatMap((step) => Array.isArray(step.artifactsProduced)
-    ? step.artifactsProduced.filter((item): item is string => typeof item === 'string') : []))];
-  const updatedAt = rawSteps.map((step) => typeof step.finishedAt === 'string' ? step.finishedAt : typeof step.startedAt === 'string' ? step.startedAt : '')
-    .filter(Boolean).sort().at(-1)
-    ?? (typeof state.createdAt === 'string' ? state.createdAt : '');
-  const status = legacyEpicStatus(state.status);
-  return [{
-    id,
-    title,
-    type: id === 'PROJECT-CONTEXT' ? 'spike' : 'feature',
-    profile: 'standard',
-    status,
-    autonomy: state.runMode === 'autonomous' ? 'unattended' : 'assist',
-    stages,
-    artifacts: artifacts.map((artifact, index) => ({
-      id: `legacy-artifact:${index}`,
-      label: path.basename(artifact),
-      path: artifact,
-      lifecycle: status === 'completed' ? 'approved' : 'review',
-      eligibleForCommit: false,
-    })),
-    evidence: artifacts.map((artifact, index) => ({ id: `legacy-evidence:${index}`, label: path.basename(artifact), uri: artifact, kind: 'artifact' })),
-    updatedAt,
-  }];
-}
-
-function legacyEpicStatus(value: unknown): string {
-  if (value === 'done' || value === 'completed') return 'completed';
-  if (value === 'failed') return 'blocked';
-  if (value === 'in_progress' || value === 'running') return 'running';
-  return 'draft';
-}
-
-function legacyStages(steps: readonly Record<string, unknown>[]): Record<string, unknown>[] {
-  const ids = ['understand', 'plan', 'build', 'verify', 'ship'];
-  if (!steps.length) return ids.map((id) => ({ id, status: 'pending', autonomy: 'assist' }));
-  // Preserve comprehension over exact legacy phase naming: five groups match
-  // the durable V3 lifecycle and still surface the legacy artifacts below.
-  return ids.map((id, index) => {
-    const start = Math.floor(index * steps.length / ids.length);
-    const end = Math.floor((index + 1) * steps.length / ids.length);
-    const group = steps.slice(start, Math.max(start + 1, end));
-    const statuses = group.map((step) => step.status);
-    const status = statuses.some((value) => value === 'failed') ? 'blocked'
-      : statuses.some((value) => value === 'running' || value === 'in_progress') ? 'running'
-      : statuses.some((value) => value === 'awaiting_review') ? 'waiting-for-user'
-      : statuses.length > 0 && statuses.every((value) => value === 'done' || value === 'completed') ? 'completed'
-      : 'pending';
-    return { id, status, autonomy: 'unattended' };
-  });
 }
 
 /** Read only the curated JSON artifacts; never expose the AST sqlite database to the webview. */

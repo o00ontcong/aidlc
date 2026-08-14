@@ -474,10 +474,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('aidlc.openBuilder');
         return;
       case 'openWorkspace':
-        // The sidebar's primary entry point now opens the feature-centric V3
-        // workspace. V2 remains available through its legacy commands while
-        // users migrate, but it must not silently shadow the new product.
-        await vscode.commands.executeCommand('aidlc.v3.open');
+        // Preserve the established workspace surface and its active tab.
+        // Architecture is an additive tab there, not a replacement product.
+        WorkspaceWebview.reveal(this.extensionUri);
         return;
       case 'openBuilderTab': {
         const tab = String(msg.tab ?? '');

@@ -32,10 +32,10 @@ function assertInside(root: string, target: string): string {
 }
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function stepName(step: unknown): string { const value = asRecord(step); return typeof step === 'string' ? step : typeof value.name === 'string' ? value.name : typeof value.agent === 'string' ? value.agent : ''; }
-function desiredWorkspace(templatesRoot: string): Record<string, unknown> {
+function desiredWorkspace(): Record<string, unknown> {
   const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === WORKFLOW_ID);
   if (!workflow) throw new Error('Cohesive Delivery built-in workflow is unavailable.');
-  return loadBuiltinPreset(templatesRoot, workflow).workspace as Record<string, unknown>;
+  return loadBuiltinPreset(builtinTemplatesRoot(), workflow).workspace as Record<string, unknown>;
 }
 function readLock(root: string): CohesiveBundleLock | null { try { const lock = JSON.parse(fs.readFileSync(path.join(root, LOCK_RELATIVE), 'utf8')) as CohesiveBundleLock; return lock.workflowId === WORKFLOW_ID ? lock : null; } catch { return null; } }
 function parseWorkspace(file: string): Record<string, unknown> {
@@ -53,15 +53,10 @@ function activeRuns(root: string): Array<{ file: string; state: RunState }> {
 }
 
 export class CohesiveDeliveryUpgradeService {
-  constructor(
-    readonly workspaceRoot: string,
-    private readonly clock: () => string = now,
-    /** The extension bundle supplies its own templates directory; the CLI uses core's built-ins. */
-    private readonly templatesRoot: string = builtinTemplatesRoot(),
-  ) {}
+  constructor(readonly workspaceRoot: string, private readonly clock: () => string = now) {}
   preview(): CohesiveUpgradePreview {
     const workspaceFile = path.join(this.workspaceRoot, '.aidlc', 'workspace.yaml'); const body = fs.existsSync(workspaceFile) ? fs.readFileSync(workspaceFile, 'utf8') : '';
-    const current = parseWorkspace(workspaceFile); const desired = desiredWorkspace(this.templatesRoot); const existing = pipelineEntries(current); const target = pipelineEntries(desired);
+    const current = parseWorkspace(workspaceFile); const desired = desiredWorkspace(); const existing = pipelineEntries(current); const target = pipelineEntries(desired);
     const items = target.map((next) => {
       const pipelineId = String(next.id); const currentPipeline = existing.find((item) => item.id === pipelineId); const targetSteps = (Array.isArray(next.steps) ? next.steps : []).map(stepName);
       if (!currentPipeline) return { pipelineId, disposition: 'missing' as const, currentSteps: [], targetSteps };
@@ -84,14 +79,14 @@ export class CohesiveDeliveryUpgradeService {
     try {
       fs.mkdirSync(backupDir, { recursive: true }); const backup = path.join(backupDir, 'files', '.aidlc', 'workspace.yaml'); if (!fs.existsSync(backup)) { fs.mkdirSync(path.dirname(backup), { recursive: true }); fs.copyFileSync(workspaceFile, backup); }
       manifest.workspaceBeforeHash = hash(before); manifest.status = 'partial-failure'; writeFileAtomic(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
-      const current = parseWorkspace(workspaceFile); const desired = desiredWorkspace(this.templatesRoot); const currentPipelines = pipelineEntries(current); const desiredPipelines = pipelineEntries(desired);
+      const current = parseWorkspace(workspaceFile); const desired = desiredWorkspace(); const currentPipelines = pipelineEntries(current); const desiredPipelines = pipelineEntries(desired);
       for (const run of activeRuns(this.workspaceRoot)) { const oldPipeline = currentPipelines.find((item) => item.id === run.state.pipelineId); if (oldPipeline && !run.state.pipelineSnapshot) { run.state.pipelineSnapshot = snapshotPipeline(oldPipeline as unknown as PipelineConfig, this.clock()); writeFileAtomic(run.file, `${JSON.stringify(run.state, null, 2)}\n`); } }
       for (const item of preview.items) { const target = desiredPipelines.find((pipeline) => pipeline.id === item.pipelineId)!; const idx = currentPipelines.findIndex((pipeline) => pipeline.id === item.pipelineId); if (idx >= 0) currentPipelines[idx] = target; else currentPipelines.push(target); }
       current.pipelines = currentPipelines;
       const commands = Array.isArray(current.slash_commands) ? current.slash_commands : []; const desiredCommands = Array.isArray(desired.slash_commands) ? desired.slash_commands : []; const names = new Set(commands.map((command) => String(asRecord(command).name))); for (const command of desiredCommands) if (!names.has(String(asRecord(command).name))) commands.push(command); current.slash_commands = commands;
       writeFileAtomic(workspaceFile, yaml.dump(current, { noRefs: true, lineWidth: 120 })); manifest.workspaceAfterHash = hash(fs.readFileSync(workspaceFile));
       const lock: CohesiveBundleLock = { schemaVersion: 1, workflowId: WORKFLOW_ID, bundleVersion: COHESIVE_DELIVERY_BUNDLE_VERSION, installedAt: this.clock(), migrationId: preview.id }; writeFileAtomic(assertInside(this.workspaceRoot, path.join(this.workspaceRoot, LOCK_RELATIVE)), `${JSON.stringify(lock, null, 2)}\n`);
-      writeBuiltinAutoReviewValidators(this.templatesRoot, this.workspaceRoot, BUILTIN_WORKFLOWS.find((item) => item.id === WORKFLOW_ID)!); manifest.status = 'applied'; manifest.appliedAt = this.clock();
+      writeBuiltinAutoReviewValidators(builtinTemplatesRoot(), this.workspaceRoot, BUILTIN_WORKFLOWS.find((item) => item.id === WORKFLOW_ID)!); manifest.status = 'applied'; manifest.appliedAt = this.clock();
     } catch (error) { manifest.status = 'partial-failure'; manifest.errors.push(error instanceof Error ? error.message : String(error)); writeFileAtomic(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`); throw error; }
     writeFileAtomic(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`); return manifest;
   }

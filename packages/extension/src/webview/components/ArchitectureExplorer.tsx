@@ -1,0 +1,109 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type NodeMouseHandler } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import mermaid from 'mermaid';
+
+import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureNode } from '@/lib/types';
+import { postMessage } from '@/lib/bridge';
+
+type Level = 'overview' | 'features' | 'flow';
+
+const layerColor: Record<string, string> = {
+  presentation: 'var(--vscode-charts-blue, #3794ff)',
+  domain: 'var(--vscode-charts-purple, #b180d7)',
+  data: 'var(--vscode-charts-green, #89d185)',
+  external: 'var(--vscode-charts-orange, #d7ba7d)',
+};
+
+function graphNodes(nodes: readonly ArchitectureNode[]): Node[] {
+  return nodes.map((node, index) => ({
+    id: node.id,
+    position: { x: (index % 3) * 250, y: Math.floor(index / 3) * 120 },
+    data: { label: node.label },
+    style: {
+      border: `1px solid ${layerColor[node.layer ?? ''] ?? 'var(--vscode-widget-border)'}`,
+      borderRadius: 8,
+      minWidth: 160,
+      padding: 9,
+      background: 'var(--vscode-editor-background)',
+      color: 'var(--vscode-editor-foreground)',
+    },
+  }));
+}
+
+function graphEdges(edges: readonly ArchitectureEdge[]): Edge[] {
+  return edges.map((edge, index) => ({ id: `${edge.source}:${edge.target}:${index}`, ...edge }));
+}
+
+function MermaidFlow({ source }: { source?: string }) {
+  const [svg, setSvg] = useState<string>();
+  useEffect(() => {
+    if (!source) { setSvg(undefined); return; }
+    let active = true;
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default' });
+    void mermaid.render(`aidlc-feature-flow-${Date.now()}`, source)
+      .then((result) => { if (active) setSvg(result.svg); })
+      .catch(() => { if (active) setSvg(undefined); });
+    return () => { active = false; };
+  }, [source]);
+  if (!source) return null;
+  return (
+    <section className="rounded-md border border-border bg-card p-4">
+      <h2 className="text-sm font-semibold text-foreground">Mermaid flow</h2>
+      {svg ? <div className="mt-3 overflow-auto [&_svg]:max-w-full" dangerouslySetInnerHTML={{ __html: svg }} /> : <pre className="mt-3 overflow-auto text-xs text-muted-foreground">{source}</pre>}
+    </section>
+  );
+}
+
+/** Additive, feature-centric explorer. It consumes generated artifacts only and never owns Epic state. */
+export function ArchitectureExplorer({ architecture }: { architecture: ArchitectureExplorerState }) {
+  const [level, setLevel] = useState<Level>('overview');
+  const [featureId, setFeatureId] = useState<string>();
+  const [selected, setSelected] = useState<ArchitectureNode>();
+  const flow = featureId ? architecture.featureFlows[featureId] : undefined;
+  const graph = useMemo(() => {
+    if (level === 'overview') return { nodes: architecture.layers, edges: architecture.edges };
+    if (level === 'features') return {
+      nodes: architecture.features.map((feature) => ({ id: `feature:${feature.id}`, label: feature.name, kind: 'feature', role: feature.summary })),
+      edges: [],
+    };
+    return { nodes: flow?.nodes ?? [], edges: flow?.edges ?? [] };
+  }, [architecture, flow, level]);
+  const selectNode: NodeMouseHandler = (_event, node) => {
+    const item = graph.nodes.find((candidate) => candidate.id === node.id || `feature:${candidate.id}` === node.id);
+    if (item) setSelected(item);
+  };
+
+  if (!architecture.available) {
+    return <div className="rounded-md border border-dashed border-border bg-card p-6"><h1 className="text-lg font-semibold text-foreground">Architecture</h1><p className="mt-2 text-sm text-muted-foreground">{architecture.message}</p></div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <header>
+        <h1 className="text-lg font-semibold text-foreground">Architecture</h1>
+        <p className="mt-1 text-xs text-muted-foreground">Start with the project shape, choose a feature, then inspect the participating code. This is intentionally not a file-count diagram.</p>
+      </header>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => setLevel('overview')} className={tabClass(level === 'overview')}>1. Overview</button>
+        <button type="button" onClick={() => setLevel('features')} className={tabClass(level === 'features')}>2. Features</button>
+        <button type="button" onClick={() => setLevel('flow')} className={tabClass(level === 'flow')}>3. Feature Flow</button>
+      </div>
+      {level !== 'overview' && <div className="flex flex-wrap gap-2">{architecture.features.map((feature) => <button key={feature.id} type="button" onClick={() => { setFeatureId(feature.id); setLevel('flow'); }} className={`rounded-md border px-2.5 py-1 text-xs ${feature.id === featureId ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}>{feature.name}</button>)}</div>}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_250px]">
+        <section className="h-[430px] overflow-hidden rounded-md border border-border bg-card">
+          <ReactFlow nodes={graphNodes(graph.nodes)} edges={graphEdges(graph.edges)} fitView onNodeClick={selectNode}><Background /><Controls /><MiniMap /></ReactFlow>
+        </section>
+        <aside className="rounded-md border border-border bg-card p-4">
+          <h2 className="text-sm font-semibold text-foreground">{selected?.label ?? 'Select a node'}</h2>
+          {selected ? <><p className="mt-2 text-xs text-muted-foreground">{selected.role ?? selected.kind ?? 'Architecture participant'}</p>{selected.file && <><p className="mt-3 break-all font-mono text-[10px] text-muted-foreground">{selected.file}</p><button type="button" onClick={() => postMessage({ type: 'openPath', path: selected.file })} className="mt-3 rounded-md border border-border px-2.5 py-1 text-xs text-foreground hover:bg-accent">Open Source</button></>}</> : <p className="mt-2 text-xs text-muted-foreground">Click a layer, a feature, or a flow participant for its role and source link.</p>}
+        </aside>
+      </div>
+      {level === 'flow' && <MermaidFlow source={flow?.mermaid} />}
+    </div>
+  );
+}
+
+function tabClass(active: boolean): string {
+  return active ? 'rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground' : 'rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent';
+}
