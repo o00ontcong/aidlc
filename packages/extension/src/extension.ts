@@ -132,6 +132,31 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
+  // Keep the title bar intentionally quiet: one Settings icon replaces the
+  // previous row of shortcut icons. Language is applied to the open workspace
+  // immediately, without requiring a VS Code window reload.
+  context.subscriptions.push(vscode.commands.registerCommand('aidlc.openSettings', async () => {
+    const current = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+    const selected = await vscode.window.showQuickPick([
+      { label: 'Automatic', description: 'Follow VS Code display language', value: 'auto' },
+      { label: 'English', description: 'Use English in AIDLC', value: 'en' },
+      { label: 'Tiếng Việt', description: 'Dùng tiếng Việt trong AIDLC', value: 'vi' },
+    ], {
+      title: 'AIDLC Settings',
+      placeHolder: `Language: ${current === 'vi' ? 'Tiếng Việt' : current === 'en' ? 'English' : 'Automatic'}`,
+    });
+    if (!selected) return;
+    await vscode.workspace.getConfiguration('aidlc').update('displayLanguage', selected.value, vscode.ConfigurationTarget.Global);
+    WorkspaceWebview.refreshCurrent();
+    sidebar.refresh();
+  }));
+
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+    if (!event.affectsConfiguration('aidlc.displayLanguage')) return;
+    WorkspaceWebview.refreshCurrent();
+    sidebar.refresh();
+  }));
+
   // Manual refresh command for skills/agents/workspace state. Users can invoke
   // from command palette if file watcher detection is delayed (e.g., global
   // ~/.claude/skills changes or CI generates new files).

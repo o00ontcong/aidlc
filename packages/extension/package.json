@@ -68,6 +68,12 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.openSettings",
+        "title": "AIDLC Settings",
+        "icon": "$(gear)",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.showWorkspaceConfig",
         "title": "Show Workspace Config",
         "icon": "$(file-code)",
@@ -349,49 +355,9 @@
     "menus": {
       "view/title": [
         {
-          "command": "aidlc.openBuilder",
+          "command": "aidlc.openSettings",
           "when": "view == aidlcSidebar",
           "group": "navigation@0"
-        },
-        {
-          "command": "aidlc.startAutonomousDelivery",
-          "when": "view == aidlcSidebar",
-          "group": "navigation@5"
-        },
-        {
-          "command": "aidlc.ask",
-          "when": "view == aidlcSidebar",
-          "group": "navigation@8"
-        },
-        {
-          "command": "aidlc.openEpicsList",
-          "when": "view == aidlcSidebar",
-          "group": "navigation@1"
-        },
-        {
-          "command": "aidlc.openClaudeTerminal",
-          "when": "view == aidlcSidebar",
-          "group": "navigation@2"
-        },
-        {
-          "command": "aidlc.astGraph.openReport",
-          "when": "view == aidlcSidebar",
-          "group": "navigation@3"
-        },
-        {
-          "command": "aidlc.openMonitor",
-          "when": "view == aidlcSidebar",
-          "group": "navigation@4"
-        },
-        {
-          "command": "aidlc.selectStandard",
-          "when": "view == aidlcSidebar",
-          "group": "navigation@6"
-        },
-        {
-          "command": "aidlc.refreshSidebar",
-          "when": "view == aidlcSidebar",
-          "group": "navigation@7"
         }
       ]
     },
