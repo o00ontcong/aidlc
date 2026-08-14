@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 
-import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureFeature, ArchitectureNode } from '@/lib/types';
+import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureFeature, ArchitectureNode, EpicSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 
 type Level = 'overview' | 'features' | 'flow';
@@ -13,12 +13,14 @@ const copy = {
     overview: '1. Overview', features: '2. Features', flow: '3. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
     generateProject: 'Generate Overview + Features', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
     zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom', panHint: 'Drag to pan · scroll to zoom',
+    notStarted: 'Not started', inProgress: 'In progress', done: 'Done',
   },
   vi: {
     title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, đến tính năng, rồi đến luồng mã nguồn.',
     overview: '1. Tổng quan', features: '2. Tính năng', flow: '3. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
     generateProject: 'Tạo Tổng quan + Tính năng', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
     zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ', panHint: 'Giữ chuột để kéo · lăn chuột để zoom',
+    notStarted: 'Chưa làm', inProgress: 'Đang làm', done: 'Đã làm',
   },
 } as const;
 
@@ -38,17 +40,65 @@ function overviewDiagram(nodes: readonly ArchitectureNode[], edges: readonly Arc
 }
 
 /** Level 2 is deliberately feature-first: app → feature → real entry/code participant. */
-function featureMapDiagram(features: readonly ArchitectureFeature[]): string {
-  const lines = ['flowchart TD', '  app["APP"]'];
+function featureMapDiagram(
+  features: readonly ArchitectureFeature[],
+  epics: readonly EpicSummary[],
+  text: typeof copy.en | typeof copy.vi,
+): string {
+  const lines = [
+    'flowchart TD',
+    '  app["APP"]',
+  ];
   for (const feature of features) {
     const featureId = id(`feature_${feature.id}`);
-    lines.push(`  app --> ${featureId}["${label(feature.name)}"]`);
+    const status = featureDelivery(feature, epics).status;
+    const statusLabel = status === 'done' ? text.done : status === 'in_progress' ? text.inProgress : text.notStarted;
+    lines.push(`  app --> ${featureId}["${label(feature.name)} (${statusLabel})"]`);
+    // Mermaid's class styles can be overridden by the active dark theme.
+    // Give every feature node an explicit style so its delivery state remains visible.
+    const style = status === 'done'
+      ? 'fill:#166534,stroke:#4ade80,color:#f0fdf4'
+      : status === 'in_progress'
+        ? 'fill:#92400e,stroke:#fbbf24,color:#fffbeb'
+        : 'fill:#374151,stroke:#9ca3af,color:#f9fafb';
+    lines.push(`  style ${featureId} ${style}`);
     for (const [index, entry] of (feature.entrypoints ?? []).slice(0, 4).entries()) {
       const participantId = id(`entry_${feature.id}_${index}`);
       lines.push(`  ${featureId} --> ${participantId}["${label(entry.label)}"]`);
     }
   }
   return lines.join('\n');
+}
+
+type FeatureDeliveryStatus = 'not_started' | 'in_progress' | 'done';
+
+function normalized(value: string): string {
+  return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+/**
+ * Architecture features are discovered from the codebase, while delivery
+ * progress lives in Epics. Match their stable ids/names conservatively so the
+ * explorer can show a useful status without changing either persisted model.
+ */
+function featureMatchesEpic(feature: ArchitectureFeature, epic: EpicSummary): boolean {
+  const featureKeys = [feature.id, feature.name].map(normalized).filter(Boolean);
+  const epicKeys = [epic.id, epic.title].map(normalized).filter(Boolean);
+  return featureKeys.some((featureKey) => epicKeys.some((epicKey) =>
+    featureKey === epicKey || (featureKey.length >= 4 && epicKey.includes(featureKey)) || (epicKey.length >= 4 && featureKey.includes(epicKey)),
+  ));
+}
+
+function featureDelivery(feature: ArchitectureFeature, epics: readonly EpicSummary[]): {
+  status: FeatureDeliveryStatus;
+  epic?: EpicSummary;
+} {
+  const linked = epics.filter((epic) => featureMatchesEpic(feature, epic));
+  const active = linked.find((epic) => epic.status === 'in_progress');
+  if (active) { return { status: 'in_progress', epic: active }; }
+  const completed = linked.find((epic) => epic.status === 'done');
+  if (completed) { return { status: 'done', epic: completed }; }
+  return { status: 'not_started', epic: linked[0] };
 }
 
 function MermaidDiagram({ source, empty, text }: { source?: string; empty: string; text: typeof copy.en | typeof copy.vi }) {
@@ -135,16 +185,20 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
 }
 
 /** Additive, feature-centric explorer. It consumes generated artifacts only and never owns Epic state. */
-export function ArchitectureExplorer({ architecture, language }: { architecture: ArchitectureExplorerState; language: Language }) {
+export function ArchitectureExplorer({ architecture, epics, language }: {
+  architecture: ArchitectureExplorerState;
+  epics: EpicSummary[];
+  language: Language;
+}) {
   const text = copy[language];
   const [level, setLevel] = useState<Level>('overview');
   const [featureId, setFeatureId] = useState<string>();
   const flow = featureId ? architecture.featureFlows[featureId] : undefined;
   const source = useMemo(() => {
     if (level === 'overview') return overviewDiagram(architecture.layers, architecture.edges);
-    if (level === 'features') return featureMapDiagram(architecture.features);
+    if (level === 'features') return featureMapDiagram(architecture.features, epics, text);
     return flow?.mermaid;
-  }, [architecture, flow?.mermaid, level]);
+  }, [architecture, epics, flow?.mermaid, level, text]);
 
   if (!architecture.available) {
     return <div className="rounded-md border border-dashed border-border bg-card p-6"><h1 className="text-lg font-semibold text-foreground">{text.title}</h1><p className="mt-2 text-sm text-muted-foreground">{architecture.message}</p><DiagramActions text={text} /></div>;

@@ -42,6 +42,11 @@ import { installWorkflowGlobalsCommand } from './installWorkflowGlobalsCommand';
 import { uninstallWorkflowGlobalsCommand } from './uninstallWorkflowGlobalsCommand';
 import { StandardPickerWebview } from './standardPickerWebview';
 import { startEpicCommand } from './epicWizard';
+import {
+  ensureMarkdownOutputLanguagePolicy,
+  markdownOutputLanguageInstruction,
+  resolveAidlcLanguage,
+} from './outputLanguage';
 import { analyzeRequirementsCommand } from './requirementWizard';
 import { registerAskCommand } from './askCommand';
 import { insertDemoEpicCommand } from './demoEpic';
@@ -314,6 +319,8 @@ export function registerV2WorkspaceCommands(
    */
   function ensureCommandFiles(root: string): void {
     try {
+      const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+      ensureMarkdownOutputLanguagePolicy(root, resolveAidlcLanguage(configured, vscode.env.language));
       syncBuiltinPipelineCommands(root, context.extensionPath);
       writeTwoLayerCommands(root);
     } catch (err) {
@@ -356,9 +363,12 @@ export function registerV2WorkspaceCommands(
         effectiveFb = loadContextReviewFixFeedback(root) ?? '';
       }
 
-      const prompt = effectiveFb
+      const taskPrompt = effectiveFb
         ? `${slash} ${id} — Update artifact per feedback: "${effectiveFb.replace(/"/g, '\\"')}"`
         : `${slash} ${id}`;
+      const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+      const language = resolveAidlcLanguage(configured, vscode.env.language);
+      const prompt = `${taskPrompt}\n\n${markdownOutputLanguageInstruction(language)}`;
 
       // GH-73 Problem B: Always create fresh terminal; never reuse existing
       // one since it might be at shell prompt, not Claude REPL.

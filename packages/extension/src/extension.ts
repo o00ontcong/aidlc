@@ -28,6 +28,7 @@ import { registerAidlcMonitor } from './v2/aidlcMonitor';
 import { registerAstGraph } from './v2/astGraph';
 import { installAnnotationTools } from './v2/annotationToolsInstaller';
 import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './v2/epicsDirSync';
+import { ensureMarkdownOutputLanguagePolicy, resolveAidlcLanguage } from './v2/outputLanguage';
 import { WORKSPACE_DIR, WORKSPACE_FILENAME, activateBackendFromWorkspace } from '@aidlc/core';
 
 /**
@@ -117,6 +118,29 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // Keep Claude's project instructions in sync with the language selected in
+  // extension Settings, including for slash commands run directly in a terminal.
+  const syncOutputLanguagePolicy = () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) { return; }
+    const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+    ensureMarkdownOutputLanguagePolicy(root, resolveAidlcLanguage(configured, vscode.env.language));
+  };
+  try { syncOutputLanguagePolicy(); } catch (err) {
+    output.appendLine(`output-language policy: ${(err as Error).message}`);
+  }
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+    if (!event.affectsConfiguration('aidlc.displayLanguage')) { return; }
+    try { syncOutputLanguagePolicy(); } catch (err) {
+      output.appendLine(`output-language policy: ${(err as Error).message}`);
+    }
+  }));
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    try { syncOutputLanguagePolicy(); } catch (err) {
+      output.appendLine(`output-language policy: ${(err as Error).message}`);
+    }
+  }));
+
   // Commands (Show Workspace Config, Init, Add Skill/Agent/Pipeline, Open
   // Builder, Open Claude CLI). All under `aidlc.*` namespace.
   const { disposables, presetStore } = registerV2WorkspaceCommands(context, output);
@@ -139,8 +163,8 @@ export function activate(context: vscode.ExtensionContext): void {
     const current = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
     const selected = await vscode.window.showQuickPick([
       { label: 'Automatic', description: 'Follow VS Code display language', value: 'auto' },
-      { label: 'English', description: 'Use English in AIDLC', value: 'en' },
-      { label: 'Tiếng Việt', description: 'Dùng tiếng Việt trong AIDLC', value: 'vi' },
+      { label: 'English', description: 'Use English in AIDLC and generated Markdown', value: 'en' },
+      { label: 'Tiếng Việt', description: 'Dùng tiếng Việt trong AIDLC và Markdown do AI tạo', value: 'vi' },
     ], {
       title: 'AIDLC Settings',
       placeHolder: `Language: ${current === 'vi' ? 'Tiếng Việt' : current === 'en' ? 'English' : 'Automatic'}`,

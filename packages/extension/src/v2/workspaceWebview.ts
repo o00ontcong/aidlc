@@ -258,6 +258,11 @@ import { pickAndReadTextFile } from './pickAndReadTextFile';
 import { scaffoldRequirementAnalysis } from './requirementWizard';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
+import {
+  ensureMarkdownOutputLanguagePolicy,
+  markdownOutputLanguageInstruction,
+  resolveAidlcLanguage,
+} from './outputLanguage';
 
 // ── Shared helper: open/reuse the Claude terminal and send a slash command ───
 
@@ -276,7 +281,13 @@ const CLAUDE_TERMINAL_NAME = 'AIDLC · Claude';
  * broke when claude had exited — zsh received the slash as a file path.
  */
 function runSlashCommandInClaude(slash: string, root: string): void {
-  const escaped = slash.replace(/'/g, "'\\''");
+  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+  const language = resolveAidlcLanguage(configured, vscode.env.language);
+  // Persist a project instruction for manually invoked slash commands too;
+  // the prompt copy makes the setting apply immediately to this run.
+  try { ensureMarkdownOutputLanguagePolicy(root, language); } catch { /* prompt below still enforces it */ }
+  const prompt = `${slash}\n\n${markdownOutputLanguageInstruction(language)}`;
+  const escaped = prompt.replace(/'/g, "'\\''");
   const oneShot = `claude '${escaped}'`;
 
   const existing = vscode.window.terminals.find((t) => t.name === CLAUDE_TERMINAL_NAME);
@@ -817,8 +828,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
 
 function resolveDisplayLanguage(): 'en' | 'vi' {
   const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
-  if (configured === 'vi' || configured === 'en') return configured;
-  return vscode.env.language.toLowerCase().startsWith('vi') ? 'vi' : 'en';
+  return resolveAidlcLanguage(configured, vscode.env.language);
 }
 
 function emptyArchitectureExplorer(message: string): ArchitectureExplorerStateUi {
@@ -3898,6 +3908,14 @@ export class WorkspaceWebview {
 
     const title = String(draft.title ?? '').trim();
     const description = String(draft.description ?? '').trim();
+    const selectedGoals = Array.isArray(draft.selectedGoals)
+      ? [...new Set(draft.selectedGoals
+        .filter((goal): goal is string => typeof goal === 'string')
+        .map((goal) => goal.trim())
+        .filter(Boolean))]
+      : [];
+    const whatScope = String(draft.whatScope ?? '').trim();
+    const featureConstraints = String(draft.featureConstraints ?? '').trim();
     const inputsRaw = draft.inputs && typeof draft.inputs === 'object'
       ? (draft.inputs as Record<string, unknown>)
       : {};
@@ -3957,6 +3975,17 @@ export class WorkspaceWebview {
         inputs,
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
+        // Cohesive features carry their user-entered charter goals, scope and
+        // narrower constraints in the durable alignment artifact. Keeping this
+        // separate from generic inputs lets the pipeline validate and surface
+        // the request before any agent starts work.
+        alignmentSeed: targetKind === 'pipeline' && targetId === 'cohesive-feature'
+          ? {
+              servesGoals: selectedGoals,
+              scope: whatScope,
+              featureConstraints,
+            }
+          : undefined,
         charterTemplatesRoot: path.join(
           this.extensionUri.fsPath,
           'templates',

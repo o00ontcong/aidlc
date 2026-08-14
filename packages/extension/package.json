@@ -348,7 +348,7 @@
           "type": "string",
           "enum": ["auto", "en", "vi"],
           "default": "auto",
-          "description": "Language for AIDLC interface labels. Auto follows VS Code's display language."
+          "description": "Language for AIDLC interface labels and AI-authored Markdown artifacts. Auto follows VS Code's display language."
         }
       }
     },

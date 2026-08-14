@@ -143,7 +143,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
             {view === 'builder' ? (
               <BuilderView state={state} />
             ) : view === 'architecture' ? (
-              <ArchitectureExplorer architecture={state.architecture} language={state.displayLanguage} />
+              <ArchitectureExplorer architecture={state.architecture} epics={state.epics} language={state.displayLanguage} />
             ) : view === 'analyze' ? (
               <AnalyzeView state={state} />
             ) : (

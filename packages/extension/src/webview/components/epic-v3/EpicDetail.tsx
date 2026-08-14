@@ -96,6 +96,9 @@ export function EpicDetail({
         </div>
       </div>
 
+      {/* User-entered brief and Cohesive Delivery alignment captured at creation. */}
+      <EpicRequestCard epic={epic} />
+
       {/* ③ project context */}
       <ProjectContextCard context={state.projectContext} />
 
@@ -146,6 +149,53 @@ export function EpicDetail({
 
       {/* ⑪ action bar */}
       <ActionBar epic={epic} />
+    </div>
+  );
+}
+
+/* ── creation request ──────────────────────────────────────────────────── */
+
+function EpicRequestCard({ epic }: { epic: EpicSummary }) {
+  const description = epic.description.trim();
+  const goals = String(epic.inputs?.selected_goals ?? '')
+    .split(',')
+    .map((goal) => goal.trim())
+    .filter(Boolean);
+  const scope = String(epic.inputs?.what_scope ?? '').trim();
+  const constraints = String(epic.inputs?.feature_constraints ?? '').trim();
+
+  if (!description && goals.length === 0 && !scope && !constraints) { return null; }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Yêu cầu khi tạo Epic</CardTitle>
+        <CardNote>Thông tin bạn đã nhập được lưu cùng epic.</CardNote>
+      </CardHeader>
+      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {description && <RequestField label="Mô tả" value={description} />}
+        {goals.length > 0 && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <div style={{ width: 96, flex: 'none', fontSize: 11.5, color: 'var(--txt3)' }}>Mục tiêu</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {goals.map((goal) => <Chip key={goal} label={goal} mono bg="var(--acc-bg)" fg="var(--acc-txt)" />)}
+            </div>
+          </div>
+        )}
+        {scope && <RequestField label="Phạm vi" value={scope} />}
+        {constraints && <RequestField label="Ràng buộc" value={constraints} />}
+      </div>
+    </Card>
+  );
+}
+
+function RequestField({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+      <div style={{ width: 96, flex: 'none', fontSize: 11.5, color: 'var(--txt3)' }}>{label}</div>
+      <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 12, color: 'var(--txt)', lineHeight: 1.55 }}>
+        {value}
+      </div>
     </div>
   );
 }
