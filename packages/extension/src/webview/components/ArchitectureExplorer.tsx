@@ -56,7 +56,14 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
   const [error, setError] = useState<string>();
   const [zoom, setZoom] = useState(100);
   const diagramRef = useRef<HTMLDivElement>(null);
-  const panRef = useRef<{ pointerId: number; clientX: number; clientY: number; scrollLeft: number; scrollTop: number } | undefined>(undefined);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef({ x: 0, y: 0 });
+  const panRef = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | undefined>(undefined);
+  const applyTransform = (nextZoom = zoom) => {
+    const view = viewRef.current;
+    const canvas = canvasRef.current;
+    if (canvas) canvas.style.transform = `translate(${view.x}px, ${view.y}px) scale(${nextZoom / 100})`;
+  };
   useEffect(() => {
     if (!source) { setSvg(undefined); setError(undefined); return; }
     let active = true;
@@ -68,11 +75,12 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
     return () => { active = false; };
   }, [source]);
   useEffect(() => {
-    const element = diagramRef.current?.querySelector('svg');
+    const element = canvasRef.current?.querySelector('svg');
     if (!element) return;
-    element.style.width = `${zoom}%`;
+    element.style.width = '100%';
     element.style.height = 'auto';
     element.style.maxWidth = 'none';
+    applyTransform();
   }, [svg, zoom]);
   const zoomAtPointer = (event: React.WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -80,30 +88,28 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
     const rect = viewport.getBoundingClientRect();
     const offsetX = event.clientX - rect.left;
     const offsetY = event.clientY - rect.top;
-    const contentX = viewport.scrollLeft + offsetX;
-    const contentY = viewport.scrollTop + offsetY;
     const nextZoom = Math.max(50, Math.min(250, zoom - event.deltaY * 0.08));
     if (nextZoom === zoom) return;
     const ratio = nextZoom / zoom;
+    const view = viewRef.current;
+    view.x = (1 - ratio) * (offsetX - rect.width / 2) + ratio * view.x;
+    view.y = (1 - ratio) * (offsetY - rect.height / 2) + ratio * view.y;
+    applyTransform(nextZoom);
     setZoom(nextZoom);
-    requestAnimationFrame(() => {
-      viewport.scrollLeft = contentX * ratio - offsetX;
-      viewport.scrollTop = contentY * ratio - offsetY;
-    });
   };
   const startPan = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const viewport = event.currentTarget;
     viewport.setPointerCapture(event.pointerId);
-    panRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop };
+    panRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: viewRef.current.x, y: viewRef.current.y };
     viewport.style.cursor = 'grabbing';
     event.preventDefault();
   };
   const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
     const pan = panRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
-    event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.clientX);
-    event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.clientY);
+    viewRef.current = { x: pan.x + event.clientX - pan.clientX, y: pan.y + event.clientY - pan.clientY };
+    applyTransform();
     event.preventDefault();
   };
   const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -118,11 +124,13 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
       <span className="text-xs text-muted-foreground">{text.panHint}</span>
       <div className="flex items-center gap-1">
       <button type="button" title={text.zoomOut} aria-label={text.zoomOut} onClick={() => setZoom((value) => Math.max(50, value - 25))} disabled={zoom <= 50} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">−</button>
-      <button type="button" title={text.resetZoom} aria-label={text.resetZoom} onClick={() => setZoom(100)} className="min-w-12 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent">{zoom}%</button>
+      <button type="button" title={text.resetZoom} aria-label={text.resetZoom} onClick={() => { viewRef.current = { x: 0, y: 0 }; applyTransform(100); setZoom(100); }} className="min-w-12 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent">{zoom}%</button>
       <button type="button" title={text.zoomIn} aria-label={text.zoomIn} onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">+</button>
       </div>
     </div>
-    <div ref={diagramRef} onWheel={zoomAtPointer} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-auto p-5 select-none [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
+    <div ref={diagramRef} onWheel={zoomAtPointer} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-hidden select-none">
+      <div ref={canvasRef} className="flex min-h-full min-w-full items-center justify-center p-5 will-change-transform [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
+    </div>
   </div>;
 }
 
