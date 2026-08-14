@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 
 import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureFeature, ArchitectureNode } from '@/lib/types';
@@ -12,11 +12,13 @@ const copy = {
     title: 'Architecture', intro: 'Read the project from its overall shape to a feature, then its code flow.',
     overview: '1. Overview', features: '2. Features', flow: '3. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
     generateProject: 'Generate Overview + Features', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
+    zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom',
   },
   vi: {
     title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, đến tính năng, rồi đến luồng mã nguồn.',
     overview: '1. Tổng quan', features: '2. Tính năng', flow: '3. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
     generateProject: 'Tạo Tổng quan + Tính năng', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
+    zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ',
   },
 } as const;
 
@@ -49,9 +51,11 @@ function featureMapDiagram(features: readonly ArchitectureFeature[]): string {
   return lines.join('\n');
 }
 
-function MermaidDiagram({ source, empty }: { source?: string; empty: string }) {
+function MermaidDiagram({ source, empty, text }: { source?: string; empty: string; text: typeof copy.en | typeof copy.vi }) {
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
+  const [zoom, setZoom] = useState(100);
+  const diagramRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!source) { setSvg(undefined); setError(undefined); return; }
     let active = true;
@@ -62,9 +66,23 @@ function MermaidDiagram({ source, empty }: { source?: string; empty: string }) {
       .catch((reason: unknown) => { if (active) { setSvg(undefined); setError(reason instanceof Error ? reason.message : 'Mermaid could not render this diagram.'); } });
     return () => { active = false; };
   }, [source]);
+  useEffect(() => {
+    const element = diagramRef.current?.querySelector('svg');
+    if (!element) return;
+    element.style.width = `${zoom}%`;
+    element.style.height = 'auto';
+    element.style.maxWidth = 'none';
+  }, [svg, zoom]);
   if (!source) return <p className="p-6 text-sm text-muted-foreground">{empty}</p>;
   if (error) return <p className="p-6 text-sm text-destructive">{error}</p>;
-  return <div className="overflow-auto p-5 [&_svg]:min-w-full [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />;
+  return <div className="flex min-h-[520px] flex-col">
+    <div className="flex items-center justify-end gap-1 border-b border-border px-3 py-2">
+      <button type="button" title={text.zoomOut} aria-label={text.zoomOut} onClick={() => setZoom((value) => Math.max(50, value - 25))} disabled={zoom <= 50} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">−</button>
+      <button type="button" title={text.resetZoom} aria-label={text.resetZoom} onClick={() => setZoom(100)} className="min-w-12 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent">{zoom}%</button>
+      <button type="button" title={text.zoomIn} aria-label={text.zoomIn} onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">+</button>
+    </div>
+    <div ref={diagramRef} className="min-h-0 flex-1 overflow-auto p-5 [&_svg]:min-w-full" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
+  </div>;
 }
 
 /** Additive, feature-centric explorer. It consumes generated artifacts only and never owns Epic state. */
@@ -93,7 +111,7 @@ export function ArchitectureExplorer({ architecture, language }: { architecture:
     <DiagramActions compact text={text} />
     {level === 'flow' && <div className="flex flex-wrap gap-2">{architecture.features.map((feature) => <button key={feature.id} type="button" onClick={() => setFeatureId(feature.id)} className={`rounded-md border px-2.5 py-1 text-xs ${feature.id === featureId ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}>{feature.name}</button>)}</div>}
     <section className="min-h-[520px] overflow-hidden rounded-md border border-border bg-card">
-      <MermaidDiagram source={source} empty={level === 'flow' && !featureId ? text.selectFeature : text.noDiagram} />
+      <MermaidDiagram source={source} empty={level === 'flow' && !featureId ? text.selectFeature : text.noDiagram} text={text} />
     </section>
   </div>;
 }
