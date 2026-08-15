@@ -27,6 +27,7 @@ import {
   stepDetailRows, stepRows,
 } from './adapt';
 import { isCodeHumanReviewStep, isFeaturePipeline, isPackagePipeline, runStatusUi } from './epic-logic';
+import { humanInterventionGuide, humanInterventionTooltip } from './human-intervention';
 import { mock } from './mock';
 import {
   Btn, Card, CardHeader, CardNote, CardTitle, Chip, Ellipsis, Mono, ProgressBar,
@@ -85,7 +86,7 @@ export function EpicDetail({
         {/* Mirrors the persisted run mode selected in the config card below. */}
         <div
           title={epic.runMode === 'autonomous'
-            ? 'Claude master sẽ chạy từ checkpoint hiện có.'
+            ? 'Provider đang chọn sẽ chạy từ checkpoint hiện có.'
             : 'Các phase được chạy và review thủ công.'}
           style={{
             flex: 'none', display: 'flex', alignItems: 'center', gap: 7, padding: '7px 11px',
@@ -128,6 +129,10 @@ export function EpicDetail({
           providerConfig={state.providerConfig}
         />
       )}
+
+      {/* Context-aware recovery route. The same guide is available as a tooltip
+          on every individual step below. */}
+      {focused && <HumanInterventionCard step={focused} />}
 
       {/* ⑧ step list */}
       {steps.length > 0 && (
@@ -172,9 +177,58 @@ export function EpicDetail({
   );
 }
 
+/* ── recovery guidance ─────────────────────────────────────────────────── */
+
+function HumanInterventionCard({ step }: { step: EpicStepDetailFull }) {
+  const [expanded, setExpanded] = useState(false);
+  const guide = humanInterventionGuide(step);
+  const name = step.stepName ?? step.agent;
+
+  return (
+    <Card style={{ borderColor: 'var(--warn-bd)', background: 'var(--warn-bg)' }}>
+      <CardHeader pad="10px 13px" style={{ gap: 8 }}>
+        <CardTitle>Cách can thiệp thực tế</CardTitle>
+        <Ellipsis style={{ fontSize: 11, color: 'var(--txt3)' }}>
+          {expanded ? `Hướng dẫn cho ${name}` : guide.fixAt}
+        </Ellipsis>
+        <Mono style={{ fontSize: 10.5, color: 'var(--txt3)' }}>đang xem · {name}</Mono>
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          title={expanded ? 'Thu gọn hướng dẫn can thiệp' : 'Mở rộng hướng dẫn can thiệp'}
+          style={{
+            flex: 'none', cursor: 'pointer', border: '1px solid var(--warn-bd)', borderRadius: 6,
+            background: 'transparent', color: 'var(--warn)', font: 'inherit', fontSize: 11,
+            padding: '4px 8px', whiteSpace: 'nowrap',
+          }}
+        >
+          {expanded ? 'Thu gọn' : 'Mở rộng'}
+        </button>
+      </CardHeader>
+      {expanded && (
+        <div style={{ padding: '11px 13px', display: 'grid', gap: 8, fontSize: 12, lineHeight: 1.55 }}>
+          <div><strong style={{ color: 'var(--txt)' }}>1. Sửa đúng nguồn:</strong> <span style={{ color: 'var(--txt2)' }}>{guide.fixAt} Mở <Mono>{guide.source}</Mono> để review hoặc annotate.</span></div>
+          <div>
+            <strong style={{ color: 'var(--txt)' }}>2. Gửi feedback như thế nào:</strong>{' '}
+            <span style={{ color: 'var(--txt2)' }}>
+              Nếu artifact đã tạo, bấm <strong>Góp ý trên artifact</strong> bên dưới chi tiết step, annotate đoạn cần sửa rồi chọn Send feedback. Nếu step đang chờ duyệt, bấm <strong>Reject</strong>; nếu đã được approve, bấm <strong>Request update</strong>. Nội dung nên bắt đầu: {guide.feedback}
+            </span>
+          </div>
+          <div><strong style={{ color: 'var(--txt)' }}>3. Chạy lại có kiểm soát:</strong> <span style={{ color: 'var(--txt2)' }}>{guide.followUp}</span></div>
+          <div style={{ color: 'var(--txt3)', fontSize: 11 }}>
+            Dùng <strong>Góp ý trên artifact</strong> để ghi chú trực tiếp trên Markdown; dùng <strong>Request update</strong> hoặc <strong>Reject</strong> để trả step về agent. Nếu cần dừng để review từng checkpoint, chuyển sang Guided. Rê chuột vào bất kỳ step nào để xem gợi ý riêng.
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /* ── creation request ──────────────────────────────────────────────────── */
 
 function EpicRequestCard({ epic }: { epic: EpicSummary }) {
+  const [expanded, setExpanded] = useState(false);
   const description = epic.description.trim();
   const goals = String(epic.inputs?.selected_goals ?? '')
     .split(',')
@@ -182,6 +236,8 @@ function EpicRequestCard({ epic }: { epic: EpicSummary }) {
     .filter(Boolean);
   const scope = String(epic.inputs?.what_scope ?? '').trim();
   const constraints = String(epic.inputs?.feature_constraints ?? '').trim();
+  const summary = description.replace(/\s+/g, ' ').trim()
+    || (goals.length > 0 ? `${goals.length} mục tiêu đã chọn` : 'Có phạm vi hoặc ràng buộc được lưu');
 
   if (!description && goals.length === 0 && !scope && !constraints) { return null; }
 
@@ -189,21 +245,38 @@ function EpicRequestCard({ epic }: { epic: EpicSummary }) {
     <Card>
       <CardHeader>
         <CardTitle>Yêu cầu khi tạo Epic</CardTitle>
-        <CardNote>Thông tin bạn đã nhập được lưu cùng epic.</CardNote>
+        <Ellipsis style={{ fontSize: 11, color: 'var(--txt3)' }}>
+          {expanded ? 'Thông tin bạn đã nhập được lưu cùng epic.' : summary}
+        </Ellipsis>
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          title={expanded ? 'Thu gọn thông tin epic' : 'Mở rộng thông tin epic'}
+          style={{
+            flex: 'none', cursor: 'pointer', border: '1px solid var(--bd)', borderRadius: 6,
+            background: 'transparent', color: 'var(--txt2)', font: 'inherit', fontSize: 11,
+            padding: '4px 8px', whiteSpace: 'nowrap',
+          }}
+        >
+          {expanded ? 'Thu gọn' : 'Mở rộng'}
+        </button>
       </CardHeader>
-      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {description && <RequestField label="Mô tả" value={description} />}
-        {goals.length > 0 && (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <div style={{ width: 96, flex: 'none', fontSize: 11.5, color: 'var(--txt3)' }}>Mục tiêu</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {goals.map((goal) => <Chip key={goal} label={goal} mono bg="var(--acc-bg)" fg="var(--acc-txt)" />)}
+      {expanded && (
+        <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {description && <RequestField label="Mô tả" value={description} />}
+          {goals.length > 0 && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ width: 96, flex: 'none', fontSize: 11.5, color: 'var(--txt3)' }}>Mục tiêu</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {goals.map((goal) => <Chip key={goal} label={goal} mono bg="var(--acc-bg)" fg="var(--acc-txt)" />)}
+              </div>
             </div>
-          </div>
-        )}
-        {scope && <RequestField label="Phạm vi" value={scope} />}
-        {constraints && <RequestField label="Ràng buộc" value={constraints} />}
-      </div>
+          )}
+          {scope && <RequestField label="Phạm vi" value={scope} />}
+          {constraints && <RequestField label="Ràng buộc" value={constraints} />}
+        </div>
+      )}
     </Card>
   );
 }
@@ -401,7 +474,13 @@ function FlowCard({
         </div>
         <Spacer />
       </CardHeader>
-      <FlowCanvas nodes={nodes} loop={loop} flowNote={flowNote} onNodeClick={onNodeClick} />
+      <FlowCanvas
+        nodes={nodes}
+        loop={loop}
+        flowNote={flowNote}
+        nodeTitles={epic.stepDetails.map(humanInterventionTooltip)}
+        onNodeClick={onNodeClick}
+      />
       <LifecycleStrip
         kinds={kinds}
         runStepHint={runStepButtonLabel(providerConfig, 'default')}
@@ -463,21 +542,21 @@ function EpicConfigCard({ epic }: { epic: EpicSummary }) {
           />
           <RunModeOption
             label="Autonomous Delivery"
-            desc="Claude master chạy trọn flow, dừng ở human gate"
+            desc="Provider đang chọn chạy trọn flow, dừng ở human gate"
             selected={epic.runMode === 'autonomous'}
             disabled={!hasPipelineCheckpoint}
             title={hasPipelineCheckpoint
-              ? 'Mở Claude master để chạy pipeline từ checkpoint hiện có.'
+              ? 'Mở provider đang chọn để chạy pipeline từ checkpoint hiện có.'
               : 'Epic này không có pipeline checkpoint để chạy autonomous.'}
             onClick={() => setRunMode('autonomous')}
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ flex: 1, fontSize: 11, color: 'var(--txt3)', lineHeight: 1.5 }}>
-            Không có CLI cohesive chạy ngầm — mọi thao tác đều mở lệnh nhìn thấy được trong terminal Claude.
+            Không có CLI cohesive chạy ngầm — mọi thao tác đều mở lệnh nhìn thấy được trong terminal của provider đang chọn.
           </div>
           <Btn
-            label="Run / resume Claude master"
+            label="Run / resume selected-provider master"
             variant="primary"
             pad="7px 11px"
             fs={11.5}
@@ -485,7 +564,7 @@ function EpicConfigCard({ epic }: { epic: EpicSummary }) {
             title={!hasPipelineCheckpoint
               ? 'Epic này không có pipeline checkpoint để chạy.'
               : epic.runMode !== 'autonomous'
-                ? 'Chọn Autonomous Delivery trước khi chạy Claude master.'
+                ? 'Chọn Autonomous Delivery trước khi chạy provider master.'
                 : 'Chạy hoặc tiếp tục pipeline từ checkpoint hiện có; có thể dùng lại sau khi pause/fail.'}
             onClick={() => postMessage({ type: 'runEpicAutonomously', epicId: epic.id })}
           />
@@ -675,6 +754,8 @@ function StepListCard({
           <div
             key={`${step.agent}-${r.idx}`}
             onClick={() => onFocus(r.idx)}
+            title={humanInterventionTooltip(step)}
+            aria-label={`${r.name}. ${humanInterventionTooltip(step)}`}
             style={{
               display: 'flex', flexDirection: 'column', gap: 7, padding: '10px 14px',
               borderBottom: '1px solid var(--bd2)', background: r.rowBg, cursor: 'pointer',
@@ -1065,19 +1146,31 @@ function ArtifactChip({
   epicDir: string;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => exists && postMessage({ type: 'openArtifactFile', epicDir, filename: name })}
-      title={exists ? `Mở ${name} trong tab mới` : 'File chưa được tạo'}
-      className="v3-mono"
-      style={{
-        flex: 'none', fontSize: 11, padding: '4px 8px', borderRadius: 5, background: 'var(--panel2)',
-        border: '1px solid var(--bd)', color: exists ? 'var(--txt2)' : 'var(--txt3)',
-        cursor: exists ? 'pointer' : 'default', opacity: exists ? 1 : 0.7,
-      }}
-    >
-      {exists ? name : `${name} · chưa tạo`}
-    </button>
+    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+      <button
+        type="button"
+        onClick={() => exists && postMessage({ type: 'openArtifactFile', epicDir, filename: name })}
+        title={exists ? `Mở ${name} trong tab mới` : 'File chưa được tạo'}
+        className="v3-mono"
+        style={{
+          flex: 'none', fontSize: 11, padding: '4px 8px', borderRadius: 5, background: 'var(--panel2)',
+          border: '1px solid var(--bd)', color: exists ? 'var(--txt2)' : 'var(--txt3)',
+          cursor: exists ? 'pointer' : 'default', opacity: exists ? 1 : 0.7,
+        }}
+      >
+        {exists ? name : `${name} · chưa tạo`}
+      </button>
+      {exists && (
+        <Btn
+          label="Góp ý trên artifact"
+          variant="ghost"
+          pad="4px 7px"
+          fs={10.5}
+          title={`Annotate ${name} và gửi feedback để agent sửa Markdown nguồn`}
+          onClick={() => postMessage({ type: 'annotateArtifact', epicDir, filename: name })}
+        />
+      )}
+    </div>
   );
 }
 

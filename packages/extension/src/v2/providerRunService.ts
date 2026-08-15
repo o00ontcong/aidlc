@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 
 import { getCommandProviderAdapter } from '@aidlc/core';
 
@@ -7,6 +8,8 @@ import { syncBuiltinPipelineCommands } from './presetWizards';
 import { getProviderConfigStore } from './providerConfig';
 import {
   buildCodexRunPrompt,
+  buildOpenCodeRunPrompt,
+  buildProviderCommandPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   loadContextReviewFixFeedback,
@@ -20,6 +23,8 @@ import {
 
 export {
   buildCodexRunPrompt,
+  buildOpenCodeRunPrompt,
+  buildProviderCommandPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   loadContextReviewFixFeedback,
@@ -41,9 +46,36 @@ export function ensureCommandFilesForProvider(
     const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
     ensureMarkdownOutputLanguagePolicy(root, resolveAidlcLanguage(configured, vscode.env.language));
     syncBuiltinPipelineCommands(root, extensionPath, { providers: [providerId] });
+    syncExtensionCommandsForProvider(root, extensionPath, providerId);
   } catch (err) {
     console.warn('[ensureCommandFilesForProvider]', err);
   }
+}
+
+/** Commands owned by the extension rather than a workflow template. */
+function syncExtensionCommandsForProvider(
+  root: string,
+  extensionPath: string,
+  providerId: string,
+): void {
+  const source = path.join(extensionPath, 'assets', 'annotate-artifact.skill.md');
+  if (!fs.existsSync(source)) { return; }
+  const adapter = getCommandProviderAdapter(providerId);
+  const commandName = 'annotate-artifact';
+  const destination = adapter.commandFilePath(root, commandName);
+  if (fs.existsSync(destination)) { return; }
+
+  const body = fs.readFileSync(source, 'utf8').replace(/^---[\s\S]*?---\n?/, '');
+  const store = getProviderConfigStore(root);
+  const config = store.loadOrDefault();
+  const model = store.modelFor(providerId, undefined, config);
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(destination, adapter.renderCommandFile({
+    commandName,
+    description: 'Review an epic Markdown artifact interactively in annotron.',
+    body,
+    epicRoot: 'docs/epics',
+  }, model), 'utf8');
 }
 
 export function spawnTerminalOneShot(opts: {
@@ -172,12 +204,15 @@ export function runStepWithProvider(opts: {
   );
   const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
   const language = resolveAidlcLanguage(configured, vscode.env.language);
-  const prompt = `${taskPrompt}\n\n${markdownOutputLanguageInstruction(language)}`;
+  // OpenCode receives its native slash command in the TUI. The command file
+  // itself is the source of instructions; appending prose would turn it into a
+  // malformed command argument.
+  const prompt = providerId === 'opencode'
+    ? taskPrompt
+    : `${taskPrompt}\n\n${markdownOutputLanguageInstruction(language)}`;
 
   const canonicalModel = canonicalModelForSlash(opts.slashCommand);
-  const mappedModel = canonicalModel
-    ? store.mapModel(canonicalModel, providerId, config)
-    : undefined;
+  const mappedModel = store.modelFor(providerId, canonicalModel, config);
 
   const invocation = adapter.buildOneShotInvocation({
     slashOrPrompt: prompt,
@@ -214,14 +249,16 @@ export function runSlashCommandWithProvider(
   try { ensureMarkdownOutputLanguagePolicy(root, language); } catch { /* prompt still enforces */ }
 
   let prompt = slash;
-  if (id === 'codex') {
+  if (id !== 'claude' && id !== 'opencode') {
     const runId = slash.trim().split(/\s+/).slice(1).join(' ') || 'PROJECT-CONTEXT';
-    prompt = buildCodexRunPrompt(root, slash, runId, '');
+    prompt = buildProviderCommandPrompt(root, slash, runId, '', id);
   }
-  prompt = `${prompt}\n\n${markdownOutputLanguageInstruction(language)}`;
+  if (id !== 'opencode') {
+    prompt = `${prompt}\n\n${markdownOutputLanguageInstruction(language)}`;
+  }
 
   const canonicalModel = canonicalModelForSlash(slash);
-  const mappedModel = canonicalModel ? store.mapModel(canonicalModel, id, config) : undefined;
+  const mappedModel = store.modelFor(id, canonicalModel, config);
   const cli = store.cliFor(id, config);
   const invocation = adapter.buildOneShotInvocation({
     slashOrPrompt: prompt,

@@ -42,7 +42,7 @@ async function launchAutonomousMaster(
 ): Promise<void> {
   ensureAutonomousMasterCommand(workspaceRoot);
   output.show(true);
-  output.appendLine(`Opening Claude master: ${AUTONOMOUS_MASTER_COMMAND} ${deliveryId}`);
+  output.appendLine(`Opening selected-provider master: ${AUTONOMOUS_MASTER_COMMAND} ${deliveryId}`);
   await vscode.commands.executeCommand(
     'aidlc.runStepWithFeedback',
     AUTONOMOUS_MASTER_COMMAND,
@@ -271,8 +271,8 @@ export async function addAutonomousReviewTaskCommand(
   if (!title) return;
   const orchestrator = new DeliveryOrchestrator(workspaceRoot);
   const task = orchestrator.addTask(id, { title });
-  const action = await vscode.window.showInformationMessage(`Added ${task.id}.`, 'Run in Claude now');
-  if (action !== 'Run in Claude now') { await openSummary(workspaceRoot, id); return; }
+  const action = await vscode.window.showInformationMessage(`Added ${task.id}.`, 'Run now');
+  if (action !== 'Run now') { await openSummary(workspaceRoot, id); return; }
   try {
     await launchAutonomousMaster(workspaceRoot, id, output);
   } catch (error) {

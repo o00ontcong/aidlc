@@ -13,6 +13,8 @@ import {
 export interface ProviderEntry {
   enabled: boolean;
   cli?: string;
+  /** Fallback model for commands that do not map to a workflow phase. */
+  model?: string;
 }
 
 export interface CommandProviderConfigV2 {
@@ -35,6 +37,12 @@ function defaultProviders(): Record<string, ProviderEntry> {
     out[id] = {
       enabled: id === 'claude',
       cli: BUILTIN_COMMAND_PROVIDERS[id].cli,
+      model: {
+        claude: 'claude-sonnet-5',
+        cursor: 'gpt-5.2',
+        codex: 'gpt-5.2-codex',
+        opencode: 'opencode/big-pickle',
+      }[id],
     };
   }
   return out;
@@ -53,6 +61,31 @@ function mergeBundledMappings(
     }
   }
   return out;
+}
+
+const LEGACY_OPENCODE_MODELS = new Set([
+  'openai/gpt-5.2',
+  'openai/gpt-5.2-codex-mini',
+]);
+
+/**
+ * Older AIDLC releases generated OpenCode mappings that assume an OpenAI
+ * credential. Preserve explicit user selections, but upgrade generated v2
+ * config that predates the per-provider `model` field to OpenCode's built-in
+ * models so a fresh OpenCode install can run without an OpenAI login.
+ */
+function migrateLegacyOpenCodeMappings(
+  raw: Partial<CommandProviderConfigV2>,
+  modelMappings: Record<string, Record<string, string>>,
+): Record<string, Record<string, string>> {
+  const explicitModel = raw.providers?.opencode?.model;
+  if (typeof explicitModel === 'string' && explicitModel.trim()) { return modelMappings; }
+  for (const [canonical, mappings] of Object.entries(modelMappings)) {
+    if (!LEGACY_OPENCODE_MODELS.has(mappings.opencode ?? '')) { continue; }
+    const bundled = BUNDLED_MODEL_MAPPINGS[canonical]?.opencode;
+    if (bundled) { mappings.opencode = bundled; }
+  }
+  return modelMappings;
 }
 
 /** Durable provider preference; credentials remain provider-owned and are never stored here. */
@@ -147,6 +180,17 @@ export class ModelProviderConfigStore {
     return config.modelMappings[canonicalModel]?.[providerId] ?? canonicalModel;
   }
 
+  /** Resolve a mapped phase model or the provider's persisted fallback model. */
+  modelFor(
+    providerId: string,
+    canonicalModel?: string,
+    config: CommandProviderConfigV2 = this.loadOrDefault(),
+  ): string | undefined {
+    if (canonicalModel) { return this.mapModel(canonicalModel, providerId, config); }
+    const model = config.providers[providerId]?.model;
+    return model?.trim() || undefined;
+  }
+
   cliFor(providerId: string, config: CommandProviderConfigV2 = this.loadOrDefault()): string {
     const override = config.providers[providerId]?.cli;
     if (override?.trim()) { return override.trim(); }
@@ -173,6 +217,9 @@ export class ModelProviderConfigStore {
           cli: typeof entry.cli === 'string' && entry.cli.trim()
             ? entry.cli.trim()
             : defaults[id]?.cli ?? id,
+          model: typeof entry.model === 'string' && entry.model.trim()
+            ? entry.model.trim()
+            : defaults[id]?.model,
         };
       }
     }
@@ -190,7 +237,7 @@ export class ModelProviderConfigStore {
       schemaVersion: 2,
       defaultProvider: resolvedDefault,
       providers,
-      modelMappings: mergeBundledMappings(raw.modelMappings),
+      modelMappings: migrateLegacyOpenCodeMappings(raw, mergeBundledMappings(raw.modelMappings)),
     };
   }
 }

@@ -119,6 +119,8 @@ export interface ProviderInfo {
   /** True after user clicks Apply — one-way; syncs commands for this provider. */
   enabled: boolean;
   cli: string;
+  /** Fallback model used for provider commands without a workflow phase. */
+  model?: string;
   isDefault: boolean;
   diagnostic: ProviderDiagnostic;
 }

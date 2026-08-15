@@ -45,7 +45,10 @@ describe('syncPipelineCommands multi-provider', () => {
     expect(fs.existsSync(codexFile)).toBe(true);
     expect(fs.readFileSync(codexFile, 'utf8')).toContain('disable-model-invocation: true');
     expect(fs.existsSync(opencodeFile)).toBe(true);
-    expect(fs.readFileSync(opencodeFile, 'utf8')).toContain('model: openai/gpt-5.2');
+    expect(fs.readFileSync(opencodeFile, 'utf8')).toContain('model: opencode/big-pickle');
+
+    const opencodeAutonomousFile = path.join(root, '.opencode', 'commands', 'aidlc-autonomous-epic.md');
+    expect(fs.readFileSync(opencodeAutonomousFile, 'utf8')).toContain('model: opencode/big-pickle');
 
     const claudeFile = path.join(root, '.claude', 'commands', 'cohesive-feature-implement.md');
     expect(fs.existsSync(claudeFile)).toBe(false);

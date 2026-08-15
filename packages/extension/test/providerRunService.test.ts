@@ -7,6 +7,7 @@ import { getCommandProviderAdapter } from '@aidlc/core';
 
 import {
   buildCodexRunPrompt,
+  buildOpenCodeRunPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   slashCommandName,
@@ -57,6 +58,39 @@ Run implement for epic \`$ARGUMENTS\`.`, 'utf8');
       .not.toContain('$ARGUMENTS');
   });
 
+  it('can inspect an OpenCode synced command file', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-opencode-run-'));
+    roots.push(root);
+    const commandName = 'aidlc-autonomous-epic';
+    const adapter = getCommandProviderAdapter('opencode');
+    const file = adapter.commandFilePath(root, commandName);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `---\ndescription: test\nmodel: opencode/big-pickle\n---\n\nRun autonomous epic $ARGUMENTS.`, 'utf8');
+
+    const prompt = buildOpenCodeRunPrompt(root, `/${commandName}`, 'PROJECT-CONTEXT', '');
+    expect(prompt).toContain('Run autonomous epic PROJECT-CONTEXT.');
+    expect(prompt).not.toContain('model:');
+  });
+
+  it('keeps OpenCode execution as a native slash command', () => {
+    expect(buildTaskPrompt('/aidlc-autonomous-epic', 'PROJECT-CONTEXT', 'retry this', 'opencode', '/tmp'))
+      .toBe('/aidlc-autonomous-epic PROJECT-CONTEXT');
+  });
+
+  it('expands a Cursor command file instead of passing Claude slash syntax', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-cursor-run-'));
+    roots.push(root);
+    const commandName = 'annotate-artifact';
+    const adapter = getCommandProviderAdapter('cursor');
+    const file = adapter.commandFilePath(root, commandName);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '# Annotate\n\nReview artifact $ARGUMENTS.', 'utf8');
+
+    const prompt = buildTaskPrompt(`/${commandName}`, 'EPIC-2 SPEC.md', '', 'cursor', root);
+    expect(prompt).toContain('Review artifact EPIC-2 SPEC.md.');
+    expect(prompt).not.toContain('/annotate-artifact');
+  });
+
   it('adapter one-shot argv matches provider CLI conventions', () => {
     const prompt = '/cohesive-feature-implement EPIC-1';
     expect(getCommandProviderAdapter('claude').buildOneShotInvocation({ slashOrPrompt: prompt }).shellOneLiner)
@@ -71,13 +105,13 @@ Run implement for epic \`$ARGUMENTS\`.`, 'utf8');
     }).shellOneLiner).toContain('codex exec --model o3 --sandbox workspace-write');
     expect(getCommandProviderAdapter('opencode').buildOneShotInvocation({
       slashOrPrompt: prompt,
-      mappedModel: 'openai/gpt-5.2',
-    }).shellOneLiner).toContain('opencode run --model openai/gpt-5.2 --auto');
+      mappedModel: 'opencode/big-pickle',
+    }).shellOneLiner).toContain('opencode --model opencode/big-pickle --auto --prompt');
     expect(getCommandProviderAdapter('opencode').buildOneShotInvocation({
       slashOrPrompt: prompt,
-      mappedModel: 'openai/gpt-5.2',
+      mappedModel: 'opencode/big-pickle',
       cliBinary: 'custom-opencode',
-    }).shellOneLiner).toContain('custom-opencode run --model openai/gpt-5.2 --auto');
+    }).shellOneLiner).toContain('custom-opencode --model opencode/big-pickle --auto --prompt');
   });
 
   it('parses slash command name', () => {

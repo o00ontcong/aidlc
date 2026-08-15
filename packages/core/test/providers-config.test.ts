@@ -28,8 +28,32 @@ describe('providers.yaml v2', () => {
     expect(config?.providers.claude.enabled).toBe(true);
     expect(config?.providers.cursor.enabled).toBe(false);
     expect(config?.providers.opencode.enabled).toBe(false);
+    expect(config?.providers.opencode.model).toBe('opencode/big-pickle');
     expect(config?.modelMappings['claude-opus-5']?.cursor).toBe('claude-opus-4-8');
-    expect(config?.modelMappings['claude-opus-5']?.opencode).toBe('openai/gpt-5.2');
+    expect(config?.modelMappings['claude-opus-5']?.opencode).toBe('opencode/big-pickle');
+  });
+
+  it('uses the persisted fallback model for provider commands without a phase mapping', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-prov-model-'));
+    roots.push(root);
+    const store = new ModelProviderConfigStore(root);
+    expect(store.modelFor('opencode')).toBe('opencode/big-pickle');
+    expect(store.modelFor('cursor')).toBe('gpt-5.2');
+    expect(store.modelFor('codex')).toBe('gpt-5.2-codex');
+  });
+
+  it('upgrades generated OpenCode mappings that assumed an OpenAI credential', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-prov-opencode-migration-'));
+    roots.push(root);
+    fs.mkdirSync(path.join(root, '.aidlc'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aidlc', 'providers.yaml'), yaml.dump({
+      schemaVersion: 2,
+      defaultProvider: 'opencode',
+      providers: { opencode: { enabled: true, cli: 'opencode' } },
+      modelMappings: { 'claude-opus-5': { opencode: 'openai/gpt-5.2' } },
+    }));
+    const store = new ModelProviderConfigStore(root);
+    expect(store.mapModel('claude-opus-5', 'opencode')).toBe('opencode/big-pickle');
   });
 
   it('roundtrips v2 save/load and enableProvider', () => {

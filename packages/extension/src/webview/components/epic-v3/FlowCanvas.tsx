@@ -27,11 +27,13 @@ function styleFor(kind: FlowKindEx) {
 }
 
 export function FlowCanvas({
-  nodes, loop, flowNote, onNodeClick,
+  nodes, loop, flowNote, nodeTitles, onNodeClick,
 }: {
   nodes: Node[];
   loop?: FlowLoop;
   flowNote: string;
+  /** Same recovery advice as the step list, supplied by the Epic screen. */
+  nodeTitles?: string[];
   onNodeClick?: (idx: number) => void;
 }) {
   // flow-layout's flowPaths types nodes as FlowNode with FlowKind; a 'failed'
@@ -88,7 +90,7 @@ export function FlowCanvas({
             <div
               key={`${n.name}-${i}`}
               onClick={() => onNodeClick?.(i)}
-              title={`${n.name} — ${n.meta}`}
+              title={nodeTitles?.[i] ?? `${n.name} — ${n.meta}`}
               style={{
                 position: 'absolute',
                 left: pos.left,

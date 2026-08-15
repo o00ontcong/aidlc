@@ -195,7 +195,7 @@ function ProviderRow({
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold text-foreground">{provider.displayName}</div>
           <div className="truncate text-[9px] text-muted-foreground">
-            {provider.cli} · {provider.diagnostic.message}
+            {provider.cli}{provider.model ? ` · ${provider.model}` : ''} · {provider.diagnostic.message}
           </div>
         </div>
       </button>

@@ -34,8 +34,37 @@ function stripMarkdownFrontmatter(content: string): string {
 }
 
 export function buildCodexRunPrompt(root: string, slash: string, runId: string, feedback: string): string {
+  return buildCommandFileRunPrompt(root, slash, runId, feedback, 'codex');
+}
+
+/**
+ * Kept for callers that need to inspect an OpenCode command body. Runtime
+ * invocation uses the native OpenCode slash command instead (see buildTaskPrompt).
+ */
+export function buildOpenCodeRunPrompt(root: string, slash: string, runId: string, feedback: string): string {
+  return buildCommandFileRunPrompt(root, slash, runId, feedback, 'opencode');
+}
+
+/** Codex and Cursor receive the expanded command body rather than Claude slash syntax. */
+export function buildProviderCommandPrompt(
+  root: string,
+  slash: string,
+  runId: string,
+  feedback: string,
+  providerId: string,
+): string {
+  return buildCommandFileRunPrompt(root, slash, runId, feedback, providerId);
+}
+
+function buildCommandFileRunPrompt(
+  root: string,
+  slash: string,
+  runId: string,
+  feedback: string,
+  providerId: string,
+): string {
   const commandName = slashCommandName(slash);
-  const adapter = getCommandProviderAdapter('codex');
+  const adapter = getCommandProviderAdapter(providerId);
   const file = adapter.commandFilePath(root, commandName);
   let body = '';
   try {
@@ -58,10 +87,15 @@ export function buildTaskPrompt(
   providerId: string,
   root: string,
 ): string {
-  if (providerId === 'codex') {
-    return buildCodexRunPrompt(root, slash, runId, feedback);
+  if (providerId !== 'claude' && providerId !== 'opencode') {
+    return buildProviderCommandPrompt(root, slash, runId, feedback, providerId);
   }
   const slashOnly = slash.trim().split(/\s+/)[0];
+  // OpenCode resolves `/command` from `.opencode/commands` in its interactive
+  // TUI. Do not expand the markdown body into a giant shell argument.
+  if (providerId === 'opencode') {
+    return `${slashOnly} ${runId}`;
+  }
   return feedback
     ? `${slashOnly} ${runId} — Update artifact per feedback: "${feedback.replace(/"/g, '\\"')}"`
     : `${slashOnly} ${runId}`;

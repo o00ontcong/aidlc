@@ -50,6 +50,7 @@ function writeStandaloneCommand(
   description: string,
   body: string,
   overwrite: boolean,
+  mappedModel?: string,
 ): string | null {
   const adapter = getCommandProviderAdapter(providerId);
   const file = adapter.commandFilePath(root, commandName);
@@ -58,7 +59,7 @@ function writeStandaloneCommand(
     description,
     body,
     epicRoot: '',
-  });
+  }, mappedModel);
   return writeCommandFile(file, rendered, overwrite) ? file : null;
 }
 
@@ -99,6 +100,8 @@ export function writeTwoLayerCommandsForProvider(
   const phases = opts.phases ?? CANONICAL_PHASES;
   const overwrite = opts.overwrite ?? false;
   const adapter = getCommandProviderAdapter(providerId);
+  const configStore = new ModelProviderConfigStore(root);
+  const mappedModel = configStore.modelFor(providerId);
   const written: string[] = [];
   const skipped: string[] = [];
 
@@ -107,7 +110,7 @@ export function writeTwoLayerCommandsForProvider(
     if (fs.existsSync(file) && !overwrite) { skipped.push(file); return; }
     if (writeCommandFile(
       file,
-      adapter.renderCommandFile({ commandName, description, body, epicRoot }),
+      adapter.renderCommandFile({ commandName, description, body, epicRoot }, mappedModel),
       true,
     )) {
       written.push(file);
@@ -127,6 +130,8 @@ export function syncAutonomousCommandsForProvider(
   providerId: string,
   overwrite = false,
 ): string[] {
+  const configStore = new ModelProviderConfigStore(root);
+  const mappedModel = configStore.modelFor(providerId);
   const written: string[] = [];
   for (const entry of [
     {
@@ -147,6 +152,7 @@ export function syncAutonomousCommandsForProvider(
       entry.description,
       entry.body,
       overwrite,
+      mappedModel,
     );
     if (file) { written.push(file); }
   }

@@ -122,11 +122,14 @@ const opencodeAdapter: CommandProviderAdapter = {
   buildOneShotInvocation({ slashOrPrompt, mappedModel, cliBinary }) {
     const binary = cliBinary?.trim() || this.cliBinary;
     const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
-    const oneShot = `${binary} run${modelFlag} --auto ${shellQuote(slashOrPrompt)}`;
+    // OpenCode's root command starts its interactive TUI.  `--prompt` submits the
+    // provider-native slash command after the TUI opens, keeping the session
+    // visible and allowing OpenCode to resolve `.opencode/commands/*.md` itself.
+    const oneShot = `${binary}${modelFlag} --auto --prompt ${shellQuote(slashOrPrompt)}`;
     return {
       argv: mappedModel
-        ? [binary, 'run', '--model', mappedModel, '--auto', slashOrPrompt]
-        : [binary, 'run', '--auto', slashOrPrompt],
+        ? [binary, '--model', mappedModel, '--auto', '--prompt', slashOrPrompt]
+        : [binary, '--auto', '--prompt', slashOrPrompt],
       shellOneLiner: oneShot,
     };
   },

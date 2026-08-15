@@ -16,6 +16,7 @@ export interface ProviderConfigUi {
     displayName: string;
     enabled: boolean;
     cli: string;
+    model?: string;
     isDefault: boolean;
     diagnostic: { ok: boolean; message: string };
   }>;
@@ -49,6 +50,7 @@ export function buildProviderConfigUi(root: string | undefined): ProviderConfigU
     const adapter = adapterById.get(id);
     const entry = config.providers[id];
     const cli = store.cliFor(id, config);
+    const model = store.modelFor(id, undefined, config);
     const displayName = adapter?.displayName ?? BUILTIN_COMMAND_PROVIDERS[id].displayName;
     const diagnostic = diagnoseProviderCli(cli);
     return {
@@ -56,6 +58,7 @@ export function buildProviderConfigUi(root: string | undefined): ProviderConfigU
       displayName,
       enabled: entry?.enabled === true,
       cli,
+      model,
       isDefault: config.defaultProvider === id,
       diagnostic,
     };

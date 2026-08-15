@@ -269,7 +269,7 @@ import { buildArchifySvgPreview, renderArchifyOverview } from './archifyOverview
 
 // ── Shared helper: open/reuse the agent terminal and send a slash command ───
 
-function runSlashCommandInClaude(slash: string, root: string, extensionPath: string): void {
+function runSlashCommandInProvider(slash: string, root: string, extensionPath: string): void {
   runSlashCommandWithProvider(slash, root, extensionPath);
 }
 
@@ -1746,21 +1746,7 @@ export class WorkspaceWebview {
     }
   }
 
-  /**
-   * Start the full /annotate-artifact review loop for an artifact in one click.
-   *
-   * Opens a Claude Code terminal running `claude "/annotate-artifact <epic> <file>"`.
-   * The skill (installed into ~/.claude on activation) renders the .md to HTML,
-   * opens it in the vendored annotron, then *polls* for the user's annotations,
-   * applies them back to the .md, logs a revision, and re-renders. Polling is the
-   * receiving half the extension itself can't do — it isn't the agent — which is
-   * why the button hands off to Claude rather than just opening annotron. Markdown
-   * stays canonical.
-   *
-   * Requires the `claude` CLI on the terminal's PATH (AIDLC users have it). If it
-   * isn't installed the terminal shows the error; the user can still run the
-   * renderer + annotron by hand.
-   */
+  /** Start the full provider-aware /annotate-artifact review loop in one click. */
   private annotateArtifact(epicDir: string, filename: string): void {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const resolved = this.resolveArtifactAbsPath(epicDir, filename);
@@ -1784,58 +1770,11 @@ export class WorkspaceWebview {
 
     const epicId = path.basename(epicDir);
     const skillCmd = `/annotate-artifact ${epicId} ${filename}`;
-    const termName = `AIDLC · Annotate: ${epicId}/${filename}`;
-
-    // Reuse the terminal only if a loop is still *live* for this artifact.
-    // A terminal whose Claude process already exited keeps its name in the
-    // panel; reusing it would just re-focus a dead shell and never re-run the
-    // command (the reported "click does nothing once the HTML already exists"
-    // bug). exitStatus is defined once the process has ended → treat as stale.
-    const existing = vscode.window.terminals.find((t) => t.name === termName);
-    if (existing) {
-      if (existing.exitStatus === undefined) { existing.show(false); return; }
-      existing.dispose();
-    }
-
     const cwd = root && fs.existsSync(root) ? root : epicDir;
-    const terminal = vscode.window.createTerminal({
-      name: termName,
-      cwd,
-      iconPath: new vscode.ThemeIcon('comment-discussion'),
-      location: vscode.TerminalLocation.Panel,
-      // oh-my-zsh's weekly update prompt can swallow the launch command before
-      // shell integration installs — disable it for this terminal only.
-      // Also unset the Electron-as-Node vars VS Code injects, so the annotron
-      // server `ensureServer` spawns gets a clean node env (else it can fail
-      // to start — see viewArtifactInAnnotron).
-      env: {
-        DISABLE_AUTO_UPDATE: 'true',
-        DISABLE_UPDATE_PROMPT: 'true',
-        ELECTRON_RUN_AS_NODE: null,
-        NODE_OPTIONS: null,
-      },
-    });
-    terminal.show(false);
-
-    // Prefer shell integration; fall back to sendText for shells without it.
-    // Mirrors aidlc.openClaudeTerminal.
-    const launch = `claude ${JSON.stringify(skillCmd)}`;
-    let sent = false;
-    const integ = vscode.window.onDidChangeTerminalShellIntegration((e) => {
-      if (e.terminal === terminal && e.shellIntegration && !sent) {
-        sent = true;
-        e.shellIntegration.executeCommand(launch);
-        integ.dispose();
-      }
-    });
-    this.disposables.push(integ);
-    setTimeout(() => {
-      if (!sent) { sent = true; terminal.sendText(launch, true); integ.dispose(); }
-    }, 2000);
-
+    runSlashCommandWithProvider(skillCmd, cwd, this.extensionUri.fsPath);
     void vscode.window.showInformationMessage(
-      `Đang mở vòng annotate cho ${filename}: Claude sẽ render + mở annotron rồi tự nhận feedback và sửa .md. ` +
-        `(Cần Claude CLI. Chưa có thì chạy “${skillCmd}” trong Claude Code.)`,
+      `Đang mở vòng annotate cho ${filename} bằng provider đang chọn. ` +
+        'Provider sẽ render + mở annotron, nhận feedback và sửa Markdown.',
     );
   }
 
@@ -2217,7 +2156,7 @@ export class WorkspaceWebview {
         });
         if (!runId) { return; }
         this.refresh();
-        runSlashCommandInClaude(`/analyze-requirements ${runId}`, root, this.extensionUri.fsPath);
+        runSlashCommandInProvider(`/analyze-requirements ${runId}`, root, this.extensionUri.fsPath);
         return;
       }
       case 'openAddPipeline':
@@ -2329,8 +2268,8 @@ export class WorkspaceWebview {
           void vscode.window.showWarningMessage('AIDLC: Project Context is required before generating an architecture map.');
           return;
         }
-        runSlashCommandInClaude('/project-context-map-features PROJECT-CONTEXT', root, this.extensionUri.fsPath);
-        void vscode.window.showInformationMessage('AIDLC started Map Features in Claude. The Architecture tab refreshes when the diagram artifacts are written.');
+        runSlashCommandInProvider('/project-context-map-features PROJECT-CONTEXT', root, this.extensionUri.fsPath);
+        void vscode.window.showInformationMessage('AIDLC started Map Features with the selected provider. The Architecture tab refreshes when the diagram artifacts are written.');
         return;
       }
       case 'renderArchifyOverview': {
@@ -2370,7 +2309,7 @@ export class WorkspaceWebview {
           epicId: epic.id,
         })), { placeHolder: 'Choose the feature whose flow you want to generate.' });
         if (!picked) { return; }
-        runSlashCommandInClaude(`/cohesive-feature-map-feature-flow ${picked.epicId}`, root, this.extensionUri.fsPath);
+        runSlashCommandInProvider(`/cohesive-feature-map-feature-flow ${picked.epicId}`, root, this.extensionUri.fsPath);
         void vscode.window.showInformationMessage(`AIDLC started Feature Flow mapping for ${picked.epicId}. The Architecture tab refreshes when the artifacts are written.`);
         return;
       }
