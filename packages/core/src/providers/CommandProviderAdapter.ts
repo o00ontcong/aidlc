@@ -22,6 +22,8 @@ export interface CommandProviderAdapter {
     slashOrPrompt: string;
     mappedModel?: string;
     cwd?: string;
+    /** Persisted provider CLI override from `.aidlc/providers.yaml`. */
+    cliBinary?: string;
   }): OneShotInvocation;
 }
 
@@ -41,9 +43,10 @@ const claudeAdapter: CommandProviderAdapter = {
   renderCommandFile(spec, mappedModel) {
     return renderClaudeCommandFile(spec, mappedModel);
   },
-  buildOneShotInvocation({ slashOrPrompt }) {
-    const oneShot = `${this.cliBinary} ${shellQuote(slashOrPrompt)}`;
-    return { argv: [this.cliBinary, slashOrPrompt], shellOneLiner: oneShot };
+  buildOneShotInvocation({ slashOrPrompt, cliBinary }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const oneShot = `${binary} ${shellQuote(slashOrPrompt)}`;
+    return { argv: [binary, slashOrPrompt], shellOneLiner: oneShot };
   },
 };
 
@@ -58,13 +61,14 @@ const cursorAdapter: CommandProviderAdapter = {
   renderCommandFile(spec) {
     return `# ${spec.description}\n\n${spec.body}`;
   },
-  buildOneShotInvocation({ slashOrPrompt, mappedModel }) {
+  buildOneShotInvocation({ slashOrPrompt, mappedModel, cliBinary }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
     const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
-    const oneShot = `${this.cliBinary}${modelFlag} ${shellQuote(slashOrPrompt)}`;
+    const oneShot = `${binary}${modelFlag} ${shellQuote(slashOrPrompt)}`;
     return {
       argv: mappedModel
-        ? [this.cliBinary, '--model', mappedModel, slashOrPrompt]
-        : [this.cliBinary, slashOrPrompt],
+        ? [binary, '--model', mappedModel, slashOrPrompt]
+        : [binary, slashOrPrompt],
       shellOneLiner: oneShot,
     };
   },
@@ -87,13 +91,42 @@ disable-model-invocation: true
 
 ${spec.body}`;
   },
-  buildOneShotInvocation({ slashOrPrompt, mappedModel }) {
+  buildOneShotInvocation({ slashOrPrompt, mappedModel, cliBinary }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
     const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
-    const oneShot = `${this.cliBinary} exec${modelFlag} --sandbox workspace-write ${shellQuote(slashOrPrompt)}`;
+    const oneShot = `${binary} exec${modelFlag} --sandbox workspace-write ${shellQuote(slashOrPrompt)}`;
     return {
       argv: mappedModel
-        ? [this.cliBinary, 'exec', '--model', mappedModel, '--sandbox', 'workspace-write', slashOrPrompt]
-        : [this.cliBinary, 'exec', '--sandbox', 'workspace-write', slashOrPrompt],
+        ? [binary, 'exec', '--model', mappedModel, '--sandbox', 'workspace-write', slashOrPrompt]
+        : [binary, 'exec', '--sandbox', 'workspace-write', slashOrPrompt],
+      shellOneLiner: oneShot,
+    };
+  },
+};
+
+const opencodeAdapter: CommandProviderAdapter = {
+  id: 'opencode',
+  displayName: BUILTIN_COMMAND_PROVIDERS.opencode.displayName,
+  cliBinary: BUILTIN_COMMAND_PROVIDERS.opencode.cli,
+  commandsDir(root) { return path.join(root, '.opencode', 'commands'); },
+  commandFilePath(root, commandName) {
+    return path.join(this.commandsDir(root), `${commandName}.md`);
+  },
+  renderCommandFile(spec, mappedModel) {
+    const modelLine = mappedModel ?? spec.canonicalModel;
+    const frontmatter = modelLine
+      ? `---\ndescription: ${spec.description}\nmodel: ${modelLine}\n---\n\n`
+      : `---\ndescription: ${spec.description}\n---\n\n`;
+    return `${frontmatter}${spec.body}`;
+  },
+  buildOneShotInvocation({ slashOrPrompt, mappedModel, cliBinary }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    const oneShot = `${binary} run${modelFlag} --auto ${shellQuote(slashOrPrompt)}`;
+    return {
+      argv: mappedModel
+        ? [binary, 'run', '--model', mappedModel, '--auto', slashOrPrompt]
+        : [binary, 'run', '--auto', slashOrPrompt],
       shellOneLiner: oneShot,
     };
   },
@@ -103,6 +136,7 @@ const ADAPTERS = new Map<BuiltinCommandProviderId, CommandProviderAdapter>([
   ['claude', claudeAdapter],
   ['cursor', cursorAdapter],
   ['codex', codexAdapter],
+  ['opencode', opencodeAdapter],
 ]);
 
 export class CommandProviderRegistry {

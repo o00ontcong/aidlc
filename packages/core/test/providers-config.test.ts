@@ -27,7 +27,9 @@ describe('providers.yaml v2', () => {
     expect(config?.schemaVersion).toBe(2);
     expect(config?.providers.claude.enabled).toBe(true);
     expect(config?.providers.cursor.enabled).toBe(false);
+    expect(config?.providers.opencode.enabled).toBe(false);
     expect(config?.modelMappings['claude-opus-5']?.cursor).toBe('claude-opus-4-8');
+    expect(config?.modelMappings['claude-opus-5']?.opencode).toBe('openai/gpt-5.2');
   });
 
   it('roundtrips v2 save/load and enableProvider', () => {

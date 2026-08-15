@@ -15,6 +15,12 @@ describe('providers (UI step 1)', () => {
     expect(mapModelForProvider('claude-opus-4', 'cursor', cfg.modelMappings)).toBe('claude-opus-4-8');
   });
 
+  it('maps canonical model for OpenCode default', () => {
+    let cfg = applyProvider(MOCK_PROVIDER_CONFIG, 'opencode');
+    cfg = applyDefaultProvider(cfg, 'opencode');
+    expect(mapModelForProvider('claude-opus-5', 'opencode', cfg.modelMappings)).toBe('openai/gpt-5.2');
+  });
+
   it('apply is one-way — cannot un-apply', () => {
     let cfg = MOCK_PROVIDER_CONFIG;
     cfg = applyProvider(cfg, 'cursor');

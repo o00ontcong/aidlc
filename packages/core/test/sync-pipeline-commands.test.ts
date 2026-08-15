@@ -19,7 +19,7 @@ describe('syncPipelineCommands multi-provider', () => {
     }
   });
 
-  it('writes cursor plain md and codex skill when enabled', () => {
+  it('writes cursor, Codex, and OpenCode command files with their model format', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-sync-mp-'));
     roots.push(root);
     const extPath = builtinTemplatesRoot();
@@ -35,13 +35,17 @@ describe('syncPipelineCommands multi-provider', () => {
 
     syncPipelineCommandsForProvider(root, extPath, 'cursor');
     syncPipelineCommandsForProvider(root, extPath, 'codex');
+    syncPipelineCommandsForProvider(root, extPath, 'opencode');
 
     const cursorFile = path.join(root, '.cursor', 'commands', 'cohesive-feature-implement.md');
     const codexFile = path.join(root, '.codex', 'skills', 'aidlc-cohesive-feature-implement', 'SKILL.md');
+    const opencodeFile = path.join(root, '.opencode', 'commands', 'cohesive-feature-implement.md');
     expect(fs.existsSync(cursorFile)).toBe(true);
     expect(fs.readFileSync(cursorFile, 'utf8')).not.toMatch(/^---\n/);
     expect(fs.existsSync(codexFile)).toBe(true);
     expect(fs.readFileSync(codexFile, 'utf8')).toContain('disable-model-invocation: true');
+    expect(fs.existsSync(opencodeFile)).toBe(true);
+    expect(fs.readFileSync(opencodeFile, 'utf8')).toContain('model: openai/gpt-5.2');
 
     const claudeFile = path.join(root, '.claude', 'commands', 'cohesive-feature-implement.md');
     expect(fs.existsSync(claudeFile)).toBe(false);

@@ -69,6 +69,15 @@ Run implement for epic \`$ARGUMENTS\`.`, 'utf8');
       slashOrPrompt: prompt,
       mappedModel: 'o3',
     }).shellOneLiner).toContain('codex exec --model o3 --sandbox workspace-write');
+    expect(getCommandProviderAdapter('opencode').buildOneShotInvocation({
+      slashOrPrompt: prompt,
+      mappedModel: 'openai/gpt-5.2',
+    }).shellOneLiner).toContain('opencode run --model openai/gpt-5.2 --auto');
+    expect(getCommandProviderAdapter('opencode').buildOneShotInvocation({
+      slashOrPrompt: prompt,
+      mappedModel: 'openai/gpt-5.2',
+      cliBinary: 'custom-opencode',
+    }).shellOneLiner).toContain('custom-opencode run --model openai/gpt-5.2 --auto');
   });
 
   it('parses slash command name', () => {

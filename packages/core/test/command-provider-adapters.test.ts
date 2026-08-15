@@ -15,7 +15,7 @@ import {
 } from '../src';
 
 describe('CommandProviderAdapter', () => {
-  it('renders three distinct formats from the same StepCommandSpec', () => {
+  it('renders provider-specific command formats from the same StepCommandSpec', () => {
     const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
     const preset = loadBuiltinPreset(builtinTemplatesRoot(), workflow);
     const phase = workflowCommandPhases(workflow).find((p) => p.phase.id === 'implement')!.phase;
@@ -26,6 +26,7 @@ describe('CommandProviderAdapter', () => {
     const claude = getCommandProviderAdapter('claude').renderCommandFile(spec, 'claude-opus-5');
     const cursor = getCommandProviderAdapter('cursor').renderCommandFile(spec, 'claude-opus-4-8');
     const codex = getCommandProviderAdapter('codex').renderCommandFile(spec, 'o3');
+    const opencode = getCommandProviderAdapter('opencode').renderCommandFile(spec, 'openai/gpt-5.2');
 
     expect(claude).toMatch(/^---\n/);
     expect(claude).toContain('model: claude-opus-5');
@@ -36,11 +37,19 @@ describe('CommandProviderAdapter', () => {
     expect(claude).toContain('## Task');
     expect(cursor).toContain('## Task');
     expect(codex).toContain('## Task');
+    expect(opencode).toContain('model: openai/gpt-5.2');
+    expect(opencode).toContain('## Task');
   });
 
   it('maps claude-opus-5 to cursor bundled id', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-map-'));
     const store = new ModelProviderConfigStore(root);
     expect(store.mapModel('claude-opus-5', 'cursor')).toBe('claude-opus-4-8');
+  });
+
+  it('maps models to OpenCode provider/model identifiers', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-opencode-map-'));
+    const store = new ModelProviderConfigStore(root);
+    expect(store.mapModel('claude-opus-5', 'opencode')).toBe('openai/gpt-5.2');
   });
 });

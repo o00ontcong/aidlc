@@ -5,13 +5,20 @@
 import type { ModelMappings, ProviderConfig, ProviderInfo } from './types';
 
 export const BUNDLED_MODEL_MAPPINGS: ModelMappings = {
-  'claude-opus-5': { claude: 'claude-opus-5', cursor: 'claude-opus-4-8', codex: 'o3' },
-  'claude-sonnet-5': { claude: 'claude-sonnet-5', cursor: 'gpt-5.2', codex: 'gpt-5.2-codex' },
-  'claude-opus-4': { claude: 'claude-opus-4', cursor: 'claude-opus-4-8', codex: 'o3' },
+  'claude-opus-5': {
+    claude: 'claude-opus-5', cursor: 'claude-opus-4-8', codex: 'o3', opencode: 'openai/gpt-5.2',
+  },
+  'claude-sonnet-5': {
+    claude: 'claude-sonnet-5', cursor: 'gpt-5.2', codex: 'gpt-5.2-codex', opencode: 'openai/gpt-5.2',
+  },
+  'claude-opus-4': {
+    claude: 'claude-opus-4', cursor: 'claude-opus-4-8', codex: 'o3', opencode: 'openai/gpt-5.2',
+  },
   'claude-haiku-4-5-20251001': {
     claude: 'claude-haiku-4-5-20251001',
     cursor: 'gpt-5.2-fast',
     codex: 'gpt-5.2-codex-mini',
+    opencode: 'openai/gpt-5.2-codex-mini',
   },
 };
 
@@ -41,6 +48,14 @@ export const MOCK_PROVIDER_CONFIG: ProviderConfig = {
       displayName: 'OpenAI Codex',
       enabled: false,
       cli: 'codex',
+      isDefault: false,
+      diagnostic: { ok: false, message: 'Not on PATH' },
+    },
+    {
+      id: 'opencode',
+      displayName: 'OpenCode',
+      enabled: false,
+      cli: 'opencode',
       isDefault: false,
       diagnostic: { ok: false, message: 'Not on PATH' },
     },

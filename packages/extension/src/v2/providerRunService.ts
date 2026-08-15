@@ -183,6 +183,7 @@ export function runStepWithProvider(opts: {
     slashOrPrompt: prompt,
     mappedModel,
     cwd: opts.root,
+    cliBinary: cli,
   });
   const oneShot = invocation.shellOneLiner
     ?? [cli, ...invocation.argv.slice(1)].join(' ');
@@ -221,7 +222,13 @@ export function runSlashCommandWithProvider(
 
   const canonicalModel = canonicalModelForSlash(slash);
   const mappedModel = canonicalModel ? store.mapModel(canonicalModel, id, config) : undefined;
-  const invocation = adapter.buildOneShotInvocation({ slashOrPrompt: prompt, mappedModel, cwd: root });
+  const cli = store.cliFor(id, config);
+  const invocation = adapter.buildOneShotInvocation({
+    slashOrPrompt: prompt,
+    mappedModel,
+    cwd: root,
+    cliBinary: cli,
+  });
   const oneShot = invocation.shellOneLiner ?? invocation.argv.join(' ');
 
   spawnTerminalOneShot({
