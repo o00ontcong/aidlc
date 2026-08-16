@@ -1,5 +1,81 @@
 # Changelog
 
+## 3.4.34
+
+### Changed
+
+- style(branding): use the selected SVG Repo “Duotone Screen Disabled” CC0 icon for the Activity Bar with a white stroke.
+
+## 3.4.33
+
+### Changed
+
+- style(branding): remove the Activity Bar icon background and render the selected C glyph in white.
+
+## 3.4.32
+
+### Changed
+
+- style(branding): use the selected SVG Repo “Letter C” CC0 icon for the Activity Bar, adapted to VS Code's monochrome theme coloring.
+
+## 3.4.31
+
+### Changed
+
+- style(branding): redesign the Activity Bar C as an angular circuit-style technology glyph.
+
+## 3.4.30
+
+### Changed
+
+- style(branding): redraw the Cohesive Delivery Activity Bar C with the original A glyph's geometric monoline treatment.
+
+## 3.4.29
+
+### Fixed
+
+- fix(branding): replace the Activity Bar A glyph with a monochrome C glyph for Cohesive Delivery.
+
+## 3.4.28
+
+### Fixed
+
+- fix(branding): use the Cohesive Delivery name and supplied icon in the rendered sidebar header.
+
+## 3.4.27
+
+### Changed
+
+- rebrand(extension): rename the extension to Cohesive Delivery and use the supplied “Will code for food” artwork as its icon.
+
+## 3.4.26
+
+### Fixed
+
+- fix(providers): discover models from Cursor Agent and OpenAI Codex; show Claude Code's supported model aliases in the provider selector.
+
+## 3.4.25
+
+### Added
+
+- feat(cohesive): ship Cohesive Delivery 3.0 with a three-pipeline model.
+- feat(archify): add a verified Archify architecture overview and a feature-centric cohesive architecture explorer, including diagram generation actions.
+- feat(archify): pan, wheel-zoom, and zoom controls for architecture diagrams.
+- feat(i18n): add output language support.
+- feat(epics): add autonomous mode controls for pipeline epics.
+
+### Fixed
+
+- fix(archify): pan architecture diagrams in both directions and preserve zoom while panning.
+- fix(archify): sanitize generated mermaid diagrams and connect related feature nodes.
+- fix(ui): consolidate sidebar actions into settings and improve architecture canvas localization.
+- fix(workspace): add the architecture explorer to existing workspaces; preserve V3 theme and legacy workspace data.
+
+### Changed
+
+- refactor(archify): render architecture levels with mermaid.
+- refactor(ui): remove the unused V3 workspace surface.
+
 ## 3.4.23
 
 ### Changed

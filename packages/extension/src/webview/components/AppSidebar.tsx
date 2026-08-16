@@ -88,15 +88,15 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
         <div className="flex items-center gap-2 min-w-0">
           <BrandIcon />
           <div className="min-w-0">
-            <h2 className="text-[11px] font-bold tracking-widest uppercase">AIDLC</h2>
-            <p className="truncate text-[10px] text-muted-foreground">Agent workflow runner</p>
+            <h2 className="text-[11px] font-bold tracking-widest uppercase">Cohesive Delivery</h2>
+            <p className="truncate text-[10px] text-muted-foreground">AI delivery workflow runner</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => postMessage({ type: 'openSettings' })}
-            title={`AIDLC output language: ${state.displayLanguage === 'vi' ? 'Tiếng Việt' : 'English'}. Change language`}
+            title={`Cohesive Delivery output language: ${state.displayLanguage === 'vi' ? 'Tiếng Việt' : 'English'}. Change language`}
             className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-secondary/50 px-1.5 text-[10px] font-bold tracking-wide text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <Globe2 className="h-3 w-3" />
@@ -194,11 +194,11 @@ function AskButton() {
     <button
       type="button"
       onClick={() => postMessage({ type: 'askAidlc' })}
-      title="Ask Claude about AIDLC — what it does, how to set it up"
+      title="Ask Claude about Cohesive Delivery — what it does, how to set it up"
       className="flex w-full items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
     >
       <HelpCircle className="h-3.5 w-3.5" />
-      <span>Ask AIDLC</span>
+      <span>Ask Cohesive Delivery</span>
       <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
     </button>
   );
@@ -210,7 +210,7 @@ function BrandIcon() {
     return (
       <img
         src={uri}
-        alt="AIDLC"
+        alt="Cohesive Delivery"
         className="h-7 w-7 shrink-0 rounded-md object-cover shadow-md shadow-primary/20"
       />
     );

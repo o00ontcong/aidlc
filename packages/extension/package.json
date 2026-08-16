@@ -1,8 +1,8 @@
 {
   "name": "aidlc-o00ontcong",
-  "displayName": "AIDLC (o00ontcong)",
-  "description": "AI-driven SDLC pipeline runner for VS Code. Plan → Prototype → Design ∥ Test → Implement → Release. Discovery gates for human-in-the-loop questions, prototype phase for visual UI design, requirements traceability, AIDLC Monitor with token usage & live observability. Supports Spec Kit (spec-driven development), recipe-based task classification, multi-pipeline workspaces.",
-  "version": "3.4.24",
+  "displayName": "Cohesive Delivery",
+  "description": "Cohesive Delivery is an AI-driven SDLC pipeline runner for VS Code. Plan → Prototype → Design ∥ Test → Implement → Release, with workflow orchestration, requirements traceability, and live agent observability.",
+  "version": "3.4.34",
   "publisher": "o00ontcong",
   "license": "MIT",
   "sponsor": {
@@ -12,7 +12,7 @@
     "type": "git",
     "url": "https://github.com/aidlc-io/aidlc"
   },
-  "icon": "media/icon.png",
+  "icon": "media/cohesive-delivery-icon.png",
   "keywords": [
     "ai",
     "agents",
@@ -45,8 +45,8 @@
       "activitybar": [
         {
           "id": "aidlc",
-          "title": "AIDLC",
-          "icon": "media/pipeline-icon.svg"
+          "title": "Cohesive Delivery",
+          "icon": "media/cohesive-delivery-activitybar.svg"
         }
       ]
     },
@@ -55,7 +55,7 @@
         {
           "id": "aidlcSidebar",
           "name": "Workspace",
-          "icon": "media/pipeline-icon.svg",
+          "icon": "media/cohesive-delivery-activitybar.svg",
           "type": "webview"
         }
       ]
@@ -306,7 +306,7 @@
       }
     ],
     "configuration": {
-      "title": "AIDLC",
+      "title": "Cohesive Delivery",
       "properties": {
         "aidlc.autopilot.enabled": {
           "type": "boolean",
@@ -367,7 +367,11 @@
         },
         "aidlc.displayLanguage": {
           "type": "string",
-          "enum": ["auto", "en", "vi"],
+          "enum": [
+            "auto",
+            "en",
+            "vi"
+          ],
           "default": "auto",
           "description": "Language for AIDLC interface labels and AI-authored Markdown artifacts. Auto follows VS Code's display language."
         }

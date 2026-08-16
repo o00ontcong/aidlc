@@ -841,7 +841,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     const fallback = missingBundleHtml(this.extensionUri.fsPath, 'sidebar.js', cspSource, nonce);
     if (fallback) { return fallback; }
     const iconUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'media', 'icon.svg'),
+      vscode.Uri.joinPath(this.extensionUri, 'media', 'cohesive-delivery-icon.png'),
     ).toString();
     const version = readExtensionVersion(this.extensionUri.fsPath);
     const initialState = buildState(this.presetStore, this.mcp);
@@ -861,7 +861,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
            font-src ${cspSource} https: data:;
            style-src ${cspSource} 'unsafe-inline';
            script-src 'nonce-${nonce}' ${cspSource};">
-<title>AIDLC</title>
+<title>Cohesive Delivery</title>
 <link rel="stylesheet" href="${cssUri}">
 </head>
 <body>

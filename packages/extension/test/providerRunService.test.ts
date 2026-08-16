@@ -20,7 +20,7 @@ import {
   writeBugScreenshot,
   resolveRunnableModel,
 } from '../src/v2/providerRunLogic';
-import { parseOpenCodeModels } from '../src/v2/providerConfig';
+import { parseCliModelList, parseCodexModels, parseOpenCodeModels } from '../src/v2/providerConfig';
 
 describe('providerRunService', () => {
   const roots: string[] = [];
@@ -99,6 +99,15 @@ describe('providerRunService', () => {
   it('parses the OpenCode model list for the provider dropdown', () => {
     expect(parseOpenCodeModels('opencode/big-pickle\nsilvertiger_tech/glm-5\nnot a model\n'))
       .toEqual(['opencode/big-pickle', 'silvertiger_tech/glm-5']);
+  });
+
+  it('parses Cursor and Codex model catalogs for the provider dropdown', () => {
+    expect(parseCliModelList('\u001B[36mgpt-5.3-codex\u001B[0m - Codex 5.3\nauto - Auto\nAvailable models\n'))
+      .toEqual(['gpt-5.3-codex', 'auto']);
+    expect(parseCodexModels(JSON.stringify({ data: [
+      { id: 'gpt-5.6-sol', model: 'gpt-5.6-sol' },
+      { id: 'gpt-5.6-luna', model: 'gpt-5.6-luna' },
+    ] }))).toEqual(['gpt-5.6-sol', 'gpt-5.6-luna']);
   });
 
   it('builds codex inline prompt from synced skill file', () => {

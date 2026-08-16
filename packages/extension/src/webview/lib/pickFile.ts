@@ -35,7 +35,7 @@ export interface BugImageResult {
   previewDataUrl?: string;
 }
 
-function asBugImages(msg: { images?: unknown }): BugImageResult[] {
+function asBugImages(msg: { type: string; [key: string]: unknown }): BugImageResult[] {
   if (!Array.isArray(msg.images)) { return []; }
   return msg.images.flatMap((raw) => {
     if (!raw || typeof raw !== 'object') { return []; }

@@ -27,3 +27,9 @@ Keep using grep/read/edit for:
 If the graph looks stale, ask the user to run `AIDLC: Rescan AST Graph`. The
 extension also rescans automatically a few seconds after any source file save.
 <!-- aidlc:ast-graph:end -->
+
+<!-- aidlc:output-language:start -->
+## Output language (managed by AIDLC extension — do not edit by hand)
+
+AIDLC output-language requirement: Write all human-readable prose that you create or revise in Markdown artifacts, reports, summaries, and documentation in Vietnamese. Keep source code, identifiers, commands, paths, API names, JSON/YAML keys, and validator-required literal headings or markers unchanged. Only use another language for a specific artifact when the user explicitly requests it.
+<!-- aidlc:output-language:end -->
