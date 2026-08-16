@@ -222,6 +222,9 @@ export function markStepDone(args: {
   const next = clone(state);
   const nextStep = next.steps[idx];
   nextStep.artifactsProduced = resolvedProduces;
+  // A migrated step stops being "New" as soon as the user submits work for
+  // it, even when it still has an auto/human review gate ahead.
+  nextStep.isNew = undefined;
   // Clear any prior verdict so the new run gets a fresh one.
   nextStep.autoReviewVerdict = undefined;
 
@@ -519,6 +522,67 @@ export function rerunStep(args: {
 }
 
 /**
+ * Record a user-submitted bug report on `resolve-bugs` (or any step the
+ * caller points at). Unlike reject/rerun, this is the primary input for the
+ * phase: the user can file round 1 while the step is `awaiting_work`, and
+ * later rounds while it is `awaiting_review`, without going through Reject.
+ *
+ * Each report is appended to `history` so previously filed bugs stay visible
+ * in the UI and in `state.json` for the agent. The latest report is also
+ * stored as `feedback`. A report filed during review or after a rejection
+ * reopens the step as `awaiting_work` so the agent must produce a fresh
+ * `BUG-FIX-LOG.md` before the human can approve.
+ */
+export function recordBugReport(args: {
+  state: RunState;
+  report: string;
+  /** Step receiving the report. Defaults to `state.currentStepIdx`. */
+  stepIdx?: number;
+}): RunState {
+  const report = args.report.trim();
+  if (!report) {
+    throw new PipelineRunError('Bug report is empty');
+  }
+  const idx = args.stepIdx ?? args.state.currentStepIdx;
+  const step = args.state.steps[idx];
+  if (!step) {
+    throw new PipelineRunError(`No step at index ${idx}`);
+  }
+  if (
+    step.status !== 'awaiting_work'
+    && step.status !== 'awaiting_review'
+    && step.status !== 'rejected'
+  ) {
+    throw new PipelineRunError(
+      `Cannot record a bug report for step "${step.agent}": status is "${step.status}"`,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const next = clone(args.state);
+  const reopen = step.status === 'awaiting_review' || step.status === 'rejected';
+  const newRev = step.status === 'rejected' ? step.revision + 1 : step.revision;
+  next.steps[idx] = {
+    ...step,
+    status: reopen ? 'awaiting_work' : step.status,
+    revision: newRev,
+    feedback: report,
+    rejectReason: undefined,
+    finishedAt: reopen ? undefined : step.finishedAt,
+    startedAt: step.startedAt ?? now,
+    history: pushHistory(step.history, {
+      kind: 'bug_report',
+      at: now,
+      revision: newRev,
+      report,
+    }),
+  };
+  next.currentStepIdx = idx;
+  next.status = 'running';
+  return next;
+}
+
+/**
  * Request an update on a previously-approved step. Triggered by the user
  * outside the awaiting_review flow when requirements change after the step
  * was approved (or after the run already moved past it). Behaves like a
@@ -634,6 +698,7 @@ function advance(next: RunState, idx: number, pipeline: PipelineConfig): RunStat
   const approved = next.steps[idx];
   next.steps[idx] = {
     ...approved,
+    isNew: undefined,
     status: 'approved',
     finishedAt,
     history: pushHistory(approved.history, {

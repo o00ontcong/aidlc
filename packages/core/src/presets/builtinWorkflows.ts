@@ -25,6 +25,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { buildStepCommandSpec, renderClaudeCommandFile } from '../providers/stepCommand';
 import { renderTemplate } from './templateRenderer';
 import {
   hashValidatorContent,
@@ -467,26 +468,25 @@ const SPECKIT_RECIPES: RecipeDef[] = [
 /**
  * Cohesive Delivery has two durable layers:
  *
- *   project-context (canonical, repo-wide)
- *          ↓ immutable snapshot
- *   cohesive-feature (one independently runnable feature epic)
+ *   project-context     establish-baseline (human) → publish-context (auto)
+ *   feature-spike       package-mission (human)
+ *   feature-implement   implement → resolve-bugs → ship
  *
- * Parallelism belongs *between* independent feature epics. A feature epic owns
- * its plan, implementation, tests, PR, and sync end-to-end; Claude decides any
- * internal decomposition without creating user-managed worker epics.
+ * Human is the bus. Spike does not depend_on implement. Completeness of
+ * MISSION.md is the machine gate at Start implement. Parallelism belongs
+ * between independent feature epics, not inside one epic's DAG.
  */
 const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   {
-    id: 'define-charter', name: 'Define Charter', persona: 'project-context-agent',
+    id: 'establish-baseline', name: 'Establish Baseline', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description:
-      'Interactively confirm Intent, or infer a provisional evidence-backed baseline for an existing project, then finalize '
-      + 'NORTH-STAR, ARCHITECTURE-PRINCIPLES, TECH-POLICY, CHARTER.json, and CONVENTIONS.md. '
+      'Interview or infer Intent, scan and model Reality, map features, record drift, and review until CONTEXT-REVIEW is GO. '
       + 'Do not invent Goals the human did not confirm.',
-    inputs: 'inputs.json idea (from Description) + seeded charter templates',
-    outputs: 'CHARTER-DISCOVERY.md Q&A log + validated project charter and conventions',
-    artifact: 'CHARTER.json', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/charter.mjs',
+    inputs: 'inputs.json idea (from Description) + repository evidence + seeded charter templates',
+    outputs: 'Charter, conventions, canonical context, visualization graphs, drift report, and GO review',
+    artifact: 'CONTEXT-REVIEW.md', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/establish-baseline.mjs',
     produces: [
       'docs/epics/{epic}/artifacts/CHARTER-DISCOVERY.md',
       'docs/project/charter/NORTH-STAR.md',
@@ -494,130 +494,40 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
       'docs/project/charter/TECH-POLICY.md',
       'docs/project/charter/CHARTER.json',
       'docs/project/conventions/CONVENTIONS.md',
-    ],
-    producesContains: ['## Discovery decisions'],
-    capabilities: ['files', 'github'],
-  },
-  {
-    id: 'scan-project', name: 'Scan Project', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-sonnet-5',
-    description: 'Inventory repository structure, quality commands, boundaries, and existing documentation.',
-    inputs: 'Repository files and version-control history',
-    outputs: 'Repository scan shared by the project-context modeling steps',
-    artifact: 'PROJECT-SCAN.md', humanReview: false, autoReview: false,
-    dependsOn: ['define-charter'],
-    requires: ['docs/project/charter/CHARTER.json'],
-    produces: ['docs/project/context/PROJECT-SCAN.md'],
-    producesContains: ['## Repository Structure', '## Quality Commands'],
-    capabilities: ['files', 'github'],
-  },
-  {
-    id: 'model-project', name: 'Model Project', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
-    description: 'Build canonical architecture, domain, shared-contract, and engineering-rule context.',
-    inputs: 'PROJECT-SCAN.md and repository evidence',
-    outputs: 'Five canonical project-context documents', artifact: 'PROJECT-CONTEXT.md',
-    humanReview: false, autoReview: false, dependsOn: ['scan-project'],
-    requires: ['docs/project/context/PROJECT-SCAN.md'],
-    produces: [
+      'docs/project/context/PROJECT-SCAN.md',
       'docs/project/context/PROJECT-CONTEXT.md',
       'docs/project/context/ARCHITECTURE-MAP.md',
       'docs/project/context/DOMAIN-MODEL.md',
       'docs/project/context/SHARED-CONTRACTS.md',
       'docs/project/context/ENGINEERING-RULES.md',
-    ],
-    capabilities: ['files', 'github'],
-  },
-  {
-    id: 'map-features', name: 'Map Features', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
-    description: 'Build the feature-centric architecture model from static-analysis evidence, repository structure, and cautious AI classification.',
-    inputs: 'Modeled project context, source tree, and AST graph when available',
-    outputs: 'Project architecture, feature catalog, and structural graph manifests for the interactive explorer',
-    artifact: 'FEATURE-CATALOG.json', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/architecture-visualization.mjs', dependsOn: ['model-project'],
-    requires: [
-      'docs/project/context/PROJECT-CONTEXT.md',
-      'docs/project/context/ARCHITECTURE-MAP.md',
-    ],
-    produces: [
       'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
       'docs/project/context/visualization/FEATURE-CATALOG.json',
       'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
-    ],
-    capabilities: ['files', 'github', 'ast-graph'],
-  },
-  {
-    id: 'check-drift', name: 'Check Drift', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
-    description:
-      'Compare Reality (context docs) to Intent (charter); record per-invariant findings without rewriting the charter.',
-    inputs: 'Charter Intent and modeled project context',
-    outputs: 'Drift report covering every INV-x',
-    artifact: 'DRIFT-REPORT.md', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/charter.mjs', dependsOn: ['map-features'],
-    requires: [
-      'docs/project/charter/CHARTER.json',
-      'docs/project/context/PROJECT-CONTEXT.md',
-      'docs/project/context/ARCHITECTURE-MAP.md',
-      'docs/project/context/ENGINEERING-RULES.md',
-      'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
-      'docs/project/context/visualization/FEATURE-CATALOG.json',
-    ],
-    produces: ['docs/project/conformance/DRIFT-REPORT.md'],
-    producesContains: ['## Invariants'],
-    capabilities: ['files', 'github'],
-  },
-  {
-    id: 'review-context', name: 'Review Context', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
-    description: 'Review canonical context for contradictions, missing boundaries, and unverifiable claims.',
-    inputs: 'All canonical project-context documents and drift report', outputs: 'GO/NO-GO context review',
-    artifact: 'CONTEXT-REVIEW.md', humanReview: true, autoReview: false,
-    dependsOn: ['check-drift'],
-    requires: [
-      'docs/project/context/PROJECT-CONTEXT.md',
-      'docs/project/context/ARCHITECTURE-MAP.md',
-      'docs/project/context/DOMAIN-MODEL.md',
-      'docs/project/context/SHARED-CONTRACTS.md',
-      'docs/project/context/ENGINEERING-RULES.md',
-      'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
-      'docs/project/context/visualization/FEATURE-CATALOG.json',
       'docs/project/conformance/DRIFT-REPORT.md',
+      'docs/project/context/CONTEXT-REVIEW.md',
     ],
-    produces: ['docs/project/context/CONTEXT-REVIEW.md'],
-    producesContains: ['**Verdict:** GO'], capabilities: ['files', 'github'],
+    producesContains: ['## Discovery decisions', '**Verdict:** GO'],
+    capabilities: ['files', 'github', 'ast-graph'],
   },
   {
     id: 'publish-context', name: 'Publish Context', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-sonnet-5',
-    description: 'Publish a versioned manifest that features can capture as an immutable context identity.',
-    inputs: 'Approved context review and canonical documents', outputs: 'Versioned context manifest',
-    artifact: 'CONTEXT-MANIFEST.json', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/project-context.mjs', dependsOn: ['review-context'],
+    description:
+      'Publish the versioned context manifest and project charter + conventions into CLAUDE.md, AGENTS.md, and .cursor/rules/aidlc-charter.mdc. No AIDLC Approve.',
+    inputs: 'Approved baseline review and canonical documents',
+    outputs: 'Versioned context manifest and aidlc:charter marked rule files',
+    artifact: 'CONTEXT-MANIFEST.json', humanReview: false, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/project-context.mjs', dependsOn: ['establish-baseline'],
     requires: [
       'docs/project/context/CONTEXT-REVIEW.md',
+      'docs/project/charter/CHARTER.json',
+      'docs/project/conventions/CONVENTIONS.md',
       'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
       'docs/project/context/visualization/FEATURE-CATALOG.json',
       'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
     ],
-    produces: ['docs/project/context/CONTEXT-MANIFEST.json'], capabilities: ['files', 'github'],
-  },
-  {
-    id: 'project-rules-sync', name: 'Project Rules Sync', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-sonnet-5',
-    description:
-      'Project charter + conventions into CLAUDE.md, AGENTS.md, and .cursor/rules/aidlc-charter.mdc with revision markers.',
-    inputs: 'Published context manifest, CHARTER.json, and CONVENTIONS.md',
-    outputs: 'Fresh aidlc:charter marked blocks in repo rule files',
-    artifact: 'aidlc-charter.mdc', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/rules-sync.mjs', dependsOn: ['publish-context'],
-    requires: [
-      'docs/project/charter/CHARTER.json',
-      'docs/project/conventions/CONVENTIONS.md',
-      'docs/project/context/CONTEXT-MANIFEST.json',
-    ],
     produces: [
+      'docs/project/context/CONTEXT-MANIFEST.json',
       'CLAUDE.md',
       'AGENTS.md',
       '.cursor/rules/aidlc-charter.mdc',
@@ -627,208 +537,100 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
 ];
 
-const COHESIVE_FEATURE_PHASES: PhaseDef[] = [
+const COHESIVE_FEATURE_SPIKE_PHASES: PhaseDef[] = [
   {
-    id: 'capture-context', name: 'Capture Context', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
-    description: 'Capture an immutable feature snapshot of the current canonical project context.',
-    inputs: 'Published project context manifest', outputs: 'Feature-scoped project-context snapshot',
-    artifact: 'PROJECT-CONTEXT-SNAPSHOT.md', humanReview: false, autoReview: false,
-    requires: ['docs/project/context/CONTEXT-MANIFEST.json'],
-    produces: ['docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md'],
-    producesContains: ['## Context Identity', '## Relevant Project Constraints'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'specify', name: 'Specify', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Specify one feature inside the captured project boundaries, inheriting charter Goals.',
-    inputs: 'Feature request, ALIGNMENT, charter, and project-context snapshot',
-    outputs: 'Testable feature specification with Serves: G-x on every FR',
-    artifact: 'SPEC.md', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/charter-alignment.mjs', dependsOn: ['capture-context'],
-    requires: [
-      'docs/project/charter/CHARTER.json',
-      'docs/epics/{epic}/artifacts/ALIGNMENT.md',
-      'docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md',
-    ],
-    produces: ['docs/epics/{epic}/artifacts/SPEC.md'],
-    producesContains: ['## Functional Requirements', '## Acceptance Criteria', '## Out of Scope'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'clarify', name: 'Clarify', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Resolve ambiguity before the feature design and delivery contract are frozen.',
-    inputs: 'Feature specification and stakeholder decisions', outputs: 'Clarified specification',
-    artifact: 'SPEC.md', humanReview: true, autoReview: false, dependsOn: ['specify'],
-    requires: ['docs/epics/{epic}/artifacts/SPEC.md'],
-    produces: ['docs/epics/{epic}/artifacts/SPEC.md'], producesContains: ['## Clarifications'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'plan', name: 'Plan', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Create one integration-aware plan with charter conformance for every INV-x.',
-    inputs: 'Clarified spec, ALIGNMENT, charter, and project-context snapshot',
-    outputs: 'Feature implementation plan',
-    artifact: 'PLAN.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/charter-alignment.mjs', dependsOn: ['clarify'],
-    requires: [
-      'docs/project/charter/CHARTER.json',
-      'docs/epics/{epic}/artifacts/ALIGNMENT.md',
-      'docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md',
-      'docs/epics/{epic}/artifacts/SPEC.md',
-    ],
-    produces: ['docs/epics/{epic}/artifacts/PLAN.md'],
+    id: 'package-mission', name: 'Package Mission', persona: 'feature-spike-agent',
+    skillFiles: ['feature-spike-workflow'], model: 'claude-opus-5',
+    description:
+      'Produce one portable MISSION.md (AC, Tasks+files, UI spec, constraints, Flow) the human can review. '
+      + 'Does not implement. Spike does not depend_on implement.',
+    inputs: 'Feature request, charter, optional Jira/Figma, repository context',
+    outputs: 'Complete MISSION.md pack plus a briefing summary',
+    artifact: 'MISSION.md', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/mission-completeness.mjs',
+    produces: ['docs/epics/{epic}/artifacts/MISSION.md'],
     producesContains: [
-      '## Shared Contract Impact',
-      '## File Impact',
-      '## Requirement Traceability',
-      '## Charter Conformance',
+      '## Summary',
+      '## Problem / Goal',
+      '## In scope',
+      '## Out of scope',
+      '## Functional requirements',
+      '## Acceptance criteria',
+      '## Constraints',
+      '## Tasks',
+      '## UI spec',
+      '## Definition of done',
     ],
+    capabilities: ['files', 'github', 'core-business', 'web', 'jira', 'figma'],
+  },
+];
+
+const COHESIVE_FEATURE_IMPLEMENT_PHASES: PhaseDef[] = [
+  {
+    id: 'implement', name: 'Implement Feature', persona: 'feature-implement-agent',
+    skillFiles: ['feature-implement-workflow'], model: 'claude-sonnet-5',
+    description:
+      'Implement the complete feature from MISSION.md only (plus charter and repo). Run focused tests and record as-built behavior. 100% means fidelity to the pack, not zero bugs.',
+    inputs: 'Complete MISSION.md, charter, and repository',
+    outputs: 'Feature implementation, tests, and implementation summary',
+    artifact: 'IMPLEMENTATION-SUMMARY.md', humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/project-ci.mjs',
+    requires: [
+      'docs/epics/{epic}/artifacts/MISSION.md',
+      'docs/project/charter/CHARTER.json',
+    ],
+    produces: ['docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md'],
     capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
-    id: 'plan-tasks', name: 'Plan Tasks', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
-    description: 'Create one traceable task plan for this feature. Internal agent delegation is Claude’s decision, not a user-managed worker graph.',
-    inputs: 'Feature spec and plan', outputs: 'Traceable feature task plan',
-    artifact: 'TASKS.md', humanReview: true, autoReview: false, dependsOn: ['plan'],
-    requires: ['docs/epics/{epic}/artifacts/SPEC.md', 'docs/epics/{epic}/artifacts/PLAN.md'],
-    produces: ['docs/epics/{epic}/artifacts/TASKS.md'], capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'analyze-contract', name: 'Analyze Contract', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Cross-check coverage and freeze the feature contract before implementation.',
-    inputs: 'Context snapshot, spec, plan, and task plan',
-    outputs: 'Coverage analysis and immutable feature contract', artifact: 'FEATURE-CONTRACT.md',
-    humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/feature-contract.mjs', dependsOn: ['plan-tasks'],
+    id: 'resolve-bugs', name: 'Resolve Reported Bugs', persona: 'feature-implement-agent',
+    skillFiles: ['feature-implement-workflow'], model: 'claude-sonnet-5',
+    description:
+      'Collect one consolidated bug report from the user, fix code and tests, and iterate until the user approves. No auto-review. Pixel checks are human-on-device.',
+    inputs: 'User-supplied bug details, MISSION.md, and implementation evidence',
+    outputs: 'Verified bug fixes plus an approval-ready bug-fix log',
+    artifact: 'BUG-FIX-LOG.md', humanReview: true, autoReview: false,
+    dependsOn: ['implement'],
     requires: [
-      'docs/epics/{epic}/artifacts/PROJECT-CONTEXT-SNAPSHOT.md',
-      'docs/epics/{epic}/artifacts/SPEC.md',
-      'docs/epics/{epic}/artifacts/PLAN.md',
-      'docs/epics/{epic}/artifacts/TASKS.md',
-    ],
-    produces: [
-      'docs/epics/{epic}/artifacts/ANALYSIS.md',
-      'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
-    ], capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'map-feature-flow', name: 'Map Feature Flow', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-opus-5',
-    description: 'Turn the frozen feature contract into a human-scale interaction flow: entry point, layer transitions, code participants, and source references.',
-    inputs: 'Frozen feature contract, plan, and static project context',
-    outputs: 'Feature Flow JSON and Mermaid source for the Architecture Explorer', artifact: 'FEATURE-FLOW.json',
-    humanReview: true, autoReview: true, autoReviewRunner: '.aidlc/validators/feature-flow.mjs', dependsOn: ['analyze-contract'],
-    requires: [
-      'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
-      'docs/project/context/visualization/FEATURE-CATALOG.json',
-    ],
-    produces: [
-      'docs/epics/{epic}/artifacts/FEATURE-FLOW.json',
-      'docs/epics/{epic}/artifacts/FEATURE-FLOW.mmd',
-    ],
-    capabilities: ['files', 'github', 'ast-graph'],
-  },
-  {
-    id: 'implement', name: 'Implement Feature', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
-    description: 'Implement the complete feature on its feature branch, run focused tests, and record the resulting behavior.',
-    inputs: 'Frozen feature contract, task plan, and repository context',
-    outputs: 'Complete feature implementation and implementation summary', artifact: 'IMPLEMENTATION-SUMMARY.md',
-    humanReview: true, autoReview: false, dependsOn: ['map-feature-flow'],
-    requires: [
-      'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
-      'docs/epics/{epic}/artifacts/TASKS.md',
-      'docs/epics/{epic}/artifacts/FEATURE-FLOW.json',
-    ],
-    produces: [
+      'docs/epics/{epic}/artifacts/MISSION.md',
       'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
-    ], capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'implementation-context', name: 'Implementation Context', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
-    description: 'Record actual feature behavior, changed contracts, and traceability after implementation.',
-    inputs: 'Implementation summary and implemented code', outputs: 'Post-implementation context',
-    artifact: 'IMPLEMENTATION-CONTEXT.md', humanReview: false, autoReview: false,
-    dependsOn: ['implement'], requires: ['docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md'],
-    produces: ['docs/epics/{epic}/artifacts/IMPLEMENTATION-CONTEXT.md'],
-    producesContains: ['## Planned Versus Actual', '## Implemented Behavior', '## Requirement Traceability', '## Remaining Risks'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'cohesion-review', name: 'Cohesion Review', persona: 'cohesive-reviewer-agent',
-    skillFiles: ['cohesive-reviewer-workflow'], model: 'claude-opus-5',
-    description: 'Independent read-only review that the integrated feature still conforms to its frozen contract and project boundaries.',
-    inputs: 'Feature contract and implementation context', outputs: 'Cohesion verdict and deviations',
-    artifact: 'COHESION-REPORT.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/integration-cohesion.mjs', dependsOn: ['implementation-context'],
-    requires: [
-      'docs/epics/{epic}/artifacts/FEATURE-CONTRACT.md',
-      'docs/epics/{epic}/artifacts/IMPLEMENTATION-CONTEXT.md',
-    ], produces: ['docs/epics/{epic}/artifacts/COHESION-REPORT.md'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'system-test', name: 'System Test', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
-    description: 'Run project-level quality commands against the completed feature.',
-    inputs: 'Approved cohesion report and implemented repository', outputs: 'System test report',
-    artifact: 'SYSTEM-TEST-REPORT.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/project-ci.mjs', dependsOn: ['cohesion-review'],
-    requires: ['docs/epics/{epic}/artifacts/COHESION-REPORT.md'],
-    produces: ['docs/epics/{epic}/artifacts/SYSTEM-TEST-REPORT.md'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'open-pr', name: 'Open PR', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
-    description: 'Open exactly one pull request for this independent feature epic (feature/$0 → defaultBranch).',
-    inputs: 'Passed system test and feature branch', outputs: 'PR link record',
-    artifact: 'PR-LINK.md', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/ship.mjs', dependsOn: ['system-test'],
-    requires: ['docs/epics/{epic}/artifacts/SYSTEM-TEST-REPORT.md'],
-    produces: ['docs/epics/{epic}/artifacts/PR-LINK.md'],
-    producesContains: ['**Head:**', '**Base:**'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'await-merge', name: 'Await Merge', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
-    description: 'Human-only merge gate: wait for PR approval/merge. Agents must not merge the default branch.',
-    inputs: 'Open feature PR', outputs: 'Merged (or human-approved local) ship record',
-    artifact: 'PR-LINK.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/ship.mjs', dependsOn: ['open-pr'],
-    requires: ['docs/epics/{epic}/artifacts/PR-LINK.md'],
-    produces: ['docs/epics/{epic}/artifacts/PR-LINK.md'],
-    producesContains: ['**Status:**'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'project-sync', name: 'Project Sync', persona: 'cohesive-feature-agent',
-    skillFiles: ['cohesive-feature-workflow'], model: 'claude-sonnet-5',
-    description: 'After merge: update Reality (context) only. Never edit charter Intent or conventions.',
-    inputs: 'Merged feature and system test evidence', outputs: 'Project update record',
-    artifact: 'PROJECT-UPDATE.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/project-context.mjs', dependsOn: ['await-merge'],
-    requires: [
-      'docs/epics/{epic}/artifacts/SYSTEM-TEST-REPORT.md',
-      'docs/epics/{epic}/artifacts/PR-LINK.md',
     ],
-    produces: ['docs/epics/{epic}/artifacts/PROJECT-UPDATE.md'],
-    producesContains: ['## Project Knowledge Changes', '## Final Feature Status'],
+    produces: ['docs/epics/{epic}/artifacts/BUG-FIX-LOG.md'],
+    producesContains: [
+      '## Reported Bugs',
+      '## Diagnosis and Owning Steps',
+      '## Fixes and Verification',
+      '## Documentation Sync Plan',
+      '**Status:** READY-FOR-APPROVAL',
+    ],
+    capabilities: ['files', 'github', 'core-business', 'web'],
+  },
+  {
+    id: 'ship', name: 'Ship', persona: 'feature-implement-agent',
+    skillFiles: ['feature-implement-workflow'], model: 'claude-sonnet-5',
+    description:
+      'Open exactly one feature PR, wait for the human to merge on GitHub (no AIDLC Approve), then update Reality only. Never edit charter Intent or conventions.',
+    inputs: 'Approved bug-fix log (or implement if no bugs), verified feature branch',
+    outputs: 'PR link record and post-merge project update',
+    artifact: 'PR-LINK.md', humanReview: false, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/ship.mjs', dependsOn: ['resolve-bugs'],
+    requires: [
+      'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
+      'docs/epics/{epic}/artifacts/BUG-FIX-LOG.md',
+    ],
+    produces: [
+      'docs/epics/{epic}/artifacts/PR-LINK.md',
+      'docs/epics/{epic}/artifacts/PROJECT-UPDATE.md',
+    ],
+    producesContains: ['**Head:**', '**Base:**', '**Status:**', '## Project Knowledge Changes'],
     capabilities: ['files', 'github', 'core-business', 'web'],
   },
 ];
 
 const COHESIVE_ALL_PHASES: PhaseDef[] = [
   ...COHESIVE_PROJECT_CONTEXT_PHASES,
-  ...COHESIVE_FEATURE_PHASES,
+  ...COHESIVE_FEATURE_SPIKE_PHASES,
+  ...COHESIVE_FEATURE_IMPLEMENT_PHASES,
 ];
 
 export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
@@ -854,18 +656,17 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
   },
   {
     id: 'cohesive-delivery',
-    pipelineId: 'cohesive-feature',
+    pipelineId: 'feature-implement',
     name: 'Cohesive Delivery',
     templatesDir: 'cohesive',
     guide: 'media/guides/cohesive-delivery.md',
     description:
-      'Project Context plus independently runnable feature epics. Parallelism means multiple independent epics; Claude owns internal task decomposition for each epic.',
-    // The extension writes commands from `phases`; the actual primary pipeline
-    // is selected via `primaryPhases`. This preserves generic installer code.
+      'Three pipelines: project-context, feature-spike, feature-implement. Human is the bus. Completeness of MISSION.md gates Start implement.',
     phases: COHESIVE_ALL_PHASES,
-    primaryPhases: COHESIVE_FEATURE_PHASES,
+    primaryPhases: COHESIVE_FEATURE_IMPLEMENT_PHASES,
     additionalPipelines: [
       { id: 'project-context', name: 'Project Context', phases: COHESIVE_PROJECT_CONTEXT_PHASES },
+      { id: 'feature-spike', name: 'Feature Spike', phases: COHESIVE_FEATURE_SPIKE_PHASES },
     ],
     seedArtifacts: false,
   },
@@ -996,13 +797,21 @@ export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
     '',
   ];
 
-  const defineCharterHelp = help.pipelineId === 'project-context' && help.phaseId === 'define-charter';
+  const defineCharterHelp = help.pipelineId === 'project-context' && help.phaseId === 'establish-baseline';
+  const resolveBugsHelp = help.pipelineId === 'feature-implement' && help.phaseId === 'resolve-bugs';
   if (defineCharterHelp) {
     lines.push(
       '1. Click **Run with Claude** (or paste the command below).',
       '2. Answer the agent **one question at a time** in the terminal (Mode A interview from the Start Epic **Project idea**).',
-      '3. Confirm Goals / non-goals / INV / tech policy; the agent writes `CHARTER-DISCOVERY.md` then drafts the charter files.',
+      '3. Confirm Goals / non-goals / INV / tech policy; the agent writes `CHARTER-DISCOVERY.md`, models Reality, maps features, records drift, and reviews to GO.',
       '4. Click **Mark step done**.',
+    );
+  } else if (resolveBugsHelp) {
+    lines.push(
+      '1. Click **Nhập bug & chạy agent**.',
+      '2. Enter current behavior, expected behavior, reproduction steps, and attach or paste screenshots (`Chèn ảnh…`, drag-drop, or ⌘V / Ctrl+V). Multiple images are kept for the agent to Read.',
+      '3. Let the agent fix code/tests and write `BUG-FIX-LOG.md`; it must not update upstream step Markdown yet.',
+      '4. Test the result, then click **Mark step done**. Each round is appended to this step\'s History and to `BUG-REPORT.md` — previously reported bugs stay in scope.',
     );
   } else {
     lines.push(
@@ -1012,13 +821,15 @@ export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
     );
   }
 
-  let stepNum = defineCharterHelp ? 5 : 4;
+  let stepNum = defineCharterHelp || resolveBugsHelp ? 5 : 4;
   if (help.autoReview) {
     lines.push(`${stepNum}. Click **Run auto-review** and fix anything it rejects.`);
     stepNum += 1;
   }
   if (help.humanReview) {
-    lines.push(`${stepNum}. Read the artifact, then **Approve** (or **Reject** with feedback).`);
+    lines.push(resolveBugsHelp
+      ? `${stepNum}. If satisfied, **Approve bản sửa** to unlock documentation sync; otherwise **Reject** with more bug information.`
+      : `${stepNum}. Read the artifact, then **Approve** (or **Reject** with feedback).`);
   }
   lines.push(
     '',
@@ -1137,9 +948,9 @@ export function pipelineCommandId(pipelineId: string, phaseId: string): string {
  * Which pipeline id owns a phase's slash command for a (possibly multi-
  * pipeline) built-in workflow. Primary phases use `workflow.pipelineId`;
  * companion pipeline phases use that companion's id. Without this,
- * cohesive-delivery stamped every phase as `/cohesive-feature-<phase>`
- * — including `scan-project` — so the Epic card showed the wrong command
- * and agents followed the wrong namespace.
+ * cohesive-delivery stamped every phase as `/feature-implement-<phase>`
+ * — including companion `establish-baseline` — so the Epic card showed
+ * the wrong command and agents followed the wrong namespace.
  */
 export function commandPipelineIdForPhase(
   workflow: BuiltinWorkflow,
@@ -1611,7 +1422,6 @@ export function builtinClaudeCommand(
   skillBody: string,
   epicRoot: string,
 ): string {
-  const { buildStepCommandSpec, renderClaudeCommandFile } = require('../providers/stepCommand') as typeof import('../providers/stepCommand');
   const spec = buildStepCommandSpec(phase, skillBody, epicRoot, phase.id);
   return renderClaudeCommandFile(spec, phase.model);
 }

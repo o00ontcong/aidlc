@@ -35,15 +35,15 @@ Không có global aidlc cohesive CLI chạy ngầm. Mọi thao tác do extension
 ## 1. Cài Cohesive Delivery
 
 1. Mở sidebar **AIDLC** → **Workflows** → **Cohesive Delivery**.
-2. Nếu đã có workspace, chọn **Overwrite & apply** để cập nhật các pipeline bundled.
+2. Nếu đã có workspace, chọn **Overwrite & apply** hoặc nhấn **Migrate** trên danh sách Epic để lên bundle **3.0.0** (2+1+3 pipeline, remap run cũ, xóa slash `/cohesive-feature-*`).
 3. Khi được hỏi, chọn **Install** để cài agents/skills vào ~/.claude/.
-4. Kiểm tra tab **Workflows** có hai pipeline:
+4. Kiểm tra tab **Workflows** có ba pipeline:
 
-   - **project-context** — 7 step để thiết lập charter và context chung.
-   - **cohesive-feature** — 13 step để hoàn tất một feature epic độc lập.
+  - **project-context** — 2 step: `establish-baseline` → `publish-context`.
+  - **feature-spike** — 1 step: `package-mission` (xuất `MISSION.md`).
+  - **feature-implement** — 3 step: `implement` → `resolve-bugs` → `ship`.
 
-Các pipeline cohesive-work-package cũ chỉ là compatibility cho run lịch sử; không
-dùng để tạo run mới và không phải cách chạy parallel trong mô hình hiện tại.
+Không còn pipeline `cohesive-feature` 15 step trên picker. Project cũ lên bản này bằng **Migrate**.
 
 ## 2. Thiết lập Project Context một lần
 
@@ -51,8 +51,7 @@ Hoàn tất project-context trước khi bắt đầu các feature đầu tiên:
 
 ~~~mermaid
 flowchart LR
-  A[define-charter] --> B[scan-project] --> C[model-project] --> D[check-drift]
-  D --> E[review-context] --> F[publish-context] --> G[project-rules-sync]
+  A[establish-baseline] --> B[publish-context]
 ~~~
 
 1. Nhấn **Start Epic** → workflow **project-context**.
@@ -83,23 +82,16 @@ một epic** là quyết định của Claude theo hợp đồng feature.
 
 ~~~mermaid
 flowchart LR
-  A[capture-context] --> B[specify] --> C[clarify] --> D[plan]
-  D --> E[plan-tasks] --> F[analyze-contract] --> G[implement]
-  G --> H[implementation-context] --> I[cohesion-review] --> J[system-test]
-  J --> K[open-pr] --> L[await-merge] --> M[project-sync]
+  S[feature-spike / paste / Jira] --> M[MISSION.md]
+  M --> I[implement] --> B[resolve-bugs] --> H[ship]
 ~~~
 
 | Stage | Kết quả chính |
 |---|---|
-| capture-context | Snapshot Project Context cho epic này |
-| specify / clarify | SPEC.md có FR/NFR/AC rõ ràng |
-| plan / plan-tasks | PLAN.md và TASKS.md cho một epic |
-| analyze-contract | FEATURE-CONTRACT.md frozen |
-| implement | Code hoàn chỉnh + IMPLEMENTATION-SUMMARY.md |
-| implementation-context | Hành vi thực tế và traceability |
-| cohesion-review / system-test | Review độc lập và quality gates |
-| open-pr / await-merge | Một PR riêng, merge do human |
-| project-sync | Cập nhật Reality sau merge |
+| package-mission (spike, optional) | `MISSION.md` đủ heading; completeness gate |
+| implement | Code + test + `IMPLEMENTATION-SUMMARY.md` — chỉ đọc MISSION + charter + repo |
+| resolve-bugs | User nhập bug, agent sửa/lặp; **Approve bản sửa** |
+| ship | Một PR, human merge trên GitHub (không Approve AIDLC), rồi Reality sync |
 
 ### Guided mode
 
@@ -113,6 +105,13 @@ Nếu lệnh Claude fail/đóng nhưng step còn **Awaiting work**, nhấn **Run
 tạo revision mới và chạy với feedback; chọn **Edit feedback first**
 nếu muốn sửa feedback trước. Sau retry, lại **Mark step done** và review.
 
+Riêng `resolve-bugs`, nút chạy luôn mở form **Thông tin bug**. Nhập hành vi
+hiện tại, hành vi mong muốn, cách tái hiện. Có thể **chèn nhiều ảnh**, kéo thả,
+hoặc dán screenshot; AIDLC copy chúng vào `artifacts/bug-screenshots/` để agent đọc.
+Agent tự tìm step/artifact sở hữu và sửa code/test. Nếu chưa hài lòng, **Reject**
+kèm thông tin bổ sung để agent lặp lại ngay tại step này. Khi đã kiểm tra
+xong, nhấn **Approve**. Chỉ sau approval, `ship` mới đồng bộ docs và mở PR.
+
 ## 5. Autonomous Delivery cho một feature epic
 
 Mở **Open Workspace → Epics → Autonomous Delivery → Start new delivery**. Điền ID,
@@ -123,14 +122,16 @@ terminal Claude với:
 /aidlc-autonomous-delivery <delivery-id>
 ~~~
 
-Claude master chạy trọn project-context khi cần và cohesive-feature cho **một epic**.
+Claude master chạy trọn project-context khi cần và feature-implement cho **một epic**.
 Nó không tạo worker epic hoặc UI queue. Nếu có nhiều feature độc lập, bạn khởi động
 một Autonomous Delivery cho mỗi feature; chúng hiện thành các delivery riêng và chạy
 trong các terminal Claude riêng.
 
 Master không yêu cầu **Mark step done** giữa phase. Nó ghi checkpoint durable,
-narrate stage transitions/validation trong terminal, và tự approve mọi phase đã
-pass output validation + auto-review. Nó chỉ dừng ở blocker thật hoặc câu hỏi
+narrate stage transitions/validation trong terminal, và tự approve các phase đã
+pass output validation + auto-review, trừ `resolve-bugs`. Tại đó master dừng ở
+`awaiting_review` để bạn kiểm tra bản sửa và nhấn **Approve**; sau đó Resume
+sẽ tiếp tục từ `open-pr`. Nó cũng dừng ở blocker thật hoặc câu hỏi
 product/architecture/ship-policy cần bạn trả lời.
 
 ### Resume không chạy lại từ đầu
@@ -143,8 +144,9 @@ chỉ vì bạn bấm Resume.
 
 ### Approval và merge
 
-Không cần aggregate review hoặc bấm **Approve** từng phase. Bạn vẫn có thể mở
-review summary hoặc thêm rework task khi muốn chủ động kiểm tra/sửa.
+Không cần aggregate review hoặc bấm **Approve** từng phase. Chỉ
+`resolve-bugs` bắt buộc approval của bạn vì đó là điểm chốt bản sửa và cho
+phép agent đồng bộ docs. Bạn vẫn có thể mở review summary khi muốn.
 
 Ở `await-merge`, master đọc `shipPolicy`: nếu policy cho phép agent merge thì nó
 merge và xác minh branch đã vào base; nếu policy cấm agent merge, master hỏi một
@@ -165,7 +167,7 @@ Project-sync chỉ chạy sau bằng chứng merge thực tế.
 ## 7. Xử lý sự cố
 
 **Không thấy Autonomous Delivery**: apply/upgrade Cohesive Delivery và kiểm tra có
-project-context (7 steps) cùng cohesive-feature (13 steps).
+project-context (8 steps) cùng cohesive-feature (15 steps).
 
 **Claude báo unknown slash command**: refresh AIDLC/workspace rồi bấm Run again;
 extension sẽ sync các command bundled trước khi mở terminal.

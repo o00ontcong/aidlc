@@ -5,20 +5,24 @@ import {
 } from '../src/webview/components/epic-v3/human-intervention';
 
 describe('human intervention guidance', () => {
-  it('points product-scope issues at the specification source', () => {
-    const guide = humanInterventionGuide({ agent: 'cohesive-feature-agent', stepName: 'clarify', artifact: 'SPEC.md' });
+  it('points pack issues at MISSION.md', () => {
+    const guide = humanInterventionGuide({ agent: 'feature-spike-agent', stepName: 'package-mission', artifact: 'MISSION.md' });
 
-    expect(guide.source).toContain('SPEC.md');
-    expect(guide.fixAt).toContain('Clarifications');
-    expect(guide.followUp).toContain('clarify');
+    expect(guide.source).toContain('MISSION.md');
   });
 
-  it('keeps implementation fixes tied to code and required downstream checks', () => {
-    const tooltip = humanInterventionTooltip({ agent: 'cohesive-feature-agent', stepName: 'implement', artifact: 'IMPLEMENTATION-SUMMARY.md' });
+  it('keeps implementation fixes tied to code', () => {
+    const tooltip = humanInterventionTooltip({ agent: 'feature-implement-agent', stepName: 'implement', artifact: 'IMPLEMENTATION-SUMMARY.md' });
 
     expect(tooltip).toContain('Source code');
-    expect(tooltip).toContain('cohesion-review');
-    expect(tooltip).toContain('system-test');
+    expect(tooltip).toContain('resolve-bugs');
+  });
+
+  it('keeps resolve-bugs on the same step until approval', () => {
+    const guide = humanInterventionGuide({ agent: 'feature-implement-agent', stepName: 'resolve-bugs', artifact: 'BUG-FIX-LOG.md' });
+
+    expect(guide.source).toContain('BUG-FIX-LOG.md');
+    expect(guide.followUp).toMatch(/Approve/i);
   });
 
   it('provides usable fallback advice for custom pipeline steps', () => {

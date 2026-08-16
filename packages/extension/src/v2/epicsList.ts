@@ -19,6 +19,13 @@ import {
   mirrorRunStateToEpic,
   getBuiltinStepHelp,
   getBuiltinWorkflowByPipelineId,
+  reconcileRunStateToPipeline,
+  reopenApprovedStepsMissingProduces,
+  snapshotPipeline,
+  isLegacyFeatureRun,
+  isLegacyProjectContextRun,
+  remapFeatureRun,
+  remapProjectContextRun,
 } from '@aidlc/core';
 import type {
   RunState,
@@ -72,6 +79,8 @@ export interface EpicSummary {
     /** True when `artifact` exists on disk (epic artifacts/ or produces: path). */
     artifactExists?: boolean;
     status: EpicStatus;
+    /** Added by a pipeline migration and not submitted yet. */
+    isNew?: boolean;
     startedAt: string | null;
     finishedAt: string | null;
     /**
@@ -609,6 +618,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const runHistoryByIdx = new Map<number, StepHistoryEntry[]>();
     const runFeedbackByIdx = new Map<number, string>();
     const runArtifactsByIdx = new Map<number, string[]>();
+    const runNewByIdx = new Set<number>();
     if (runState) {
       for (const sr of runState.steps) {
         const status = asRunStepStatus(sr.status);
@@ -621,6 +631,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         if (sr.feedback) { runFeedbackByIdx.set(sr.stepIdx, sr.feedback); }
         const artifacts = artifactBasenames(sr.artifactsProduced);
         if (artifacts.length > 0) { runArtifactsByIdx.set(sr.stepIdx, artifacts); }
+        if (sr.isNew) { runNewByIdx.add(sr.stepIdx); }
       }
     }
     const runCurrentStepIdx = runState ? runState.currentStepIdx : undefined;
@@ -732,6 +743,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       const agent = typeof s.agent === 'string' ? s.agent : '';
       const gate = stepGateByIdx.get(i) ?? { auto: false, human: false };
       const runStatus = runStepByIdx.get(i) ?? null;
+      const isNew = runNewByIdx.has(i) || s.isNew === true;
       const artifactsForStep = [...new Set([
         ...(stepArtifactsByIdx.get(i) ?? []),
         ...(runArtifactsByIdx.get(i) ?? []),
@@ -752,8 +764,9 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       //   awaiting_work | awaiting_auto_review |
       //   awaiting_review                           → in_progress
       //   pending / no run                          → fall back to state.json
-      const displayStatus =
-        runStatus === 'approved'
+      const displayStatus = isNew
+        ? ('pending' as const)
+        : runStatus === 'approved'
           ? ('done' as const)
           : runStatus === 'rejected'
           ? ('failed' as const)
@@ -781,6 +794,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         artifacts: artifactsForStep,
         artifactExists: artifactForStep ? existingArtifacts.includes(artifactForStep) : false,
         status: displayStatus,
+        isNew,
         startedAt: typeof s.startedAt === 'string' ? s.startedAt : null,
         finishedAt: typeof s.finishedAt === 'string' ? s.finishedAt : null,
         runStatus,
@@ -947,6 +961,8 @@ export { mirrorRunStateToEpic };
 export interface MigrationReport {
   migrated: string[];
   backfilled: string[];
+  addedSteps: Array<{ epicId: string; stepIds: string[] }>;
+  reopenedSteps: Array<{ epicId: string; stepIds: string[] }>;
   skipped: Array<{ epicId: string; reason: string }>;
   errors: Array<{ epicId: string; reason: string }>;
 }
@@ -965,13 +981,19 @@ export interface MigrationReport {
  *     the epic gets a full live run-state machine going forward.
  *   - Pipeline missing from workspace.yaml or unparseable state.json
  *     → record as an error and continue.
+ *   - Cohesive run snapshot differs from the installed pipeline
+ *     → reconcile by phase id, preserving existing records and marking only
+ *   - Cohesive feature epics whose pipeline now requires FEATURE-IMPACT /
+ *     FEATURE-SURFACES graphs reopen those approved steps when the files
+ *     are missing, without resetting later work.
  *
- * Idempotent — re-running on a fully-migrated workspace is a no-op
- * since `mirrorRunStateToEpic` writes the same fields again and the
- * backfill branch only fires when no runState exists.
+ * Idempotent — re-running on a fully-migrated workspace does not rewrite the
+ * run state or add duplicate phases.
  */
 export function migrateEpicStateFiles(workspaceRoot: string): MigrationReport {
-  const report: MigrationReport = { migrated: [], backfilled: [], skipped: [], errors: [] };
+  const report: MigrationReport = {
+    migrated: [], backfilled: [], addedSteps: [], reopenedSteps: [], skipped: [], errors: [],
+  };
   const doc = readYaml(workspaceRoot);
   const dir = epicsRoot(workspaceRoot, doc);
   if (!fs.existsSync(dir)) { return report; }
@@ -997,10 +1019,54 @@ export function migrateEpicStateFiles(workspaceRoot: string): MigrationReport {
         runState = built.runState;
         didBackfill = true;
       }
+      const pipelines = (doc?.pipelines as PipelineConfig[] | undefined) ?? [];
+      let changed = didBackfill;
+      if (isLegacyFeatureRun(runState)) {
+        const target = pipelines.find((pipeline) => pipeline.id === 'feature-implement');
+        if (target) {
+          runState = remapFeatureRun(runState, target, workspaceRoot);
+          changed = true;
+        }
+      } else if (isLegacyProjectContextRun(runState)) {
+        const target = pipelines.find((pipeline) => pipeline.id === 'project-context');
+        if (target) {
+          runState = remapProjectContextRun(runState, target);
+          changed = true;
+        }
+      }
+      const pipelineCfg = pipelines.find(
+        (pipeline) => pipeline.id === runState!.pipelineId,
+      );
+      if (!pipelineCfg) {
+        report.skipped.push({ epicId, reason: `pipeline "${runState.pipelineId}" not found in workspace.yaml` });
+        continue;
+      }
+      const builtin = getBuiltinWorkflowByPipelineId(runState.pipelineId);
+      if (!runState.pipelineSnapshot) {
+        runState = {
+          ...runState,
+          pipelineSnapshot: snapshotPipeline(pipelineCfg),
+        };
+        changed = true;
+      } else if (builtin?.id === 'cohesive-delivery') {
+        const reconciled = reconcileRunStateToPipeline(runState, pipelineCfg);
+        runState = reconciled.state;
+        changed = changed || reconciled.changed;
+        if (reconciled.addedStepIds.length > 0) {
+          report.addedSteps.push({ epicId, stepIds: reconciled.addedStepIds });
+        }
+        const reopened = reopenApprovedStepsMissingProduces(runState, pipelineCfg, workspaceRoot);
+        runState = reopened.state;
+        changed = changed || reopened.reopenedStepIds.length > 0;
+        if (reopened.reopenedStepIds.length > 0) {
+          report.reopenedSteps.push({ epicId, stepIds: reopened.reopenedStepIds });
+        }
+      }
+      if (changed) { RunStateStore.save(workspaceRoot, runState); }
       mirrorRunStateToEpic(workspaceRoot, runState, doc);
       if (didBackfill) {
         report.backfilled.push(epicId);
-      } else {
+      } else if (changed) {
         report.migrated.push(epicId);
       }
     } catch (err) {
@@ -1137,6 +1203,7 @@ function backfillRunStateFromEpic(
     updatedAt: new Date().toISOString(),
     currentStepIdx: Math.min(Math.max(epicCurrentStep, 0), Math.max(0, steps.length - 1)),
     status: runStatus,
+    pipelineSnapshot: snapshotPipeline(pipelineCfg),
     steps,
   };
 

@@ -1,4 +1,11 @@
-import type { PhaseDef } from '../presets/builtinWorkflows';
+/** Structural subset needed to render a command; kept independent of presets. */
+export interface StepCommandPhase {
+  id: string;
+  description: string;
+  model: string;
+  artifact: string;
+  produces?: string[];
+}
 
 /** Provider-neutral command payload — canonical model ids, shared markdown body. */
 export interface StepCommandSpec {
@@ -13,7 +20,7 @@ export interface StepCommandSpec {
 
 /** Markdown body shared by every provider adapter (skill + task section). */
 export function buildStepCommandBody(
-  phase: PhaseDef,
+  phase: StepCommandPhase,
   skillBody: string,
   epicRoot: string,
 ): string {
@@ -33,8 +40,8 @@ export function buildStepCommandBody(
 The user invoked you with epic id \`$ARGUMENTS\`.
 
 1. Read \`${epicRoot}/$ARGUMENTS/state.json\` to understand the current run state.
-   - If the step has \`feedback\` from a prior rejection, address it explicitly in this revision.
-   - Check \`history\` entries for rejection reasons and context.
+   - If the step has \`feedback\` from a prior rejection or bug report, address it explicitly in this revision.
+   - Check \`history\` entries for rejection reasons, \`bug_report\` rounds, and context. Previously reported bugs remain in scope.
 2. Read \`${epicRoot}/$ARGUMENTS/inputs.json\` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.).
 ${artifactInstruction}
 4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.
@@ -42,7 +49,7 @@ ${artifactInstruction}
 }
 
 export function buildStepCommandSpec(
-  phase: PhaseDef,
+  phase: StepCommandPhase,
   skillBody: string,
   epicRoot: string,
   commandName: string,

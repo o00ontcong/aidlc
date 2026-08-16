@@ -35,6 +35,7 @@ import type { PresetStore } from './presetStore';
 import { themeManager } from './themeManager';
 import { loadMcpServers, type McpServerInfo } from './mcpServers';
 import { pickAndReadTextFile } from './pickAndReadTextFile';
+import { pickBugImages, savePastedBugImage } from './pickBugImages';
 import { scaffoldRequirementAnalysis } from './requirementWizard';
 import {
   rejectStepInlineCommand,
@@ -44,9 +45,14 @@ import {
 } from './runCommands';
 import { WorkspaceWebview } from './workspaceWebview';
 import { missingBundleHtml } from './webviewBundleGuard';
-import { buildProviderConfigUi, getProviderConfigStore } from './providerConfig';
+import {
+  buildProviderConfigUi,
+  getProviderConfigStore,
+  invalidateAvailableModels,
+} from './providerConfig';
 import type { ProviderConfigUi } from './providerConfig';
 import { syncBuiltinPipelineCommands } from './presetWizards';
+import { resolveAidlcLanguage } from './outputLanguage';
 
 // VS Code reuses output channels by name, so this resolves to the same
 // channel created in extension.ts activate().
@@ -100,6 +106,8 @@ interface PipelineRef {
 }
 
 interface SidebarState {
+  /** Resolved AIDLC output language, including the `auto` fallback. */
+  displayLanguage: 'en' | 'vi';
   hasFolder: boolean;
   workspaceName: string;
   configExists: boolean;
@@ -152,6 +160,8 @@ function buildState(
   presetStore: PresetStore | null,
   mcp: McpSnapshot,
 ): SidebarState {
+  const configuredLanguage = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+  const displayLanguage = resolveAidlcLanguage(configuredLanguage, vscode.env.language);
   const demoProjectExists = fs.existsSync(path.join(os.homedir(), DEMO_DIR_NAME));
   const autopilotEnabled = vscode.workspace
     .getConfiguration('aidlc')
@@ -160,6 +170,7 @@ function buildState(
   const providerConfig = buildProviderConfigUi(folder?.uri.fsPath);
   if (!folder) {
     return {
+      displayLanguage,
       hasFolder: false,
       workspaceName: '',
       configExists: false,
@@ -224,6 +235,7 @@ function buildState(
 
   if (!doc) {
     return {
+      displayLanguage,
       hasFolder: true,
       workspaceName: folder.name,
       configExists: false,
@@ -253,6 +265,7 @@ function buildState(
   }));
 
   return {
+    displayLanguage,
     hasFolder: true,
     // Use the folder name as the project identity, not workspace.yaml's
     // free-form `name:` field (see comment in builderWebview.ts).
@@ -479,6 +492,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         }
         return;
       }
+      case 'openSettings':
+        await vscode.commands.executeCommand('aidlc.openSettings');
+        return;
       case 'openBuilder':
         await vscode.commands.executeCommand('aidlc.openBuilder');
         return;
@@ -734,6 +750,22 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         }
         return;
       }
+      case 'setProviderDefaultModel': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const providerId = String(msg.providerId ?? '');
+        const model = String(msg.model ?? '');
+        if (!root || !providerId || !model.trim()) { return; }
+        try {
+          getProviderConfigStore(root).setProviderModel(providerId, model);
+          this.refresh();
+          WorkspaceWebview.refreshCurrent();
+        } catch (e) {
+          void vscode.window.showErrorMessage(
+            e instanceof Error ? e.message : String(e),
+          );
+        }
+        return;
+      }
       case 'applyProvider': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const providerId = String(msg.providerId ?? '');
@@ -754,6 +786,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         this.refresh();
         WorkspaceWebview.refreshCurrent();
         return;
+      case 'refreshProviderModels': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const providerId = String(msg.providerId ?? '');
+        if (root) { invalidateAvailableModels(root, providerId || undefined); }
+        this.refresh();
+        WorkspaceWebview.refreshCurrent();
+        return;
+      }
       case 'openAgentTerminal':
         await vscode.commands.executeCommand('aidlc.openAgentTerminal');
         return;
@@ -762,6 +802,34 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         if (!requestId) { return; }
         const reply = await pickAndReadTextFile(requestId);
         void this.view?.webview.postMessage({ type: 'pickAndReadFile:reply', ...reply });
+        return;
+      }
+      case 'pickBugImages': {
+        const requestId = String(msg.requestId ?? '');
+        const runId = String(msg.runId ?? '');
+        const remaining = typeof msg.remaining === 'number' ? msg.remaining : undefined;
+        if (!requestId || !runId) { return; }
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const reply = await pickBugImages({ requestId, root, runId, remaining });
+        void this.view?.webview.postMessage({ type: 'pickBugImages:reply', ...reply });
+        return;
+      }
+      case 'savePastedBugImage': {
+        const requestId = String(msg.requestId ?? '');
+        const runId = String(msg.runId ?? '');
+        if (!requestId || !runId) { return; }
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) { return; }
+        const reply = await savePastedBugImage({
+          requestId,
+          root,
+          runId,
+          fileName: String(msg.fileName ?? 'paste.png'),
+          mime: String(msg.mime ?? 'image/png'),
+          base64: String(msg.base64 ?? ''),
+        });
+        void this.view?.webview.postMessage({ type: 'savePastedBugImage:reply', ...reply });
         return;
       }
     }

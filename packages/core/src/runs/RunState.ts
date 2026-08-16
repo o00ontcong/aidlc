@@ -43,6 +43,13 @@ export interface StepRecord {
   /** Bumps each time the user reruns this step after a rejection. Starts at 1. */
   revision: number;
   status: StepStatus;
+  /**
+   * Set when this step was introduced while migrating an existing run to a
+   * newer pipeline definition. The runner still uses the normal pending /
+   * awaiting_work states; this flag lets clients present the step as "New"
+   * until work on it is submitted.
+   */
+  isNew?: boolean;
   /** ISO timestamp when this step first transitioned to awaiting_work. */
   startedAt?: string;
   /** ISO timestamp when this step transitioned to approved. */
@@ -119,6 +126,14 @@ export type StepHistoryEntry =
       revision: number;
       /** Optional feedback the user kept on the step at rerun time. */
       feedback?: string;
+    }
+  | {
+      /** User-submitted bug report for the `resolve-bugs` phase. */
+      kind: 'bug_report';
+      at: string;
+      revision: number;
+      /** Free-form report (current / expected / reproduction). */
+      report: string;
     }
   | {
       kind: 'auto_review';

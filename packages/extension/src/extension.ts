@@ -120,6 +120,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Keep Claude's project instructions in sync with the language selected in
   // extension Settings, including for slash commands run directly in a terminal.
+  const syncDisplayLanguageUi = () => {
+    const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+    void vscode.commands.executeCommand(
+      'setContext',
+      'aidlc.resolvedDisplayLanguage',
+      resolveAidlcLanguage(configured, vscode.env.language),
+    );
+  };
   const syncOutputLanguagePolicy = () => {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { return; }
@@ -129,8 +137,10 @@ export function activate(context: vscode.ExtensionContext): void {
   try { syncOutputLanguagePolicy(); } catch (err) {
     output.appendLine(`output-language policy: ${(err as Error).message}`);
   }
+  syncDisplayLanguageUi();
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
     if (!event.affectsConfiguration('aidlc.displayLanguage')) { return; }
+    syncDisplayLanguageUi();
     try { syncOutputLanguagePolicy(); } catch (err) {
       output.appendLine(`output-language policy: ${(err as Error).message}`);
     }
@@ -159,7 +169,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Keep the title bar intentionally quiet: one Settings icon replaces the
   // previous row of shortcut icons. Language is applied to the open workspace
   // immediately, without requiring a VS Code window reload.
-  context.subscriptions.push(vscode.commands.registerCommand('aidlc.openSettings', async () => {
+  const openSettings = async () => {
     const current = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
     const selected = await vscode.window.showQuickPick([
       { label: 'Automatic', description: 'Follow VS Code display language', value: 'auto' },
@@ -173,7 +183,12 @@ export function activate(context: vscode.ExtensionContext): void {
     await vscode.workspace.getConfiguration('aidlc').update('displayLanguage', selected.value, vscode.ConfigurationTarget.Global);
     WorkspaceWebview.refreshCurrent();
     sidebar.refresh();
-  }));
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aidlc.openSettings', openSettings),
+    vscode.commands.registerCommand('aidlc.selectDisplayLanguageEnglish', openSettings),
+    vscode.commands.registerCommand('aidlc.selectDisplayLanguageVietnamese', openSettings),
+  );
 
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
     if (!event.affectsConfiguration('aidlc.displayLanguage')) return;

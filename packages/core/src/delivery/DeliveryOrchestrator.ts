@@ -283,7 +283,7 @@ export class DeliveryOrchestrator {
       }
       if (target.runId === state.projectContextRunId) contextChanged = true;
       else if (state.workerRunIds.includes(target.runId ?? '')) workerChanged = true;
-      else if (target.step && ['capture-context', 'specify', 'clarify', 'plan', 'tasks-package', 'analyze-contract'].includes(target.step)) featureFrontChanged = true;
+      else if (target.step && ['package-mission', 'implement'].includes(target.step)) featureFrontChanged = true;
       else integrationOnly = true;
     }
 
@@ -293,22 +293,25 @@ export class DeliveryOrchestrator {
       }
       if (contextChanged) {
         await this.executeRun(state, state.projectContextRunId!, undefined, hooks);
-        this.reopenApprovedStep(state.featureRunId!, 'capture-context', 'Project Context changed during aggregate review.');
+        this.reopenApprovedStep(state.featureRunId!, 'implement', 'Project Context changed during aggregate review.');
         featureFrontChanged = true;
       }
       if (featureFrontChanged) {
         await this.executeFeatureFront(state, hooks);
-        const refreshedManifest = readWorkPackageManifest(this.workspaceRoot, state.featureRunId!);
-        for (const pkg of refreshedManifest.packages) {
-          if (RunStateStore.load(this.workspaceRoot, pkg.runId)) {
-            this.reopenApprovedStep(pkg.runId, 'load-package', 'Feature contract/context changed during aggregate review.');
+        const hasWorkers = WorkspaceLoader.load(this.workspaceRoot).config.pipelines
+          .some((item) => item.id === 'cohesive-work-package');
+        if (hasWorkers) {
+          const refreshedManifest = readWorkPackageManifest(this.workspaceRoot, state.featureRunId!);
+          for (const pkg of refreshedManifest.packages) {
+            if (RunStateStore.load(this.workspaceRoot, pkg.runId)) {
+              this.reopenApprovedStep(pkg.runId, 'load-package', 'Feature contract/context changed during aggregate review.');
+            }
           }
+          workerChanged = true;
         }
-        workerChanged = true;
       }
       if (workerChanged) {
         await this.ensureWorkers(state, hooks, options.charterTemplatesRoot);
-        this.reopenApprovedStep(state.featureRunId!, 'await-packages', 'Worker result changed during aggregate review.');
         integrationOnly = true;
       }
       if (integrationOnly) await this.ensureFeatureReviewReady(state, hooks);
@@ -404,7 +407,7 @@ export class DeliveryOrchestrator {
     const runId = state.featureRunId ?? state.request.id;
     state.featureRunId = runId;
     const ws = WorkspaceLoader.load(this.workspaceRoot);
-    const pipeline = this.pipeline('cohesive-feature');
+    const pipeline = this.pipeline('feature-implement');
     const existingFeatureRun = RunStateStore.load(this.workspaceRoot, runId);
     if (existingFeatureRun && existingFeatureRun.pipelineId !== pipeline.id) {
       throw new Error(`Run id collision: ${runId} belongs to pipeline ${existingFeatureRun.pipelineId}.`);
@@ -440,15 +443,21 @@ export class DeliveryOrchestrator {
   }
 
   private async executeFeatureFront(state: DeliveryState, hooks: DeliveryHooks): Promise<void> {
-    const pipeline = this.pipeline('cohesive-feature');
-    await this.executeRun(state, state.featureRunId!, stepIndex(pipeline, 'analyze-contract'), hooks);
+    const pipeline = this.pipeline('feature-implement');
+    await this.executeRun(state, state.featureRunId!, stepIndex(pipeline, 'implement'), hooks);
   }
 
   private async ensureWorkers(state: DeliveryState, hooks: DeliveryHooks, templatesRoot?: string): Promise<void> {
+    const ws = WorkspaceLoader.load(this.workspaceRoot);
+    const hasWorkers = ws.config.pipelines.some((item) => item.id === 'cohesive-work-package');
+    if (!hasWorkers) {
+      state.completedStages = [...new Set([...state.completedStages, 'workers'])];
+      DeliveryStateStore.save(this.workspaceRoot, state);
+      return;
+    }
     state.status = 'executing-workers';
     this.saveStage(state, hooks, 'executing-workers');
     const manifest = readWorkPackageManifest(this.workspaceRoot, state.featureRunId!);
-    const ws = WorkspaceLoader.load(this.workspaceRoot);
     const pipeline = this.pipeline('cohesive-work-package');
     state.workerRunIds = manifest.packages.map((pkg) => pkg.runId);
     for (const pkg of manifest.packages) {
@@ -508,8 +517,8 @@ export class DeliveryOrchestrator {
   private async ensureFeatureReviewReady(state: DeliveryState, hooks: DeliveryHooks): Promise<void> {
     state.status = 'integrating';
     this.saveStage(state, hooks, 'integrating');
-    const pipeline = this.pipeline('cohesive-feature');
-    const stop = state.profile.openFeaturePullRequest ? 'open-pr' : 'system-test';
+    const pipeline = this.pipeline('feature-implement');
+    const stop = state.profile.openFeaturePullRequest ? 'ship' : 'implement';
     await this.executeRun(state, state.featureRunId!, stepIndex(pipeline, stop), hooks);
     state.completedStages = [...new Set([...state.completedStages, 'integration', stop])];
     DeliveryStateStore.save(this.workspaceRoot, state);
@@ -563,29 +572,16 @@ export class DeliveryOrchestrator {
     if (/context|architecture|domain|charter|policy|bối cảnh|kiến trúc|miền|chính sách|mục tiêu/.test(lower)) {
       return {
         runId: state.projectContextRunId,
-        step: /charter|policy|chính sách|mục tiêu/.test(lower) ? 'define-charter' : 'model-project',
+        step: 'establish-baseline',
       };
     }
-    if (/requirement|scope|acceptance|behavio[u]?r|yêu cầu|phạm vi|nghiệm thu|hành vi/.test(lower)) {
-      return { runId: state.featureRunId, step: 'specify' };
+    if (/bug|fix|sửa/.test(lower)) {
+      return { runId: state.featureRunId, step: 'resolve-bugs' };
     }
-    if (/plan|design|kế hoạch|thiết kế/.test(lower)) {
-      return { runId: state.featureRunId, step: 'plan' };
+    if (/ship|pr|merge|sync/.test(lower)) {
+      return { runId: state.featureRunId, step: 'ship' };
     }
-    if (/package|boundary|ownership|gói|ranh giới|sở hữu/.test(lower)) {
-      return { runId: state.featureRunId, step: 'tasks-package' };
-    }
-    if (/integrat|conflict|cohesion|tích hợp|xung đột|kết dính/.test(lower)) {
-      return { runId: state.featureRunId, step: 'integrate' };
-    }
-    const worker = state.workerRunIds[0];
-    if (worker) {
-      return {
-        runId: worker,
-        step: /test|coverage|kiểm thử|bao phủ/.test(lower) ? 'package-test-plan' : 'implement-package',
-      };
-    }
-    return { runId: state.featureRunId, step: 'integrate' };
+    return { runId: state.featureRunId, step: 'implement' };
   }
 
   private reopen(target: DeliveryReviewTaskTarget, feedback: string): void {

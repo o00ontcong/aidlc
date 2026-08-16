@@ -10,10 +10,12 @@ import {
   builtinTemplatesRoot,
   getBuiltinArtifactTemplates,
   getBuiltinPipelineSummary,
+  getBuiltinStepHelp,
   getBuiltinWorkflowByPipelineId,
   listValidatorConflicts,
   loadBuiltinPreset,
   resolveValidatorConflict,
+  renderBuiltinStepHelpMarkdown,
   validateWorkspace,
   writeBuiltinAutoReviewValidators,
 } from '../src';
@@ -27,7 +29,7 @@ afterEach(() => {
 });
 
 describe('Cohesive Delivery built-in bundle', () => {
-  it('materializes Project Context and independently runnable Feature Epic pipelines atomically', () => {
+  it('materializes three pipelines: project-context, feature-spike, feature-implement', () => {
     const preset = loadBuiltinPreset(ROOT, workflow);
     const config = validateWorkspace(
       { name: 'cohesive-test', ...preset.workspace },
@@ -35,92 +37,66 @@ describe('Cohesive Delivery built-in bundle', () => {
     );
 
     expect(config.pipelines.map((pipeline) => pipeline.id)).toEqual([
-      'cohesive-feature',
+      'feature-implement',
       'project-context',
+      'feature-spike',
     ]);
     expect(config.agents).toHaveLength(3);
     expect(config.skills).toHaveLength(3);
-    expect(config.slash_commands).toHaveLength(22);
+    expect(config.slash_commands).toHaveLength(6);
     const slashNames = config.slash_commands.map((c) => c.name);
-    expect(slashNames).toContain('/project-context-define-charter');
-    expect(slashNames).toContain('/project-context-scan-project');
-    expect(slashNames).toContain('/project-context-check-drift');
-    expect(slashNames).toContain('/project-context-project-rules-sync');
-    expect(slashNames).toContain('/cohesive-feature-capture-context');
-    expect(slashNames).toContain('/cohesive-feature-open-pr');
-    expect(slashNames).toContain('/cohesive-feature-await-merge');
-    expect(slashNames).not.toContain('/cohesive-feature-scan-project');
-    expect(slashNames).not.toContain('/cohesive-work-package-load-package');
+    expect(slashNames).toEqual(expect.arrayContaining([
+      '/project-context-establish-baseline',
+      '/project-context-publish-context',
+      '/feature-spike-package-mission',
+      '/feature-implement-implement',
+      '/feature-implement-resolve-bugs',
+      '/feature-implement-ship',
+    ]));
+    expect(slashNames).not.toContain('/cohesive-feature-capture-context');
+    expect(slashNames).not.toContain('/project-context-define-charter');
+    expect(slashNames).not.toContain('/cohesive-feature-open-pr');
 
     const project = config.pipelines.find((pipeline) => pipeline.id === 'project-context')!;
-    const feature = config.pipelines.find((pipeline) => pipeline.id === 'cohesive-feature')!;
-    expect(project.steps).toHaveLength(8);
-    expect(feature.steps).toHaveLength(14);
+    const spike = config.pipelines.find((pipeline) => pipeline.id === 'feature-spike')!;
+    const feature = config.pipelines.find((pipeline) => pipeline.id === 'feature-implement')!;
+    expect(project.steps.map((s) => s.name)).toEqual(['establish-baseline', 'publish-context']);
+    expect(spike.steps.map((s) => s.name)).toEqual(['package-mission']);
+    expect(feature.steps.map((s) => s.name)).toEqual(['implement', 'resolve-bugs', 'ship']);
 
-    expect(feature.steps[0].requires).toContain('docs/project/context/CONTEXT-MANIFEST.json');
-    const specify = feature.steps.find((s) => s.name === 'specify')!;
-    expect(specify.requires).toContain('docs/project/charter/CHARTER.json');
-    expect(specify.requires).toContain('docs/epics/{epic}/artifacts/ALIGNMENT.md');
-    expect(specify.auto_review_runner).toBe('.aidlc/validators/charter-alignment.mjs');
+    expect(feature.steps[0].requires).toContain('docs/epics/{epic}/artifacts/MISSION.md');
+    expect(feature.steps[0].auto_review_runner).toBe('.aidlc/validators/project-ci.mjs');
+    expect(project.steps[0].human_review).toBe(true);
+    expect(project.steps[1].human_review).toBe(false);
+    expect(spike.steps[0].auto_review_runner).toBe('.aidlc/validators/mission-completeness.mjs');
 
-    const ids = feature.steps.map((s) => s.name);
-    const systemTest = ids.indexOf('system-test');
-    const openPr = ids.indexOf('open-pr');
-    const awaitMerge = ids.indexOf('await-merge');
-    const projectSync = ids.indexOf('project-sync');
-    expect(systemTest).toBeGreaterThan(-1);
-    expect(openPr).toBe(systemTest + 1);
-    expect(awaitMerge).toBe(openPr + 1);
-    expect(projectSync).toBe(awaitMerge + 1);
-    expect(feature.steps[projectSync].depends_on).toContain('await-merge');
-    expect(feature.steps[openPr].auto_review_runner).toBe('.aidlc/validators/ship.mjs');
+    const bugFix = feature.steps[1];
+    expect(bugFix.human_review).toBe(true);
+    expect(bugFix.auto_review).toBe(false);
+    expect(bugFix.depends_on).toContain('implement');
 
-    const taskPlan = feature.steps.find((s) => s.name === 'plan-tasks')!;
-    expect(taskPlan.produces).toContain('docs/epics/{epic}/artifacts/TASKS.md');
-    expect(taskPlan.produces).not.toContain('docs/epics/{epic}/artifacts/WORK-PACKAGES.json');
-    expect(feature.steps.map((s) => s.name)).toContain('implement');
-    expect(feature.steps.map((s) => s.name)).not.toContain('await-packages');
+    const ship = feature.steps[2];
+    expect(ship.human_review).toBe(false);
+    expect(ship.auto_review_runner).toBe('.aidlc/validators/ship.mjs');
+    expect(ship.depends_on).toContain('resolve-bugs');
+    expect(ship.produces).toContain('docs/epics/{epic}/artifacts/PROJECT-UPDATE.md');
 
-    const cohesion = feature.steps.find((s) => s.name === 'cohesion-review')!;
-    expect(cohesion.agent).toBe('aidlc-cohesive-reviewer-agent');
-
-    // A role is reused across the feature, but the actual model is selected
-    // by the step: deep reasoning/review stays on Opus; routine execution is
-    // on Sonnet. This prevents the agent-level fallback from flattening the
-    // delivery into one expensive model.
-    expect(feature.steps.find((s) => s.name === 'specify')?.model).toBe('claude-opus-5');
     expect(feature.steps.find((s) => s.name === 'implement')?.model).toBe('claude-sonnet-5');
-    expect(cohesion.model).toBe('claude-opus-5');
-    expect(project.steps.find((s) => s.name === 'scan-project')?.model).toBe('claude-sonnet-5');
-    expect(project.steps.find((s) => s.name === 'model-project')?.model).toBe('claude-opus-5');
-
+    expect(project.steps.find((s) => s.name === 'establish-baseline')?.model).toBe('claude-opus-5');
+    expect(config.agents.map((a) => a.id)).not.toContain('aidlc-cohesive-reviewer-agent');
   });
 
   it('keeps companion pipeline lookup compatible with existing extension code', () => {
     const project = getBuiltinWorkflowByPipelineId('project-context');
     expect(project?.phases.map((phase) => phase.id)).toEqual([
-      'define-charter', 'scan-project', 'model-project', 'map-features', 'check-drift',
-      'review-context', 'publish-context', 'project-rules-sync',
+      'establish-baseline', 'publish-context',
     ]);
-    expect(getBuiltinPipelineSummary(workflow).steps).toHaveLength(14);
+    expect(getBuiltinPipelineSummary(workflow).steps).toHaveLength(3);
+    expect(getBuiltinWorkflowByPipelineId('feature-spike')?.phases.map((p) => p.id)).toEqual([
+      'package-mission',
+    ]);
+    expect(getBuiltinWorkflowByPipelineId('cohesive-feature')).toBeUndefined();
     expect(getBuiltinWorkflowByPipelineId('cohesive-work-package')).toBeUndefined();
-  });
-
-  it('keeps implementation inside each feature epic', () => {
-    const feature = getBuiltinWorkflowByPipelineId('cohesive-feature')!;
-    const ids = feature.phases.map((phase) => phase.id);
-    expect(ids.indexOf('plan-tasks')).toBeLessThan(ids.indexOf('analyze-contract'));
-    expect(ids.indexOf('analyze-contract')).toBeLessThan(ids.indexOf('implement'));
-    expect(ids.indexOf('implement')).toBeLessThan(ids.indexOf('implementation-context'));
-    expect(ids).not.toContain('await-packages');
-    expect(ids).not.toContain('integrate');
-
-    const implement = feature.phases.find((phase) => phase.id === 'implement')!;
-    expect(implement.dependsOn).toContain('map-feature-flow');
-    expect(implement.produces).toContain('docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md');
-    expect(builtinClaudeCommand(implement, '# Implementation skill', 'docs/epics')).toContain(
-      'model: claude-sonnet-5',
-    );
   });
 
   it('does not pre-seed gate outputs with empty artifact templates', () => {
@@ -131,7 +107,7 @@ describe('Cohesive Delivery built-in bundle', () => {
     )).toEqual({});
   });
 
-  it('writes all validator runners and their shared helper without overwriting user files', () => {
+  it('writes all validator runners including mission-completeness without overwriting user files', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-cohesive-'));
     tempRoots.push(root);
     const validators = path.join(root, '.aidlc', 'validators');
@@ -144,32 +120,11 @@ describe('Cohesive Delivery built-in bundle', () => {
     expect(fs.existsSync(path.join(validators, 'lib.mjs.aidlc-new'))).toBe(true);
     expect(fs.existsSync(path.join(validators, '.aidlc-validator-manifest.json'))).toBe(true);
     for (const file of [
-      'project-context.mjs', 'charter.mjs', 'rules-sync.mjs',
-      'feature-contract.mjs', 'integration-cohesion.mjs', 'project-ci.mjs',
-      'charter-alignment.mjs', 'ship.mjs',
+      'project-context.mjs', 'establish-baseline.mjs',
+      'mission-completeness.mjs', 'project-ci.mjs', 'ship.mjs',
     ]) {
       expect(fs.existsSync(path.join(validators, file)), file).toBe(true);
     }
-    expect(fs.existsSync(path.join(validators, 'await-packages.mjs'))).toBe(false);
-    expect(fs.existsSync(path.join(validators, 'package-review.mjs'))).toBe(false);
-
-    const managed = path.join(validators, 'ship.mjs');
-    fs.writeFileSync(managed, '// old managed bytes\n', 'utf8');
-    const manifestPath = path.join(validators, '.aidlc-validator-manifest.json');
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-    manifest.files['ship.mjs'].installedHash = `sha256:${require('crypto')
-      .createHash('sha256').update('// old managed bytes\n').digest('hex')}`;
-    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-    writeBuiltinAutoReviewValidators(ROOT, root, workflow);
-    expect(fs.readFileSync(managed, 'utf8')).toBe(
-      fs.readFileSync(path.join(ROOT, 'templates', 'cohesive', 'validators', 'ship.mjs'), 'utf8'),
-    );
-    expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned\n');
-
-    fs.unlinkSync(path.join(validators, 'lib.mjs.aidlc-new'));
-    writeBuiltinAutoReviewValidators(ROOT, root, workflow);
-    expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned\n');
-    expect(fs.existsSync(path.join(validators, 'lib.mjs.aidlc-new'))).toBe(false);
   });
 
   it('lets a human list and resolve pending validator conflicts without manual file surgery', () => {
@@ -184,39 +139,43 @@ describe('Cohesive Delivery built-in bundle', () => {
     const bundledShip = fs.readFileSync(path.join(ROOT, 'templates', 'cohesive', 'validators', 'ship.mjs'), 'utf8');
     const conflicts = listValidatorConflicts(root);
     expect(conflicts.map((c) => c.rel).sort()).toEqual(['lib.mjs', 'ship.mjs']);
-    const shipConflict = conflicts.find((c) => c.rel === 'ship.mjs')!;
-    expect(shipConflict.installed).toBe('// user-owned ship\n');
-    expect(shipConflict.proposed).toBe(bundledShip);
-
-    // Accept the bundled replacement for ship.mjs.
     resolveValidatorConflict(root, 'ship.mjs', 'accept');
     expect(fs.readFileSync(path.join(validators, 'ship.mjs'), 'utf8')).toBe(bundledShip);
-    expect(fs.existsSync(path.join(validators, 'ship.mjs.aidlc-new'))).toBe(false);
-
-    // Keep the installed lib.mjs as-is.
     resolveValidatorConflict(root, 'lib.mjs', 'keep');
-    expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned lib\n');
-    expect(fs.existsSync(path.join(validators, 'lib.mjs.aidlc-new'))).toBe(false);
-
-    expect(listValidatorConflicts(root)).toEqual([]);
-
-    // Re-applying with no bundled change respects both resolutions: the
-    // accepted file is now managed (would auto-upgrade on a future bundle
-    // change), the kept file is remembered as reviewed-and-customized.
-    writeBuiltinAutoReviewValidators(ROOT, root, workflow);
-    expect(fs.readFileSync(path.join(validators, 'ship.mjs'), 'utf8')).toBe(bundledShip);
     expect(fs.readFileSync(path.join(validators, 'lib.mjs'), 'utf8')).toBe('// user-owned lib\n');
     expect(listValidatorConflicts(root)).toEqual([]);
   });
 
-  it('tells commands to produce the feature task plan without worker artifacts', () => {
+  it('tells implement to produce IMPLEMENTATION-SUMMARY from MISSION.md', () => {
     const command = builtinClaudeCommand(
-      workflow.primaryPhases!.find((phase) => phase.id === 'plan-tasks')!,
-      '# task plan',
+      workflow.primaryPhases!.find((phase) => phase.id === 'implement')!,
+      '# implement',
       'docs/epics',
     );
-    expect(command).toContain('docs/epics/$ARGUMENTS/artifacts/TASKS.md');
-    expect(command).not.toContain('docs/epics/$ARGUMENTS/artifacts/WORK-PACKAGES.json');
+    expect(command).toContain('docs/epics/$ARGUMENTS/artifacts/IMPLEMENTATION-SUMMARY.md');
     expect(command).toContain('do not create placeholders');
+  });
+
+  it('keeps bug fixes iterative and ships after approval', () => {
+    const preset = loadBuiltinPreset(ROOT, workflow);
+    const bugCommand = preset.skillContents['resolve-bugs']!;
+    const shipCommand = preset.skillContents['ship']!;
+
+    expect(bugCommand).toContain("user's consolidated report");
+    expect(bugCommand).toContain('kind: bug_report');
+    expect(bugCommand).toContain('append-only log');
+    expect(bugCommand).toContain('## Screenshots');
+    expect(bugCommand).toContain('bug-screenshots/');
+    expect(bugCommand).toContain('must not edit those files yet');
+    expect(bugCommand).toContain('**Status:** READY-FOR-APPROVAL');
+    expect(shipCommand).toContain('Run only after `resolve-bugs` is approved');
+    expect(shipCommand).toContain('Apply the approved `## Documentation Sync Plan`');
+    expect(preset.skillContents['package-mission']).toContain('MISSION.md');
+    expect(preset.skillContents['establish-baseline']).toContain('CONTEXT-REVIEW.md');
+
+    const help = getBuiltinStepHelp('feature-implement', 'resolve-bugs')!;
+    const helpMarkdown = renderBuiltinStepHelpMarkdown(help);
+    expect(helpMarkdown).toContain('**Nhập bug & chạy agent**');
+    expect(helpMarkdown).toContain('**Approve bản sửa**');
   });
 });

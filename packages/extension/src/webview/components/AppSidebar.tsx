@@ -17,6 +17,7 @@ import {
   Loader2,
   HelpCircle,
   Github,
+  Globe2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -91,7 +92,18 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
             <p className="truncate text-[10px] text-muted-foreground">Agent workflow runner</p>
           </div>
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'openSettings' })}
+            title={`AIDLC output language: ${state.displayLanguage === 'vi' ? 'Tiếng Việt' : 'English'}. Change language`}
+            className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-secondary/50 px-1.5 text-[10px] font-bold tracking-wide text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Globe2 className="h-3 w-3" />
+            {state.displayLanguage.toUpperCase()}
+          </button>
+          <ThemeToggle />
+        </div>
       </div>
 
       {/* Body */}
@@ -399,12 +411,17 @@ function SectionHeader({
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={!collapsed}
+        title={collapsed ? `Mở rộng ${label}` : `Thu gọn ${label}`}
         className="flex flex-1 items-center gap-1.5 text-left text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground"
       >
         <ChevronDown
           className={cn('h-3 w-3 transition-transform', collapsed && '-rotate-90')}
         />
         <span>{label}</span>
+        <span className="ml-auto font-medium normal-case tracking-normal text-[10px]">
+          {collapsed ? 'Mở rộng' : 'Thu gọn'}
+        </span>
       </button>
       {trailing}
     </div>

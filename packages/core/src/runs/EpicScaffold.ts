@@ -105,6 +105,7 @@ export function mirrorRunStateToEpic(
   const stepStates = runState.steps.map((s) => ({
     agent: s.agent,
     status: mapStepStatusToEpic(s.status),
+    isNew: s.isNew,
     revision: s.revision,
     runStatus: s.status,
     startedAt: s.startedAt ?? null,
@@ -175,11 +176,12 @@ export interface ScaffoldEpicArgs {
    */
   runMode?: 'guided' | 'autonomous';
   /**
-   * Charter alignment seed for `cohesive-feature`: writes `ALIGNMENT.md`
-   * (serves G-x + feature-only narrower constraints). Replaces per-epic
-   * GOALS/ARCHITECTURE/TECH thinking seeds.
+   * Charter alignment seed for feature pipelines: writes `ALIGNMENT.md`
+   * (serves G-x + feature-only narrower constraints).
    */
   alignmentSeed?: Omit<AlignmentSeedInput, 'epicId'>;
+  /** Portable pack written to artifacts/MISSION.md (Start implement / paste / Jira). */
+  missionMarkdown?: string;
 }
 
 export interface ScaffoldEpicResult {
@@ -233,14 +235,14 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     }
 
     // Project-context bootstrap: seed Intent + Conventions once under docs/project/.
-    // Description is the human's project idea — define-charter interviews from it.
+    // Description is the human's project idea — establish-baseline interviews from it.
     if (target.id === 'project-context') {
       const idea = description.trim();
       if (idea.length < MIN_PROJECT_CONTEXT_IDEA_CHARS) {
         throw new EpicScaffoldError(
           `project-context requires a Description (project idea) of at least `
           + `${MIN_PROJECT_CONTEXT_IDEA_CHARS} characters — AI will interview you `
-          + `in define-charter to finalize Goals, principles, and tech policy.`,
+          + `in establish-baseline to finalize Goals, principles, and tech policy.`,
         );
       }
       seedCharterArtifacts(workspaceRoot, {
@@ -249,13 +251,23 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     }
   }
 
-  // Charter alignment seed (cohesive-feature): human-selected Goals + scope
-  // before agents run. Overwrites a stub ALIGNMENT.md from templates if present.
+  // Charter alignment seed (feature-spike / feature-implement): human-selected
+  // Goals + scope before agents run.
   if (args.alignmentSeed) {
     const body = buildAlignmentSeedFile({ epicId, ...args.alignmentSeed });
     fs.writeFileSync(
       path.join(artifactsDir, 'ALIGNMENT.md'),
       body.endsWith('\n') ? body : `${body}\n`,
+      'utf8',
+    );
+  }
+
+  const missionMarkdown = args.missionMarkdown?.trim()
+    || (typeof inputs.mission === 'string' ? inputs.mission.trim() : '');
+  if (missionMarkdown) {
+    fs.writeFileSync(
+      path.join(artifactsDir, 'MISSION.md'),
+      missionMarkdown.endsWith('\n') ? missionMarkdown : `${missionMarkdown}\n`,
       'utf8',
     );
   }

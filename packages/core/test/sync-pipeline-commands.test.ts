@@ -29,7 +29,7 @@ describe('syncPipelineCommands multi-provider', () => {
     fs.writeFileSync(
       path.join(root, '.aidlc', 'workspace.yaml'),
       yaml.dump({
-        pipelines: [{ id: workflow.pipelineId, steps: [] }, { id: 'cohesive-feature', steps: [] }],
+        pipelines: [{ id: workflow.pipelineId, steps: [] }, { id: 'feature-implement', steps: [] }],
       }),
     );
 
@@ -37,9 +37,9 @@ describe('syncPipelineCommands multi-provider', () => {
     syncPipelineCommandsForProvider(root, extPath, 'codex');
     syncPipelineCommandsForProvider(root, extPath, 'opencode');
 
-    const cursorFile = path.join(root, '.cursor', 'commands', 'cohesive-feature-implement.md');
-    const codexFile = path.join(root, '.codex', 'skills', 'aidlc-cohesive-feature-implement', 'SKILL.md');
-    const opencodeFile = path.join(root, '.opencode', 'commands', 'cohesive-feature-implement.md');
+    const cursorFile = path.join(root, '.cursor', 'commands', 'feature-implement-implement.md');
+    const codexFile = path.join(root, '.codex', 'skills', 'aidlc-feature-implement-implement', 'SKILL.md');
+    const opencodeFile = path.join(root, '.opencode', 'commands', 'feature-implement-implement.md');
     expect(fs.existsSync(cursorFile)).toBe(true);
     expect(fs.readFileSync(cursorFile, 'utf8')).not.toMatch(/^---\n/);
     expect(fs.existsSync(codexFile)).toBe(true);
@@ -50,7 +50,7 @@ describe('syncPipelineCommands multi-provider', () => {
     const opencodeAutonomousFile = path.join(root, '.opencode', 'commands', 'aidlc-autonomous-epic.md');
     expect(fs.readFileSync(opencodeAutonomousFile, 'utf8')).toContain('model: opencode/big-pickle');
 
-    const claudeFile = path.join(root, '.claude', 'commands', 'cohesive-feature-implement.md');
+    const claudeFile = path.join(root, '.claude', 'commands', 'feature-implement-implement.md');
     expect(fs.existsSync(claudeFile)).toBe(false);
   });
 });

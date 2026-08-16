@@ -102,7 +102,9 @@ export default async function ship(ctx) {
       problems.push(`PR-LINK.md lists ${distinctUrls.length} PR URLs; exactly one PR per feature is allowed`);
     }
 
-    if (phase.includes('open-pr') || phase === 'open-pr') {
+    const isShip = phase === 'ship' || phase.includes('ship');
+
+    if ((phase.includes('open-pr') || phase === 'open-pr') && !isShip) {
       if (!['open', 'draft', 'ready'].includes(pr.status)) {
         problems.push(`open-pr has invalid or missing status ${pr.status || '(missing)'}; expected open|draft|ready`);
       }
@@ -114,7 +116,7 @@ export default async function ship(ctx) {
       }
     }
 
-    if (phase.includes('await') || phase === 'await-merge') {
+    if (phase.includes('await') || phase === 'await-merge' || isShip) {
       const doneish = pr.status === 'merged';
       if (!doneish && !(policy.allowLocalMergeWithHumanOnly && pr.localHumanApproval)) {
         problems.push(
@@ -137,12 +139,22 @@ export default async function ship(ctx) {
       }
     }
 
-    // project-sync gate helper: if somehow invoked, require an actual merge.
-    if (phase.includes('project-sync')) {
+    if (phase.includes('project-sync') || isShip) {
       const merged = pr.status === 'merged'
         || (policy.allowLocalMergeWithHumanOnly && pr.localHumanApproval);
       if (!merged) {
-        problems.push('project-sync requires the feature PR to be merged first');
+        problems.push('ship/project-sync requires the feature PR to be merged first');
+      }
+      const updateFile = path.join(artifacts, 'PROJECT-UPDATE.md');
+      if (isShip) {
+        if (!exists(updateFile)) {
+          problems.push('PROJECT-UPDATE.md is required after merge (Reality sync)');
+        } else {
+          const update = readText(updateFile);
+          if (!/## Project Knowledge Changes/i.test(update)) {
+            problems.push('PROJECT-UPDATE.md is missing ## Project Knowledge Changes');
+          }
+        }
       }
     }
 
@@ -150,6 +162,9 @@ export default async function ship(ctx) {
       return reject(`Ship gate failed:\n- ${[...new Set(problems)].join('\n- ')}`);
     }
 
+    if (isShip) {
+      return pass(`Ship OK for ${expectedHead} → ${pr.base || policy.defaultBranch} with Reality sync.`);
+    }
     if (phase.includes('await')) {
       return pass(`Ship await-merge OK for ${expectedHead} → ${pr.base || policy.defaultBranch}.`);
     }

@@ -58,8 +58,7 @@ export function FlowCanvas({
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
         >
           <defs>
-            {/* dc.html:765-767. Shared with LifecycleStrip, which renders inside
-                the same Flow card and references these ids. */}
+            {/* dc.html:765-767 */}
             <marker id="ar" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
               <path d="M0,0 L7,3.5 L0,7 z" fill="var(--txt3)" />
             </marker>

@@ -10,6 +10,7 @@ import {
   approveStep,
   rejectStep,
   rerunStep,
+  recordBugReport,
   requestStepUpdate,
   submitAutoReviewVerdict,
   runAutoReview,
@@ -149,9 +150,11 @@ describe('PipelineRunner — state machine', () => {
 
   it('human-review path: markStepDone → awaiting_review → approveStep → advance', () => {
     let s = startRun({ runId: 'R-5', pipeline: PIPELINE_HUMAN, context: {} });
+    s.steps[0].isNew = true;
     touch(root, 'PRD.md');
     s = markStepDone({ state: s, pipeline: PIPELINE_HUMAN, workspaceRoot: root });
     expect(s.steps[0].status).toBe('awaiting_review');
+    expect(s.steps[0].isNew).toBeUndefined();
     expect(s.currentStepIdx).toBe(0);
     s = approveStep({ state: s, pipeline: PIPELINE_HUMAN });
     expect(s.steps[0].status).toBe('approved');
@@ -236,6 +239,60 @@ describe('PipelineRunner — state machine', () => {
     const approve = h[h.length - 1] as { kind: string; revision: number };
     expect(approve.kind).toBe('approve');
     expect(approve.revision).toBe(3);
+  });
+
+  it('recordBugReport appends each round to history and keeps prior reports', () => {
+    let s = startRun({ runId: 'R-bugs', pipeline: PIPELINE_HUMAN, context: {} });
+    s = recordBugReport({ state: s, report: 'Current: crash on login' });
+    expect(s.steps[0].status).toBe('awaiting_work');
+    expect(s.steps[0].revision).toBe(1);
+    expect(s.steps[0].feedback).toBe('Current: crash on login');
+    expect(s.steps[0].history).toEqual([
+      expect.objectContaining({ kind: 'bug_report', revision: 1, report: 'Current: crash on login' }),
+    ]);
+
+    s = recordBugReport({ state: s, report: 'Empty cart still shows checkout' });
+    const reports = (s.steps[0].history ?? [])
+      .filter((e) => e.kind === 'bug_report')
+      .map((e) => (e as { report: string }).report);
+    expect(reports).toEqual(['Current: crash on login', 'Empty cart still shows checkout']);
+    expect(s.steps[0].feedback).toBe('Empty cart still shows checkout');
+  });
+
+  it('recordBugReport from awaiting_review reopens the step without dropping prior rounds', () => {
+    let s = startRun({ runId: 'R-bugs-review', pipeline: PIPELINE_HUMAN, context: {} });
+    s = recordBugReport({ state: s, report: 'Login crash' });
+    touch(root, 'PRD.md');
+    s = markStepDone({ state: s, pipeline: PIPELINE_HUMAN, workspaceRoot: root });
+    expect(s.steps[0].status).toBe('awaiting_review');
+
+    s = recordBugReport({ state: s, report: 'Checkout on empty cart' });
+    expect(s.steps[0].status).toBe('awaiting_work');
+    expect(s.steps[0].revision).toBe(1);
+    expect(s.steps[0].finishedAt).toBeUndefined();
+    const reports = (s.steps[0].history ?? [])
+      .filter((e) => e.kind === 'bug_report')
+      .map((e) => (e as { report: string }).report);
+    expect(reports).toEqual(['Login crash', 'Checkout on empty cart']);
+  });
+
+  it('recordBugReport from rejected bumps revision like a rerun', () => {
+    let s = startRun({ runId: 'R-bugs-rej', pipeline: PIPELINE_HUMAN, context: {} });
+    touch(root, 'PRD.md');
+    s = markStepDone({ state: s, pipeline: PIPELINE_HUMAN, workspaceRoot: root });
+    s = rejectStep({ state: s, reason: 'still broken' });
+    s = recordBugReport({ state: s, report: 'Still crashes after retry' });
+    expect(s.steps[0].status).toBe('awaiting_work');
+    expect(s.steps[0].revision).toBe(2);
+    expect(s.steps[0].history?.at(-1)).toEqual(
+      expect.objectContaining({ kind: 'bug_report', revision: 2, report: 'Still crashes after retry' }),
+    );
+  });
+
+  it('recordBugReport refuses an empty report and a pending step', () => {
+    const s = startRun({ runId: 'R-bugs-bad', pipeline: PIPELINE_HUMAN, context: {} });
+    expect(() => recordBugReport({ state: s, report: '   ' })).toThrow(/empty/i);
+    expect(() => recordBugReport({ state: s, report: 'later', stepIdx: 1 })).toThrow(/pending/i);
   });
 
   it('requestStepUpdate rewinds an approved step + resets downstream to pending', () => {

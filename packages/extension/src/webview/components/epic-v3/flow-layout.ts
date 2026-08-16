@@ -91,4 +91,5 @@ export const NODE_STYLE: Record<FlowKind, { icon: string; border: string; bg: st
 export const DEFAULT_LOOP: Record<string, FlowLoop> = {
   'redraw-design':    { from: 3, to: 1, label: 'reject + feedback → design-recreator' },
   'cohesive-feature': { from: 8, to: 6, label: 'cohesion-review reject → Run again with Claude → implement' },
+  'feature-implement': { from: 1, to: 1, label: 'resolve-bugs reject → same step with more bugs' },
 };

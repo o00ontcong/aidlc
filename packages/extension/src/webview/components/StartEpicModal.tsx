@@ -80,7 +80,9 @@ function isCohesiveFeatureTarget(selected: Selection, pipelines: PipelineSummary
   if (selected.kind !== 'pipeline') return false;
   const p = pipelines.find((x) => x.id === selected.id);
   const id = p?.id ?? selected.id;
-  return id === 'cohesive-feature' || id.startsWith('cohesive-feature');
+  return id === 'cohesive-feature' || id.startsWith('cohesive-feature')
+    || id === 'feature-implement' || id.startsWith('feature-implement')
+    || id === 'feature-spike' || id.startsWith('feature-spike');
 }
 
 function isProjectContextTarget(selected: Selection, pipelines: PipelineSummary[]): boolean {
@@ -500,10 +502,10 @@ export function StartEpicModal({
   const cohesiveFeature = isCohesiveFeatureTarget(selected, pipelines);
   const projectContext = isProjectContextTarget(selected, pipelines);
   const ideaError = projectContext && description.trim().length < MIN_PROJECT_CONTEXT_IDEA_CHARS
-    ? `Project idea required — describe the project in Description (≥${MIN_PROJECT_CONTEXT_IDEA_CHARS} chars); AI will interview you in define-charter`
+    ? `Project idea required — describe the project in Description (≥${MIN_PROJECT_CONTEXT_IDEA_CHARS} chars); AI will interview you in establish-baseline`
     : null;
   const charterError = cohesiveFeature && !charter?.present
-    ? 'Charter required — run project-context (define-charter) before starting a cohesive feature'
+    ? 'Charter required — run project-context (establish-baseline) before starting a feature epic'
     : cohesiveFeature && selectedGoals.length === 0 && (charter?.goals?.length ?? 0) > 0
       ? 'Select at least one Goal from the charter'
       : null;
@@ -839,7 +841,7 @@ export function StartEpicModal({
           </div>
           {projectContext && (
             <p className="mb-1.5 text-[10.5px] text-muted-foreground">
-              Seed the project idea here. In <span className="font-medium text-foreground">define-charter</span>,
+              Seed the project idea here. In <span className="font-medium text-foreground">establish-baseline</span>,
               Claude interviews you 1:1 in the terminal to finalize Goals, principles, and tech policy.
             </p>
           )}
@@ -928,7 +930,7 @@ export function StartEpicModal({
             </div>
             {!charter?.present ? (
               <p className="text-[11px] text-destructive">
-                No CHARTER.json found. Run <strong>project-context</strong> (define-charter) first,
+                No CHARTER.json found. Run <strong>project-context</strong> (establish-baseline) first,
                 then start this feature epic.
               </p>
             ) : (

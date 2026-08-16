@@ -19,6 +19,10 @@ import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   stepAgentId,
+  CohesiveDeliveryUpgradeService,
+  installWorkflowGlobalsByIds,
+  writeBuiltinAutoReviewValidators,
+  builtinTemplatesRoot,
 } from '@aidlc/core';
 
 import {
@@ -34,6 +38,7 @@ import {
   savePresetInlineCommand,
   applyPresetCommand,
   deletePresetCommand,
+  syncBuiltinPipelineCommands,
 } from './presetWizards';
 import { loadAllBuiltinPresets, BUILTIN_WORKFLOWS } from './builtinPresets';
 import {
@@ -70,7 +75,10 @@ import {
   openRunStateCommand,
   deleteRunCommand,
   deleteEpicCommand,
+  recordBugReportForRun,
 } from './runCommands';
+import { isBugResolutionCommand } from './providerRunLogic';
+import { resolveTechStackForRoot } from './techStackResolver';
 
 /**
  * Sentinel `workflowId` value that `aidlc.initWorkspace` accepts to mean
@@ -214,8 +222,75 @@ export function registerV2WorkspaceCommands(
         void vscode.window.showWarningMessage('AIDLC: open a project folder first.');
         return;
       }
-      const report = migrateEpicStateFiles(root);
+      // First capture/backfill runs against the currently-installed pipeline.
+      // That preserves stable phase identities before the bundle definition is
+      // upgraded and lets the second pass insert phases by name.
+      const prepared = migrateEpicStateFiles(root);
+      let bundleUpdated = false;
+      let commandsRefreshed = false;
+      try {
+        const service = new CohesiveDeliveryUpgradeService(root);
+        const preview = service.preview();
+        const cohesiveInstalled = preview.items.some((item) => item.currentSteps.length > 0);
+        const conflicts = preview.items.filter((item) => item.disposition === 'conflict');
+        if (cohesiveInstalled && conflicts.length > 0) {
+          throw new Error(conflicts.map((item) => `${item.pipelineId}: ${item.warning}`).join('\n'));
+        }
+        if (
+          cohesiveInstalled
+          && preview.items.some((item) => item.disposition === 'upgrade' || item.disposition === 'missing')
+        ) {
+          service.apply(preview, { confirm: true });
+          bundleUpdated = true;
+        }
+        if (cohesiveInstalled) {
+          const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === 'cohesive-delivery');
+          const templatesRoot = fs.existsSync(path.join(context.extensionPath, 'templates', 'cohesive'))
+            ? context.extensionPath
+            : builtinTemplatesRoot();
+          installWorkflowGlobalsByIds(
+            templatesRoot,
+            ['cohesive-delivery'],
+            undefined,
+            resolveTechStackForRoot(root),
+          );
+          const synced = syncBuiltinPipelineCommands(root, templatesRoot, { overwrite: true });
+          commandsRefreshed = synced.commandsWritten.length > 0;
+          if (workflow) {
+            writeBuiltinAutoReviewValidators(templatesRoot, root, workflow);
+          }
+        }
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `AIDLC: Cohesive migration failed — ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+
+      const updated = migrateEpicStateFiles(root);
+      const report = {
+        migrated: [...new Set([...prepared.migrated, ...updated.migrated])],
+        backfilled: [...new Set([...prepared.backfilled, ...updated.backfilled])],
+        addedSteps: [...prepared.addedSteps, ...updated.addedSteps],
+        reopenedSteps: [...prepared.reopenedSteps, ...updated.reopenedSteps],
+        skipped: [...prepared.skipped, ...updated.skipped],
+        errors: [...prepared.errors, ...updated.errors],
+      };
       const parts: string[] = [];
+      if (bundleUpdated) {
+        parts.push('Cohesive pipeline updated');
+      }
+      if (commandsRefreshed) {
+        parts.push('graph skills/commands refreshed');
+      }
+      const addedCount = report.addedSteps.reduce((sum, item) => sum + item.stepIds.length, 0);
+      if (addedCount > 0) {
+        parts.push(`${addedCount} new step(s) added`);
+      }
+      const reopenedCount = report.reopenedSteps.reduce((sum, item) => sum + item.stepIds.length, 0);
+      if (reopenedCount > 0) {
+        parts.push(`${reopenedCount} graph step(s) reopened`);
+      }
       if (report.migrated.length > 0) {
         parts.push(`migrated ${report.migrated.length}`);
       }
@@ -260,6 +335,7 @@ export function registerV2WorkspaceCommands(
       } else {
         void vscode.window.showInformationMessage(summary);
       }
+      WorkspaceWebview.refreshCurrent();
     },
   );
 
@@ -328,6 +404,10 @@ export function registerV2WorkspaceCommands(
 
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) { return; }
+
+      if (isBugResolutionCommand(slash) && fb) {
+        recordBugReportForRun(root, id, fb, slash);
+      }
 
       runStepWithProvider({
         slashCommand: slash,
@@ -775,4 +855,3 @@ function openGettingStartedGuide(context: vscode.ExtensionContext): void {
     },
   );
 }
-

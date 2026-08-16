@@ -35,6 +35,7 @@ import {
   approveStep,
   rejectStep,
   rerunStep,
+  recordBugReport,
   requestStepUpdate,
   submitAutoReviewVerdict,
   runAutoReview,
@@ -43,6 +44,7 @@ import {
   PipelineRunError,
   AutoReviewerError,
   pipelineForRun,
+  stepDagId,
 } from '@aidlc/core';
 import type { PipelineConfig, RunState } from '@aidlc/core';
 
@@ -64,6 +66,48 @@ function saveRun(workspaceRoot: string, next: RunState): void {
     void vscode.window.showWarningMessage(
       `AIDLC: failed to mirror run state into epic state.json — ${err instanceof Error ? err.message : String(err)}`,
     );
+  }
+}
+
+function stepIdxMatchingSlash(state: RunState, slash: string, pipeline?: PipelineConfig): number {
+  const command = slash.trim().split(/\s+/)[0]?.replace(/^\//, '') ?? '';
+  const pipe = pipeline ?? state.pipelineSnapshot?.pipeline;
+  if (pipe && command) {
+    const matches = pipe.steps
+      .map((s, idx) => ({ idx, id: stepDagId(s) }))
+      .filter(({ id }) => command === id || command.endsWith(`-${id}`))
+      .sort((a, b) => b.id.length - a.id.length);
+    if (matches[0]) { return matches[0].idx; }
+  }
+  return state.currentStepIdx;
+}
+
+/**
+ * Append a `bug_report` history entry for `resolve-bugs` so previously
+ * filed bugs stay in the step timeline and in epic `state.json`.
+ */
+export function recordBugReportForRun(
+  workspaceRoot: string,
+  runId: string,
+  report: string,
+  slashCommand?: string,
+): void {
+  const body = report.trim();
+  if (!body) { return; }
+  const state = RunStateStore.load(workspaceRoot, runId);
+  if (!state) { return; }
+  const pipeline = loadPipeline(workspaceRoot, state.pipelineId, state);
+  const stepIdx = slashCommand
+    ? stepIdxMatchingSlash(state, slashCommand, pipeline)
+    : state.currentStepIdx;
+  try {
+    saveRun(workspaceRoot, recordBugReport({ state, report: body, stepIdx }));
+  } catch (err) {
+    if (err instanceof PipelineRunError) {
+      void vscode.window.showWarningMessage(`AIDLC: ${err.message}`);
+      return;
+    }
+    throw err;
   }
 }
 

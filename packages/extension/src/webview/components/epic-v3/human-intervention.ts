@@ -38,9 +38,9 @@ const GUIDE_BY_STEP: Record<string, HumanInterventionGuide> = {
     followUp: 'Reject/Request update rồi chạy lại clarify; downstream cần chạy lại nếu quyết định thay đổi.',
   },
   plan: {
-    fixAt: 'Sửa approach kỹ thuật, Shared Contract Impact, File Impact và traceability để kiến trúc/điểm tích hợp khớp quyết định đã chốt.',
-    source: 'PLAN.md',
-    feedback: 'Phương án hiện tại: … . Hãy dùng phương án: … vì … . Giữ các ràng buộc: … .',
+    fixAt: 'Sửa approach kỹ thuật, Shared Contract Impact, File Impact, cây feature (add/sửa/xoá) và traceability để kiến trúc/điểm tích hợp khớp quyết định đã chốt.',
+    source: 'PLAN.md · FEATURE-IMPACT.json / FEATURE-IMPACT.mmd',
+    feedback: 'Phương án hiện tại: … . Hãy dùng phương án: … vì … . Giữ các ràng buộc: … . Cây feature cần thêm/sửa/xoá: … .',
     followUp: 'Chạy lại plan rồi làm mới task/contract/flow phụ thuộc để tránh triển khai theo hướng cũ.',
   },
   'plan-tasks': {
@@ -62,16 +62,22 @@ const GUIDE_BY_STEP: Record<string, HumanInterventionGuide> = {
     followUp: 'Chạy lại analyze-contract, sau đó cập nhật flow và implementation theo contract đã chốt.',
   },
   'map-feature-flow': {
-    fixAt: 'Vẽ lại entry point, transition giữa layer, callback/error state và edge case trong cả JSON lẫn Mermaid để flow khớp hành vi mong muốn.',
-    source: 'FEATURE-FLOW.json / FEATURE-FLOW.mmd',
-    feedback: 'Luồng hiện tại: … . Luồng mong muốn từ điểm vào đến kết quả: … . Edge case cần có: … .',
+    fixAt: 'Vẽ lại Surfaces (frontend/backend/SDK/API ngoài) và luồng mã: entry point, transition giữa layer, callback/error state và edge case trong cả JSON lẫn Mermaid.',
+    source: 'FEATURE-SURFACES.json / FEATURE-FLOW.json và các file .mmd',
+    feedback: 'Surfaces hiện tại: … . Surfaces mong muốn: … . Luồng mã từ điểm vào đến kết quả: … . Edge case cần có: … .',
     followUp: 'Chạy lại map-feature-flow trước implement để code không đi theo flow cũ.',
+  },
+  'package-mission': {
+    fixAt: 'Bổ sung heading còn thiếu trong MISSION.md (AC, Tasks, UI spec, Flow). Không implement ở step này.',
+    source: 'MISSION.md',
+    feedback: 'Pack còn thiếu: … . Hãy điền MISSION.md trước khi Start implement.',
+    followUp: 'Chạy lại package-mission rồi Start implement khi completeness chips đều đủ.',
   },
   implement: {
     fixAt: 'Sửa source code tại hành vi tái hiện được, bổ sung/điều chỉnh test liên quan và cập nhật implementation summary; chỉ đổi contract nếu contract mới là nguồn sai.',
     source: 'Source code + IMPLEMENTATION-SUMMARY.md',
     feedback: 'Bug hiện tại: … . Kết quả mong muốn: … . Cách tái hiện/AC: … . Giữ contract đã chốt: … .',
-    followUp: 'Rerun implement; sau đó chạy lại cohesion-review và system-test.',
+    followUp: 'Rerun implement; sau đó chạy resolve-bugs nếu còn lệch so với pack.',
   },
   'implementation-context': {
     fixAt: 'Cập nhật Planned Versus Actual, Implemented Behavior, traceability và remaining risks để phản ánh đúng code đã merge vào branch.',
@@ -91,6 +97,12 @@ const GUIDE_BY_STEP: Record<string, HumanInterventionGuide> = {
     feedback: 'Lệnh/kiểm tra fail: … . Kết quả hiện tại: … . Kết quả mong muốn: … . Log hoặc bước tái hiện: … .',
     followUp: 'Sửa nguyên nhân ở implement/contract, sau đó rerun system-test.',
   },
+  'resolve-bugs': {
+    fixAt: 'Nhập tất cả bug tại step này; agent tự truy vết về code và artifact sở hữu, sửa và chạy regression test.',
+    source: 'Source code + BUG-FIX-LOG.md',
+    feedback: 'Hiện tại: … . Mong muốn: … . Cách tái hiện: … . Log/ảnh/file liên quan: … .',
+    followUp: 'Chưa hài lòng thì Reject kèm thông tin mới; hài lòng thì Approve để step kế tiếp đồng bộ docs và mở PR.',
+  },
   'open-pr': {
     fixAt: 'Kiểm tra head/base branch, PR URL và evidence test; sửa branch hoặc mở lại PR đúng target rồi cập nhật record ship.',
     source: 'PR-LINK.md',
@@ -103,11 +115,11 @@ const GUIDE_BY_STEP: Record<string, HumanInterventionGuide> = {
     feedback: 'PR cần được xử lý như sau: … . Trạng thái merge thực tế: … .',
     followUp: 'Đây là human gate: review/merge PR theo policy, rồi xác nhận lại step. Agent không tự merge branch mặc định.',
   },
-  'project-sync': {
-    fixAt: 'Cập nhật kiến thức Reality sau merge: behavior mới, contract thay đổi và evidence; không chỉnh charter Intent hoặc conventions tại đây.',
-    source: 'PROJECT-UPDATE.md',
-    feedback: 'Sau merge cần cập nhật Reality: … . Không thay đổi charter Intent hoặc conventions: … .',
-    followUp: 'Chạy lại project-sync sau khi merge đã được xác minh.',
+  'ship': {
+    fixAt: 'Mở đúng một PR feature/$EPIC, chờ human merge trên GitHub, rồi cập nhật Reality (không sửa charter).',
+    source: 'PR-LINK.md + PROJECT-UPDATE.md',
+    feedback: 'PR cần trỏ từ branch … vào … . Sau merge cần cập nhật Reality: … .',
+    followUp: 'Merge trên GitHub rồi chạy lại ship để ghi PROJECT-UPDATE.md.',
   },
 };
 

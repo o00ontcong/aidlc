@@ -171,7 +171,11 @@ export function readEpicAlignment(epicDir: string): EpicAlignment | undefined {
 
 export function readEpicShip(epicDir: string, pipeline: string | null): EpicShipInfo | undefined {
   if (!pipeline || pipeline.includes('work-package')) return undefined;
-  if (pipeline !== 'cohesive-feature' && !pipeline.startsWith('cohesive-feature')) {
+  if (
+    pipeline !== 'cohesive-feature' && !pipeline.startsWith('cohesive-feature')
+    && pipeline !== 'feature-implement' && !pipeline.startsWith('feature-implement')
+    && pipeline !== 'feature-spike' && !pipeline.startsWith('feature-spike')
+  ) {
     // Still allow PR-LINK.md on feature-like pipelines.
     if (!pipeline.includes('feature')) return undefined;
   }

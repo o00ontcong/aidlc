@@ -221,6 +221,47 @@ export function CardNote({ children }: { children: ReactNode }) {
 
 export const Spacer = () => <div style={{ flex: 1 }} />;
 
+/** Expand/collapse control — label always names the action, never an icon alone. */
+export function DisclosureBtn({
+  open,
+  onClick,
+  expandLabel = 'Mở rộng',
+  collapseLabel = 'Thu gọn',
+  title,
+  compact,
+  style,
+}: {
+  open: boolean;
+  onClick: () => void;
+  expandLabel?: string;
+  collapseLabel?: string;
+  title?: string;
+  compact?: boolean;
+  style?: CSSProperties;
+}) {
+  const label = open ? collapseLabel : expandLabel;
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      title={title ?? label}
+      onClick={onClick}
+      style={{
+        cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+        border: '1px solid var(--bd)', borderRadius: 6,
+        background: 'transparent', color: 'var(--txt2)',
+        font: 'inherit', fontSize: compact ? 10.5 : 11,
+        padding: compact ? '3px 7px' : '4px 8px',
+        whiteSpace: 'nowrap', flex: 'none',
+        ...style,
+      }}
+    >
+      <span aria-hidden style={{ fontSize: 10, lineHeight: 1 }}>{open ? '▾' : '▸'}</span>
+      {label}
+    </button>
+  );
+}
+
 /* dc.html:792 / :837 — 11px uppercase .08em · :927/:941 — 10.5px uppercase .09em */
 export function SectionLabel({
   children, fs = 11, tracking = '.08em', color = 'var(--txt3)',

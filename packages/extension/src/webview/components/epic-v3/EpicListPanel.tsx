@@ -7,10 +7,12 @@
  * Three width states (§6.1): open 316px · rail 46px · open+search 316px.
  */
 
-import type { DragEvent } from 'react';
+import type { CSSProperties, DragEvent } from 'react';
 import type { EpicFilter, EpicSummary } from '@/lib/types';
 import { EPIC_DND_MIME } from '../EpicCard';
 import { FILTER_LABEL, ROW_DOT } from './adapt';
+import { DisclosureBtn } from './primitives';
+import { pipelineChipLabel } from './three-pipeline';
 
 const FILTER_ORDER: EpicFilter[] = ['all', 'in_progress', 'pending', 'done', 'failed'];
 
@@ -39,6 +41,7 @@ export interface EpicListPanelProps {
   onToggleCollapsed: () => void;
   onToggleTools: () => void;
   onResetFilters: () => void;
+  onMigrate: () => void;
   onNewEpic: () => void;
   onAutonomousDelivery: () => void;
   onDragStart: (id: string) => void;
@@ -86,14 +89,17 @@ function Rail(p: EpicListPanelProps) {
       <button
         type="button"
         onClick={p.onToggleCollapsed}
-        title="Mở danh sách epic"
+        aria-expanded={false}
+        title="Mở rộng danh sách epic"
         style={{
-          cursor: 'pointer', width: 26, height: 26, borderRadius: 6, border: '1px solid var(--bd)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11,
-          color: 'var(--txt2)', background: 'transparent', flex: 'none',
+          cursor: 'pointer', width: 32, minHeight: 52, borderRadius: 6, border: '1px solid var(--bd)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          gap: 2, fontSize: 10, color: 'var(--txt2)', background: 'transparent', flex: 'none',
+          fontFamily: 'inherit', lineHeight: 1.15, padding: '6px 2px',
         }}
       >
-        ›
+        <span aria-hidden>▸</span>
+        <span>Mở</span>
       </button>
       <div style={{ width: 1, height: 6, flex: 'none' }} />
       {p.visible.map((e) => {
@@ -145,11 +151,7 @@ function OpenList(p: EpicListPanelProps) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div
-            onClick={p.onToggleTools}
-            style={{ cursor: 'pointer', flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <div style={{ fontSize: 10, color: 'var(--txt3)' }}>{p.toolsOpen ? '▾' : '▸'}</div>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
             <div
               style={{
                 fontSize: 10.5, letterSpacing: '.09em', textTransform: 'uppercase',
@@ -172,8 +174,22 @@ function OpenList(p: EpicListPanelProps) {
           </div>
           <button
             type="button"
+            onClick={p.onMigrate}
+            title="Đồng bộ epic cũ với cấu trúc Cohesive Delivery mới nhất"
+            style={{
+              cursor: 'pointer', height: 26, padding: '0 9px', borderRadius: 6,
+              border: '1px solid var(--acc-bd)', background: 'var(--acc-bg)',
+              color: 'var(--acc-txt)', fontSize: 10.5, fontWeight: 600,
+              whiteSpace: 'nowrap', flex: 'none',
+            }}
+          >
+            Migrate
+          </button>
+          <button
+            type="button"
             onClick={p.onToggleTools}
-            title="Tìm & lọc epic"
+            aria-expanded={p.toolsOpen}
+            title={p.toolsOpen ? 'Ẩn ô tìm và bộ lọc' : 'Mở ô tìm và bộ lọc epic'}
             style={iconBtn}
           >
             ⌕
@@ -181,7 +197,8 @@ function OpenList(p: EpicListPanelProps) {
           <button
             type="button"
             onClick={p.onToggleCollapsed}
-            title="Thu gọn danh sách"
+            aria-expanded
+            title="Thu hẹp danh sách epic thành thanh icon"
             style={iconBtn}
           >
             ‹
@@ -326,7 +343,7 @@ function OpenList(p: EpicListPanelProps) {
           <button
             type="button"
             onClick={p.onAutonomousDelivery}
-            title="Start Autonomous Delivery"
+            title="Autonomous Delivery: tạo epic mới và để provider chạy đến human gate. Không phải Start epic đang chọn."
             style={{
               cursor: 'pointer', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--bd)',
               color: 'var(--txt2)', fontSize: 11.5, background: 'transparent', fontFamily: 'inherit',
@@ -376,10 +393,8 @@ function Section({
       }}
     >
       <div
-        onClick={onToggle}
-        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}
       >
-        <div style={{ fontSize: 10, color: 'var(--txt3)' }}>{open ? '▾' : '▸'}</div>
         <div
           style={{
             fontSize: 10, letterSpacing: '.09em', textTransform: 'uppercase',
@@ -389,6 +404,14 @@ function Section({
           {label}
         </div>
         <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>{count}</div>
+        <DisclosureBtn
+          open={open}
+          compact
+          expandLabel="Mở rộng"
+          collapseLabel="Thu gọn"
+          title={open ? `Thu gọn ${label}` : `Mở rộng ${label}`}
+          onClick={onToggle}
+        />
       </div>
       {open && <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</div>}
     </div>
@@ -426,6 +449,24 @@ function Row({ epic, p }: { epic: EpicSummary; p: EpicListPanelProps }) {
     >
       <div style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flex: 'none' }} />
       <div
+        className="v3-mono"
+        style={{ fontSize: 10.5, color: 'var(--txt3)', flex: 'none', whiteSpace: 'nowrap' }}
+      >
+        {epic.id}
+      </div>
+      {pipelineChipLabel(epic.pipeline) && (
+        <div
+          className="v3-mono"
+          title={pipelineChipLabel(epic.pipeline)!}
+          style={{
+            fontSize: 9, color: 'var(--txt3)', flex: 'none', maxWidth: 92,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}
+        >
+          {pipelineChipLabel(epic.pipeline)}
+        </div>
+      )}
+      <div
         style={{
           flex: 1, minWidth: 0, fontSize: 11.5, color: 'var(--txt)',
           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -452,7 +493,7 @@ function Row({ epic, p }: { epic: EpicSummary; p: EpicListPanelProps }) {
           e.stopPropagation();
           p.onToggleFollow(epic.id);
         }}
-        title={isFollowed ? 'Unfollow epic' : 'Follow epic'}
+        title={isFollowed ? 'Bỏ theo dõi — epic này sẽ xuống nhóm Không theo dõi' : 'Theo dõi epic — ghim lên nhóm Đang theo dõi'}
         style={{
           cursor: 'pointer', fontSize: 11, flex: 'none',
           color: isFollowed ? 'var(--acc-txt)' : 'var(--track)',

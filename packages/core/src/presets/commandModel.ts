@@ -271,7 +271,8 @@ Claude — but still follow the structural contract below.
 ## 4. Structural contract (always applies, every profile)
 
 1. Read \`${epicRoot}/<epic>/state.json\` for prior feedback/history and address
-   any rejection reasons in this revision.
+   any rejection reasons or \`bug_report\` rounds in this revision. Previously
+   reported bugs remain in scope.
 2. Read \`${epicRoot}/<epic>/inputs.json\` for capability inputs.
 3. Write your output to \`${epicRoot}/<epic>/artifacts/<FILE>\` where \`<FILE>\`
    is the step's declared artifact, or the phase's conventional file. The AIDLC

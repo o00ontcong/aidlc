@@ -68,6 +68,15 @@ describe('providers.yaml v2', () => {
     expect(fs.existsSync(store.file())).toBe(true);
   });
 
+  it('persists a provider default model independently of phase mappings', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-prov-default-model-'));
+    roots.push(root);
+    const store = new ModelProviderConfigStore(root);
+    store.setProviderModel('opencode', 'silvertiger_tech/glm-5');
+    expect(store.load()?.providers.opencode.model).toBe('silvertiger_tech/glm-5');
+    expect(store.modelFor('opencode')).toBe('silvertiger_tech/glm-5');
+  });
+
   it('allows default provider before Apply (enabled=false)', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-prov-default-'));
     roots.push(root);

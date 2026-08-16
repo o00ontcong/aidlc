@@ -177,7 +177,9 @@ For **Existing Project Autonomous Delivery**, use **Autonomous Delivery** beside
 click **Mark step done** between its phases. **Resume interrupted delivery** opens
 that same master command again and resumes from the saved checkpoint rather than
 restarting approved work. In Autonomous Delivery, validated `human_review` gates
-are approved automatically; Claude pauses only for a real unresolved question or
+are approved automatically except `resolve-bugs`: Claude pauses there so you can
+submit/test bug fixes and explicitly Approve before accepted changes are synchronized
+into step-owned Markdown. Claude can also pause for a real unresolved question or
 external blocker. The extension does not launch a global `aidlc cohesive` process
 in the background.
 

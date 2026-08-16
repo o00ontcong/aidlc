@@ -36,6 +36,32 @@ function assertNoIntentEdits(workspaceRoot) {
   return problems;
 }
 
+function assertCatalogAppliedImpact(workspaceRoot, runId) {
+  const impactFile = path.join(artifactDir(workspaceRoot, runId), 'FEATURE-IMPACT.json');
+  if (!exists(impactFile)) return [];
+  const catalogFile = path.join(workspaceRoot, 'docs', 'project', 'context', 'visualization', 'FEATURE-CATALOG.json');
+  if (!exists(catalogFile)) return ['FEATURE-CATALOG.json is missing after sync; FEATURE-IMPACT could not be applied'];
+  let impact;
+  let catalog;
+  try { impact = readJson(impactFile); } catch { return ['FEATURE-IMPACT.json is not valid JSON']; }
+  try { catalog = readJson(catalogFile); } catch { return ['FEATURE-CATALOG.json is not valid JSON']; }
+  const ids = new Set((catalog.features ?? []).map((feature) => feature.id).filter((id) => typeof id === 'string'));
+  const problems = [];
+  for (const feature of impact.features ?? []) {
+    if (!feature || typeof feature.id !== 'string') continue;
+    if (feature.change === 'add' && !ids.has(feature.id)) {
+      problems.push(`project-sync did not add catalog feature ${feature.id}`);
+    }
+    if (feature.change === 'delete' && ids.has(feature.id)) {
+      problems.push(`project-sync did not remove catalog feature ${feature.id}`);
+    }
+    if (feature.change === 'modify' && !ids.has(feature.id)) {
+      problems.push(`project-sync dropped modified catalog feature ${feature.id}`);
+    }
+  }
+  return problems;
+}
+
 function assertMergedBeforeSync(workspaceRoot, runId) {
   const prFile = path.join(artifactDir(workspaceRoot, runId), 'PR-LINK.md');
   if (!exists(prFile)) {
@@ -58,6 +84,7 @@ export default async function projectContext(ctx) {
       const problems = [
         ...assertMergedBeforeSync(ctx.workspaceRoot, ctx.state.runId),
         ...assertNoIntentEdits(ctx.workspaceRoot),
+        ...assertCatalogAppliedImpact(ctx.workspaceRoot, ctx.state.runId),
       ];
       // Project sync republishes canonical Reality, so enforce the same
       // manifest integrity contract as publish-context rather than treating
@@ -122,6 +149,22 @@ export default async function projectContext(ctx) {
       const declared = manifest.artifacts?.[name]?.toLowerCase?.();
       if (actual !== declared) problems.push(`${name} hash mismatch (${declared ?? 'missing'} != ${actual})`);
     }
+    const phaseName = currentStepName(ctx).toLowerCase();
+    if (phaseName === 'publish-context' || phaseName.includes('publish-context')) {
+      const charterFile = path.join(ctx.workspaceRoot, 'docs', 'project', 'charter', 'CHARTER.json');
+      if (!exists(charterFile)) {
+        problems.push('CHARTER.json is missing; cannot validate folded project-rules-sync');
+      } else {
+        for (const rel of ['CLAUDE.md', 'AGENTS.md', path.join('.cursor', 'rules', 'aidlc-charter.mdc')]) {
+          const file = path.join(ctx.workspaceRoot, rel);
+          if (!exists(file)) problems.push(`${rel} is missing`);
+          else if (!/aidlc:charter start/i.test(readText(file)) || !/aidlc:charter end/i.test(readText(file))) {
+            problems.push(`${rel} is missing aidlc:charter markers`);
+          }
+        }
+      }
+    }
+
     if (problems.length) return reject(`Project context is not publishable:\n- ${problems.join('\n- ')}`);
     return pass(`Project context revision ${manifest.revision} is internally consistent and evidence-reviewed.`);
   } catch (error) {

@@ -62,6 +62,30 @@ function epicArtifacts(root: string, epic = 'FEAT-1') {
   return dir;
 }
 
+function writeFeatureCatalog(root: string, ids = ['auth', 'export']) {
+  const dir = path.join(root, 'docs', 'project', 'context', 'visualization');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'FEATURE-CATALOG.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    features: ids.map((id) => ({
+      id, name: id, summary: id, confidence: 'high', evidence: [`src/${id}.ts`],
+    })),
+  }, null, 2)}\n`);
+}
+
+function writeFeatureImpact(artifacts: string, epic = 'FEAT-1') {
+  fs.writeFileSync(path.join(artifacts, 'FEATURE-IMPACT.json'), `${JSON.stringify({
+    schemaVersion: 1,
+    epicId: epic,
+    features: [
+      { id: 'payments', name: 'Payments', change: 'add', summary: 'Checkout' },
+      { id: 'export', name: 'Export', change: 'modify', summary: 'CSV' },
+      { id: 'auth', name: 'Authentication', change: 'unchanged' },
+    ],
+  }, null, 2)}\n`);
+  fs.writeFileSync(path.join(artifacts, 'FEATURE-IMPACT.mmd'), 'flowchart TD\n  app["APP"] --> payments["Payments"]\n');
+}
+
 describe('alignmentArtifacts + EpicScaffold seed', () => {
   it('builds ALIGNMENT.md with Serves Goals and narrower constraints', () => {
     const md = buildAlignmentSeedFile({
@@ -124,22 +148,20 @@ describe('alignmentArtifacts + EpicScaffold seed', () => {
 });
 
 describe('ship phase placement', () => {
-  it('places open-pr / await-merge on each independent cohesive-feature epic after system-test', () => {
-    const feature = getBuiltinWorkflowByPipelineId('cohesive-feature')!;
+  it('places bug resolution before ship on feature-implement', () => {
+    const feature = getBuiltinWorkflowByPipelineId('feature-implement')!;
     const ids = feature.phases.map((p) => p.id);
-    expect(ids.indexOf('open-pr')).toBe(ids.indexOf('system-test') + 1);
-    expect(ids.indexOf('await-merge')).toBe(ids.indexOf('open-pr') + 1);
-    expect(ids.indexOf('project-sync')).toBe(ids.indexOf('await-merge') + 1);
+    expect(ids.indexOf('resolve-bugs')).toBe(ids.indexOf('implement') + 1);
+    expect(ids.indexOf('ship')).toBe(ids.indexOf('resolve-bugs') + 1);
 
-    const openPr = feature.phases.find((p) => p.id === 'open-pr')!;
-    expect(openPr.dependsOn).toEqual(['system-test']);
-    expect(openPr.autoReviewRunner).toBe('.aidlc/validators/ship.mjs');
-
-    const sync = feature.phases.find((p) => p.id === 'project-sync')!;
-    expect(sync.dependsOn).toEqual(['await-merge']);
+    const ship = feature.phases.find((p) => p.id === 'ship')!;
+    expect(ship.dependsOn).toEqual(['resolve-bugs']);
+    expect(ship.autoReviewRunner).toBe('.aidlc/validators/ship.mjs');
+    expect(ship.humanReview).toBe(false);
 
     const bundle = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
-    expect(bundle.primaryPhases!.some((p) => p.id === 'open-pr')).toBe(true);
+    expect(bundle.primaryPhases!.some((p) => p.id === 'ship')).toBe(true);
+    expect(bundle.additionalPipelines!.some((p) => p.id === 'feature-spike')).toBe(true);
     expect(bundle.additionalPipelines!.some((p) => p.id === 'cohesive-work-package')).toBe(false);
   });
 });
@@ -230,8 +252,29 @@ describe('charter-alignment.mjs', () => {
       path.join(artifacts, 'PLAN.md'),
       '## Charter Conformance\n| INV-1 | respected via ownedPaths |\n\n## Shared Contract Impact\nNone\n',
     );
+    writeFeatureCatalog(root);
+    writeFeatureImpact(artifacts);
     const v2 = await runner(ctx('plan'));
     expect(v2.decision).toBe('pass');
+  });
+
+  it('plan phase requires a feature-tree impact graph against the catalog', async () => {
+    writeCharter(root);
+    const artifacts = epicArtifacts(root);
+    fs.writeFileSync(path.join(artifacts, 'ALIGNMENT.md'), '## Serves Goals\n- G-1\n\n## Feature Contribution\nX\n');
+    fs.writeFileSync(path.join(artifacts, 'SPEC.md'), '## Functional Requirements\n- FEAT-1-FR01 Serves: G-1\n');
+    fs.writeFileSync(
+      path.join(artifacts, 'PLAN.md'),
+      '## Charter Conformance\nINV-1 ok\n\n## Shared Contract Impact\nNone\n',
+    );
+    const missing = await runner(ctx('plan'));
+    expect(missing.decision).toBe('reject');
+    expect(missing.reason).toMatch(/FEATURE-CATALOG|FEATURE-IMPACT/);
+
+    writeFeatureCatalog(root);
+    writeFeatureImpact(artifacts, 'FEAT-1');
+    const v = await runner(ctx('plan'));
+    expect(v.decision).toBe('pass');
   });
 
   it('rejects forbidden tech in PLAN without approved VR', async () => {

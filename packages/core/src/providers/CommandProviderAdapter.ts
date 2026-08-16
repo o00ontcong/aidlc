@@ -43,10 +43,14 @@ const claudeAdapter: CommandProviderAdapter = {
   renderCommandFile(spec, mappedModel) {
     return renderClaudeCommandFile(spec, mappedModel);
   },
-  buildOneShotInvocation({ slashOrPrompt, cliBinary }) {
+  buildOneShotInvocation({ slashOrPrompt, mappedModel, cliBinary }) {
     const binary = cliBinary?.trim() || this.cliBinary;
-    const oneShot = `${binary} ${shellQuote(slashOrPrompt)}`;
-    return { argv: [binary, slashOrPrompt], shellOneLiner: oneShot };
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    const oneShot = `${binary}${modelFlag} ${shellQuote(slashOrPrompt)}`;
+    return {
+      argv: mappedModel ? [binary, '--model', mappedModel, slashOrPrompt] : [binary, slashOrPrompt],
+      shellOneLiner: oneShot,
+    };
   },
 };
 

@@ -17,7 +17,7 @@ export const SIDEBAR_STATE: SidebarState = {
   ],
   slashCommands: [],
   builtinTemplates: [
-    { id: 'cohesive-feature', name: 'Cohesive Feature', description: 'End-to-end feature delivery' },
+    { id: 'feature-implement', name: 'Feature Implement', description: 'Implement from MISSION.md' },
   ],
   projectTemplates: [],
   activeRuns: [],

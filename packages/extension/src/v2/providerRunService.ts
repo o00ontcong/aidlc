@@ -2,17 +2,21 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { getCommandProviderAdapter } from '@aidlc/core';
+import { getCommandProviderAdapter, assertImplementPackReady } from '@aidlc/core';
 
 import { syncBuiltinPipelineCommands } from './presetWizards';
-import { getProviderConfigStore } from './providerConfig';
+import { availableModelsForProvider, getProviderConfigStore } from './providerConfig';
 import {
   buildCodexRunPrompt,
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
+  isBugResolutionCommand,
+  isImplementStartCommand,
   loadContextReviewFixFeedback,
+  persistBugReportInput,
+  resolveRunnableModel,
   terminalNameForProvider,
 } from './providerRunLogic';
 import {
@@ -28,6 +32,7 @@ export {
   buildTaskPrompt,
   canonicalModelForSlash,
   loadContextReviewFixFeedback,
+  resolveRunnableModel,
   slashCommandName,
   terminalNameForProvider,
 } from './providerRunLogic';
@@ -36,6 +41,29 @@ const TERMINAL_ENV: Record<string, string> = {
   DISABLE_AUTO_UPDATE: 'true',
   DISABLE_UPDATE_PROMPT: 'true',
 };
+
+function mappedOrFallbackModel(opts: {
+  providerId: string;
+  cli: string;
+  root: string;
+  mappedModel: string | undefined;
+  defaultModel: string | undefined;
+}): string | undefined {
+  const resolved = resolveRunnableModel(
+    opts.mappedModel,
+    opts.defaultModel,
+    (() => {
+      const models = availableModelsForProvider(opts.root, opts.providerId, opts.cli);
+      return models ? new Set(models) : undefined;
+    })(),
+  );
+  if (resolved.fellBack) {
+    void vscode.window.showWarningMessage(
+      `AIDLC: ${opts.mappedModel} is unavailable in ${opts.providerId}; using default model ${resolved.model}.`,
+    );
+  }
+  return resolved.model;
+}
 
 export function ensureCommandFilesForProvider(
   root: string,
@@ -190,9 +218,24 @@ export function runStepWithProvider(opts: {
 
   ensureCommandFilesForProvider(opts.root, opts.extensionPath, providerId);
 
+  if (isImplementStartCommand(opts.slashCommand)) {
+    try {
+      assertImplementPackReady(path.join(opts.root, 'docs', 'epics', opts.runId, 'artifacts'));
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        `AIDLC: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+  }
+
+  const bugResolution = isBugResolutionCommand(opts.slashCommand);
   let effectiveFb = (opts.feedback ?? '').trim();
-  if (!effectiveFb) {
+  if (!effectiveFb && !bugResolution) {
     effectiveFb = loadContextReviewFixFeedback(opts.root) ?? '';
+  }
+  if (bugResolution) {
+    persistBugReportInput(opts.root, opts.runId, effectiveFb);
   }
 
   const taskPrompt = buildTaskPrompt(
@@ -212,7 +255,13 @@ export function runStepWithProvider(opts: {
     : `${taskPrompt}\n\n${markdownOutputLanguageInstruction(language)}`;
 
   const canonicalModel = canonicalModelForSlash(opts.slashCommand);
-  const mappedModel = store.modelFor(providerId, canonicalModel, config);
+  const mappedModel = mappedOrFallbackModel({
+    providerId,
+    cli,
+    root: opts.root,
+    mappedModel: store.modelFor(providerId, canonicalModel, config),
+    defaultModel: store.modelFor(providerId, undefined, config),
+  });
 
   const invocation = adapter.buildOneShotInvocation({
     slashOrPrompt: prompt,
@@ -258,8 +307,14 @@ export function runSlashCommandWithProvider(
   }
 
   const canonicalModel = canonicalModelForSlash(slash);
-  const mappedModel = store.modelFor(id, canonicalModel, config);
   const cli = store.cliFor(id, config);
+  const mappedModel = mappedOrFallbackModel({
+    providerId: id,
+    cli,
+    root,
+    mappedModel: store.modelFor(id, canonicalModel, config),
+    defaultModel: store.modelFor(id, undefined, config),
+  });
   const invocation = adapter.buildOneShotInvocation({
     slashOrPrompt: prompt,
     mappedModel,

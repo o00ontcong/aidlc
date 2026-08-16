@@ -188,6 +188,7 @@ import {
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
+  assertImplementPackReady,
 } from '@aidlc/core';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -257,6 +258,7 @@ import {
   startPipelineRunInlineCommand,
 } from './runCommands';
 import { pickAndReadTextFile } from './pickAndReadTextFile';
+import { pickBugImages, savePastedBugImage } from './pickBugImages';
 import { scaffoldRequirementAnalysis } from './requirementWizard';
 import { missingBundleHtml } from './webviewBundleGuard';
 import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
@@ -376,6 +378,8 @@ interface EpicStepDetailFull {
   /** Host-computed: true when `artifact` exists on disk right now. */
   artifactExists?: boolean;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
+  /** Added by migration from an older Cohesive pipeline. */
+  isNew?: boolean;
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;
   rejectReason?: string;
@@ -445,6 +449,7 @@ interface EpicSummaryUi {
   alignment?: { goals: string[]; status?: 'aligned' | 'variance' | 'stale' };
   ship?: { prUrl?: string; status?: 'open' | 'approved' | 'merged'; head?: string; base?: string };
   reviewDiff?: string;
+  visualizations?: EpicVisualizationsUi;
 }
 
 interface RequirementRunSummary {
@@ -513,7 +518,14 @@ interface WorkspaceState {
 interface ArchitectureNodeUi { id: string; label: string; kind?: string; layer?: string; file?: string; symbol?: string; role?: string; }
 interface ArchitectureEdgeUi { source: string; target: string; label?: string; confidence?: string; }
 interface ArchitectureFeatureUi { id: string; name: string; summary?: string; confidence?: string; evidence?: string[]; entrypoints?: Array<{ label: string; file: string; symbol?: string }>; layers?: string[]; }
-interface ArchitectureFeatureFlowUi { featureId: string; title?: string; nodes: ArchitectureNodeUi[]; edges: ArchitectureEdgeUi[]; mermaid?: string; }
+interface ArchitectureFeatureFlowUi {
+  featureId: string; title?: string; nodes: ArchitectureNodeUi[]; edges: ArchitectureEdgeUi[];
+  mermaid?: string; surfacesMermaid?: string;
+}
+interface EpicFeatureImpactUi { id: string; name: string; change: 'add' | 'modify' | 'delete' | 'unchanged'; summary?: string; }
+interface EpicVisualizationsUi {
+  impactMermaid?: string; surfacesMermaid?: string; flowMermaid?: string; impactFeatures?: EpicFeatureImpactUi[];
+}
 interface ArchitectureExplorerStateUi {
   available: boolean; message?: string; layers: ArchitectureNodeUi[]; edges: ArchitectureEdgeUi[];
   features: ArchitectureFeatureUi[]; structuralNodes: ArchitectureNodeUi[]; structuralEdges: ArchitectureEdgeUi[];
@@ -813,12 +825,14 @@ function readArchitectureExplorer(workspaceRoot: string): ArchitectureExplorerSt
       const flow = readJsonObject(path.join(artifactsDir, 'FEATURE-FLOW.json'));
       if (!flow || typeof flow.featureId !== 'string') continue;
       const mermaidFile = path.join(artifactsDir, 'FEATURE-FLOW.mmd');
+      const surfacesFile = path.join(artifactsDir, 'FEATURE-SURFACES.mmd');
       featureFlows[flow.featureId] = {
         featureId: flow.featureId,
         title: typeof flow.title === 'string' ? flow.title : undefined,
         nodes: jsonObjects(flow.nodes) as unknown as ArchitectureNodeUi[],
         edges: jsonObjects(flow.edges) as unknown as ArchitectureEdgeUi[],
         mermaid: fs.existsSync(mermaidFile) ? fs.readFileSync(mermaidFile, 'utf8') : undefined,
+        surfacesMermaid: fs.existsSync(surfacesFile) ? fs.readFileSync(surfacesFile, 'utf8') : undefined,
       };
     }
   }
@@ -1091,6 +1105,7 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
       artifacts: s.artifacts,
       artifactExists: s.artifactExists,
       status: s.status,
+      isNew: s.isNew,
       runStatus: s.runStatus,
       isCurrentRunStep: s.isCurrentRunStep,
       rejectReason: s.rejectReason,
@@ -1136,7 +1151,48 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     alignment: e.alignment,
     ship: e.ship,
     reviewDiff: e.reviewDiff,
+    visualizations: readEpicVisualizations(epicDir),
   };
+}
+
+function readOptionalText(file: string): string | undefined {
+  try {
+    if (!fs.existsSync(file)) return undefined;
+    const text = fs.readFileSync(file, 'utf8').trim();
+    return text || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readEpicVisualizations(epicDir: string): EpicVisualizationsUi | undefined {
+  const artifacts = path.join(epicDir, 'artifacts');
+  const impact = readJsonObject(path.join(artifacts, 'FEATURE-IMPACT.json'));
+  const changes = new Set(['add', 'modify', 'delete', 'unchanged']);
+  const impactFeatures = Array.isArray(impact?.features)
+    ? impact.features.flatMap((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+      const feature = item as Record<string, unknown>;
+      if (typeof feature.id !== 'string' || typeof feature.name !== 'string') return [];
+      if (typeof feature.change !== 'string' || !changes.has(feature.change)) return [];
+      return [{
+        id: feature.id,
+        name: feature.name,
+        change: feature.change as EpicFeatureImpactUi['change'],
+        summary: typeof feature.summary === 'string' ? feature.summary : undefined,
+      }];
+    })
+    : undefined;
+  const visualizations: EpicVisualizationsUi = {
+    impactMermaid: readOptionalText(path.join(artifacts, 'FEATURE-IMPACT.mmd')),
+    surfacesMermaid: readOptionalText(path.join(artifacts, 'FEATURE-SURFACES.mmd')),
+    flowMermaid: readOptionalText(path.join(artifacts, 'FEATURE-FLOW.mmd')),
+    impactFeatures: impactFeatures?.length ? impactFeatures : undefined,
+  };
+  if (!visualizations.impactMermaid && !visualizations.surfacesMermaid && !visualizations.flowMermaid && !visualizations.impactFeatures) {
+    return undefined;
+  }
+  return visualizations;
 }
 
 function extractSkillIds(a: Record<string, unknown>): string[] {
@@ -1958,6 +2014,10 @@ export class WorkspaceWebview {
       }
       case 'savePreset':   await vscode.commands.executeCommand('aidlc.savePreset');    return;
       case 'startEpic':    await vscode.commands.executeCommand('aidlc.startEpic');     return;
+      case 'migrateEpics':
+        await vscode.commands.executeCommand('aidlc.migrateEpics');
+        this.refresh();
+        return;
       case 'startAutonomousDelivery':
         await startAutonomousDeliveryCommand(autonomousDeliveryOutput);
         return;
@@ -2309,8 +2369,8 @@ export class WorkspaceWebview {
           epicId: epic.id,
         })), { placeHolder: 'Choose the feature whose flow you want to generate.' });
         if (!picked) { return; }
-        runSlashCommandInProvider(`/cohesive-feature-map-feature-flow ${picked.epicId}`, root, this.extensionUri.fsPath);
-        void vscode.window.showInformationMessage(`AIDLC started Feature Flow mapping for ${picked.epicId}. The Architecture tab refreshes when the artifacts are written.`);
+        runSlashCommandInProvider(`/feature-spike-package-mission ${picked.epicId}`, root, this.extensionUri.fsPath);
+        void vscode.window.showInformationMessage(`AIDLC started packaging MISSION.md (including Flow) for ${picked.epicId}.`);
         return;
       }
       case 'openPath': {
@@ -2668,6 +2728,34 @@ export class WorkspaceWebview {
         void this.panel.webview.postMessage({ type: 'pickAndReadFile:reply', ...reply });
         return;
       }
+      case 'pickBugImages': {
+        const requestId = String(msg.requestId ?? '');
+        const runId = String(msg.runId ?? '');
+        const remaining = typeof msg.remaining === 'number' ? msg.remaining : undefined;
+        if (!requestId || !runId) { return; }
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const reply = await pickBugImages({ requestId, root, runId, remaining });
+        void this.panel.webview.postMessage({ type: 'pickBugImages:reply', ...reply });
+        return;
+      }
+      case 'savePastedBugImage': {
+        const requestId = String(msg.requestId ?? '');
+        const runId = String(msg.runId ?? '');
+        if (!requestId || !runId) { return; }
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const reply = await savePastedBugImage({
+          requestId,
+          root,
+          runId,
+          fileName: String(msg.fileName ?? 'paste.png'),
+          mime: String(msg.mime ?? 'image/png'),
+          base64: String(msg.base64 ?? ''),
+        });
+        void this.panel.webview.postMessage({ type: 'savePastedBugImage:reply', ...reply });
+        return;
+      }
       case 'pickFolder': {
         const requestId = String(msg.requestId ?? '');
         if (!requestId) { return; }
@@ -2738,7 +2826,11 @@ export class WorkspaceWebview {
         const epicId = String(msg.epicId ?? '').trim();
         const pipelineId = String(msg.pipelineId ?? '').trim();
         if (!epicId || !pipelineId) { return; }
-        await this.startPipelineRunForEpic(epicId, pipelineId);
+        await this.startPipelineRunForEpic(
+          epicId,
+          pipelineId,
+          typeof msg.missionMd === 'string' ? msg.missionMd : undefined,
+        );
         return;
       }
 
@@ -3936,13 +4028,18 @@ export class WorkspaceWebview {
         // narrower constraints in the durable alignment artifact. Keeping this
         // separate from generic inputs lets the pipeline validate and surface
         // the request before any agent starts work.
-        alignmentSeed: targetKind === 'pipeline' && targetId === 'cohesive-feature'
+        alignmentSeed: targetKind === 'pipeline' && (
+          targetId === 'feature-implement'
+          || targetId === 'feature-spike'
+          || targetId === 'cohesive-feature'
+        )
           ? {
               servesGoals: selectedGoals,
               scope: whatScope,
               featureConstraints,
             }
           : undefined,
+        missionMarkdown: String(draft.missionMd ?? inputs.mission ?? ''),
         charterTemplatesRoot: path.join(
           this.extensionUri.fsPath,
           'templates',
@@ -4422,6 +4519,7 @@ export class WorkspaceWebview {
             'You are an SDLC assistant. Given this agent\'s role, generate a concise markdown artifact template that Claude should fill in when it runs this step.',
             'Use placeholder text and structured sections (headers, tables, checklists) appropriate to the agent\'s deliverable.',
             'Output ONLY the markdown — no explanation, no code fences around the whole response.',
+            markdownOutputLanguageInstruction(resolveDisplayLanguage()),
             '',
             `Agent: ${agentId}`,
             `Description: ${agentDesc}`,
@@ -5054,7 +5152,11 @@ export class WorkspaceWebview {
     });
   }
 
-  private async startPipelineRunForEpic(epicId: string, pipelineId: string): Promise<void> {
+  private async startPipelineRunForEpic(
+    epicId: string,
+    pipelineId: string,
+    missionMd?: string,
+  ): Promise<void> {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { return; }
     const doc = readYaml(root);
@@ -5068,13 +5170,33 @@ export class WorkspaceWebview {
       return;
     }
     const existing = RunStateStore.load(root, epicId);
+    const epic = listEpics(root, doc).find((x) => x.id === epicId);
+    if (missionMd?.trim() && epic) {
+      const dest = path.join(epic.epicDir, 'artifacts', 'MISSION.md');
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(
+        dest,
+        missionMd.endsWith('\n') ? missionMd : `${missionMd}\n`,
+        'utf8',
+      );
+    }
+    if (pipelineId === 'feature-implement' && epic) {
+      try {
+        assertImplementPackReady(path.join(epic.epicDir, 'artifacts'));
+      } catch (err) {
+        void vscode.window.showWarningMessage(
+          `AIDLC: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+    }
     if (existing) {
       void vscode.window.showInformationMessage(
         `Run "${epicId}" already exists (status: ${existing.status}).`,
       );
+      this.refresh();
       return;
     }
-    const epic = listEpics(root, doc).find((x) => x.id === epicId);
     const context: Record<string, string> = { epic: epicId };
     if (epic) {
       try {

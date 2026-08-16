@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 
-import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureFeature, ArchitectureNode, EpicSummary } from '@/lib/types';
+import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureFeature, ArchitectureNode, EpicFeatureImpact, EpicSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 
 type Level = 'overview' | 'features' | 'flow';
@@ -12,16 +12,18 @@ const copy = {
     title: 'Architecture', intro: 'Read the project from its overall shape to a feature, then its code flow.',
     overview: '1. Overview', features: '2. Features', flow: '3. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
     generateProject: 'Generate Overview + Features', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
+    codeFlow: 'Code flow', surfaces: 'Surfaces',
     visualOverview: 'Visual overview', technicalOverview: 'Technical overview', renderVisual: 'Render verified overview',
-    zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom', panHint: 'Drag to pan · scroll to zoom',
+    zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom', panHint: 'Drag to pan · Ctrl + scroll to zoom',
     notStarted: 'Not started', inProgress: 'In progress', done: 'Done',
   },
   vi: {
     title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, đến tính năng, rồi đến luồng mã nguồn.',
     overview: '1. Tổng quan', features: '2. Tính năng', flow: '3. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
     generateProject: 'Tạo Tổng quan + Tính năng', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
+    codeFlow: 'Luồng mã', surfaces: 'Surfaces',
     visualOverview: 'Tổng quan trực quan', technicalOverview: 'Tổng quan kỹ thuật', renderVisual: 'Tạo tổng quan đã kiểm chứng',
-    zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ', panHint: 'Giữ chuột để kéo · lăn chuột để zoom',
+    zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ', panHint: 'Giữ chuột để kéo · Ctrl + lăn chuột để zoom',
     notStarted: 'Chưa làm', inProgress: 'Đang làm', done: 'Đã làm',
   },
 } as const;
@@ -47,29 +49,52 @@ function featureMapDiagram(
   epics: readonly EpicSummary[],
   text: typeof copy.en | typeof copy.vi,
 ): string {
+  const impact = impactByFeatureId(epics);
   const lines = [
     'flowchart TD',
     '  app["APP"]',
   ];
+  const drawn = new Set<string>();
   for (const feature of features) {
+    drawn.add(feature.id);
     const featureId = id(`feature_${feature.id}`);
-    const status = featureDelivery(feature, epics).status;
-    const statusLabel = status === 'done' ? text.done : status === 'in_progress' ? text.inProgress : text.notStarted;
+    const overlay = impact.get(feature.id);
+    const status = overlay?.change ?? featureDelivery(feature, epics).status;
+    const statusLabel = overlay
+      ? overlay.change
+      : status === 'done' ? text.done : status === 'in_progress' ? text.inProgress : text.notStarted;
     lines.push(`  app --> ${featureId}["${label(feature.name)} (${statusLabel})"]`);
-    // Mermaid's class styles can be overridden by the active dark theme.
-    // Give every feature node an explicit style so its delivery state remains visible.
-    const style = status === 'done'
-      ? 'fill:#166534,stroke:#4ade80,color:#f0fdf4'
-      : status === 'in_progress'
-        ? 'fill:#92400e,stroke:#fbbf24,color:#fffbeb'
-        : 'fill:#374151,stroke:#9ca3af,color:#f9fafb';
-    lines.push(`  style ${featureId} ${style}`);
+    lines.push(`  style ${featureId} ${featureStyle(status)}`);
     for (const [index, entry] of (feature.entrypoints ?? []).slice(0, 4).entries()) {
       const participantId = id(`entry_${feature.id}_${index}`);
       lines.push(`  ${featureId} --> ${participantId}["${label(entry.label)}"]`);
     }
   }
+  for (const [featureId, overlay] of impact) {
+    if (drawn.has(featureId) || overlay.change === 'unchanged') continue;
+    const nodeId = id(`feature_${featureId}`);
+    lines.push(`  app --> ${nodeId}["${label(overlay.name)} (${overlay.change})"]`);
+    lines.push(`  style ${nodeId} ${featureStyle(overlay.change)}`);
+  }
   return lines.join('\n');
+}
+
+function impactByFeatureId(epics: readonly EpicSummary[]): Map<string, EpicFeatureImpact> {
+  const map = new Map<string, EpicFeatureImpact>();
+  const ordered = [...epics].sort((left, right) => Number(right.status === 'in_progress') - Number(left.status === 'in_progress'));
+  for (const epic of ordered) {
+    for (const feature of epic.visualizations?.impactFeatures ?? []) {
+      if (!map.has(feature.id) || epic.status === 'in_progress') map.set(feature.id, feature);
+    }
+  }
+  return map;
+}
+
+function featureStyle(status: string): string {
+  if (status === 'add' || status === 'done') return 'fill:#166534,stroke:#4ade80,color:#f0fdf4';
+  if (status === 'modify' || status === 'in_progress') return 'fill:#92400e,stroke:#fbbf24,color:#fffbeb';
+  if (status === 'delete' || status === 'failed') return 'fill:#7f1d1d,stroke:#f87171,color:#fef2f2';
+  return 'fill:#374151,stroke:#9ca3af,color:#f9fafb';
 }
 
 type FeatureDeliveryStatus = 'not_started' | 'in_progress' | 'done';
@@ -109,6 +134,8 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
   const [zoom, setZoom] = useState(100);
   const diagramRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const viewRef = useRef({ x: 0, y: 0 });
   const panRef = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | undefined>(undefined);
   const applyTransform = (nextZoom = zoom) => {
@@ -134,21 +161,27 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
     element.style.maxWidth = 'none';
     applyTransform();
   }, [svg, zoom]);
-  const zoomAtPointer = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const viewport = event.currentTarget;
-    const rect = viewport.getBoundingClientRect();
-    const offsetX = event.clientX - rect.left;
-    const offsetY = event.clientY - rect.top;
-    const nextZoom = Math.max(50, Math.min(250, zoom - event.deltaY * 0.08));
-    if (nextZoom === zoom) return;
-    const ratio = nextZoom / zoom;
-    const view = viewRef.current;
-    view.x = (1 - ratio) * (offsetX - rect.width / 2) + ratio * view.x;
-    view.y = (1 - ratio) * (offsetY - rect.height / 2) + ratio * view.y;
-    applyTransform(nextZoom);
-    setZoom(nextZoom);
-  };
+  useEffect(() => {
+    const viewport = diagramRef.current;
+    if (!viewport) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const current = zoomRef.current;
+      const nextZoom = Math.max(50, Math.min(250, current - event.deltaY * 0.08));
+      if (nextZoom === current) return;
+      const rect = viewport.getBoundingClientRect();
+      const ratio = nextZoom / current;
+      const view = viewRef.current;
+      view.x = (1 - ratio) * (event.clientX - rect.left - rect.width / 2) + ratio * view.x;
+      view.y = (1 - ratio) * (event.clientY - rect.top - rect.height / 2) + ratio * view.y;
+      const canvas = canvasRef.current;
+      if (canvas) canvas.style.transform = `translate(${view.x}px, ${view.y}px) scale(${nextZoom / 100})`;
+      setZoom(nextZoom);
+    };
+    viewport.addEventListener('wheel', onWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', onWheel);
+  }, [svg]);
   const startPan = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const viewport = event.currentTarget;
@@ -180,7 +213,7 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
       <button type="button" title={text.zoomIn} aria-label={text.zoomIn} onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">+</button>
       </div>
     </div>
-    <div ref={diagramRef} onWheel={zoomAtPointer} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-hidden select-none">
+    <div ref={diagramRef} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-hidden select-none">
       <div ref={canvasRef} className="flex min-h-full min-w-full items-center justify-center p-5 will-change-transform [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
     </div>
   </div>;
@@ -195,6 +228,7 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
   const text = copy[language];
   const [level, setLevel] = useState<Level>('overview');
   const [featureId, setFeatureId] = useState<string>();
+  const [flowKind, setFlowKind] = useState<'code' | 'surfaces'>('code');
   const [overviewRenderer, setOverviewRenderer] = useState<'visual' | 'technical'>(architecture.archifyOverviewSvgBase64 ? 'visual' : 'technical');
   useEffect(() => {
     if (architecture.archifyOverviewSvgBase64) setOverviewRenderer('visual');
@@ -203,8 +237,8 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
   const source = useMemo(() => {
     if (level === 'overview') return overviewDiagram(architecture.layers, architecture.edges);
     if (level === 'features') return featureMapDiagram(architecture.features, epics, text);
-    return flow?.mermaid;
-  }, [architecture, epics, flow?.mermaid, level, text]);
+    return flowKind === 'surfaces' ? flow?.surfacesMermaid : flow?.mermaid;
+  }, [architecture, epics, flow?.mermaid, flow?.surfacesMermaid, flowKind, level, text]);
 
   if (!architecture.available) {
     return <div className="rounded-md border border-dashed border-border bg-card p-6"><h1 className="text-lg font-semibold text-foreground">{text.title}</h1><p className="mt-2 text-sm text-muted-foreground">{architecture.message}</p><DiagramActions text={text} /></div>;
@@ -225,6 +259,12 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
       </div>
     )}
     {level === 'flow' && <div className="flex flex-wrap gap-2">{architecture.features.map((feature) => <button key={feature.id} type="button" onClick={() => setFeatureId(feature.id)} className={`rounded-md border px-2.5 py-1 text-xs ${feature.id === featureId ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}>{feature.name}</button>)}</div>}
+    {level === 'flow' && featureId && (
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => setFlowKind('code')} className={tabClass(flowKind === 'code')}>{text.codeFlow}</button>
+        <button type="button" onClick={() => setFlowKind('surfaces')} className={tabClass(flowKind === 'surfaces')}>{text.surfaces}</button>
+      </div>
+    )}
     <section className="min-h-[520px] overflow-hidden rounded-md border border-border bg-card">
       {level === 'overview' && overviewRenderer === 'visual' && architecture.archifyOverviewSvgBase64
         ? <ArchifyOverview svgBase64={architecture.archifyOverviewSvgBase64} title={text.visualOverview} />

@@ -61,6 +61,8 @@ function BasisCard({
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={enabled}
+        title={enabled ? `Thu gọn ${title}` : `Mở rộng ${title}`}
         className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left"
       >
         <div className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded', enabled ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground')}>
@@ -70,6 +72,9 @@ function BasisCard({
           <div className={cn('text-[11px] font-semibold', enabled ? 'text-primary' : 'text-foreground')}>{title}</div>
           <div className="text-[10px] text-muted-foreground">{description}</div>
         </div>
+        <span className={cn('shrink-0 text-[10px] font-medium', enabled ? 'text-primary' : 'text-muted-foreground')}>
+          {enabled ? 'Thu gọn' : 'Mở rộng'}
+        </span>
         {enabled ? <ChevronDown className="h-3.5 w-3.5 text-primary" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
       </button>
       {enabled && (

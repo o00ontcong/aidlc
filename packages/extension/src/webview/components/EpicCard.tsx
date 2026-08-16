@@ -18,6 +18,7 @@ import {
   FolderOpen,
   Github,
   Play,
+  Bug,
   History,
   RefreshCw,
   Zap,
@@ -53,12 +54,18 @@ import { postMessage } from '@/lib/bridge';
 
 function isFeaturePipeline(pipeline: string | null): boolean {
   if (!pipeline) return false;
-  return pipeline === 'cohesive-feature' || pipeline.startsWith('cohesive-feature');
+  return pipeline === 'cohesive-feature' || pipeline.startsWith('cohesive-feature')
+    || pipeline === 'feature-spike' || pipeline.startsWith('feature-spike')
+    || pipeline === 'feature-implement' || pipeline.startsWith('feature-implement');
 }
 
 function isPackagePipeline(pipeline: string | null): boolean {
   if (!pipeline) return false;
   return pipeline === 'cohesive-work-package' || pipeline.includes('work-package');
+}
+
+function isBugResolutionStep(step: EpicStepDetailFull | null): boolean {
+  return (step?.stepName ?? step?.agent ?? '').trim().toLowerCase() === 'resolve-bugs';
 }
 
 function isCodeHumanReviewStep(step: EpicStepDetailFull | null): boolean {
@@ -245,9 +252,12 @@ export function EpicCard({
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="rounded p-1 text-muted-foreground hover:bg-accent"
-            aria-label={expanded ? 'Collapse epic' : 'Expand epic'}
+            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-expanded={expanded}
+            aria-label={expanded ? 'Thu gọn epic' : 'Mở rộng epic'}
+            title={expanded ? 'Thu gọn epic' : 'Mở rộng epic'}
           >
+            <span>{expanded ? 'Thu gọn' : 'Mở rộng'}</span>
             <ChevronRight
               className={cn('h-4 w-4 transition-transform', expanded && 'rotate-90')}
             />
@@ -986,6 +996,7 @@ function StepHistory({ step }: { step: EpicStepDetailFull }) {
   const rejectCount = step.rejectCount ?? 0;
   const rerunCount = entries.filter((e) => e.kind === 'rerun').length;
   const annotateCount = entries.filter((e) => e.kind === 'annotate').length;
+  const bugCount = entries.filter((e) => e.kind === 'bug_report').length;
   const lastReject = [...entries].reverse().find((e) => e.kind === 'reject') as
     | (StepHistoryEntry & { kind: 'reject' })
     | undefined;
@@ -993,6 +1004,7 @@ function StepHistory({ step }: { step: EpicStepDetailFull }) {
   const summary = [
     rejectCount > 0 && `rejected ${rejectCount}×`,
     rerunCount > 0 && `rerun ${rerunCount}×`,
+    bugCount > 0 && `bugs ${bugCount}×`,
     annotateCount > 0 && `annotated ${annotateCount}×`,
     !rejectCount && entries.some((e) => e.kind === 'approve') && 'approved',
   ]
@@ -1004,6 +1016,8 @@ function StepHistory({ step }: { step: EpicStepDetailFull }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        title={open ? 'Thu gọn history' : 'Mở rộng history'}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] hover:bg-accent/40"
       >
         {open ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
@@ -1011,6 +1025,7 @@ function StepHistory({ step }: { step: EpicStepDetailFull }) {
         <span className="font-bold uppercase tracking-wider text-muted-foreground">
           History
         </span>
+        <span className="text-muted-foreground">{open ? 'Thu gọn' : 'Mở rộng'}</span>
         <span className="text-muted-foreground/80">· {entries.length} entries</span>
         {summary && <span className="text-muted-foreground/80">· {summary}</span>}
         {lastReject?.reason && !open && (
@@ -1063,6 +1078,8 @@ function HistoryIcon({ kind }: { kind: StepHistoryEntry['kind'] }) {
       return <X className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />;
     case 'rerun':
       return <RefreshCw className="mt-0.5 h-3 w-3 shrink-0 text-warning" />;
+    case 'bug_report':
+      return <Bug className="mt-0.5 h-3 w-3 shrink-0 text-warning" />;
     case 'auto_review':
       return <Bot className="mt-0.5 h-3 w-3 shrink-0 text-info" />;
     case 'approve':
@@ -1087,6 +1104,8 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
       );
     case 'rerun':
       return <span className="font-semibold text-warning">Rerun</span>;
+    case 'bug_report':
+      return <span className="font-semibold text-warning">Bug report</span>;
     case 'auto_review':
       return (
         <span className={cn('font-semibold', entry.decision === 'pass' ? 'text-success' : 'text-destructive')}>
@@ -1115,6 +1134,10 @@ function HistoryBody({ entry }: { entry: StepHistoryEntry }) {
       return entry.feedback ? (
         <div className="font-mono text-muted-foreground">↳ {entry.feedback}</div>
       ) : null;
+    case 'bug_report':
+      return (
+        <div className="font-mono text-foreground/80 whitespace-pre-wrap">↳ {entry.report}</div>
+      );
     case 'auto_review':
       return (
         <div className="font-mono text-foreground/80">
@@ -1285,12 +1308,15 @@ function RunGate({
           <>
             {slashCommand && (() => {
               const hasFeedback = !!focused.feedback;
+              const isBugResolution = isBugResolutionStep(focused);
               const runDisabled = isRunStepDisabled(providerConfig);
-              const runLabel = hasFeedback
-                ? runStepButtonLabel(providerConfig, 'feedback')
-                : hasPreviousAttempt
-                  ? runStepButtonLabel(providerConfig, 'again')
-                  : runStepButtonLabel(providerConfig, 'default');
+              const runLabel = isBugResolution
+                ? 'Nhập bug & chạy agent'
+                : hasFeedback
+                  ? runStepButtonLabel(providerConfig, 'feedback')
+                  : hasPreviousAttempt
+                    ? runStepButtonLabel(providerConfig, 'again')
+                    : runStepButtonLabel(providerConfig, 'default');
               return (
                 <GateButton
                   variant="approve"
@@ -1298,7 +1324,7 @@ function RunGate({
                   title={runDisabled ? runStepDisabledHint() : undefined}
                   onClick={() => {
                     if (runDisabled) { return; }
-                    if (hasFeedback) {
+                    if (isBugResolution || hasFeedback) {
                       setRunOpen(true);
                     } else {
                       postMessage({
@@ -1337,7 +1363,7 @@ function RunGate({
               variant="approve"
               onClick={() => postMessage({ type: 'approveStep', runId: epic.runId!, stepIdx: focusedIdx })}
             >
-              <Check className="h-3 w-3" /> Approve
+              <Check className="h-3 w-3" /> {isBugResolutionStep(focused) ? 'Approve bản sửa' : 'Approve'}
             </GateButton>
             <GateButton
               variant="reject"
@@ -1395,6 +1421,8 @@ function RunGate({
           runId={epic.runId}
           slashCommand={slashCommand}
           carriedFeedback={focused.feedback}
+          mode={isBugResolutionStep(focused) ? 'bug-report' : 'feedback'}
+          previousBugCount={(focused.history ?? []).filter((e) => e.kind === 'bug_report').length}
           onSubmit={(feedback) =>
             postMessage({
               type: 'runStepWithFeedback',

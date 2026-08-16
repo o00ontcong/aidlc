@@ -152,6 +152,23 @@ export class ModelProviderConfigStore {
     return this.save(config);
   }
 
+  /** Set the provider-wide fallback model used when a step mapping is unavailable. */
+  setProviderModel(providerId: string, model: string): CommandProviderConfigV2 {
+    if (!BUILTIN_COMMAND_PROVIDERS[providerId as BuiltinCommandProviderId]) {
+      throw new Error(`Unknown provider: ${providerId}`);
+    }
+    const trimmed = model.trim();
+    if (!trimmed) { throw new Error('Default model must not be empty.'); }
+    const config = this.loadOrDefault();
+    const entry = config.providers[providerId] ?? {
+      enabled: false,
+      cli: BUILTIN_COMMAND_PROVIDERS[providerId as BuiltinCommandProviderId].cli,
+    };
+    entry.model = trimmed;
+    config.providers[providerId] = entry;
+    return this.save(config);
+  }
+
   enableProvider(providerId: string): CommandProviderConfigV2 {
     const config = this.loadOrDefault();
     const entry = config.providers[providerId] ?? {

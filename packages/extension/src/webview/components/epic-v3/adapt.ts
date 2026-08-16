@@ -86,7 +86,7 @@ export function epicTokenLine(epic: EpicSummary): string | null {
 export function stepMeta(step: EpicStepDetailFull): string {
   const parts: string[] = [];
   const isAwaitingUpdate = step.status === 'pending' && (step.history ?? []).length > 0;
-  parts.push(isAwaitingUpdate ? 'awaiting update' : step.runStatus ?? step.status.replace('_', ' '));
+  parts.push(step.isNew ? 'New' : isAwaitingUpdate ? 'awaiting update' : step.runStatus ?? step.status.replace('_', ' '));
   if (step.artifact) {
     const extra = Math.max(0, (step.artifacts?.length ?? 1) - 1);
     const label = `${step.artifact}${extra > 0 ? ` +${extra}` : ''}`;
@@ -103,10 +103,12 @@ export function stepRows(epic: EpicSummary): StepRowVM[] {
     idx,
     name: s.stepName ?? s.agent,
     meta: stepMeta(s),
-    icon: STEP_ICON[s.status],
-    tone: STEP_TONE[s.status],
+    icon: s.isNew ? '+' : STEP_ICON[s.status],
+    tone: s.isNew ? 'var(--acc-txt)' : STEP_TONE[s.status],
     // dc.html step rowBg: active → --acc-bg, failed → --err-bg, else transparent.
-    rowBg: s.status === 'failed'
+    rowBg: s.isNew
+      ? 'var(--acc-bg)'
+      : s.status === 'failed'
       ? 'var(--err-bg)'
       : s.isCurrentRunStep || s.status === 'in_progress'
         ? 'var(--acc-bg)'
@@ -135,7 +137,8 @@ export type FlowNodeEx = Omit<FlowNode, 'kind'> & { kind: FlowKindEx };
 export function flowNodes(epic: EpicSummary): FlowNodeEx[] {
   return epic.stepDetails.map((s) => {
     const kind: FlowKindEx =
-      s.status === 'done' ? 'done'
+      s.isNew ? 'todo'
+        : s.status === 'done' ? 'done'
         : s.status === 'failed' ? 'failed'
           : s.status === 'in_progress' ? 'active'
             : s.stepHasHumanReview ? 'gate'
@@ -323,6 +326,13 @@ export function historyRows(step: EpicStepDetailFull | null): HistoryRowVM[] {
           return {
             at,
             what: `Rerun${e.feedback ? ` · ${e.feedback}` : ''}`,
+            tone: 'var(--warn)',
+            actor: `rev ${e.revision}`,
+          };
+        case 'bug_report':
+          return {
+            at,
+            what: `Bug report · ${e.report}`,
             tone: 'var(--warn)',
             actor: `rev ${e.revision}`,
           };

@@ -10,6 +10,7 @@
 
 import { createRoot } from 'react-dom/client';
 import { EpicsView } from '../src/webview/components/EpicsView';
+import { MockGuide } from './MockGuide';
 import { STATE } from './state';
 import '../src/webview/styles.css';
 
@@ -31,8 +32,11 @@ if (root) {
   root.style.height = '100vh';
   root.style.display = 'flex';
   createRoot(root).render(
-    <div style={{ flex: 1, minWidth: 0, display: 'flex', minHeight: 0 }}>
-      <EpicsView state={STATE} />
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        <EpicsView state={STATE} />
+      </div>
+      <MockGuide />
     </div>,
   );
 }

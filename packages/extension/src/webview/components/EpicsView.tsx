@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EPIC_DND_MIME } from './EpicCard';
-import { StartEpicModal } from './StartEpicModal';
+import { StartEpicModal, type StartEpicDraft } from './StartEpicModal';
 import { CharterBoard } from './CharterBoard';
 import { AutonomousDeliveryModal } from './AutonomousDeliveryModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
@@ -10,6 +10,8 @@ import { EpicListPanel } from './epic-v3/EpicListPanel';
 import { EpicDetail } from './epic-v3/EpicDetail';
 import { MockProvider } from './epic-v3/mock';
 import { Btn } from './epic-v3/primitives';
+import { StartImplementModal, type SpikePackOption } from './epic-v3/StartImplementModal';
+import { SAMPLE_MISSION, isFeatureImplementPipeline } from './epic-v3/three-pipeline';
 
 /** Slice of Epics UI prefs persisted on the extension host (workspaceState). */
 interface PersistedEpicsView {
@@ -61,6 +63,8 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
     () => new Set(seed.followedIds ?? []),
   );
   const [startEpicOpen, setStartEpicOpen] = useState(false);
+  const [startImplementOpen, setStartImplementOpen] = useState(false);
+  const [implementDraft, setImplementDraft] = useState<StartEpicDraft | null>(null);
   const [autonomousDeliveryOpen, setAutonomousDeliveryOpen] = useState(false);
   const [dragEpicId, setDragEpicId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<'follow' | 'no-follow' | null>(null);
@@ -176,6 +180,23 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
     return byId ?? visible[0] ?? null;
   }, [visible, selectedId]);
 
+  const spikePacks: SpikePackOption[] = useMemo(
+    () =>
+      state.epics
+        .filter((epic) => (epic.pipeline ?? '').startsWith('feature-spike') || epic.pipeline === 'feature-spike')
+        .map((epic) => ({
+          id: epic.id,
+          title: epic.title,
+          missionMd: (epic.existingArtifacts ?? []).includes('MISSION.md') ? SAMPLE_MISSION : '',
+        })),
+    [state.epics],
+  );
+
+  const openStartImplement = (draft?: StartEpicDraft | null) => {
+    setImplementDraft(draft ?? null);
+    setStartImplementOpen(true);
+  };
+
   const onSectionDragOver = (section: 'follow' | 'no-follow') => (e: DragEvent) => {
     if (![...e.dataTransfer.types].includes(EPIC_DND_MIME) && dragEpicId === null) {
       return;
@@ -245,6 +266,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           onToggleCollapsed={() => setListCollapsed((v) => !v)}
           onToggleTools={() => setToolsOpen((v) => !v)}
           onResetFilters={() => { onFilterChange('all'); onSearchChange(''); }}
+          onMigrate={() => postMessage({ type: 'migrateEpics' })}
           onNewEpic={() => setStartEpicOpen(true)}
           onAutonomousDelivery={() => setAutonomousDeliveryOpen(true)}
           onDragStart={setDragEpicId}
@@ -265,6 +287,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
                 epic={selected}
                 state={state}
                 onOpenCharter={() => setCharterOpen((v) => !v)}
+                onChoosePack={() => openStartImplement(null)}
               />
             </div>
             {charterOpen && (
@@ -301,8 +324,55 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           isFirstEpic={state.epics.length === 0}
           workspaceName={state.workspaceName}
           charter={state.charter}
-          onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
+          onSubmit={(draft) => {
+            if (draft.target.kind === 'pipeline' && isFeatureImplementPipeline(draft.target.id)) {
+              setStartEpicOpen(false);
+              openStartImplement(draft);
+              return;
+            }
+            postMessage({ type: 'startEpicInline', draft });
+          }}
           onClose={() => setStartEpicOpen(false)}
+        />
+      )}
+      {startImplementOpen && (
+        <StartImplementModal
+          spikeEpics={spikePacks}
+          initialSource={selected && isFeatureImplementPipeline(selected.pipeline) && !implementDraft
+            ? (selected.inputs?.jira ? 'jira' : 'spike')
+            : 'spike'}
+          initialJira={implementDraft ? '' : (selected?.inputs?.jira ?? '')}
+          onStart={(result) => {
+            if (implementDraft) {
+              postMessage({
+                type: 'startEpicInline',
+                draft: {
+                  ...implementDraft,
+                  inputs: {
+                    ...implementDraft.inputs,
+                    spec_source: result.source,
+                    spec_ref: result.specRef,
+                  },
+                  missionMd: result.missionMd,
+                },
+              });
+            } else if (selected) {
+              postMessage({
+                type: 'startPipelineRunForEpic',
+                epicId: selected.id,
+                pipelineId: 'feature-implement',
+                specSource: result.source,
+                specRef: result.specRef,
+                missionMd: result.missionMd,
+              });
+            }
+            setStartImplementOpen(false);
+            setImplementDraft(null);
+          }}
+          onClose={() => {
+            setStartImplementOpen(false);
+            setImplementDraft(null);
+          }}
         />
       )}
       {autonomousDeliveryOpen && (
@@ -405,7 +475,7 @@ function ProjectStrip({ state }: { state: WorkspaceState }) {
       />
       <div style={{ flex: 1 }} />
       <Btn
-        label={`Memory auto-load: ${state.epicMemoryHookEnabled ? 'On' : 'Off'}`}
+        label={`Tự nạp memory: ${state.epicMemoryHookEnabled ? 'Bật' : 'Tắt'}`}
         pad="3px 8px"
         fs={11}
         onClick={() =>
@@ -413,8 +483,8 @@ function ProjectStrip({ state }: { state: WorkspaceState }) {
         }
         title={
           state.epicMemoryHookEnabled
-            ? 'Epic-memory auto-load đang BẬT — prompt nhắc tới epic sẽ tự nạp memory. Click để tắt.'
-            : 'BẬT epic-memory auto-load — hook của Claude Code sẽ chèn memory của epic khi prompt nhắc tới nó.'
+            ? 'Hook Claude Code: khi prompt nhắc tên epic thì tự chèn memory digest. Đây không phải nút Xem memory trong detail. Click để tắt.'
+            : 'Bật hook Claude Code để tự chèn memory digest khi prompt nhắc epic. Khác nút Xem memory trong detail. Click để bật.'
         }
         style={
           state.epicMemoryHookEnabled

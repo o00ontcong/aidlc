@@ -51,12 +51,16 @@ a human answer. Work visibly in this session.
    - Only the top-level run status uses \`completed\`; the top-level epic status
      uses \`done\`.
    - Record every validated output path in that step's \`artifactsProduced\`.
-3. Treat \`human_review: true\` as an **autonomous approval**, not a pause:
-   after the step's declared outputs and auto-review validator pass, record the
-   run step as \`approved\` and continue. Do not create, defer to, or wait for
-   a human review bundle.
-  4. Do not pause merely for a configured human-review or merge gate. At
-   \`await-merge\`, execute only the merge behavior allowed by the checked-in
+3. Treat \`human_review: true\` as an **autonomous approval**, not a pause,
+   except for the Cohesive Delivery phase named \`resolve-bugs\`:
+   - for ordinary phases, after declared outputs and auto-review pass, record
+     the run step as \`approved\` and continue;
+   - for \`resolve-bugs\`, collect the user's bug report, complete fixes and
+     verification, persist \`awaiting_review\`, then stop at that checkpoint.
+     Continue only after the user explicitly approves it in AIDLC. A rejection
+     carries the next bug report/revision back into the same phase.
+4. Do not pause merely for another configured human-review or merge gate. At
+   \`ship\`, execute only the merge behavior allowed by the checked-in
    ship policy; never fabricate an approval, a merge, or a policy exception.
    If that policy requires a human-only merge, ask one explicit question about
    changing the policy rather than treating it as an approval request.
@@ -82,8 +86,8 @@ click "Mark step done" or approve a phase between phases.
 
 1. Read \`.aidlc/deliveries/$ARGUMENTS/request.md\` and
    \`.aidlc/deliveries/$ARGUMENTS/state.json\`.
-2. Read \`.aidlc/workspace.yaml\`, its two Cohesive pipelines
-   (\`project-context\`, \`cohesive-feature\`), and
+2. Read \`.aidlc/workspace.yaml\`, its Cohesive pipelines
+   (\`project-context\`, \`feature-spike\`, \`feature-implement\`), and
    every relevant agent/skill file under \`.claude/\` or \`~/.claude/\`.
 3. Read existing run and epic state before resuming; preserve completed,
    validated work and continue from the first incomplete phase.
@@ -103,8 +107,10 @@ click "Mark step done" or approve a phase between phases.
 ## Execute autonomously
 
 1. Complete every configured project-context phase in dependency order.
-2. Complete the cohesive-feature phases end-to-end: contract, task plan,
-   implementation, validation, test, and the single feature PR/review bundle.
+2. Complete feature-implement from a complete MISSION.md: implement, resolve-bugs,
+   and ship (one feature PR, human merge, then Reality sync).
+   Optionally run feature-spike first to package MISSION.md; spike does not
+   depend_on implement.
 3. This delivery is one independent epic. Do not create or ask the user to
    manage work-package/worker epics, choose a worker count, or wait on an
    internal worker board. You may choose internal task decomposition yourself
@@ -112,10 +118,11 @@ click "Mark step done" or approve a phase between phases.
 4. For every phase, follow the corresponding namespaced command document as
    the authoritative persona, skill, input, output, and acceptance contract.
 5. A phase with \`human_review: true\` is automatically approved once its
-   declared outputs and auto-review validator pass. Persist it as \`approved\`
-   in run state and \`done\` in epic state; do not wait for or create aggregate
-   human review.
-6. Do not stop at \`await-merge\` solely because it is a human gate. Follow the
+   declared outputs and auto-review validator pass, except \`resolve-bugs\`.
+   That phase must remain \`awaiting_review\` until the user has tested the fix
+   and explicitly approves it in AIDLC. Persist ordinary phases as \`approved\`
+   in run state and \`done\` in epic state; do not create aggregate review.
+6. Do not stop at \`ship\` solely because merge is a human GitHub action. Follow the
    checked-in ship policy exactly; if it allows an agent merge, merge and verify
    it. If it forbids agent merge, ask one explicit policy question — never
    invent a human approval or a merged status.
@@ -174,7 +181,7 @@ export function writeAutonomousRequest(workspaceRoot: string, request: DeliveryR
 /** Throw a clear error unless both Cohesive Delivery pipelines are installed in this workspace. */
 export function ensureCohesiveBundleInstalled(workspaceRoot: string): void {
   const ids = new Set(WorkspaceLoader.load(workspaceRoot).config.pipelines.map((pipeline) => pipeline.id));
-  for (const id of ['project-context', 'cohesive-feature']) {
+  for (const id of ['project-context', 'feature-implement']) {
     if (!ids.has(id)) throw new Error(`Cohesive Delivery is not installed (missing pipeline ${id}).`);
   }
 }

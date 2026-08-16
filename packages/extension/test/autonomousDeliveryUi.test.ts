@@ -9,8 +9,8 @@ import {
 import type { AutonomousDeliverySummary } from '../src/webview/lib/types';
 
 const complete = [
-  { id: 'project-context', steps: Array(8) },
-  { id: 'cohesive-feature', steps: Array(14) },
+  { id: 'project-context', steps: Array(2) },
+  { id: 'feature-implement', steps: Array(3) },
 ];
 
 describe('Autonomous Delivery UI', () => {
@@ -36,13 +36,13 @@ describe('Autonomous Delivery UI', () => {
     });
   });
 
-  it('rejects the legacy four-step project-context pipeline', () => {
+  it('rejects a one-step project-context pipeline as outdated', () => {
     const pipelines = complete.map((pipeline) =>
-      pipeline.id === 'project-context' ? { ...pipeline, steps: Array(4) } : pipeline,
+      pipeline.id === 'project-context' ? { ...pipeline, steps: Array(1) } : pipeline,
     );
     expect(autonomousDeliveryReadiness(pipelines)).toEqual({
       ready: false,
-      missingOrOutdated: ['project-context (4/8 steps)'],
+      missingOrOutdated: ['project-context (1/2 steps)'],
     });
   });
 
@@ -149,17 +149,18 @@ describe('Autonomous Delivery UI', () => {
     expect(detail).toContain("setRunMode('autonomous')");
     expect(detail).toContain("setRunMode('guided')");
     expect(detail).not.toContain("mock('epic.config.runMode'");
-    expect(detail).toContain('<Mono>{epic.runMode}</Mono>');
+    expect(detail).toContain('<Mono>{epic.runMode === \'autonomous\' ? \'autonomous\' : \'guided\'}</Mono>');
     expect(host).toContain("case 'setEpicRunMode'");
     expect(host).toContain('setEpicRunMode(root, doc, epicId, mode)');
     expect(host).toContain("case 'runEpicAutonomously'");
     expect(host).toContain('await runEpicAutonomouslyCommand(epicId)');
-    expect(detail).toContain('Run / resume Claude master');
+    expect(detail).toContain('Run / resume selected-provider master');
     expect(detail).toContain("type: 'runEpicAutonomously'");
     const master = fs.readFileSync(path.join(root, '../core/src/delivery/AutonomousMaster.ts'), 'utf8');
     expect(master).toContain("AUTONOMOUS_EPIC_MASTER_COMMAND = '/aidlc-autonomous-epic'");
     expect(master).toContain('Continue only while');
     expect(master).toContain('configured human-review or merge gate');
+    expect(master).toContain('resolve-bugs');
   });
 
   it('launches the full Cohesive Delivery through a visible Claude master command', () => {
@@ -180,6 +181,7 @@ describe('Autonomous Delivery UI', () => {
     expect(masterModule).toContain('Do not rerun an approved upstream phase');
     expect(masterModule).toContain('Report the checkpoint selected before doing any work.');
     expect(masterModule).toContain('one independent epic');
+    expect(masterModule).toContain('explicitly approves it in AIDLC');
     expect(commands).not.toContain('Execute independent work packages in parallel');
     expect(commands).not.toContain("'cohesive', 'run'");
     expect(commands).not.toContain("['cohesive', 'resume', id]");
@@ -199,6 +201,13 @@ describe('Autonomous Delivery UI', () => {
     expect(host).toContain("'aidlc.runStepWithFeedback', slash, runId, feedback");
     expect(runSvc).toContain('buildTaskPrompt');
     expect(runSvc).toContain('terminalNameForProvider');
+    expect(card).toContain("mode={isBugResolutionStep(focused) ? 'bug-report' : 'feedback'}");
+    expect(detail).toContain("mode={isBugResolution ? 'bug-report' : 'feedback'}");
+    expect(detail).not.toContain('Cách can thiệp thực tế');
+    const modal = fs.readFileSync(path.join(root, 'src/webview/components/RunWithFeedbackModal.tsx'), 'utf8');
+    expect(modal).toContain('Chèn ảnh');
+    expect(modal).toContain('pickBugImages');
+    expect(modal).toContain('savePastedBugImage');
   });
 
   it('keeps general and per-step help aligned with provider-aware execution', () => {

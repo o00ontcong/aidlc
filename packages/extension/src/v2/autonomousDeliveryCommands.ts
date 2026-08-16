@@ -340,7 +340,7 @@ export async function editInferredProjectContextCommand(
     orchestrator.addTask(id, {
       title: `Human revised project charter to revision ${result.revision}.`,
       acceptanceCriteria: ['Refresh context evidence, drift analysis, manifest, and downstream alignment.'],
-      target: { runId: state.projectContextRunId, step: 'define-charter' },
+      target: { runId: state.projectContextRunId, step: 'establish-baseline' },
     });
     await launchAutonomousMaster(workspaceRoot, id, output);
   } catch (error) {

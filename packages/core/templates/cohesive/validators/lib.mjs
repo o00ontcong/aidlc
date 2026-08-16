@@ -75,6 +75,10 @@ export function hasPlaceholder(text) {
   return /\$EPIC_ID|\[Feature Title\]|\[task name\]|\bTODO\b|template missing|fill in your output|(?:^|\s)…(?:\s|$)/im.test(text);
 }
 
+export function isMermaidDiagram(text) {
+  return typeof text === 'string' && /^flowchart|^sequenceDiagram/m.test(String(text).trim());
+}
+
 export function contractHash(text) {
   const normalized = text.replace(
     /\*\*Contract Hash:\*\*\s*[^\r\n]*/i,

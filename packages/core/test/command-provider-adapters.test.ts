@@ -20,7 +20,7 @@ describe('CommandProviderAdapter', () => {
     const preset = loadBuiltinPreset(builtinTemplatesRoot(), workflow);
     const phase = workflowCommandPhases(workflow).find((p) => p.phase.id === 'implement')!.phase;
     const skillBody = preset.skillContents.implement;
-    const commandName = pipelineCommandId('cohesive-feature', 'implement');
+    const commandName = pipelineCommandId('feature-implement', 'implement');
     const spec = buildStepCommandSpec(phase, skillBody, 'docs/epics', commandName);
 
     const claude = getCommandProviderAdapter('claude').renderCommandFile(spec, 'claude-opus-5');
@@ -33,7 +33,7 @@ describe('CommandProviderAdapter', () => {
     expect(cursor).not.toContain('model:');
     expect(cursor.startsWith('# ')).toBe(true);
     expect(codex).toContain('disable-model-invocation: true');
-    expect(codex).toContain('name: aidlc-cohesive-feature-implement');
+    expect(codex).toContain('name: aidlc-feature-implement-implement');
     expect(claude).toContain('## Task');
     expect(cursor).toContain('## Task');
     expect(codex).toContain('## Task');

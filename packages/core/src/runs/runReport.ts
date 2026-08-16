@@ -45,6 +45,8 @@ function renderHistory(history: StepHistoryEntry[]): string[] {
         return `  - ✘ rejected (rev ${h.revision})${h.reason ? `: ${h.reason}` : ''}`;
       case 'rerun':
         return `  - ↺ rerun → rev ${h.revision}${h.feedback ? ` (feedback: ${h.feedback})` : ''}`;
+      case 'bug_report':
+        return `  - 🐛 bug report (rev ${h.revision}): ${h.report}`;
       case 'auto_review':
         return `  - 🤖 auto-review ${h.decision} (rev ${h.revision}): ${h.reason}`;
       case 'approve':

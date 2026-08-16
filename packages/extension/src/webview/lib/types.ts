@@ -121,6 +121,8 @@ export interface ProviderInfo {
   cli: string;
   /** Fallback model used for provider commands without a workflow phase. */
   model?: string;
+  /** Models reported by the local provider CLI, when discovery is supported. */
+  models?: string[];
   isDefault: boolean;
   diagnostic: ProviderDiagnostic;
 }
@@ -376,6 +378,8 @@ export interface OtelSnapshot {
 }
 
 export interface SidebarState {
+  /** Resolved AIDLC output language, including the `auto` fallback. */
+  displayLanguage: 'en' | 'vi';
   hasFolder: boolean;
   workspaceName: string;
   configExists: boolean;
@@ -500,6 +504,12 @@ export type StepHistoryEntry =
       feedback?: string;
     }
   | {
+      kind: 'bug_report';
+      at: string;
+      revision: number;
+      report: string;
+    }
+  | {
       kind: 'auto_review';
       at: string;
       revision: number;
@@ -570,6 +580,8 @@ export interface EpicStepDetailFull {
   /** Host-computed: true when `artifact` exists on disk right now. */
   artifactExists?: boolean;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
+  /** Added by migration from an older pipeline and not submitted yet. */
+  isNew?: boolean;
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;
   rejectReason?: string;
@@ -677,6 +689,24 @@ export interface EpicSummary {
   ship?: EpicShipInfo;
   /** REVIEW-DIFF.md contents when present (diff-first human review). */
   reviewDiff?: string;
+  /** Human-scale graphs produced by plan / map-feature-flow. */
+  visualizations?: EpicVisualizations;
+}
+
+export type FeatureImpactChange = 'add' | 'modify' | 'delete' | 'unchanged';
+
+export interface EpicFeatureImpact {
+  id: string;
+  name: string;
+  change: FeatureImpactChange;
+  summary?: string;
+}
+
+export interface EpicVisualizations {
+  impactMermaid?: string;
+  surfacesMermaid?: string;
+  flowMermaid?: string;
+  impactFeatures?: EpicFeatureImpact[];
 }
 
 export interface DiffIgnorePatterns {
@@ -848,6 +878,7 @@ export interface ArchitectureFeatureFlow {
   nodes: ArchitectureNode[];
   edges: ArchitectureEdge[];
   mermaid?: string;
+  surfacesMermaid?: string;
 }
 
 export interface ArchitectureExplorerState {

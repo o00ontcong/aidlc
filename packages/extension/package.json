@@ -74,6 +74,16 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.selectDisplayLanguageEnglish",
+        "title": "$(globe) EN",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.selectDisplayLanguageVietnamese",
+        "title": "$(globe) VI",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.showWorkspaceConfig",
         "title": "Show Workspace Config",
         "icon": "$(file-code)",
@@ -170,7 +180,7 @@
       },
       {
         "command": "aidlc.migrateEpics",
-        "title": "Migrate Epic State Files",
+        "title": "Migrate Epics to Current Cohesive Pipeline",
         "icon": "$(sync)",
         "category": "AIDLC"
       },
@@ -365,6 +375,16 @@
     },
     "menus": {
       "view/title": [
+        {
+          "command": "aidlc.selectDisplayLanguageEnglish",
+          "when": "view == aidlcSidebar && aidlc.resolvedDisplayLanguage == en",
+          "group": "navigation@-1"
+        },
+        {
+          "command": "aidlc.selectDisplayLanguageVietnamese",
+          "when": "view == aidlcSidebar && aidlc.resolvedDisplayLanguage == vi",
+          "group": "navigation@-1"
+        },
         {
           "command": "aidlc.openSettings",
           "when": "view == aidlcSidebar",

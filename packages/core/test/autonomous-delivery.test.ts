@@ -60,7 +60,7 @@ function deliveryState(id = 'FEATURE-1'): DeliveryState {
 }
 
 describe('Existing Project Autonomous Delivery contracts', () => {
-  it('auto-approves validated human-review gates and pauses only for questions', () => {
+  it('auto-approves ordinary human-review gates but waits for bug-fix approval', () => {
     const root = temp();
     ensureAutonomousEpicMasterCommand(root);
     ensureAutonomousMasterCommand(root);
@@ -75,6 +75,8 @@ describe('Existing Project Autonomous Delivery contracts', () => {
     );
     for (const command of [epicMaster, deliveryMaster]) {
       expect(command).toMatch(/autonomous approval|automatically approved/i);
+      expect(command).toContain('resolve-bugs');
+      expect(command).toMatch(/resolve-bugs[\s\S]*explicitly approve|explicitly approves[\s\S]*resolve-bugs/i);
       expect(command).toMatch(/question[\s\S]*human answer|human answer[\s\S]*question/i);
       expect(command).not.toContain('Stop at every configured human-review or merge gate');
     }
@@ -232,6 +234,15 @@ module.exports = async (ctx) => {
     write(path.join(ctx.workspaceRoot, 'docs/project/context/CONTEXT-MANIFEST.json'), JSON.stringify({ revision: 1, sourceCommit: 'fixture', files: [] }, null, 2));
   } else if (state.pipelineId === 'cohesive-work-package') {
     write(path.join(epic(runId), 'PACKAGE-RESULT.json'), JSON.stringify({ status: 'done', commits: ['fixture'], tests: ['pass'], changedFiles: ['src/fixture.ts'] }, null, 2));
+  } else if (state.pipelineId === 'feature-implement') {
+    if (idx === 0) {
+      write(path.join(epic(runId), 'IMPLEMENTATION-SUMMARY.md'), '# Implemented\\n');
+    } else if (idx === 1) {
+      write(path.join(epic(runId), 'BUG-FIX-LOG.md'), '## Reported Bugs\\nnone\\n**Status:** READY-FOR-APPROVAL\\n');
+    } else {
+      write(path.join(epic(runId), 'PR-LINK.md'), '**URL:** https://example.invalid/pr/1\\n**Head:** feature/' + runId + '\\n**Base:** main\\n**Status:** merged\\n');
+      write(path.join(epic(runId), 'PROJECT-UPDATE.md'), '## Project Knowledge Changes\\nFixture synced.\\n## Final Feature Status\\nDone.\\n');
+    }
   } else if (idx === 0) {
     write(path.join(epic(runId), 'WORK-PACKAGES.json'), JSON.stringify({ feature: runId, packages: [{ id: 'WP-01', runId: runId + '-WP-01', dependsOn: [] }] }, null, 2));
   } else if (idx === 1) {
@@ -264,37 +275,24 @@ agents:
 pipelines:
   - id: project-context
     steps:
-      - name: define-charter
+      - name: establish-baseline
         agent: fixture-agent
         produces: [docs/project/context/CONTEXT-MANIFEST.json]
         human_review: true
-  - id: cohesive-feature
+  - id: feature-implement
     steps:
-      - name: analyze-contract
+      - name: implement
         agent: fixture-agent
-        produces: ["docs/epics/{epic}/artifacts/WORK-PACKAGES.json"]
+        produces: ["docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md"]
         human_review: true
-      - name: await-packages
+      - name: resolve-bugs
         agent: fixture-agent
-        produces: ["docs/epics/{epic}/artifacts/PACKAGE-RESULTS.md"]
+        produces: ["docs/epics/{epic}/artifacts/BUG-FIX-LOG.md"]
         human_review: true
-      - name: open-pr
+      - name: ship
         agent: fixture-agent
         produces: ["docs/epics/{epic}/artifacts/PR-LINK.md"]
-      - name: await-merge
-        agent: fixture-agent
-        produces: ["docs/epics/{epic}/artifacts/PR-LINK.md"]
-        human_review: true
-      - name: project-sync
-        agent: fixture-agent
-        produces: ["docs/epics/{epic}/artifacts/PROJECT-UPDATE.md"]
-        human_review: true
-  - id: cohesive-work-package
-    steps:
-      - name: implement-package
-        agent: fixture-agent
-        produces: ["docs/epics/{epic}/artifacts/PACKAGE-RESULT.json"]
-        human_review: true
+        human_review: false
 cohesive_delivery:
   execution_profiles:
     existing-project-autonomous:
@@ -337,18 +335,17 @@ cohesive_delivery:
     expect(state.failureHistory).toHaveLength(1);
     expect(state.events.some((entry) => entry.kind === 'execution-recovered')).toBe(true);
     expect(RunStateStore.load(root, 'FEATURE-1-PROJECT-CONTEXT')?.failureHistory).toHaveLength(1);
-    expect(state.workerRunIds).toEqual(['FEATURE-1-WP-01']);
-    expect(RunStateStore.load(root, 'FEATURE-1-WP-01')?.status).toBe('completed');
+    expect(state.workerRunIds).toEqual([]);
     expect(fs.readFileSync(path.join(root, 'docs/epics/FEATURE-1/artifacts/HUMAN-REVIEW-SUMMARY.md'), 'utf8'))
       .toContain('GO FOR HUMAN REVIEW');
 
     orchestrator.addTask('FEATURE-1', {
       title: 'Adjust implementation fixture',
-      target: { runId: 'FEATURE-1-WP-01', step: 'implement-package' },
+      target: { runId: 'FEATURE-1', step: 'implement' },
     });
     orchestrator.addTask('FEATURE-1', {
       title: 'Document the same implementation adjustment',
-      target: { runId: 'FEATURE-1-WP-01', step: 'implement-package' },
+      target: { runId: 'FEATURE-1', step: 'implement' },
     });
     state = await orchestrator.rework('FEATURE-1');
     expect(state.reviewRevision).toBe(2);
