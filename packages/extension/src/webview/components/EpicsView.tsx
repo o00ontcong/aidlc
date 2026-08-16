@@ -266,6 +266,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           onToggleCollapsed={() => setListCollapsed((v) => !v)}
           onToggleTools={() => setToolsOpen((v) => !v)}
           onResetFilters={() => { onFilterChange('all'); onSearchChange(''); }}
+          onRefresh={() => postMessage({ type: 'refreshEpics' })}
           onMigrate={() => postMessage({ type: 'migrateEpics' })}
           onNewEpic={() => setStartEpicOpen(true)}
           onAutonomousDelivery={() => setAutonomousDeliveryOpen(true)}

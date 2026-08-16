@@ -41,6 +41,7 @@ export interface EpicListPanelProps {
   onToggleCollapsed: () => void;
   onToggleTools: () => void;
   onResetFilters: () => void;
+  onRefresh: () => void;
   onMigrate: () => void;
   onNewEpic: () => void;
   onAutonomousDelivery: () => void;
@@ -184,6 +185,14 @@ function OpenList(p: EpicListPanelProps) {
             }}
           >
             Migrate
+          </button>
+          <button
+            type="button"
+            onClick={p.onRefresh}
+            title="Đọc lại danh sách epic từ disk; không chạy agent và không thay đổi dữ liệu"
+            style={iconBtn}
+          >
+            ↻
           </button>
           <button
             type="button"

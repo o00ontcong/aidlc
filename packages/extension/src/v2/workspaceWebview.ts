@@ -2839,6 +2839,9 @@ export class WorkspaceWebview {
         this.startImplementFromSpike(epicId);
         return;
       }
+      case 'refreshEpics':
+        this.refresh();
+        return;
 
       // Pipeline / asset mutations
       case 'reorderStep':
