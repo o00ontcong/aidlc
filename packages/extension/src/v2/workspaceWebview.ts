@@ -2833,6 +2833,12 @@ export class WorkspaceWebview {
         );
         return;
       }
+      case 'startImplementFromSpike': {
+        const epicId = String(msg.epicId ?? '').trim();
+        if (!epicId) { return; }
+        this.startImplementFromSpike(epicId);
+        return;
+      }
 
       // Pipeline / asset mutations
       case 'reorderStep':
@@ -5224,6 +5230,52 @@ export class WorkspaceWebview {
         `Failed to start pipeline run: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  /**
+   * Hand a completed feature spike to the selected provider for decomposition.
+   * The provider creates one cohesive feature-implement epic for an atomic
+   * mission, or several when the MISSION.md exposes independent boundaries.
+   */
+  private startImplementFromSpike(spikeId: string): void {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) { return; }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(spikeId)) {
+      void vscode.window.showWarningMessage('AIDLC: invalid feature-spike id.');
+      return;
+    }
+    const doc = readYaml(root);
+    if (!doc) {
+      void vscode.window.showWarningMessage('AIDLC: no workspace.yaml found.');
+      return;
+    }
+    const spike = listEpics(root, doc).find((epic) => epic.id === spikeId);
+    if (!spike || !spike.pipeline
+      || (spike.pipeline !== 'feature-spike' && !spike.pipeline.startsWith('feature-spike'))) {
+      void vscode.window.showWarningMessage(`AIDLC: "${spikeId}" is not a feature-spike epic.`);
+      return;
+    }
+    if (spike.status !== 'done') {
+      void vscode.window.showWarningMessage('AIDLC: approve and complete package-mission before Start implement.');
+      return;
+    }
+    try {
+      assertImplementPackReady(path.join(spike.epicDir, 'artifacts'));
+    } catch (err) {
+      void vscode.window.showWarningMessage(
+        `AIDLC: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    runSlashCommandWithProvider(
+      `/start-implement-from-spike ${spikeId}`,
+      root,
+      this.extensionUri.fsPath,
+    );
+    void vscode.window.showInformationMessage(
+      `AIDLC: the selected agent is analyzing ${spikeId} and will scaffold the implementation epic(s).`,
+    );
   }
 
   // ── HTML shell ──────────────────────────────────────────────────────────

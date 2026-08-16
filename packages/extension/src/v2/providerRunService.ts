@@ -86,24 +86,35 @@ function syncExtensionCommandsForProvider(
   extensionPath: string,
   providerId: string,
 ): void {
-  const source = path.join(extensionPath, 'assets', 'annotate-artifact.skill.md');
-  if (!fs.existsSync(source)) { return; }
   const adapter = getCommandProviderAdapter(providerId);
-  const commandName = 'annotate-artifact';
-  const destination = adapter.commandFilePath(root, commandName);
-  if (fs.existsSync(destination)) { return; }
-
-  const body = fs.readFileSync(source, 'utf8').replace(/^---[\s\S]*?---\n?/, '');
   const store = getProviderConfigStore(root);
   const config = store.loadOrDefault();
   const model = store.modelFor(providerId, undefined, config);
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.writeFileSync(destination, adapter.renderCommandFile({
-    commandName,
-    description: 'Review an epic Markdown artifact interactively in annotron.',
-    body,
-    epicRoot: 'docs/epics',
-  }, model), 'utf8');
+  const commands = [
+    {
+      commandName: 'annotate-artifact',
+      sourceName: 'annotate-artifact.skill.md',
+      description: 'Review an epic Markdown artifact interactively in annotron.',
+    },
+    {
+      commandName: 'start-implement-from-spike',
+      sourceName: 'start-implement-from-spike.skill.md',
+      description: 'Split a completed feature spike into ready-to-run feature-implement epics.',
+    },
+  ];
+  for (const command of commands) {
+    const source = path.join(extensionPath, 'assets', command.sourceName);
+    const destination = adapter.commandFilePath(root, command.commandName);
+    if (!fs.existsSync(source) || fs.existsSync(destination)) { continue; }
+    const body = fs.readFileSync(source, 'utf8').replace(/^---[\s\S]*?---\n?/, '');
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, adapter.renderCommandFile({
+      commandName: command.commandName,
+      description: command.description,
+      body,
+      epicRoot: 'docs/epics',
+    }, model), 'utf8');
+  }
 }
 
 export function spawnTerminalOneShot(opts: {

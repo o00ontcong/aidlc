@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.4.35
+
+### Added
+
+- feat(cohesive): add Start implement on completed feature spikes to let the selected agent split a MISSION into one or more ready-to-run feature-implement epics.
+
+### Changed
+
+- ui(artifacts): remove inline artifact-feedback actions; artifact discussion now stays with the agent and step-level update flow.
+
 ## 3.4.34
 
 ### Changed

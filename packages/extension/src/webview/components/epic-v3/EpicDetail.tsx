@@ -27,7 +27,7 @@ import {
   stepDetailRows, stepRows,
 } from './adapt';
 import { isBugResolutionStep, isCodeHumanReviewStep, isBriefingPipeline, isFeaturePipeline, isPackagePipeline, runStatusUi } from './epic-logic';
-import { briefingGateCopy, isImplementStartBlocked, pipelineChipLabel } from './three-pipeline';
+import { briefingGateCopy, isFeatureSpikePipeline, isImplementStartBlocked, pipelineChipLabel } from './three-pipeline';
 import { humanInterventionTooltip } from './human-intervention';
 import { mock } from './mock';
 import {
@@ -38,12 +38,13 @@ import {
 const GAP = 14;
 
 export function EpicDetail({
-  epic, state, onOpenCharter, onChoosePack,
+  epic, state, onOpenCharter, onChoosePack, onStartImplementFromSpike,
 }: {
   epic: EpicSummary;
   state: WorkspaceState;
   onOpenCharter: () => void;
   onChoosePack?: () => void;
+  onStartImplementFromSpike?: (epic: EpicSummary) => void;
 }) {
   const [focusedIdx, setFocusedIdx] = useState(epic.currentStep ?? 0);
   useEffect(() => { setFocusedIdx(epic.currentStep ?? 0); }, [epic.id, epic.currentStep]);
@@ -114,6 +115,12 @@ export function EpicDetail({
 
       {briefing ? (
         <>
+          {isFeatureSpikePipeline(epic.pipeline) && (
+            <StartImplementFromSpikeCard
+              epic={epic}
+              onStart={() => onStartImplementFromSpike?.(epic)}
+            />
+          )}
           {isImplementStartBlocked(epic) ? (
             <PackBlockedBanner onChoosePack={onChoosePack} />
           ) : focused && (
@@ -236,6 +243,43 @@ export function EpicDetail({
         </>
       )}
     </div>
+  );
+}
+
+function StartImplementFromSpikeCard({ epic, onStart }: { epic: EpicSummary; onStart: () => void }) {
+  const hasMission = (epic.existingArtifacts ?? []).includes('MISSION.md');
+  const ready = epic.status === 'done' && hasMission;
+  const reason = !hasMission
+    ? 'Spike chưa tạo MISSION.md.'
+    : epic.status !== 'done'
+      ? 'Hoàn tất và approve package-mission trước khi bắt đầu implement.'
+      : '';
+  return (
+    <Card
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+        borderColor: ready ? 'var(--acc-bd)' : 'var(--warn-bd)',
+        background: ready ? 'var(--acc-bg)' : 'var(--warn-bg)',
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 700 }}>Start implement</div>
+        <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>
+          {ready
+            ? 'Agent sẽ phân tích MISSION.md, tạo một hoặc nhiều epic feature-implement với pack riêng; chưa chạy code.'
+            : reason}
+        </div>
+      </div>
+      <Btn
+        label="Start implement"
+        variant="primary"
+        pad="8px 13px"
+        fs={12}
+        disabled={!ready}
+        title={ready ? 'Phân rã spike thành các epic feature-implement.' : reason}
+        onClick={onStart}
+      />
+    </Card>
   );
 }
 
@@ -1371,16 +1415,6 @@ function ArtifactChip({
       >
         {exists ? name : `${name} · chưa tạo`}
       </button>
-      {exists && (
-        <Btn
-          label="Góp ý trên artifact"
-          variant="ghost"
-          pad="4px 7px"
-          fs={10.5}
-          title={`Annotate ${name} và gửi feedback để agent sửa Markdown nguồn`}
-          onClick={() => postMessage({ type: 'annotateArtifact', epicDir, filename: name })}
-        />
-      )}
     </div>
   );
 }

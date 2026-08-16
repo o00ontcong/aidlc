@@ -288,6 +288,8 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
                 state={state}
                 onOpenCharter={() => setCharterOpen((v) => !v)}
                 onChoosePack={() => openStartImplement(null)}
+                onStartImplementFromSpike={(epic) =>
+                  postMessage({ type: 'startImplementFromSpike', epicId: epic.id })}
               />
             </div>
             {charterOpen && (

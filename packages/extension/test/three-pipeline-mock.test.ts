@@ -122,11 +122,16 @@ describe('epic briefing layout', () => {
     expect(detail).toContain('Agent timeline');
     expect(detail).toContain('isBriefingPipeline');
     expect(detail).toContain('Chọn nguồn pack');
+    expect(detail).toContain('Start implement');
+    expect(detail).toContain('onStartImplementFromSpike');
     expect(detail).toContain('Approve bản sửa');
     expect(list).toContain('pipelineChipLabel');
     const startModal = fs.readFileSync(path.join(root, 'src/webview/components/epic-v3/StartImplementModal.tsx'), 'utf8');
     expect(startModal).toContain('Start Feature Implement');
     expect(startModal).toContain('Completeness');
+    const handoff = fs.readFileSync(path.join(root, 'assets/start-implement-from-spike.skill.md'), 'utf8');
+    expect(handoff).toContain('feature-implement');
+    expect(handoff).toContain('IMPLEMENTATION-EPICS.md');
   });
 
   it('harness epics use the 2 / 1 / 3 step timelines and block PAY-THIN', () => {

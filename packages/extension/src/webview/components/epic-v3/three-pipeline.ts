@@ -212,6 +212,10 @@ export function isFeatureImplementPipeline(pipeline: string | null | undefined):
   return !!pipeline && (pipeline === 'feature-implement' || pipeline.startsWith('feature-implement'));
 }
 
+export function isFeatureSpikePipeline(pipeline: string | null | undefined): boolean {
+  return !!pipeline && (pipeline === 'feature-spike' || pipeline.startsWith('feature-spike'));
+}
+
 export function completenessChips(check: MissionCheck): CompletenessChip[] {
   return COMPLETENESS_CHIP_KEYS.map((key) => ({
     key,

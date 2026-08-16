@@ -861,19 +861,6 @@ function StepDetail({
                       <ExternalLink className="h-3 w-3 text-muted-foreground" />
                       <span>Preview</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setArtifactMenuOpen(false);
-                        postMessage({ type: 'annotateArtifact', epicDir: epic.epicDir, filename: artifactName });
-                      }}
-                      className="flex w-full items-center gap-2 border-t border-border px-3 py-1.5 text-left text-[11px] text-foreground hover:bg-accent"
-                      title="Open in annotron (renders the Markdown with diagrams) and start the feedback loop — edits land in the .md and each round is logged to this step's history"
-                    >
-                      <Highlighter className="h-3 w-3 text-primary" />
-                      <span>Feedback</span>
-                    </button>
                   </div>
                 </>
               )}
