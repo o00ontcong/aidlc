@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.4.36
+
+### Added
+
+- feat(epics): add a Refresh action that re-reads the epic list from disk without running an agent or changing project data.
+
 ## 3.4.35
 
 ### Added

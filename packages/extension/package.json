@@ -2,7 +2,7 @@
   "name": "aidlc-o00ontcong",
   "displayName": "Cohesive Delivery",
   "description": "Cohesive Delivery is an AI-driven SDLC pipeline runner for VS Code. Plan → Prototype → Design ∥ Test → Implement → Release, with workflow orchestration, requirements traceability, and live agent observability.",
-  "version": "3.4.35",
+  "version": "3.4.36",
   "publisher": "o00ontcong",
   "license": "MIT",
   "sponsor": {
