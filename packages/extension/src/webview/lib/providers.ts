@@ -4,21 +4,23 @@
 
 import type { ModelMappings, ProviderConfig, ProviderInfo } from './types';
 
+const OPENCODE_FLAGSHIP = 'silvertiger/glm-5.3';
+
 export const BUNDLED_MODEL_MAPPINGS: ModelMappings = {
   'claude-opus-5': {
-    claude: 'claude-opus-5', cursor: 'claude-opus-4-8', codex: 'o3', opencode: 'opencode/big-pickle',
+    claude: 'claude-opus-5', cursor: 'claude-opus-4-8', codex: 'o3', opencode: OPENCODE_FLAGSHIP,
   },
   'claude-sonnet-5': {
-    claude: 'claude-sonnet-5', cursor: 'gpt-5.2', codex: 'gpt-5.2-codex', opencode: 'opencode/big-pickle',
+    claude: 'claude-sonnet-5', cursor: 'gpt-5.2', codex: 'gpt-5.2-codex', opencode: OPENCODE_FLAGSHIP,
   },
   'claude-opus-4': {
-    claude: 'claude-opus-4', cursor: 'claude-opus-4-8', codex: 'o3', opencode: 'opencode/big-pickle',
+    claude: 'claude-opus-4', cursor: 'claude-opus-4-8', codex: 'o3', opencode: OPENCODE_FLAGSHIP,
   },
   'claude-haiku-4-5-20251001': {
     claude: 'claude-haiku-4-5-20251001',
     cursor: 'gpt-5.2-fast',
     codex: 'gpt-5.2-codex-mini',
-    opencode: 'opencode/deepseek-v4-flash-free',
+    opencode: OPENCODE_FLAGSHIP,
   },
 };
 
@@ -56,7 +58,7 @@ export const MOCK_PROVIDER_CONFIG: ProviderConfig = {
       displayName: 'OpenCode',
       enabled: false,
       cli: 'opencode',
-      model: 'opencode/big-pickle',
+      model: 'silvertiger/glm-5.3',
       isDefault: false,
       diagnostic: { ok: false, message: 'Not on PATH' },
     },

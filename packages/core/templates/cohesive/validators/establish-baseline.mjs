@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   exists, formatError, markdownHasGo, pass, readJson, readText, reject,
+  ensureProjectVisualizationMermaid, isMermaidDiagram,
 } from './lib.mjs';
 
 const CHARTER_FILES = [
@@ -19,7 +20,11 @@ const CONTEXT_FILES = [
   'docs/project/context/SHARED-CONTRACTS.md',
   'docs/project/context/ENGINEERING-RULES.md',
   'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
+  'docs/project/context/visualization/PROJECT-ARCHITECTURE.mmd',
   'docs/project/context/visualization/FEATURE-CATALOG.json',
+  'docs/project/context/visualization/FEATURE-CATALOG.mmd',
+  'docs/project/context/visualization/SCREEN-CATALOG.json',
+  'docs/project/context/visualization/SCREEN-CATALOG.mmd',
   'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
   'docs/project/conformance/DRIFT-REPORT.md',
   'docs/project/context/CONTEXT-REVIEW.md',
@@ -27,6 +32,7 @@ const CONTEXT_FILES = [
 
 export default async function establishBaseline(ctx) {
   try {
+    ensureProjectVisualizationMermaid(ctx.workspaceRoot);
     const problems = [];
     const discovery = path.join(
       ctx.workspaceRoot, 'docs', 'epics', ctx.state.runId, 'artifacts', 'CHARTER-DISCOVERY.md',
@@ -52,8 +58,23 @@ export default async function establishBaseline(ctx) {
     }
 
     const review = path.join(ctx.workspaceRoot, 'docs', 'project', 'context', 'CONTEXT-REVIEW.md');
-    if (exists(review) && !markdownHasGo(readText(review))) {
-      problems.push('CONTEXT-REVIEW.md does not contain **Verdict:** GO');
+    if (exists(review)) {
+      const reviewText = readText(review);
+      if (!markdownHasGo(reviewText)) {
+        problems.push('CONTEXT-REVIEW.md does not contain **Verdict:** GO');
+      }
+      if (!/^##\s+Summary\s*$/im.test(reviewText)) {
+        problems.push('CONTEXT-REVIEW.md is missing ## Summary (human briefing of what this repo is)');
+      }
+    }
+
+    const viz = path.join(ctx.workspaceRoot, 'docs', 'project', 'context', 'visualization');
+    for (const name of ['PROJECT-ARCHITECTURE.mmd', 'FEATURE-CATALOG.mmd', 'SCREEN-CATALOG.mmd']) {
+      const file = path.join(viz, name);
+      if (!exists(file)) problems.push(`docs/project/context/visualization/${name} is missing`);
+      else if (!isMermaidDiagram(readText(file))) {
+        problems.push(`${name} must be Mermaid flowchart or sequenceDiagram source`);
+      }
     }
 
     if (problems.length) {

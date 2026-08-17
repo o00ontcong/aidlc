@@ -63,7 +63,16 @@ const cursorAdapter: CommandProviderAdapter = {
     return path.join(this.commandsDir(root), `${commandName}.md`);
   },
   renderCommandFile(spec) {
-    return `# ${spec.description}\n\n${spec.body}`;
+    // Cursor Agent treats `/name` as a Skill. YAML frontmatter + a sibling
+    // `.cursor/skills/<name>/SKILL.md` (written by syncPipelineCommands) is
+    // what makes `/project-context-establish-baseline` available — a heading
+    // in `.cursor/commands/` is not enough.
+    return `---
+name: ${spec.commandName}
+description: ${spec.description}
+---
+
+${spec.body}`;
   },
   buildOneShotInvocation({ slashOrPrompt, mappedModel, cliBinary }) {
     const binary = cliBinary?.trim() || this.cliBinary;

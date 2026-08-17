@@ -161,7 +161,7 @@
   * {
     border-color: var(--color-border);
   }
-  html, body {
+  html, body, #app {
     height: 100%;
   }
   body {
@@ -170,5 +170,10 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     margin: 0;
+  }
+  #app {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
   }
 }

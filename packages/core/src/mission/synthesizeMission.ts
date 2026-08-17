@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { section } from './checkMissionCompleteness';
+import { syncFlowMermaidFromMission } from './assertImplementPackReady';
 
 const LEGACY_FILES = [
   'SPEC.md',
@@ -123,15 +124,17 @@ export function synthesizeMissionMarkdown(artifactsDir: string): string {
 export function writeSynthesizedMission(artifactsDir: string): boolean {
   const dest = path.join(artifactsDir, 'MISSION.md');
   if (fs.existsSync(dest) && fs.readFileSync(dest, 'utf8').trim().length > 40) {
+    syncFlowMermaidFromMission(artifactsDir);
     return false;
   }
   const hasLegacy = LEGACY_FILES.some((name) => fs.existsSync(path.join(artifactsDir, name)));
+  fs.mkdirSync(artifactsDir, { recursive: true });
   if (!hasLegacy && !fs.existsSync(dest)) {
-    fs.mkdirSync(artifactsDir, { recursive: true });
     fs.writeFileSync(dest, synthesizeMissionMarkdown(artifactsDir), 'utf8');
+    syncFlowMermaidFromMission(artifactsDir);
     return true;
   }
-  fs.mkdirSync(artifactsDir, { recursive: true });
   fs.writeFileSync(dest, synthesizeMissionMarkdown(artifactsDir), 'utf8');
+  syncFlowMermaidFromMission(artifactsDir);
   return true;
 }

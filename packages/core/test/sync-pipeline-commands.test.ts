@@ -41,14 +41,20 @@ describe('syncPipelineCommands multi-provider', () => {
     const codexFile = path.join(root, '.codex', 'skills', 'aidlc-feature-implement-implement', 'SKILL.md');
     const opencodeFile = path.join(root, '.opencode', 'commands', 'feature-implement-implement.md');
     expect(fs.existsSync(cursorFile)).toBe(true);
-    expect(fs.readFileSync(cursorFile, 'utf8')).not.toMatch(/^---\n/);
+    expect(fs.readFileSync(cursorFile, 'utf8')).toMatch(/^---\n/);
+    expect(fs.readFileSync(cursorFile, 'utf8')).toContain('name: feature-implement-implement');
+    const cursorSkill = path.join(root, '.cursor', 'skills', 'feature-implement-implement', 'SKILL.md');
+    expect(fs.existsSync(cursorSkill)).toBe(true);
+    const baselineSkill = path.join(root, '.cursor', 'skills', 'project-context-establish-baseline', 'SKILL.md');
+    expect(fs.existsSync(baselineSkill)).toBe(true);
+    expect(fs.readFileSync(baselineSkill, 'utf8')).toContain('SCREEN-CATALOG');
     expect(fs.existsSync(codexFile)).toBe(true);
     expect(fs.readFileSync(codexFile, 'utf8')).toContain('disable-model-invocation: true');
     expect(fs.existsSync(opencodeFile)).toBe(true);
-    expect(fs.readFileSync(opencodeFile, 'utf8')).toContain('model: opencode/big-pickle');
+    expect(fs.readFileSync(opencodeFile, 'utf8')).toContain('model: silvertiger/glm-5.3');
 
     const opencodeAutonomousFile = path.join(root, '.opencode', 'commands', 'aidlc-autonomous-epic.md');
-    expect(fs.readFileSync(opencodeAutonomousFile, 'utf8')).toContain('model: opencode/big-pickle');
+    expect(fs.readFileSync(opencodeAutonomousFile, 'utf8')).toContain('model: silvertiger/glm-5.3');
 
     const claudeFile = path.join(root, '.claude', 'commands', 'feature-implement-implement.md');
     expect(fs.existsSync(claudeFile)).toBe(false);

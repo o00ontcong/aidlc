@@ -86,12 +86,15 @@ flowchart LR
   M --> I[implement] --> B[resolve-bugs] --> H[ship]
 ~~~
 
-| Stage | Kết quả chính |
+| Stage | Kết quả chính (không trùng) |
 |---|---|
-| package-mission (spike, optional) | `MISSION.md` đủ heading; completeness gate |
-| implement | Code + test + `IMPLEMENTATION-SUMMARY.md` — chỉ đọc MISSION + charter + repo |
+| establish-baseline | `CONTEXT-REVIEW.md` `## Summary` + `docs/project/context/visualization/` (`PROJECT-ARCHITECTURE` / cây code `FEATURE-CATALOG` / cây màn hình `SCREEN-CATALOG`) |
+| package-mission | `MISSION.md` = Summary + AC + Tasks + UI + Flow mermaid. Ba graph cạnh pack: **Luồng** (`FEATURE-FLOW`), **Surfaces**, **Cây feature** (`FEATURE-IMPACT`) |
+| implement | Code + `IMPLEMENTATION-SUMMARY.md` với `## Acceptance criteria results` (chỉ AC-id, không copy AC). Refresh Flow/Surfaces từ code |
 | resolve-bugs | User nhập bug, agent sửa/lặp; **Approve bản sửa** |
 | ship | Một PR, human merge trên GitHub (không Approve AIDLC), rồi Reality sync |
+
+Human đọc **một** chỗ cho mỗi câu hỏi: AC chỉ trong MISSION; graph không kể lại AC; as-built summary không viết lại spec.
 
 ### Guided mode
 
@@ -167,7 +170,7 @@ Project-sync chỉ chạy sau bằng chứng merge thực tế.
 ## 7. Xử lý sự cố
 
 **Không thấy Autonomous Delivery**: apply/upgrade Cohesive Delivery và kiểm tra có
-project-context (8 steps) cùng cohesive-feature (15 steps).
+project-context (2 steps) cùng feature-spike (1) và feature-implement (3).
 
 **Claude báo unknown slash command**: refresh AIDLC/workspace rồi bấm Run again;
 extension sẽ sync các command bundled trước khi mở terminal.

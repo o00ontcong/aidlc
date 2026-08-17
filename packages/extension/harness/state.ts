@@ -497,6 +497,10 @@ export const STATE: WorkspaceState = {
       { id: 'auth', name: 'Auth', layers: ['presentation'] },
       { id: 'vault', name: 'Vault', layers: ['domain'] },
     ],
+    screens: [
+      { id: 'login', name: 'Login', area: 'Auth' },
+      { id: 'home', name: 'Home', area: 'Main' },
+    ],
     structuralNodes: [],
     structuralEdges: [],
     featureFlows: {},

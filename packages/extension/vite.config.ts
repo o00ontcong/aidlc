@@ -15,7 +15,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'out/webviews',
-    emptyOutDir: true,
+    emptyOutDir: !process.argv.includes('--watch'),
     cssCodeSplit: false,
     sourcemap: false,
     target: 'es2022',

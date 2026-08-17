@@ -26,18 +26,19 @@ describe('CommandProviderAdapter', () => {
     const claude = getCommandProviderAdapter('claude').renderCommandFile(spec, 'claude-opus-5');
     const cursor = getCommandProviderAdapter('cursor').renderCommandFile(spec, 'claude-opus-4-8');
     const codex = getCommandProviderAdapter('codex').renderCommandFile(spec, 'o3');
-    const opencode = getCommandProviderAdapter('opencode').renderCommandFile(spec, 'opencode/big-pickle');
+    const opencode = getCommandProviderAdapter('opencode').renderCommandFile(spec, 'silvertiger/glm-5.3');
 
     expect(claude).toMatch(/^---\n/);
     expect(claude).toContain('model: claude-opus-5');
+    expect(cursor).toMatch(/^---\n/);
+    expect(cursor).toContain(`name: ${commandName}`);
     expect(cursor).not.toContain('model:');
-    expect(cursor.startsWith('# ')).toBe(true);
     expect(codex).toContain('disable-model-invocation: true');
     expect(codex).toContain('name: aidlc-feature-implement-implement');
     expect(claude).toContain('## Task');
     expect(cursor).toContain('## Task');
     expect(codex).toContain('## Task');
-    expect(opencode).toContain('model: opencode/big-pickle');
+    expect(opencode).toContain('model: silvertiger/glm-5.3');
     expect(opencode).toContain('## Task');
   });
 
@@ -50,6 +51,6 @@ describe('CommandProviderAdapter', () => {
   it('maps models to OpenCode provider/model identifiers', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-opencode-map-'));
     const store = new ModelProviderConfigStore(root);
-    expect(store.mapModel('claude-opus-5', 'opencode')).toBe('opencode/big-pickle');
+    expect(store.mapModel('claude-opus-5', 'opencode')).toBe('silvertiger/glm-5.3');
   });
 });

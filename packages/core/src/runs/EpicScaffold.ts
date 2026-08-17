@@ -30,6 +30,7 @@ import {
   buildAlignmentSeedFile,
   type AlignmentSeedInput,
 } from '../epics/alignmentArtifacts';
+import { syncFlowMermaidFromMission } from '../mission/assertImplementPackReady';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
@@ -270,6 +271,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
       missionMarkdown.endsWith('\n') ? missionMarkdown : `${missionMarkdown}\n`,
       'utf8',
     );
+    syncFlowMermaidFromMission(artifactsDir);
   }
 
   const resolvedDescription = args.alignmentSeed

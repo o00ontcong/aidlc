@@ -366,7 +366,7 @@ function AgentTimeline({
 
 function EpicRequestCard({ epic }: { epic: EpicSummary }) {
   const [expanded, setExpanded] = useState(false);
-  const description = epic.description.trim();
+  const description = (epic.description ?? '').trim();
   const goals = String(epic.inputs?.selected_goals ?? '')
     .split(',')
     .map((goal) => goal.trim())

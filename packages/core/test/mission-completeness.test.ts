@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { checkMissionCompleteness } from '../src/mission/checkMissionCompleteness';
 import { synthesizeMissionMarkdown } from '../src/mission/synthesizeMission';
+import { syncFlowMermaidFromMission } from '../src/mission/assertImplementPackReady';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -55,6 +56,17 @@ describe('checkMissionCompleteness', () => {
     expect(check.ok).toBe(false);
     expect(check.missing.length).toBeGreaterThan(0);
   });
+
+  it('rejects mermaid outside ## Flow and thin AC', () => {
+    const noFlowHeading = COMPLETE.replace('## Flow\n', '## Notes\n');
+    expect(checkMissionCompleteness(noFlowHeading).missing).toContain('Flow');
+
+    const thinAc = COMPLETE.replace(
+      '- Given a capture, when refund, then wallet updates.',
+      '- Done.',
+    );
+    expect(checkMissionCompleteness(thinAc).missing.some((item) => item.includes('Acceptance criteria'))).toBe(true);
+  });
 });
 
 describe('synthesizeMissionMarkdown', () => {
@@ -65,6 +77,17 @@ describe('synthesizeMissionMarkdown', () => {
     expect(md).toContain('## Summary');
     expect(md).toContain('Hello');
     expect(md).toContain('## Tasks');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('syncFlowMermaidFromMission', () => {
+  it('projects FEATURE-FLOW.mmd from MISSION ## Flow when missing', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-flow-sync-'));
+    fs.writeFileSync(path.join(dir, 'MISSION.md'), COMPLETE);
+    expect(syncFlowMermaidFromMission(dir)).toBe(true);
+    expect(fs.readFileSync(path.join(dir, 'FEATURE-FLOW.mmd'), 'utf8')).toContain('flowchart LR');
+    expect(syncFlowMermaidFromMission(dir)).toBe(false);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

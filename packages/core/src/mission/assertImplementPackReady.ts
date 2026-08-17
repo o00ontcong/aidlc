@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { checkMissionCompleteness } from './checkMissionCompleteness';
+import { checkMissionCompleteness, extractMermaidFence, section } from './checkMissionCompleteness';
 
 export function readMissionMarkdown(artifactsDir: string): string {
   const file = path.join(artifactsDir, 'MISSION.md');
@@ -24,4 +24,22 @@ export function assertImplementPackReady(artifactsDir: string): void {
   if (!check.ok) {
     throw new Error(`MISSION.md is incomplete: ${check.missing.join(', ')}`);
   }
+}
+
+/**
+ * Project FEATURE-FLOW.mmd from MISSION.md ## Flow when the mermaid file is
+ * missing (paste / Jira / migrate). Does not overwrite an as-built graph.
+ */
+export function syncFlowMermaidFromMission(artifactsDir: string): boolean {
+  const dest = path.join(artifactsDir, 'FEATURE-FLOW.mmd');
+  if (fs.existsSync(dest) && fs.readFileSync(dest, 'utf8').trim()) {
+    return false;
+  }
+  const mission = readMissionMarkdown(artifactsDir);
+  const mermaid = extractMermaidFence(section(mission, 'Flow') ?? '')
+    || extractMermaidFence(mission);
+  if (!mermaid) return false;
+  fs.mkdirSync(artifactsDir, { recursive: true });
+  fs.writeFileSync(dest, mermaid.endsWith('\n') ? mermaid : `${mermaid}\n`, 'utf8');
+  return true;
 }

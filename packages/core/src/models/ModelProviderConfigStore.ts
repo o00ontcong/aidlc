@@ -7,6 +7,8 @@ import {
   BUILTIN_COMMAND_PROVIDER_IDS,
   BUNDLED_MODEL_MAPPINGS,
   BUILTIN_COMMAND_PROVIDERS,
+  OPENCODE_FLAGSHIP_MODEL,
+  upgradeOpenCodeModelId,
   type BuiltinCommandProviderId,
 } from '../providers/bundledModelMappings';
 
@@ -41,7 +43,7 @@ function defaultProviders(): Record<string, ProviderEntry> {
         claude: 'claude-sonnet-5',
         cursor: 'gpt-5.2',
         codex: 'gpt-5.2-codex',
-        opencode: 'opencode/big-pickle',
+        opencode: OPENCODE_FLAGSHIP_MODEL,
       }[id],
     };
   }
@@ -63,27 +65,17 @@ function mergeBundledMappings(
   return out;
 }
 
-const LEGACY_OPENCODE_MODELS = new Set([
-  'openai/gpt-5.2',
-  'openai/gpt-5.2-codex-mini',
-]);
-
 /**
- * Older AIDLC releases generated OpenCode mappings that assume an OpenAI
- * credential. Preserve explicit user selections, but upgrade generated v2
- * config that predates the per-provider `model` field to OpenCode's built-in
- * models so a fresh OpenCode install can run without an OpenAI login.
+ * Upgrade generated OpenCode ids when the provider catalog moves.
+ * Custom ids that are not in the superseded set (for example
+ * `silvertiger/qwen3.6-plus`) are left untouched.
  */
 function migrateLegacyOpenCodeMappings(
-  raw: Partial<CommandProviderConfigV2>,
   modelMappings: Record<string, Record<string, string>>,
 ): Record<string, Record<string, string>> {
-  const explicitModel = raw.providers?.opencode?.model;
-  if (typeof explicitModel === 'string' && explicitModel.trim()) { return modelMappings; }
-  for (const [canonical, mappings] of Object.entries(modelMappings)) {
-    if (!LEGACY_OPENCODE_MODELS.has(mappings.opencode ?? '')) { continue; }
-    const bundled = BUNDLED_MODEL_MAPPINGS[canonical]?.opencode;
-    if (bundled) { mappings.opencode = bundled; }
+  for (const mappings of Object.values(modelMappings)) {
+    const upgraded = upgradeOpenCodeModelId(mappings.opencode);
+    if (upgraded) { mappings.opencode = upgraded; }
   }
   return modelMappings;
 }
@@ -235,7 +227,9 @@ export class ModelProviderConfigStore {
             ? entry.cli.trim()
             : defaults[id]?.cli ?? id,
           model: typeof entry.model === 'string' && entry.model.trim()
-            ? entry.model.trim()
+            ? (id === 'opencode'
+              ? (upgradeOpenCodeModelId(entry.model.trim()) ?? entry.model.trim())
+              : entry.model.trim())
             : defaults[id]?.model,
         };
       }
@@ -254,7 +248,7 @@ export class ModelProviderConfigStore {
       schemaVersion: 2,
       defaultProvider: resolvedDefault,
       providers,
-      modelMappings: migrateLegacyOpenCodeMappings(raw, mergeBundledMappings(raw.modelMappings)),
+      modelMappings: migrateLegacyOpenCodeMappings(mergeBundledMappings(raw.modelMappings)),
     };
   }
 }

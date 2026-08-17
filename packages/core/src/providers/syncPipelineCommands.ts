@@ -43,6 +43,34 @@ function writeCommandFile(
   return true;
 }
 
+/** Cursor Agent slash-invokes Skills, not `.cursor/commands/*.md`. */
+function writeCursorAgentSkill(
+  root: string,
+  commandName: string,
+  rendered: string,
+  overwrite: boolean,
+): string | null {
+  const file = path.join(root, '.cursor', 'skills', commandName, 'SKILL.md');
+  return writeCommandFile(file, rendered, overwrite) ? file : null;
+}
+
+function writeRenderedCommand(
+  adapter: ReturnType<typeof getCommandProviderAdapter>,
+  root: string,
+  commandName: string,
+  rendered: string,
+  overwrite: boolean,
+): string[] {
+  const written: string[] = [];
+  const file = adapter.commandFilePath(root, commandName);
+  if (writeCommandFile(file, rendered, overwrite)) written.push(file);
+  if (adapter.id === 'cursor') {
+    const skill = writeCursorAgentSkill(root, commandName, rendered, overwrite);
+    if (skill) written.push(skill);
+  }
+  return written;
+}
+
 function writeStandaloneCommand(
   root: string,
   providerId: string,
@@ -53,14 +81,14 @@ function writeStandaloneCommand(
   mappedModel?: string,
 ): string | null {
   const adapter = getCommandProviderAdapter(providerId);
-  const file = adapter.commandFilePath(root, commandName);
   const rendered = adapter.renderCommandFile({
     commandName,
     description,
     body,
     epicRoot: '',
   }, mappedModel);
-  return writeCommandFile(file, rendered, overwrite) ? file : null;
+  const written = writeRenderedCommand(adapter, root, commandName, rendered, overwrite);
+  return written[0] ?? null;
 }
 
 function writeBuiltinCommandsForProvider(
@@ -78,15 +106,19 @@ function writeBuiltinCommandsForProvider(
 
   for (const { pipelineId, phase } of workflowCommandPhases(workflow)) {
     const commandName = pipelineCommandId(pipelineId, phase.id);
-    const file = adapter.commandFilePath(root, commandName);
-    if (fs.existsSync(file) && !overwrite) { continue; }
     const skillBody = preset.skillContents[phase.id]
       ?? `# ${phase.name}\n\n${phase.description}\n`;
     const spec = buildStepCommandSpec(phase, skillBody, epicRoot, commandName);
     const mappedModel = configStore.mapModel(spec.canonicalModel ?? phase.model, providerId, config);
-    if (writeCommandFile(file, adapter.renderCommandFile(spec, mappedModel), overwrite)) {
-      written.push(file);
-    }
+    written.push(
+      ...writeRenderedCommand(
+        adapter,
+        root,
+        commandName,
+        adapter.renderCommandFile(spec, mappedModel),
+        overwrite,
+      ),
+    );
   }
   return written;
 }
@@ -108,13 +140,15 @@ export function writeTwoLayerCommandsForProvider(
   const emit = (commandName: string, description: string, body: string): void => {
     const file = adapter.commandFilePath(root, commandName);
     if (fs.existsSync(file) && !overwrite) { skipped.push(file); return; }
-    if (writeCommandFile(
-      file,
-      adapter.renderCommandFile({ commandName, description, body, epicRoot }, mappedModel),
-      true,
-    )) {
-      written.push(file);
-    }
+    written.push(
+      ...writeRenderedCommand(
+        adapter,
+        root,
+        commandName,
+        adapter.renderCommandFile({ commandName, description, body, epicRoot }, mappedModel),
+        true,
+      ),
+    );
   };
 
   emit('aidlc', 'AIDLC dispatcher', backboneCommandDoc(epicRoot));

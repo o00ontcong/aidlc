@@ -86,7 +86,7 @@ export function epicTokenLine(epic: EpicSummary): string | null {
 export function stepMeta(step: EpicStepDetailFull): string {
   const parts: string[] = [];
   const isAwaitingUpdate = step.status === 'pending' && (step.history ?? []).length > 0;
-  parts.push(step.isNew ? 'New' : isAwaitingUpdate ? 'awaiting update' : step.runStatus ?? step.status.replace('_', ' '));
+  parts.push(step.isNew ? 'New' : isAwaitingUpdate ? 'awaiting update' : step.runStatus ?? String(step.status ?? 'pending').replace('_', ' '));
   if (step.artifact) {
     const extra = Math.max(0, (step.artifacts?.length ?? 1) - 1);
     const label = `${step.artifact}${extra > 0 ? ` +${extra}` : ''}`;

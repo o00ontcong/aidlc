@@ -18,7 +18,7 @@ describe('providers (UI step 1)', () => {
   it('maps canonical model for OpenCode default', () => {
     let cfg = applyProvider(MOCK_PROVIDER_CONFIG, 'opencode');
     cfg = applyDefaultProvider(cfg, 'opencode');
-    expect(mapModelForProvider('claude-opus-5', 'opencode', cfg.modelMappings)).toBe('opencode/big-pickle');
+    expect(mapModelForProvider('claude-opus-5', 'opencode', cfg.modelMappings)).toBe('silvertiger/glm-5.3');
   });
 
   it('apply is one-way — cannot un-apply', () => {

@@ -68,9 +68,9 @@ const GUIDE_BY_STEP: Record<string, HumanInterventionGuide> = {
     followUp: 'Chạy lại map-feature-flow trước implement để code không đi theo flow cũ.',
   },
   'package-mission': {
-    fixAt: 'Bổ sung heading còn thiếu trong MISSION.md (AC, Tasks, UI spec, Flow). Không implement ở step này.',
-    source: 'MISSION.md',
-    feedback: 'Pack còn thiếu: … . Hãy điền MISSION.md trước khi Start implement.',
+    fixAt: 'Bổ sung heading còn thiếu trong MISSION.md (Summary, AC testable, Tasks, UI spec, Flow mermaid) và ba graph: FEATURE-FLOW, FEATURE-SURFACES, FEATURE-IMPACT. Không implement ở step này.',
+    source: 'MISSION.md + FEATURE-FLOW / FEATURE-SURFACES / FEATURE-IMPACT',
+    feedback: 'Pack còn thiếu: … . Graph nào trống: … . Hãy điền MISSION.md và graph trước khi Start implement.',
     followUp: 'Chạy lại package-mission rồi Start implement khi completeness chips đều đủ.',
   },
   implement: {
@@ -124,7 +124,7 @@ const GUIDE_BY_STEP: Record<string, HumanInterventionGuide> = {
 };
 
 function stepId(step: StepLike): string {
-  return (step.stepName ?? step.agent).trim().toLowerCase().replace(/\s+/g, '-');
+  return (step.stepName ?? step.agent ?? '').trim().toLowerCase().replace(/\s+/g, '-');
 }
 
 export function humanInterventionGuide(step: StepLike): HumanInterventionGuide {

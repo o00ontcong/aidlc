@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { briefingSummary, isBriefingPipeline, primaryFlowMermaid } from '../src/webview/components/epic-v3/epic-logic';
+import { briefingGraphTabs, briefingSummary, isBriefingPipeline, primaryFlowMermaid } from '../src/webview/components/epic-v3/epic-logic';
 import {
   SAMPLE_MISSION,
   SAMPLE_THIN_REQUIREMENT,
@@ -102,6 +102,28 @@ describe('epic briefing layout', () => {
     })).toBe('flowchart LR\n  x-->y');
   });
 
+  it('does not show a Surfaces tab on project-context', () => {
+    const tabs = briefingGraphTabs(
+      {
+        flowMermaid: 'flowchart TD\n  a-->b',
+        impactMermaid: 'flowchart TD\n  app-->auth',
+      },
+      'project-context',
+      true,
+    );
+    expect(tabs.map((tab) => tab.id)).toEqual(['flow', 'impact', 'screens']);
+    expect(tabs.find((tab) => tab.id === 'surfaces')).toBeUndefined();
+    expect(tabs.find((tab) => tab.id === 'screens')?.label).toBe('Cây màn hình');
+  });
+
+  it('keeps Surfaces on feature-spike', () => {
+    const tabs = briefingGraphTabs(
+      { flowMermaid: 'flowchart LR\n  x-->y', surfacesMermaid: 'flowchart LR\n  web-->api' },
+      'feature-spike',
+    );
+    expect(tabs.map((tab) => tab.id)).toEqual(['flow', 'surfaces']);
+  });
+
   it('builds a short summary from description and goals', () => {
     expect(briefingSummary({
       title: 'Partial refunds',
@@ -109,6 +131,32 @@ describe('epic briefing layout', () => {
       alignment: { goals: ['G-02'], status: 'aligned' },
       inputs: {},
     })).toContain('Serves: G-02');
+  });
+
+  it('falls back to the title when description is missing', () => {
+    expect(briefingSummary({
+      title: 'Project context',
+      description: undefined as unknown as string,
+      alignment: { goals: [], status: 'aligned' },
+      inputs: {},
+    })).toBe('Project context');
+  });
+
+  it('prefers CONTEXT-REVIEW / MISSION briefing over the Start Epic description', () => {
+    expect(briefingSummary({
+      title: 'Project',
+      description: 'seed idea only',
+      alignment: { goals: [], status: 'aligned' },
+      inputs: {},
+      missionBriefing: { summary: 'OXUPass is the human briefing from CONTEXT-REVIEW.', acceptanceCriteria: '' },
+    })).toContain('OXUPass is the human briefing');
+    expect(briefingSummary({
+      title: 'Project',
+      description: 'seed idea only',
+      alignment: { goals: [], status: 'aligned' },
+      inputs: {},
+      missionBriefing: { summary: 'OXUPass is the human briefing from CONTEXT-REVIEW.', acceptanceCriteria: '' },
+    })).not.toContain('seed idea only');
   });
 
   it('does not add a 3P control or replace the epic list', () => {

@@ -189,6 +189,11 @@ import {
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
   assertImplementPackReady,
+  syncFlowMermaidFromMission,
+  section as markdownSection,
+  architectureGraphFromJson,
+  catalogFeaturesFromJson,
+  catalogScreensFromJson,
 } from '@aidlc/core';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -208,6 +213,7 @@ import {
 } from './builtinPresets';
 import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
+import { readProjectContextBriefing, isProjectContextPipeline } from './projectBriefingVisuals';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
 import { PresetStore } from './presetStore';
 import {
@@ -261,6 +267,7 @@ import { pickAndReadTextFile } from './pickAndReadTextFile';
 import { pickBugImages, savePastedBugImage } from './pickBugImages';
 import { scaffoldRequirementAnalysis } from './requirementWizard';
 import { missingBundleHtml } from './webviewBundleGuard';
+import { embedJsonForScript, extensionDisplayName } from './extensionBranding';
 import { writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
 import {
   ensureMarkdownOutputLanguagePolicy,
@@ -450,6 +457,7 @@ interface EpicSummaryUi {
   ship?: { prUrl?: string; status?: 'open' | 'approved' | 'merged'; head?: string; base?: string };
   reviewDiff?: string;
   visualizations?: EpicVisualizationsUi;
+  missionBriefing?: { summary: string; acceptanceCriteria: string };
 }
 
 interface RequirementRunSummary {
@@ -517,18 +525,24 @@ interface WorkspaceState {
 
 interface ArchitectureNodeUi { id: string; label: string; kind?: string; layer?: string; file?: string; symbol?: string; role?: string; }
 interface ArchitectureEdgeUi { source: string; target: string; label?: string; confidence?: string; }
-interface ArchitectureFeatureUi { id: string; name: string; summary?: string; confidence?: string; evidence?: string[]; entrypoints?: Array<{ label: string; file: string; symbol?: string }>; layers?: string[]; }
+interface ArchitectureFeatureUi {
+  id: string; name: string; summary?: string; confidence?: string; evidence?: string[];
+  parent?: string; area?: string; module?: string; children?: string[];
+  entrypoints?: Array<{ label: string; file: string; symbol?: string }>; layers?: string[];
+}
 interface ArchitectureFeatureFlowUi {
   featureId: string; title?: string; nodes: ArchitectureNodeUi[]; edges: ArchitectureEdgeUi[];
   mermaid?: string; surfacesMermaid?: string;
 }
 interface EpicFeatureImpactUi { id: string; name: string; change: 'add' | 'modify' | 'delete' | 'unchanged'; summary?: string; }
 interface EpicVisualizationsUi {
-  impactMermaid?: string; surfacesMermaid?: string; flowMermaid?: string; impactFeatures?: EpicFeatureImpactUi[];
+  impactMermaid?: string; surfacesMermaid?: string; flowMermaid?: string;
+  screensMermaid?: string; impactFeatures?: EpicFeatureImpactUi[];
 }
 interface ArchitectureExplorerStateUi {
   available: boolean; message?: string; layers: ArchitectureNodeUi[]; edges: ArchitectureEdgeUi[];
-  features: ArchitectureFeatureUi[]; structuralNodes: ArchitectureNodeUi[]; structuralEdges: ArchitectureEdgeUi[];
+  features: ArchitectureFeatureUi[]; screens: ArchitectureFeatureUi[];
+  structuralNodes: ArchitectureNodeUi[]; structuralEdges: ArchitectureEdgeUi[];
   featureFlows: Record<string, ArchitectureFeatureFlowUi>;
   /** Host-only absolute path; encoded for the sandboxed webview per refresh. */
   archifyOverviewPath?: string;
@@ -670,7 +684,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     }
   }
 
-  const epics = listEpics(root, doc).map((e) => toEpicSummaryUi(e));
+  const epics = listEpics(root, doc).map((e) => toEpicSummaryUi(e, root));
 
   // No auto-injection: the Domain dropdown only shows pipelines that are
   // actually declared in workspace.yaml. Users add built-ins via the
@@ -804,7 +818,7 @@ function resolveDisplayLanguage(): 'en' | 'vi' {
 }
 
 function emptyArchitectureExplorer(message: string): ArchitectureExplorerStateUi {
-  return { available: false, message, layers: [], edges: [], features: [], structuralNodes: [], structuralEdges: [], featureFlows: {} };
+  return { available: false, message, layers: [], edges: [], features: [], screens: [], structuralNodes: [], structuralEdges: [], featureFlows: {} };
 }
 
 /** Expose only curated JSON diagram artifacts; never send the raw AST database to the webview. */
@@ -812,10 +826,15 @@ function readArchitectureExplorer(workspaceRoot: string): ArchitectureExplorerSt
   const dir = path.join(workspaceRoot, 'docs', 'project', 'context', 'visualization');
   const project = readJsonObject(path.join(dir, 'PROJECT-ARCHITECTURE.json'));
   const catalog = readJsonObject(path.join(dir, 'FEATURE-CATALOG.json'));
+  const screenCatalog = readJsonObject(path.join(dir, 'SCREEN-CATALOG.json'));
   const structural = readJsonObject(path.join(dir, 'STRUCTURAL-GRAPH-MANIFEST.json'));
-  if (!project || !catalog || !structural) {
+  const graph = architectureGraphFromJson(project);
+  const features = catalogFeaturesFromJson(catalog) as ArchitectureFeatureUi[];
+  const screens = catalogScreensFromJson(screenCatalog) as ArchitectureFeatureUi[];
+  if (graph.nodes.length < 2 && features.length === 0 && screens.length === 0) {
     return emptyArchitectureExplorer('Architecture diagrams are generated by the Map Features step. Existing project and Epic data remain unchanged.');
   }
+  const structuralGraph = architectureGraphFromJson(structural);
   const featureFlows: Record<string, ArchitectureFeatureFlowUi> = {};
   const epicsDir = path.join(workspaceRoot, 'docs', 'epics');
   if (fs.existsSync(epicsDir)) {
@@ -826,11 +845,12 @@ function readArchitectureExplorer(workspaceRoot: string): ArchitectureExplorerSt
       if (!flow || typeof flow.featureId !== 'string') continue;
       const mermaidFile = path.join(artifactsDir, 'FEATURE-FLOW.mmd');
       const surfacesFile = path.join(artifactsDir, 'FEATURE-SURFACES.mmd');
+      const flowGraph = architectureGraphFromJson(flow);
       featureFlows[flow.featureId] = {
         featureId: flow.featureId,
         title: typeof flow.title === 'string' ? flow.title : undefined,
-        nodes: jsonObjects(flow.nodes) as unknown as ArchitectureNodeUi[],
-        edges: jsonObjects(flow.edges) as unknown as ArchitectureEdgeUi[],
+        nodes: flowGraph.nodes,
+        edges: flowGraph.edges,
         mermaid: fs.existsSync(mermaidFile) ? fs.readFileSync(mermaidFile, 'utf8') : undefined,
         surfacesMermaid: fs.existsSync(surfacesFile) ? fs.readFileSync(surfacesFile, 'utf8') : undefined,
       };
@@ -838,11 +858,12 @@ function readArchitectureExplorer(workspaceRoot: string): ArchitectureExplorerSt
   }
   return {
     available: true,
-    layers: jsonObjects(project.layers) as unknown as ArchitectureNodeUi[],
-    edges: jsonObjects(project.edges) as unknown as ArchitectureEdgeUi[],
-    features: jsonObjects(catalog.features) as unknown as ArchitectureFeatureUi[],
-    structuralNodes: jsonObjects(structural.nodes) as unknown as ArchitectureNodeUi[],
-    structuralEdges: jsonObjects(structural.edges) as unknown as ArchitectureEdgeUi[],
+    layers: graph.nodes,
+    edges: graph.edges,
+    features,
+    screens,
+    structuralNodes: structuralGraph.nodes,
+    structuralEdges: structuralGraph.edges,
     featureFlows,
     ...(fs.existsSync(path.join(dir, 'ARCHIFY-OVERVIEW.html'))
       ? { archifyOverviewPath: path.join(dir, 'ARCHIFY-OVERVIEW.html') }
@@ -1085,11 +1106,14 @@ async function mergeEpicTokenUsageInto(state: WorkspaceState): Promise<void> {
   }
 }
 
-function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
+function toEpicSummaryUi(e: CoreEpicSummary, workspaceRoot?: string): EpicSummaryUi {
   const total = e.stepDetails.length || 1;
   const done = e.stepDetails.filter((s) => s.status === 'done').length;
   const progress = Math.round((done / total) * 100);
   const epicDir = e.epicDir;
+  const projectBriefing = workspaceRoot && isProjectContextPipeline(e.pipeline)
+    ? readProjectContextBriefing(workspaceRoot)
+    : undefined;
   return {
     id: e.id,
     title: e.title,
@@ -1151,8 +1175,33 @@ function toEpicSummaryUi(e: CoreEpicSummary): EpicSummaryUi {
     alignment: e.alignment,
     ship: e.ship,
     reviewDiff: e.reviewDiff,
-    visualizations: readEpicVisualizations(epicDir),
+    visualizations: isProjectContextPipeline(e.pipeline)
+      ? projectContextVisualizations(projectBriefing)
+      : readEpicVisualizations(epicDir),
+    missionBriefing: projectBriefing?.summary
+      ? { summary: projectBriefing.summary, acceptanceCriteria: '' }
+      : readMissionBriefing(epicDir),
   };
+}
+
+function projectContextVisualizations(
+  project?: { flowMermaid?: string; impactMermaid?: string; screensMermaid?: string },
+): EpicVisualizationsUi | undefined {
+  if (!project?.flowMermaid && !project?.impactMermaid && !project?.screensMermaid) return undefined;
+  return {
+    flowMermaid: project.flowMermaid,
+    impactMermaid: project.impactMermaid,
+    screensMermaid: project.screensMermaid,
+  };
+}
+
+function readMissionBriefing(epicDir: string): { summary: string; acceptanceCriteria: string } | undefined {
+  const mission = readOptionalText(path.join(epicDir, 'artifacts', 'MISSION.md'));
+  if (!mission) return undefined;
+  const summary = markdownSection(mission, 'Summary') ?? '';
+  const acceptanceCriteria = markdownSection(mission, 'Acceptance criteria') ?? '';
+  if (!summary.trim() && !acceptanceCriteria.trim()) return undefined;
+  return { summary: summary.trim(), acceptanceCriteria: acceptanceCriteria.trim() };
 }
 
 function readOptionalText(file: string): string | undefined {
@@ -1167,6 +1216,7 @@ function readOptionalText(file: string): string | undefined {
 
 function readEpicVisualizations(epicDir: string): EpicVisualizationsUi | undefined {
   const artifacts = path.join(epicDir, 'artifacts');
+  syncFlowMermaidFromMission(artifacts);
   const impact = readJsonObject(path.join(artifacts, 'FEATURE-IMPACT.json'));
   const changes = new Set(['add', 'modify', 'delete', 'unchanged']);
   const impactFeatures = Array.isArray(impact?.features)
@@ -1554,10 +1604,16 @@ export class WorkspaceWebview {
   static current: WorkspaceWebview | undefined;
   private disposables: vscode.Disposable[] = [];
   private currentView: WorkspaceView;
+  private lastBundleMtime = 0;
 
   static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'builder'): void {
     const column = vscode.ViewColumn.One;
+    const title = extensionDisplayName(extensionUri.fsPath);
     if (WorkspaceWebview.current) {
+      WorkspaceWebview.current.panel.title = title;
+      // Always remount: F5 / window reload can restore a panel whose HTML
+      // still points at deleted webview URIs even when the bundle mtime matches.
+      WorkspaceWebview.current.remountHtml();
       WorkspaceWebview.current.panel.reveal(column);
       WorkspaceWebview.current.setView(initialView);
       WorkspaceWebview.current.refresh();
@@ -1565,7 +1621,7 @@ export class WorkspaceWebview {
     }
     const panel = vscode.window.createWebviewPanel(
       WorkspaceWebview.viewType,
-      'AIDLC Workspace',
+      title,
       column,
       {
         enableScripts: true,
@@ -1586,6 +1642,8 @@ export class WorkspaceWebview {
    */
   static reveal(extensionUri: vscode.Uri): void {
     if (WorkspaceWebview.current) {
+      WorkspaceWebview.current.panel.title = extensionDisplayName(extensionUri.fsPath);
+      WorkspaceWebview.current.reloadHtmlIfNeeded();
       // Keep column + tab; do not refresh (avoids remounting Epics UI).
       WorkspaceWebview.current.panel.reveal(undefined, false);
       return;
@@ -1603,6 +1661,9 @@ export class WorkspaceWebview {
     }
     const last = workspaceUiPrefs.get().lastView ?? 'builder';
     WorkspaceWebview.current = new WorkspaceWebview(panel, extensionUri, last);
+    // VS Code may write cached HTML *after* deserializeWebviewPanel returns,
+    // overwriting loadHtml() from the constructor. Remount on the next tick.
+    setTimeout(() => WorkspaceWebview.current?.remountHtml(), 0);
   }
 
   static registerSerializer(context: vscode.ExtensionContext): void {
@@ -1621,7 +1682,11 @@ export class WorkspaceWebview {
    */
   static scheduleAutoOpen(extensionUri: vscode.Uri, fallbackView: WorkspaceView): void {
     setTimeout(() => {
-      if (WorkspaceWebview.current) { return; }
+      if (WorkspaceWebview.current) {
+        WorkspaceWebview.current.remountHtml();
+        WorkspaceWebview.current.refresh();
+        return;
+      }
       const last = workspaceUiPrefs.get().lastView ?? fallbackView;
       WorkspaceWebview.show(extensionUri, last);
     }, 400);
@@ -1676,7 +1741,7 @@ export class WorkspaceWebview {
         ...(vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri),
       ],
     };
-    this.panel.webview.html = this.getHtml();
+    this.loadHtml();
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
       (msg) => {
@@ -1765,11 +1830,41 @@ export class WorkspaceWebview {
   }
 
   private async refreshAsync(): Promise<void> {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (root) { this.ensureWorkflowTemplates(root); }
-    const state = this.buildWebviewState();
-    await mergeEpicTokenUsageInto(state);
-    void this.panel.webview.postMessage({ type: 'state', state });
+    try {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (root) { this.ensureWorkflowTemplates(root); }
+      const state = this.buildWebviewState();
+      await mergeEpicTokenUsageInto(state);
+      void this.panel.webview.postMessage({ type: 'state', state });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      autonomousDeliveryOutput.appendLine(`[workspace refresh] ${detail}`);
+    }
+  }
+
+  private workspaceBundlePath(): string {
+    return path.join(this.extensionUri.fsPath, 'out', 'webviews', 'workspace.js');
+  }
+
+  private bundleMtime(): number {
+    try { return fs.statSync(this.workspaceBundlePath()).mtimeMs; } catch { return 0; }
+  }
+
+  /** Remount when Vite watch deleted/replaced the React bundle (otherwise the tab stays black). */
+  private reloadHtmlIfNeeded(): void {
+    const mtime = this.bundleMtime();
+    if (mtime !== this.lastBundleMtime) this.loadHtml();
+  }
+
+  /** Force a full HTML remount (F5 restore race, OPEN WORKSPACE, auto-open). */
+  remountHtml(): void {
+    this.loadHtml();
+  }
+
+  private loadHtml(): void {
+    this.panel.title = extensionDisplayName(this.extensionUri.fsPath);
+    this.panel.webview.html = this.getHtml();
+    this.lastBundleMtime = this.bundleMtime();
   }
 
   /** Extract a script-free preview so VS Code's webview CSP cannot blank it. */
@@ -5188,6 +5283,7 @@ export class WorkspaceWebview {
         missionMd.endsWith('\n') ? missionMd : `${missionMd}\n`,
         'utf8',
       );
+      syncFlowMermaidFromMission(path.dirname(dest));
     }
     if (pipelineId === 'feature-implement' && epic) {
       try {
@@ -5287,25 +5383,27 @@ export class WorkspaceWebview {
     const nonce = makeNonce();
     const webview = this.panel.webview;
     const cspSource = webview.cspSource;
-    const fallback = missingBundleHtml(this.extensionUri.fsPath, 'workspace.js', cspSource, nonce);
-    if (fallback) { return fallback; }
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (root) { this.ensureWorkflowTemplates(root); }
-    const initialState = this.buildWebviewState();
-    const initialTheme = themeManager.current;
+    const title = extensionDisplayName(this.extensionUri.fsPath);
+    try {
+      const fallback = missingBundleHtml(this.extensionUri.fsPath, 'workspace.js', cspSource, nonce);
+      if (fallback) { return fallback; }
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (root) { this.ensureWorkflowTemplates(root); }
+      const initialState = this.buildWebviewState();
+      const initialTheme = themeManager.current;
 
-    const assetsRoot = vscode.Uri.joinPath(this.extensionUri, 'out', 'webviews');
-    // Cache-bust by the bundle's mtime: the webview otherwise serves a stale
-    // cached workspace.js after a rebuild (same URI → old JS keeps running).
-    const bust = (p: string): string => {
-      try { return `?v=${Math.floor(fs.statSync(p).mtimeMs).toString(36)}`; } catch { return ''; }
-    };
-    const cssPath = vscode.Uri.joinPath(assetsRoot, 'styles.css');
-    const entryPath = vscode.Uri.joinPath(assetsRoot, 'workspace.js');
-    const cssUri = webview.asWebviewUri(cssPath).toString() + bust(cssPath.fsPath);
-    const entryUri = webview.asWebviewUri(entryPath).toString() + bust(entryPath.fsPath);
+      const assetsRoot = vscode.Uri.joinPath(this.extensionUri, 'out', 'webviews');
+      // Cache-bust by the bundle's mtime: the webview otherwise serves a stale
+      // cached workspace.js after a rebuild (same URI → old JS keeps running).
+      const bust = (p: string): string => {
+        try { return `?v=${Math.floor(fs.statSync(p).mtimeMs).toString(36)}`; } catch { return ''; }
+      };
+      const cssPath = vscode.Uri.joinPath(assetsRoot, 'styles.css');
+      const entryPath = vscode.Uri.joinPath(assetsRoot, 'workspace.js');
+      const cssUri = webview.asWebviewUri(cssPath).toString() + bust(cssPath.fsPath);
+      const entryUri = webview.asWebviewUri(entryPath).toString() + bust(entryPath.fsPath);
 
-    return `<!DOCTYPE html>
+      return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -5316,16 +5414,45 @@ export class WorkspaceWebview {
            style-src ${cspSource} 'unsafe-inline';
            script-src 'nonce-${nonce}' ${cspSource};
            frame-src ${cspSource};">
-<title>AIDLC Workspace</title>
+<title>${title}</title>
 <link rel="stylesheet" href="${cssUri}">
 </head>
 <body>
-<div id="app"></div>
+<div id="app"><p style="margin:24px;font:13px/1.5 var(--vscode-font-family);color:var(--vscode-descriptionForeground)">Loading Cohesive Delivery…</p></div>
 <script nonce="${nonce}">
-window.__AIDLC_INITIAL_STATE__ = ${JSON.stringify(initialState)};
-window.__AIDLC_INITIAL_THEME__ = ${JSON.stringify(initialTheme)};
+window.__AIDLC_INITIAL_STATE__ = ${embedJsonForScript(initialState)};
+window.__AIDLC_INITIAL_THEME__ = ${embedJsonForScript(initialTheme)};
 </script>
 <script type="module" nonce="${nonce}" src="${entryUri}"></script>
+</body>
+</html>`;
+    } catch (error) {
+      const detail = error instanceof Error ? error.stack ?? error.message : String(error);
+      autonomousDeliveryOutput.appendLine(`[workspace html] ${detail}`);
+      return this.errorHtml(`${title} could not load`, detail, cspSource);
+    }
+  }
+
+  private errorHtml(heading: string, detail: string, cspSource?: string): string {
+    const title = extensionDisplayName(this.extensionUri.fsPath);
+    const csp = cspSource ?? this.panel.webview.cspSource;
+    const safe = detail.replace(/[<>&]/g, (ch) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[ch] ?? ch));
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${csp} 'unsafe-inline';">
+<title>${title}</title>
+<style>
+  body { font-family: var(--vscode-font-family); padding: 24px; color: var(--vscode-foreground); line-height: 1.5; }
+  h1 { font-size: 1.05rem; margin: 0 0 12px; }
+  pre { white-space: pre-wrap; background: var(--vscode-textCodeBlock-background); padding: 12px; border-radius: 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>${heading}</h1>
+<p>Reload the Extension Development Host after <code>pnpm --filter aidlc-o00ontcong bundle:webviews</code> (or <code>watch</code>) finishes.</p>
+<pre>${safe}</pre>
 </body>
 </html>`;
   }

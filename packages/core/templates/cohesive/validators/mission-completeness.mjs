@@ -1,7 +1,9 @@
 import path from 'node:path';
 import {
-  artifactDir, exists, formatError, markdownHasGo, pass, readJson, readText, reject,
+  acceptanceCriteriaProblems, artifactDir, collectFeatureImpactProblems, exists, extractMermaidFence,
+  formatError, markdownSection, mermaidEquals, pass, readText, reject,
 } from './lib.mjs';
+import featureFlow from './feature-flow.mjs';
 
 const REQUIRED_HEADINGS = [
   'Summary',
@@ -13,21 +15,12 @@ const REQUIRED_HEADINGS = [
   'Constraints',
   'Tasks',
   'UI spec',
+  'Flow',
   'Definition of done',
 ];
 
 function headingRe(label) {
   return new RegExp(`^##\\s+${label.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\s*$`, 'im');
-}
-
-function section(text, heading) {
-  const re = headingRe(heading);
-  const match = re.exec(text);
-  if (!match) return null;
-  const start = match.index + match[0].length;
-  const rest = text.slice(start);
-  const next = /^##\s+/im.exec(rest);
-  return (next ? rest.slice(0, next.index) : rest).trim();
 }
 
 export default async function missionCompleteness(ctx) {
@@ -37,21 +30,35 @@ export default async function missionCompleteness(ctx) {
     const body = readText(file);
     const missing = [];
     for (const heading of REQUIRED_HEADINGS) {
+      if (heading === 'Flow') continue;
       if (!headingRe(heading).test(body)) missing.push(heading);
     }
-    const hasFlow = headingRe('Flow').test(body) || /```mermaid[\s\S]+```/i.test(body);
-    if (!hasFlow) missing.push('Flow');
-    const ui = section(body, 'UI spec') ?? '';
+    const flow = markdownSection(body, 'Flow') ?? '';
+    if (!headingRe('Flow').test(body)) missing.push('Flow');
+    else if (!extractMermaidFence(flow)) missing.push('Flow (mermaid in ## Flow)');
+
+    const ui = markdownSection(body, 'UI spec') ?? '';
     if (ui && !/N\/A\s*[—-]\s*no UI change/i.test(ui) && !/figma|node-id|layout|token/i.test(ui)) {
       missing.push('UI spec (N/A or Figma/layout/token)');
     }
+    missing.push(...acceptanceCriteriaProblems(markdownSection(body, 'Acceptance criteria') ?? ''));
     if (/\*\*Status:\*\*\s*Draft/i.test(body) || /OQ blocking/i.test(body)) {
       missing.push('OQ blocking / Status Draft');
     }
-    if (missing.length) {
-      return reject(`MISSION.md is incomplete:\n- ${missing.join('\n- ')}`);
+
+    const flowCheck = await featureFlow(ctx);
+    if (flowCheck.decision === 'reject') missing.push(flowCheck.reason);
+    missing.push(...collectFeatureImpactProblems(ctx.workspaceRoot, ctx.state.runId));
+
+    const flowFile = path.join(artifactDir(ctx.workspaceRoot, ctx.state.runId), 'FEATURE-FLOW.mmd');
+    if (exists(flowFile) && extractMermaidFence(flow) && !mermaidEquals(flow, readText(flowFile))) {
+      missing.push('MISSION.md ## Flow mermaid must match FEATURE-FLOW.mmd (one diagram, not two stories)');
     }
-    return pass('MISSION.md has the required pack headings.');
+
+    if (missing.length) {
+      return reject(`MISSION.md briefing is incomplete:\n- ${missing.join('\n- ')}`);
+    }
+    return pass('MISSION.md pack + Flow/Surfaces/Impact graphs are present.');
   } catch (error) {
     return reject(`Mission completeness validator failed: ${formatError(error)}`);
   }

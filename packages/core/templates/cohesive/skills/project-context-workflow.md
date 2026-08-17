@@ -60,14 +60,25 @@ After Intent exists:
 
 1. Write `docs/project/context/PROJECT-SCAN.md` with `## Repository Structure` and `## Quality Commands`.
 2. Write canonical Reality: `PROJECT-CONTEXT.md`, `ARCHITECTURE-MAP.md`, `DOMAIN-MODEL.md`, `SHARED-CONTRACTS.md`, `ENGINEERING-RULES.md`.
-3. Write visualization manifests: `PROJECT-ARCHITECTURE.json`, `FEATURE-CATALOG.json`, `STRUCTURAL-GRAPH-MANIFEST.json`. Prefer the AST graph when available; mark inferred edges.
+3. Write visualization files at these exact paths (JSON is the machine model; mermaid is the human graph — both required):
+   - `docs/project/context/visualization/PROJECT-ARCHITECTURE.json` + `PROJECT-ARCHITECTURE.mmd`
+   - `docs/project/context/visualization/FEATURE-CATALOG.json` + `FEATURE-CATALOG.mmd`
+   - `docs/project/context/visualization/SCREEN-CATALOG.json` + `SCREEN-CATALOG.mmd`
+   - `docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json`
+   Prefer the AST graph when available; mark inferred edges. Every architecture layer/node needs `id` plus `label` or `name`. Edges use `source`/`target`.
+   Draw **two** feature trees for comparison — both required, both live only under `docs/project/context/visualization/`:
+   - `FEATURE-CATALOG.json` + `.mmd` — **code structure**: every product feature as modules/packages/folders organize it. Nest with `parent` and/or `area` / `module` (iOS, API, CoreAuth, …). Root is `APP`. Evidence is source/module files. The `.mmd` is `flowchart TD`: APP → area/module → feature → sub-feature.
+   - `SCREEN-CATALOG.json` + `.mmd` — **screen structure**: every user-facing screen as navigation organizes it (TabView, NavigationStack, routes, coordinators). Nest with `parent` (sheet/modal presented from a screen) and `tab` / `flow` / `area` / `nav`. Optional `kind`: `screen|sheet|modal|tab|flow`. Optional `featureRef` pointing at a FEATURE-CATALOG `id` so the two trees can be compared. Evidence is View/route/coordinator files — **not** Package.swift. Root is `UI`. The `.mmd` is `flowchart TD`: UI → tab/flow → screen → sheet. This is **not** epic `FEATURE-SURFACES` (systems one epic touches).
+   Each catalog node: `id`, `name`, `evidence`, `confidence`. Do not flatten to `APP → feature` / `UI → screen` and do not drop small screens or small features. Do not put these graphs under `docs/epics/*/artifacts/`.
 4. Write `docs/project/conformance/DRIFT-REPORT.md` covering every `INV-x`. Do not erase drift by editing the charter.
-5. Write `CONTEXT-REVIEW.md`. Apply mechanical Required Corrections yourself to the owning context files. Re-review to `**Verdict:** GO` in the same step when possible. Do not publish while contradictions or unresolved high-impact gaps remain.
+5. Write `docs/project/context/CONTEXT-REVIEW.md` with `## Summary` (1–2 paragraphs a human can read: what this product/repo is, who it serves) then the GO/NO-GO body. Apply mechanical Required Corrections yourself to the owning context files. Re-review to `**Verdict:** GO` in the same step when possible. Do not publish while contradictions or unresolved high-impact gaps remain.
+
+`PROJECT-CONTEXT.md` is the long evidence. `CONTEXT-REVIEW.md` `## Summary` is the human briefing. Graph files live only under `docs/project/context/visualization/`.
 
 ## Phase: `publish-context`
 
 No AIDLC Approve. After baseline GO:
 
-1. Write `docs/project/context/CONTEXT-MANIFEST.json` (`schemaVersion: 2`, integer `revision`, `sourceCommit`, per-artifact sha256).
+1. Write `docs/project/context/CONTEXT-MANIFEST.json` (`schemaVersion: 2`, integer `revision`, `sourceCommit`, per-artifact sha256 of Reality markdown + JSON). `PROJECT-ARCHITECTURE.mmd`, `FEATURE-CATALOG.mmd`, and `SCREEN-CATALOG.mmd` must already exist beside their JSON from `establish-baseline`; do not write them under `docs/epics/`.
 2. Project charter + conventions into `CLAUDE.md`, `AGENTS.md`, and `.cursor/rules/aidlc-charter.mdc` with `<!-- aidlc:charter start · revision N · sha256:... -->` / `<!-- aidlc:charter end -->` markers matching `CHARTER.json`.
 3. Do not edit application source. Do not rewrite Intent.

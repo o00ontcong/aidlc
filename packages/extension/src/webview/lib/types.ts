@@ -689,8 +689,10 @@ export interface EpicSummary {
   ship?: EpicShipInfo;
   /** REVIEW-DIFF.md contents when present (diff-first human review). */
   reviewDiff?: string;
-  /** Human-scale graphs produced by plan / map-feature-flow. */
+  /** Human-scale graphs produced by spike / implement (Flow, Surfaces, Impact). */
   visualizations?: EpicVisualizations;
+  /** MISSION.md ## Summary + ## Acceptance criteria for the briefing card. */
+  missionBriefing?: { summary: string; acceptanceCriteria: string };
 }
 
 export type FeatureImpactChange = 'add' | 'modify' | 'delete' | 'unchanged';
@@ -706,6 +708,7 @@ export interface EpicVisualizations {
   impactMermaid?: string;
   surfacesMermaid?: string;
   flowMermaid?: string;
+  screensMermaid?: string;
   impactFeatures?: EpicFeatureImpact[];
 }
 
@@ -868,6 +871,10 @@ export interface ArchitectureFeature {
   summary?: string;
   confidence?: string;
   evidence?: string[];
+  parent?: string;
+  area?: string;
+  module?: string;
+  children?: string[];
   entrypoints?: Array<{ label: string; file: string; symbol?: string }>;
   layers?: string[];
 }
@@ -887,6 +894,7 @@ export interface ArchitectureExplorerState {
   layers: ArchitectureNode[];
   edges: ArchitectureEdge[];
   features: ArchitectureFeature[];
+  screens: ArchitectureFeature[];
   structuralNodes: ArchitectureNode[];
   structuralEdges: ArchitectureEdge[];
   featureFlows: Record<string, ArchitectureFeatureFlow>;

@@ -164,6 +164,8 @@ const VISUALIZATION_ARTIFACTS = new Set([
   'FEATURE-IMPACT.mmd',
   'FEATURE-SURFACES.json',
   'FEATURE-SURFACES.mmd',
+  'FEATURE-FLOW.json',
+  'FEATURE-FLOW.mmd',
 ]);
 
 const REOPENABLE = new Set(['approved', 'awaiting_review', 'awaiting_auto_review']);

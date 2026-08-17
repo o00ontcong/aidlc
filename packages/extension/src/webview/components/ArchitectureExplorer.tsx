@@ -1,71 +1,104 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import mermaid from 'mermaid';
 
 import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureFeature, ArchitectureNode, EpicFeatureImpact, EpicSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
+import { usePanelFullscreen } from '@/hooks/usePanelFullscreen';
 
-type Level = 'overview' | 'features' | 'flow';
+type Level = 'overview' | 'features' | 'screens' | 'flow';
 type Language = 'en' | 'vi';
 
 const copy = {
   en: {
-    title: 'Architecture', intro: 'Read the project from its overall shape to a feature, then its code flow.',
-    overview: '1. Overview', features: '2. Features', flow: '3. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
-    generateProject: 'Generate Overview + Features', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
+    title: 'Architecture', intro: 'Read the project from its overall shape to a code feature tree, a screen tree, then a feature flow.',
+    overview: '1. Overview', features: '2. Code tree', screens: '3. Screen tree', flow: '4. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
+    generateProject: 'Generate Overview + Trees', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
     codeFlow: 'Code flow', surfaces: 'Surfaces',
     visualOverview: 'Visual overview', technicalOverview: 'Technical overview', renderVisual: 'Render verified overview',
     zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom', panHint: 'Drag to pan · Ctrl + scroll to zoom',
+    enterFullscreen: 'Full screen', exitFullscreen: 'Exit full screen',
     notStarted: 'Not started', inProgress: 'In progress', done: 'Done',
   },
   vi: {
-    title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, đến tính năng, rồi đến luồng mã nguồn.',
-    overview: '1. Tổng quan', features: '2. Tính năng', flow: '3. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
-    generateProject: 'Tạo Tổng quan + Tính năng', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
+    title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, cây feature theo code, cây theo màn hình, rồi luồng mã nguồn.',
+    overview: '1. Tổng quan', features: '2. Cây code', screens: '3. Cây màn hình', flow: '4. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
+    generateProject: 'Tạo Tổng quan + Cây', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
     codeFlow: 'Luồng mã', surfaces: 'Surfaces',
     visualOverview: 'Tổng quan trực quan', technicalOverview: 'Tổng quan kỹ thuật', renderVisual: 'Tạo tổng quan đã kiểm chứng',
     zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ', panHint: 'Giữ chuột để kéo · Ctrl + lăn chuột để zoom',
+    enterFullscreen: 'Toàn màn hình', exitFullscreen: 'Thoát toàn màn hình',
     notStarted: 'Chưa làm', inProgress: 'Đang làm', done: 'Đã làm',
   },
 } as const;
 
-function id(value: string): string { return `n_${value.replace(/[^A-Za-z0-9_]/g, '_')}`; }
-function label(value: string): string {
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+function id(value: unknown): string {
+  const text = asText(value) || 'unknown';
+  return `n_${text.replace(/[^A-Za-z0-9_]/g, '_')}`;
+}
+function label(value: unknown): string {
   // Mermaid's parser is stricter than HTML: preserve readable text while
   // removing grammar tokens that can turn generated repository labels into
   // diagram syntax.
-  return value.replace(/[\\"\[\]{}|<>]/g, '').replace(/[\r\n]+/g, ' ').trim();
+  return asText(value).replace(/[\\"\[\]{}|<>]/g, '').replace(/[\r\n]+/g, ' ').trim();
 }
 
 function overviewDiagram(nodes: readonly ArchitectureNode[], edges: readonly ArchitectureEdge[]): string {
   const lines = ['flowchart TD'];
-  for (const node of nodes) lines.push(`  ${id(node.id)}["${label(node.label)}"]`);
-  for (const edge of edges) lines.push(`  ${id(edge.source)} --> ${id(edge.target)}`);
+  for (const node of nodes) {
+    if (!asText(node.id) && !asText(node.label)) continue;
+    lines.push(`  ${id(node.id || node.label)}["${label(node.label || node.id)}"]`);
+  }
+  for (const edge of edges) {
+    if (!asText(edge.source) || !asText(edge.target)) continue;
+    lines.push(`  ${id(edge.source)} --> ${id(edge.target)}`);
+  }
   return lines.join('\n');
 }
 
-/** Level 2 is deliberately feature-first: app → feature → real entry/code participant. */
+/** Level 2 is a feature tree: app → area/parent → feature → entry. */
 function featureMapDiagram(
   features: readonly ArchitectureFeature[],
   epics: readonly EpicSummary[],
   text: typeof copy.en | typeof copy.vi,
 ): string {
   const impact = impactByFeatureId(epics);
+  const byId = new Set(features.map((feature) => feature.id));
   const lines = [
     'flowchart TD',
     '  app["APP"]',
   ];
   const drawn = new Set<string>();
+  const areas = new Set<string>();
   for (const feature of features) {
+    const area = feature.area?.trim() || feature.module?.trim();
+    if (area && !feature.parent) areas.add(area);
+  }
+  for (const area of areas) {
+    const areaId = id(`area_${area}`);
+    lines.push(`  app --> ${areaId}["${label(area)}"]`);
+  }
+  for (const feature of features) {
+    if (!asText(feature.id) && !asText(feature.name)) continue;
     drawn.add(feature.id);
-    const featureId = id(`feature_${feature.id}`);
+    const featureId = id(`feature_${feature.id || feature.name}`);
     const overlay = impact.get(feature.id);
     const status = overlay?.change ?? featureDelivery(feature, epics).status;
     const statusLabel = overlay
       ? overlay.change
       : status === 'done' ? text.done : status === 'in_progress' ? text.inProgress : text.notStarted;
-    lines.push(`  app --> ${featureId}["${label(feature.name)} (${statusLabel})"]`);
+    const parentId = feature.parent && byId.has(feature.parent)
+      ? id(`feature_${feature.parent}`)
+      : (feature.area?.trim() || feature.module?.trim()) && !feature.parent
+        ? id(`area_${(feature.area ?? feature.module)!.trim()}`)
+        : 'app';
+    lines.push(`  ${parentId} --> ${featureId}["${label(feature.name || feature.id)} (${statusLabel})"]`);
     lines.push(`  style ${featureId} ${featureStyle(status)}`);
     for (const [index, entry] of (feature.entrypoints ?? []).slice(0, 4).entries()) {
+      if (!asText(entry.label)) continue;
       const participantId = id(`entry_${feature.id}_${index}`);
       lines.push(`  ${featureId} --> ${participantId}["${label(entry.label)}"]`);
     }
@@ -73,7 +106,7 @@ function featureMapDiagram(
   for (const [featureId, overlay] of impact) {
     if (drawn.has(featureId) || overlay.change === 'unchanged') continue;
     const nodeId = id(`feature_${featureId}`);
-    lines.push(`  app --> ${nodeId}["${label(overlay.name)} (${overlay.change})"]`);
+    lines.push(`  app --> ${nodeId}["${label(overlay.name || featureId)} (${overlay.change})"]`);
     lines.push(`  style ${nodeId} ${featureStyle(overlay.change)}`);
   }
   return lines.join('\n');
@@ -99,8 +132,8 @@ function featureStyle(status: string): string {
 
 type FeatureDeliveryStatus = 'not_started' | 'in_progress' | 'done';
 
-function normalized(value: string): string {
-  return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+function normalized(value: string | undefined): string {
+  return asText(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 /**
@@ -132,6 +165,7 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
   const [zoom, setZoom] = useState(100);
+  const { fullscreen, toggle: toggleFullscreen } = usePanelFullscreen();
   const diagramRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
@@ -204,13 +238,14 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
   };
   if (!source) return <p className="p-6 text-sm text-muted-foreground">{empty}</p>;
   if (error) return <p className="p-6 text-sm text-destructive">{error}</p>;
-  return <div className="flex min-h-[520px] flex-col">
+  return <div className={fullscreen ? 'fixed inset-0 z-50 flex flex-col bg-background' : 'flex min-h-[520px] flex-col'} onWheel={fullscreen ? (event) => event.stopPropagation() : undefined}>
     <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
       <span className="text-xs text-muted-foreground">{text.panHint}</span>
       <div className="flex items-center gap-1">
       <button type="button" title={text.zoomOut} aria-label={text.zoomOut} onClick={() => setZoom((value) => Math.max(50, value - 25))} disabled={zoom <= 50} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">−</button>
       <button type="button" title={text.resetZoom} aria-label={text.resetZoom} onClick={() => { viewRef.current = { x: 0, y: 0 }; applyTransform(100); setZoom(100); }} className="min-w-12 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent">{zoom}%</button>
       <button type="button" title={text.zoomIn} aria-label={text.zoomIn} onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">+</button>
+      <FullscreenButton active={fullscreen} enterLabel={text.enterFullscreen} exitLabel={text.exitFullscreen} onClick={toggleFullscreen} />
       </div>
     </div>
     <div ref={diagramRef} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-hidden select-none">
@@ -237,6 +272,7 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
   const source = useMemo(() => {
     if (level === 'overview') return overviewDiagram(architecture.layers, architecture.edges);
     if (level === 'features') return featureMapDiagram(architecture.features, epics, text);
+    if (level === 'screens') return featureMapDiagram(architecture.screens ?? [], [], text);
     return flowKind === 'surfaces' ? flow?.surfacesMermaid : flow?.mermaid;
   }, [architecture, epics, flow?.mermaid, flow?.surfacesMermaid, flowKind, level, text]);
 
@@ -249,6 +285,7 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
     <div className="flex flex-wrap gap-2">
       <button type="button" onClick={() => setLevel('overview')} className={tabClass(level === 'overview')}>{text.overview}</button>
       <button type="button" onClick={() => setLevel('features')} className={tabClass(level === 'features')}>{text.features}</button>
+      <button type="button" onClick={() => setLevel('screens')} className={tabClass(level === 'screens')}>{text.screens}</button>
       <button type="button" onClick={() => setLevel('flow')} className={tabClass(level === 'flow')}>{text.flow}</button>
     </div>
     <DiagramActions compact text={text} canRender />
@@ -267,20 +304,39 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
     )}
     <section className="min-h-[520px] overflow-hidden rounded-md border border-border bg-card">
       {level === 'overview' && overviewRenderer === 'visual' && architecture.archifyOverviewSvgBase64
-        ? <ArchifyOverview svgBase64={architecture.archifyOverviewSvgBase64} title={text.visualOverview} />
+        ? <ArchifyOverview svgBase64={architecture.archifyOverviewSvgBase64} title={text.visualOverview} text={text} />
         : <MermaidDiagram source={source} empty={level === 'flow' && !featureId ? text.selectFeature : text.noDiagram} text={text} />}
     </section>
   </div>;
 }
 
-function ArchifyOverview({ svgBase64, title }: { svgBase64: string; title: string }) {
-  return <div className="h-[720px] overflow-auto bg-background p-4">
-    <img
-      src={`data:image/svg+xml;base64,${svgBase64}`}
-      alt={title}
-      className="block h-auto min-w-[1200px] max-w-none w-full"
-    />
+function ArchifyOverview({ svgBase64, title, text }: { svgBase64: string; title: string; text: typeof copy.en | typeof copy.vi }) {
+  const { fullscreen, toggle } = usePanelFullscreen();
+  return <div className={fullscreen ? 'fixed inset-0 z-50 flex flex-col bg-background' : 'flex h-[720px] flex-col'} onWheel={fullscreen ? (event) => event.stopPropagation() : undefined}>
+    <div className="flex items-center justify-end border-b border-border px-3 py-2">
+      <FullscreenButton active={fullscreen} enterLabel={text.enterFullscreen} exitLabel={text.exitFullscreen} onClick={toggle} />
+    </div>
+    <div className="min-h-0 flex-1 overflow-auto bg-background p-4">
+      <img
+        src={`data:image/svg+xml;base64,${svgBase64}`}
+        alt={title}
+        className="block h-auto min-w-[1200px] max-w-none w-full"
+      />
+    </div>
   </div>;
+}
+
+function FullscreenButton({ active, enterLabel, exitLabel, onClick }: {
+  active: boolean;
+  enterLabel: string;
+  exitLabel: string;
+  onClick: () => void;
+}) {
+  const label = active ? exitLabel : enterLabel;
+  const Icon = active ? Minimize2 : Maximize2;
+  return <button type="button" title={label} aria-label={label} aria-pressed={active} onClick={onClick} className="inline-flex h-7 w-7 items-center justify-center rounded border border-border text-foreground hover:bg-accent">
+    <Icon className="h-3.5 w-3.5" />
+  </button>;
 }
 
 function DiagramActions({ compact = false, text, canRender = false }: { compact?: boolean; text: typeof copy.en | typeof copy.vi; canRender?: boolean }) {

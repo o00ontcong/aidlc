@@ -74,16 +74,22 @@ export function checkMissionCompleteness(text: string): MissionCheck {
     return { ok: false, missing: [...MISSION_HEADINGS] };
   }
   for (const heading of MISSION_HEADINGS) {
-    if (heading === 'Flow') {
-      const hasFlow = HEADING_RE('Flow').test(body) || /```mermaid[\s\S]+```/i.test(body);
-      if (!hasFlow) missing.push('Flow');
-      continue;
-    }
+    if (heading === 'Flow') continue;
     if (!HEADING_RE(heading).test(body)) missing.push(heading);
+  }
+  const flow = section(body, 'Flow');
+  if (!flow) missing.push('Flow');
+  else if (!/```mermaid[\s\S]+```/i.test(flow) && !/^(flowchart|sequenceDiagram)\b/m.test(flow)) {
+    missing.push('Flow (mermaid trong ## Flow)');
   }
   const ui = section(body, 'UI spec');
   if (ui && !/N\/A\s*[—-]\s*no UI change/i.test(ui) && !/figma|node-id|layout|token/i.test(ui)) {
     missing.push('UI spec (N/A hoặc số đo/Figma)');
+  }
+  const ac = section(body, 'Acceptance criteria') ?? '';
+  if (ac.trim().length < 12) missing.push('Acceptance criteria (quá mỏng để nghiệm thu)');
+  else if (!/\bAC[- ]?\d+/i.test(ac) && !/\bgiven\b[\s\S]{0,240}\bwhen\b[\s\S]{0,240}\bthen\b/i.test(ac) && !/\|\s*(criterion|verifiable)/i.test(ac)) {
+    missing.push('Acceptance criteria (cần AC-id, Given/When/Then, hoặc bảng Criterion)');
   }
   if (/\*\*Status:\*\*\s*Draft/i.test(body) || /OQ blocking/i.test(body)) {
     missing.push('còn OQ blocking / Status Draft');
@@ -242,13 +248,13 @@ export function briefingGateCopy(
   const name = stepName.trim().toLowerCase();
   if (name === 'establish-baseline') {
     return {
-      body: 'SUMMARY + kiến trúc đủ để feature Start. Approve = GO publish.',
+      body: 'SUMMARY + kiến trúc (Architecture Explorer). CONTEXT-REVIEW ## Summary là briefing human. Approve = GO publish.',
       approveLabel: 'Approve',
     };
   }
   if (name === 'package-mission') {
     return {
-      body: 'Pack đủ heading. Copy sang implement hoặc Reject vì còn OQ.',
+      body: 'Pack đủ heading + AC testable + 3 graph (Luồng / Surfaces / Cây feature). Copy sang implement hoặc Reject vì còn OQ.',
       approveLabel: 'Approve',
     };
   }

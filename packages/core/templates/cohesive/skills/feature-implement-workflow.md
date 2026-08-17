@@ -16,20 +16,26 @@ You own one independent feature epic from a complete `MISSION.md` through ship. 
 
 ## Non-negotiable rules
 
-- Read **only** `MISSION.md`, `docs/project/charter/`, the repo, and this epic's artifacts. Do not treat SPEC/PLAN/CONTRACT/FLOW.json as source of truth when `MISSION.md` exists.
+- Read **only** `MISSION.md`, `docs/project/charter/`, the repo, and this epic's artifacts. Do not treat SPEC/PLAN/CONTRACT as source of truth when `MISSION.md` exists.
 - Do not start this pipeline if `MISSION.md` is missing headings, still `**Status:** Draft`, or still has `OQ blocking`.
 - 100% means fidelity to the pack, not zero bugs. Pixel/layout sign-off is the human on a real device — no simulator as proof.
 - This epic owns `feature/$0`. Before changing a shared surface, inspect other active epics and stop for a real conflict.
 - You may choose internal decomposition. Do not expose worker epics or a worker count.
 - Treat `resolve-bugs` approval as the commit point for bug-driven documentation changes. Before approval, keep proposed documentation updates only in `BUG-FIX-LOG.md`.
 - Open exactly one PR from `feature/$0`; never merge the default branch yourself.
+- Do not copy AC text into the summary. Trace `AC-n` ids. Do not rewrite `MISSION.md` ## Flow (intent stays in the pack). Refresh `FEATURE-FLOW` / `FEATURE-SURFACES` from as-built code — that is the code map, not a second spec.
 
 ## Phase: `implement`
 
 1. Confirm `MISSION.md` is complete (all required headings; UI spec is N/A or has Figma/layout/token; no Draft / OQ blocking).
 2. Implement the Tasks and Acceptance criteria on `feature/$0`. Match UI spec when it is not N/A.
 3. Run the project's quality commands (test / lint / typecheck as declared in charter / ENGINEERING-RULES).
-4. Write `IMPLEMENTATION-SUMMARY.md`: what changed, files, how AC were verified, remaining risks, planned vs pack. Optionally refresh briefing graphs from as-built code (`FEATURE-FLOW.json` / `FEATURE-SURFACES.json`) — they are visualization, not a second contract.
+4. Write `IMPLEMENTATION-SUMMARY.md` with:
+   - what changed and which files
+   - remaining risks
+   - planned vs pack
+   - `## Acceptance criteria results` — one line per `AC-n` from MISSION (`pass` / `fail` / `deferred` + evidence). Do **not** restate the AC prose.
+   Refresh `FEATURE-FLOW.json` / `.mmd` and `FEATURE-SURFACES.json` / `.mmd` from as-built code (visualization of what landed). Leave `FEATURE-IMPACT` unless the catalog membership actually changed. Do not edit `MISSION.md`.
 5. Do not open a PR in this phase.
 
 ## Phase: `resolve-bugs`

@@ -11,8 +11,9 @@ const REQUIRED = [
   'DOMAIN-MODEL.md',
   'SHARED-CONTRACTS.md',
   'ENGINEERING-RULES.md',
-  'visualization/PROJECT-ARCHITECTURE.json',
+  '  visualization/PROJECT-ARCHITECTURE.json',
   'visualization/FEATURE-CATALOG.json',
+  'visualization/SCREEN-CATALOG.json',
   'visualization/STRUCTURAL-GRAPH-MANIFEST.json',
 ];
 

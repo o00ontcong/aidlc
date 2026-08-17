@@ -32,6 +32,22 @@
         "${workspaceFolder}/packages/core/dist/**/*.js"
       ],
       "preLaunchTask": "compile-extension"
+    },
+    {
+      "name": "Run AIDLC on repo_for_loop_engine",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/packages/extension",
+        "--disable-extension=hueanmy.aidlc",
+        "--disable-extension=o00ontcong.aidlc-o00ontcong",
+        "${env:HOME}/Project/github/repo_for_loop_engine"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/packages/extension/out/**/*.js",
+        "${workspaceFolder}/packages/core/dist/**/*.js"
+      ],
+      "preLaunchTask": "compile-extension"
     }
   ]
 }

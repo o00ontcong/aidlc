@@ -384,6 +384,9 @@ export type {
 // ── Multi-provider command adapters ──────────────────────────────────
 export {
   BUNDLED_MODEL_MAPPINGS,
+  OPENCODE_FLAGSHIP_MODEL,
+  SUPERSEDED_OPENCODE_MODELS,
+  upgradeOpenCodeModelId,
   BUILTIN_COMMAND_PROVIDER_IDS,
   BUILTIN_COMMAND_PROVIDERS,
   buildStepCommandBody,

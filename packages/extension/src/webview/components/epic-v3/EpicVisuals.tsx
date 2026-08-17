@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import mermaid from 'mermaid';
 
 import type { EpicSummary, EpicVisualizations } from '@/lib/types';
-import { briefingSummary, isBriefingPipeline, primaryFlowMermaid } from './epic-logic';
+import { usePanelFullscreen } from '@/hooks/usePanelFullscreen';
+import { briefingGraphTabs, briefingSummary, isBriefingPipeline, isProjectContextPipeline, primaryFlowMermaid } from './epic-logic';
 import { Card, CardHeader, CardNote, CardTitle, Spacer } from './primitives';
 
 export function EpicVisualsCard({ epic }: { epic: EpicSummary }) {
   const graphs = epic.visualizations;
-  const hasAny = Boolean(graphs?.impactMermaid || graphs?.surfacesMermaid || graphs?.flowMermaid);
+  const hasAny = Boolean(graphs?.impactMermaid || graphs?.surfacesMermaid || graphs?.flowMermaid || graphs?.screensMermaid);
   const briefing = isBriefingPipeline(epic.pipeline);
   if (!hasAny && !briefing) return null;
   if (briefing) return <BriefingVisuals epic={epic} empty={!hasAny} />;
@@ -17,32 +18,7 @@ export function EpicVisualsCard({ epic }: { epic: EpicSummary }) {
 type GraphTab = { id: string; label: string; src: string; title: string };
 
 function graphTabs(graphs: EpicVisualizations | undefined, isContext: boolean, always = false): GraphTab[] {
-  const tabs: GraphTab[] = [];
-  if (always || graphs?.flowMermaid) {
-    tabs.push({
-      id: 'flow',
-      label: isContext ? 'Kiến trúc' : 'Luồng',
-      src: graphs?.flowMermaid ?? '',
-      title: isContext ? 'Graph kiến trúc repo' : 'Luồng feature (đề xuất / as-built)',
-    });
-  }
-  if (always || graphs?.surfacesMermaid) {
-    tabs.push({
-      id: 'surfaces',
-      label: 'Surfaces',
-      src: graphs?.surfacesMermaid ?? '',
-      title: 'Màn hình / API epic chạm tới',
-    });
-  }
-  if (always || graphs?.impactMermaid) {
-    tabs.push({
-      id: 'impact',
-      label: 'Cây feature',
-      src: graphs?.impactMermaid ?? '',
-      title: 'Feature thêm / sửa / xoá',
-    });
-  }
-  return tabs;
+  return briefingGraphTabs(graphs, isContext ? 'project-context' : 'feature-spike', always);
 }
 
 function GraphTabBar({
@@ -90,12 +66,12 @@ function GraphTabBar({
 }
 
 function BriefingVisuals({ epic, empty }: { epic: EpicSummary; empty: boolean }) {
-  const isContext = (epic.pipeline ?? '').startsWith('project-context') || epic.pipeline === 'project-context';
+  const isContext = isProjectContextPipeline(epic.pipeline);
   const tabs = useMemo(
-    () => graphTabs(epic.visualizations, isContext, !empty),
-    [epic.visualizations, isContext, empty],
+    () => briefingGraphTabs(epic.visualizations, epic.pipeline, !empty),
+    [epic.visualizations, epic.pipeline, empty],
   );
-  const preferred = primaryFlowMermaid(epic.visualizations);
+  const preferred = primaryFlowMermaid(epic.visualizations, epic.pipeline);
   const defaultId = tabs.find((tab) => tab.src === preferred)?.id ?? tabs[0]?.id ?? 'flow';
   const [tabId, setTabId] = useState(defaultId);
   useEffect(() => {
@@ -109,8 +85,8 @@ function BriefingVisuals({ epic, empty }: { epic: EpicSummary; empty: boolean })
         <CardTitle>{isContext ? 'Baseline repo' : 'Epic này sẽ làm gì'}</CardTitle>
         <CardNote>
           {isContext
-            ? 'SUMMARY + graph kiến trúc. Phase nội bộ không Approve từng cái.'
-            : 'SUMMARY + graph. Agent code theo một MISSION.md — không SPEC/PLAN/CONTRACT riêng.'}
+            ? 'SUMMARY từ CONTEXT-REVIEW.md. Ba graph: Kiến trúc + Cây code (FEATURE-CATALOG) + Cây màn hình (SCREEN-CATALOG). Surfaces thuộc feature-spike, không phải baseline repo.'
+            : 'SUMMARY + AC từ MISSION.md. Ba graph: Luồng / Surfaces / Cây feature — không SPEC/PLAN/CONTRACT.'}
         </CardNote>
         <Spacer />
         <GraphTabBar tabs={tabs} activeId={active?.id ?? defaultId} onSelect={setTabId} />
@@ -123,8 +99,18 @@ function BriefingVisuals({ epic, empty }: { epic: EpicSummary; empty: boolean })
             color: 'var(--warn)', fontSize: 12, lineHeight: 1.5,
           }}
         >
-          Pack chưa đủ — thiếu FLOW + AC + In/Out. Jira một dòng không được Start.
-          Dán MISSION.md đủ heading hoặc copy từ spike.
+          Pack chưa đủ — thiếu Summary, AC (testable), Flow mermaid, In/Out. Graph Surfaces/Impact do spike ghi.
+        </div>
+      )}
+      {isContext && empty && (
+        <div
+          style={{
+            margin: '0 14px 10px', padding: '8px 10px', borderRadius: 6,
+            border: '1px solid var(--warn-bd)', background: 'var(--warn-bg)',
+            color: 'var(--warn)', fontSize: 12, lineHeight: 1.5,
+          }}
+        >
+          Chưa đọc được graph tại `docs/project/context/visualization/` (`PROJECT-ARCHITECTURE`, `FEATURE-CATALOG`, `SCREEN-CATALOG`). Pipeline phải ghi đúng folder đó (cạnh file .json). Reload AIDLC Workspace — extension sẽ tạo file tại đúng path nếu chưa có.
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -145,7 +131,7 @@ function BriefingVisuals({ epic, empty }: { epic: EpicSummary; empty: boolean })
             </p>
           ) : (
             <>
-              {active.id === 'impact' && <ImpactLegend />}
+              {active.id === 'impact' && !isContext && <ImpactLegend />}
               <EpicMermaid source={active.src} empty="Graph này chưa có Mermaid." />
             </>
           )}
@@ -172,7 +158,7 @@ function TabbedVisuals({
     <Card style={{ overflow: 'hidden' }}>
       <CardHeader wrap>
         <CardTitle>Epic này sẽ làm gì</CardTitle>
-        <CardNote>Graph cho human. Agent code theo MISSION.md.</CardNote>
+        <CardNote>Luồng / Surfaces / Cây feature. Agent code theo MISSION.md (AC không copy vào graph).</CardNote>
         {!empty && <GraphTabBar tabs={tabs} activeId={active?.id ?? 'impact'} onSelect={setTabId} />}
       </CardHeader>
       {empty || !active
@@ -210,6 +196,7 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
   const [zoom, setZoom] = useState(100);
+  const { fullscreen, toggle: toggleFullscreen } = usePanelFullscreen();
   const canvasRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
@@ -272,11 +259,26 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
   if (error) return <p style={{ margin: 0, padding: '12px 14px', fontSize: 12, color: 'var(--err)' }}>{error}</p>;
 
   return (
-    <div style={{ minHeight: 280, display: 'flex', flexDirection: 'column' }}>
+    <div
+      onWheel={fullscreen ? (event) => event.stopPropagation() : undefined}
+      style={fullscreen
+        ? { position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', background: 'var(--bg)', minHeight: 0 }
+        : { minHeight: 280, display: 'flex', flexDirection: 'column' }}
+    >
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, padding: '6px 10px' }}>
         <button type="button" title="Thu nhỏ graph" onClick={() => setZoom((value) => Math.max(50, value - 25))} disabled={zoom <= 50} style={zoomBtn}>{'\u2212'}</button>
         <button type="button" title="Reset zoom 100% và về giữa. Zoom: Ctrl + lăn chuột" onClick={() => { viewRef.current = { x: 0, y: 0 }; applyTransform(100); setZoom(100); }} style={zoomBtn}>{zoom}%</button>
         <button type="button" title="Phóng to graph" onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} style={zoomBtn}>+</button>
+        <button
+          type="button"
+          title={fullscreen ? 'Thoát toàn màn hình (Esc)' : 'Toàn màn hình'}
+          aria-label={fullscreen ? 'Thoát toàn màn hình' : 'Toàn màn hình'}
+          aria-pressed={fullscreen}
+          onClick={toggleFullscreen}
+          style={zoomBtn}
+        >
+          <FullscreenGlyph on={fullscreen} />
+        </button>
       </div>
       <div
         ref={viewportRef}
@@ -302,7 +304,7 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
           panRef.current = undefined;
           event.currentTarget.style.cursor = 'grab';
         }}
-        style={{ flex: 1, minHeight: 240, cursor: 'grab', overflow: 'hidden', userSelect: 'none' }}
+        style={{ flex: 1, minHeight: fullscreen ? 0 : 240, cursor: 'grab', overflow: 'hidden', userSelect: 'none' }}
       >
         <div
           ref={canvasRef}
@@ -314,7 +316,18 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
   );
 }
 
+function FullscreenGlyph({ on }: { on: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {on
+        ? <><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></>
+        : <><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></>}
+    </svg>
+  );
+}
+
 const zoomBtn: CSSProperties = {
   minWidth: 28, height: 24, borderRadius: 6, border: '1px solid var(--bd)',
   background: 'transparent', color: 'var(--txt2)', font: 'inherit', fontSize: 11, cursor: 'pointer',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };

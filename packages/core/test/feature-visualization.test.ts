@@ -115,3 +115,98 @@ describe('feature-flow.mjs surfaces + code flow', () => {
     expect(v.decision).toBe('pass');
   });
 });
+
+describe('mission-completeness.mjs pack + briefing graphs', () => {
+  let root: string;
+  let runner: Runner;
+
+  beforeEach(async () => {
+    runner = await loadRunner('mission-completeness.mjs');
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-mission-briefing-'));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const COMPLETE = `# MISSION
+
+## Summary
+Checkout refunds.
+
+## Problem / Goal
+Users cannot refund.
+
+## In scope
+Partial refunds.
+
+## Out of scope
+Chargebacks.
+
+## Functional requirements
+- PAY-FR01 Serves: G-1
+
+## Acceptance criteria
+- Given a capture, when refund, then wallet updates.
+
+## Constraints
+INV-1: no shared contract rewrite.
+
+## Tasks
+- PAY-T01 Implements: PAY-FR01 AC: refund API \`src/refund.ts\`
+
+## UI spec
+N/A — no UI change
+
+## Flow
+\`\`\`mermaid
+flowchart LR
+  view --> api
+\`\`\`
+
+## Definition of done
+AC pass on device.
+`;
+
+  function writeCatalogAndImpact(dir: string) {
+    const viz = path.join(root, 'docs', 'project', 'context', 'visualization');
+    fs.mkdirSync(viz, { recursive: true });
+    fs.writeFileSync(path.join(viz, 'FEATURE-CATALOG.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      features: [{ id: 'auth', name: 'Auth', confidence: 'high', evidence: ['src/auth.ts'] }],
+    }, null, 2)}\n`);
+    fs.writeFileSync(path.join(dir, 'FEATURE-IMPACT.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      epicId: 'FEAT-1',
+      features: [{ id: 'payments', name: 'Payments', change: 'add', summary: 'Checkout' }],
+    }, null, 2)}\n`);
+    fs.writeFileSync(path.join(dir, 'FEATURE-IMPACT.mmd'), 'flowchart TD\n  app --> payments\n');
+  }
+
+  it('rejects a complete MISSION.md that has no briefing graphs', async () => {
+    const dir = epicArtifacts(root);
+    fs.writeFileSync(path.join(dir, 'MISSION.md'), COMPLETE);
+    const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/FEATURE-FLOW|FEATURE-SURFACES|FEATURE-IMPACT/);
+  });
+
+  it('passes when pack, flow, surfaces, and impact agree', async () => {
+    const dir = epicArtifacts(root);
+    fs.writeFileSync(path.join(dir, 'MISSION.md'), COMPLETE);
+    writeCodeFlow(dir);
+    writeSurfaces(dir);
+    writeCatalogAndImpact(dir);
+    const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
+    expect(v.decision).toBe('pass');
+  });
+
+  it('rejects when MISSION flow mermaid tells a different story than FEATURE-FLOW.mmd', async () => {
+    const dir = epicArtifacts(root);
+    fs.writeFileSync(path.join(dir, 'MISSION.md'), COMPLETE);
+    writeCodeFlow(dir);
+    fs.writeFileSync(path.join(dir, 'FEATURE-FLOW.mmd'), 'flowchart LR\n  other --> path\n');
+    writeSurfaces(dir);
+    writeCatalogAndImpact(dir);
+    const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/must match FEATURE-FLOW.mmd/);
+  });
+});

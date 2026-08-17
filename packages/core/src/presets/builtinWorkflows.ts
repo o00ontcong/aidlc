@@ -484,7 +484,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
       'Interview or infer Intent, scan and model Reality, map features, record drift, and review until CONTEXT-REVIEW is GO. '
       + 'Do not invent Goals the human did not confirm.',
     inputs: 'inputs.json idea (from Description) + repository evidence + seeded charter templates',
-    outputs: 'Charter, conventions, canonical context, visualization graphs, drift report, and GO review',
+    outputs: 'Charter, conventions, canonical context, visualization graphs, drift report, and GO review with ## Summary',
     artifact: 'CONTEXT-REVIEW.md', humanReview: true, autoReview: true,
     autoReviewRunner: '.aidlc/validators/establish-baseline.mjs',
     produces: [
@@ -501,12 +501,16 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
       'docs/project/context/SHARED-CONTRACTS.md',
       'docs/project/context/ENGINEERING-RULES.md',
       'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
+      'docs/project/context/visualization/PROJECT-ARCHITECTURE.mmd',
       'docs/project/context/visualization/FEATURE-CATALOG.json',
+      'docs/project/context/visualization/FEATURE-CATALOG.mmd',
+      'docs/project/context/visualization/SCREEN-CATALOG.json',
+      'docs/project/context/visualization/SCREEN-CATALOG.mmd',
       'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
       'docs/project/conformance/DRIFT-REPORT.md',
       'docs/project/context/CONTEXT-REVIEW.md',
     ],
-    producesContains: ['## Discovery decisions', '**Verdict:** GO'],
+    producesContains: ['## Discovery decisions', '## Summary', '**Verdict:** GO'],
     capabilities: ['files', 'github', 'ast-graph'],
   },
   {
@@ -523,7 +527,11 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
       'docs/project/charter/CHARTER.json',
       'docs/project/conventions/CONVENTIONS.md',
       'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
+      'docs/project/context/visualization/PROJECT-ARCHITECTURE.mmd',
       'docs/project/context/visualization/FEATURE-CATALOG.json',
+      'docs/project/context/visualization/FEATURE-CATALOG.mmd',
+      'docs/project/context/visualization/SCREEN-CATALOG.json',
+      'docs/project/context/visualization/SCREEN-CATALOG.mmd',
       'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
     ],
     produces: [
@@ -542,13 +550,21 @@ const COHESIVE_FEATURE_SPIKE_PHASES: PhaseDef[] = [
     id: 'package-mission', name: 'Package Mission', persona: 'feature-spike-agent',
     skillFiles: ['feature-spike-workflow'], model: 'claude-opus-5',
     description:
-      'Produce one portable MISSION.md (AC, Tasks+files, UI spec, constraints, Flow) the human can review. '
+      'Produce one portable MISSION.md (AC, Tasks+files, UI spec, Flow mermaid) plus three briefing graphs. '
       + 'Does not implement. Spike does not depend_on implement.',
     inputs: 'Feature request, charter, optional Jira/Figma, repository context',
-    outputs: 'Complete MISSION.md pack plus a briefing summary',
+    outputs: 'MISSION.md pack plus Flow, Surfaces, and Impact graphs',
     artifact: 'MISSION.md', humanReview: true, autoReview: true,
     autoReviewRunner: '.aidlc/validators/mission-completeness.mjs',
-    produces: ['docs/epics/{epic}/artifacts/MISSION.md'],
+    produces: [
+      'docs/epics/{epic}/artifacts/MISSION.md',
+      'docs/epics/{epic}/artifacts/FEATURE-FLOW.json',
+      'docs/epics/{epic}/artifacts/FEATURE-FLOW.mmd',
+      'docs/epics/{epic}/artifacts/FEATURE-SURFACES.json',
+      'docs/epics/{epic}/artifacts/FEATURE-SURFACES.mmd',
+      'docs/epics/{epic}/artifacts/FEATURE-IMPACT.json',
+      'docs/epics/{epic}/artifacts/FEATURE-IMPACT.mmd',
+    ],
     producesContains: [
       '## Summary',
       '## Problem / Goal',
@@ -559,6 +575,7 @@ const COHESIVE_FEATURE_SPIKE_PHASES: PhaseDef[] = [
       '## Constraints',
       '## Tasks',
       '## UI spec',
+      '## Flow',
       '## Definition of done',
     ],
     capabilities: ['files', 'github', 'core-business', 'web', 'jira', 'figma'],
@@ -572,14 +589,21 @@ const COHESIVE_FEATURE_IMPLEMENT_PHASES: PhaseDef[] = [
     description:
       'Implement the complete feature from MISSION.md only (plus charter and repo). Run focused tests and record as-built behavior. 100% means fidelity to the pack, not zero bugs.',
     inputs: 'Complete MISSION.md, charter, and repository',
-    outputs: 'Feature implementation, tests, and implementation summary',
+    outputs: 'Feature implementation, tests, as-built summary, and refreshed briefing graphs',
     artifact: 'IMPLEMENTATION-SUMMARY.md', humanReview: true, autoReview: true,
     autoReviewRunner: '.aidlc/validators/project-ci.mjs',
     requires: [
       'docs/epics/{epic}/artifacts/MISSION.md',
       'docs/project/charter/CHARTER.json',
     ],
-    produces: ['docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md'],
+    produces: [
+      'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
+      'docs/epics/{epic}/artifacts/FEATURE-FLOW.json',
+      'docs/epics/{epic}/artifacts/FEATURE-FLOW.mmd',
+      'docs/epics/{epic}/artifacts/FEATURE-SURFACES.json',
+      'docs/epics/{epic}/artifacts/FEATURE-SURFACES.mmd',
+    ],
+    producesContains: ['## Acceptance criteria results'],
     capabilities: ['files', 'github', 'core-business', 'web'],
   },
   {
