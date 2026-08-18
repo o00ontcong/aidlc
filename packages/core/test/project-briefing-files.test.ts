@@ -175,7 +175,7 @@ describe('screenCatalogMermaidFromJson', () => {
     expect(mermaid).toContain('Verify password');
   });
 
-  it('summarizes multi-area catalogs as a hub map', () => {
+  it('renders multi-area catalogs as subgraph groups with individual screen nodes', () => {
     const mermaid = screenCatalogMermaidFromJson({
       screens: [
         { id: 'home', name: 'Home', tab: 'Main' },
@@ -191,11 +191,87 @@ describe('screenCatalogMermaidFromJson', () => {
       },
     });
     expect(mermaid).toContain('flowchart LR');
-    expect(mermaid).toContain('Auth (1)');
-    expect(mermaid).toContain('Main (2)');
+    // Every screen gets its own node — no count buckets
+    expect(mermaid).toMatch(/n_screen_home/);
+    expect(mermaid).toMatch(/n_screen_login/);
+    expect(mermaid).toMatch(/n_screen_settings/);
+    // Groups become subgraphs
+    expect(mermaid).toContain('subgraph');
+    expect(mermaid).toContain('"Auth"');
+    expect(mermaid).toContain('"Main"');
+    // Real transitions still present
     expect(mermaid).toContain('authenticated');
-    expect(mermaid).not.toContain('subgraph');
-    expect(mermaid).not.toMatch(/n_screen_settings/);
+    // No lossy count nodes like "Auth (1)"
+    expect(mermaid).not.toMatch(/Auth \(\d+\)/);
+    expect(mermaid).not.toMatch(/Main \(\d+\)/);
+  });
+
+  it('regression: 3+ group values with majority ungrouped — all screens rendered individually', () => {
+    // Repro from bug report: 25 screens, 9 grouped (3 distinct labels), 16 ungrouped
+    const screens = [
+      { id: 'trade-desk', name: 'Trade Desk' },
+      { id: 'chart', name: 'Chart' },
+      { id: 'strategy', name: 'Strategy' },
+      { id: 'paper-trading', name: 'Paper Trading' },
+      { id: 'journal', name: 'Journal' },
+      { id: 'portfolio', name: 'Portfolio' },
+      { id: 'watchlist', name: 'Watchlist' },
+      { id: 'alerts', name: 'Alerts' },
+      { id: 'screener', name: 'Screener' },
+      { id: 'news', name: 'News' },
+      { id: 'earnings', name: 'Earnings' },
+      { id: 'orders', name: 'Orders' },
+      { id: 'positions', name: 'Positions' },
+      { id: 'account', name: 'Account' },
+      { id: 'support', name: 'Support' },
+      { id: 'onboarding', name: 'Onboarding' },
+      { id: 'sign-in', name: 'Sign In', flow: 'auth' },
+      { id: 'sign-up', name: 'Sign Up', flow: 'auth' },
+      { id: 'forgot-password', name: 'Forgot Password', flow: 'auth' },
+      { id: 'error-network', name: 'Network Error', tab: 'errors' },
+      { id: 'error-session', name: 'Session Expired', tab: 'errors' },
+      { id: 'error-unknown', name: 'Unknown Error', tab: 'errors' },
+      { id: 'settings-general', name: 'General Settings', tab: 'settings' },
+      { id: 'settings-notifications', name: 'Notifications', tab: 'settings' },
+      { id: 'settings-security', name: 'Security', tab: 'settings' },
+    ];
+    const transitions = [
+      { source: 'sign-in', target: 'trade-desk', trigger: 'submit sign-in form' },
+      { source: 'trade-desk', target: 'settings-general', trigger: "land on '/settings'" },
+    ];
+    const mermaid = screenCatalogMermaidFromJson({ screens, transitions });
+
+    // Every single screen must appear as its own node
+    for (const screen of screens) {
+      expect(mermaid).toMatch(new RegExp(`n_screen_${screen.id.replace(/-/g, '_')}`));
+    }
+    // No "Other (N)" lossy bucket
+    expect(mermaid).not.toMatch(/Other \(\d+\)/);
+    // Real transitions must be present
+    expect(mermaid).toContain('submit sign-in form');
+    // Grouped screens appear inside subgraphs
+    expect(mermaid).toContain('subgraph');
+  });
+
+  it('regression: kind="tab" on a real screen does not erase it or its transitions', () => {
+    const mermaid = screenCatalogMermaidFromJson({
+      screens: [
+        { id: 'settings', name: 'Settings' },
+        { id: 'settings-account', name: 'Account', kind: 'tab' },
+        { id: 'settings-privacy', name: 'Privacy', kind: 'tab' },
+      ],
+      transitions: [
+        { source: 'settings', target: 'settings-account', trigger: 'tap Account tab' },
+        { source: 'settings', target: 'settings-privacy', trigger: 'tap Privacy tab' },
+      ],
+      roots: ['settings'],
+    });
+    // Screens with kind:"tab" but no tab:/flow: id prefix must render as real nodes
+    expect(mermaid).toMatch(/n_screen_settings_account/);
+    expect(mermaid).toMatch(/n_screen_settings_privacy/);
+    // Their transitions must survive
+    expect(mermaid).toContain('tap Account tab');
+    expect(mermaid).toContain('tap Privacy tab');
   });
 
   it('renders one readable slice per tab/flow', () => {
@@ -299,6 +375,7 @@ describe('ensureProjectBriefingFiles', () => {
       PROJECT_BRIEFING_PATHS.catalogMmd,
       PROJECT_BRIEFING_PATHS.screensMmd,
       PROJECT_BRIEFING_PATHS.review,
+      PROJECT_BRIEFING_PATHS.codingAgentBrief,
     ]));
 
     const briefing = readProjectContextBriefing(root);
@@ -310,6 +387,7 @@ describe('ensureProjectBriefingFiles', () => {
     expect(fs.existsSync(path.join(root, PROJECT_BRIEFING_PATHS.architectureMmd))).toBe(true);
     expect(fs.existsSync(path.join(root, PROJECT_BRIEFING_PATHS.catalogMmd))).toBe(true);
     expect(fs.existsSync(path.join(root, PROJECT_BRIEFING_PATHS.screensMmd))).toBe(true);
+    expect(fs.existsSync(path.join(root, PROJECT_BRIEFING_PATHS.codingAgentBrief))).toBe(true);
   });
 
   it('creates mermaid stubs at the canonical path when JSON is missing', () => {
@@ -319,11 +397,43 @@ describe('ensureProjectBriefingFiles', () => {
       PROJECT_BRIEFING_PATHS.architectureMmd,
       PROJECT_BRIEFING_PATHS.catalogMmd,
       PROJECT_BRIEFING_PATHS.screensMmd,
+      PROJECT_BRIEFING_PATHS.codingAgentBrief,
     ]));
     expect(fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.architectureMmd), 'utf8'))
       .toContain('not generated yet');
     expect(fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.screensMmd), 'utf8'))
       .toContain('Screen catalog not generated yet');
+  });
+
+  it('highlights key point in review summary and writes a separate coding-agent brief', () => {
+    const root = tmp();
+    const projectContextPath = path.join(root, PROJECT_BRIEFING_PATHS.projectContext);
+    fs.mkdirSync(path.dirname(projectContextPath), { recursive: true });
+    fs.writeFileSync(projectContextPath, [
+      '# Project Context',
+      '',
+      '## Overview',
+      '',
+      'Trading workspace for discretionary and paper strategies.',
+      '',
+      'Includes charting, journaling, and risk controls.',
+      '',
+      '## Engineering Rules',
+      '',
+      '- Keep transitions explicit.',
+      '',
+    ].join('\n'));
+
+    ensureProjectBriefingFiles(root);
+    const review = fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.review), 'utf8');
+    const brief = fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.codingAgentBrief), 'utf8');
+
+    expect(review).toContain('## Summary');
+    expect(review).toContain('**Key point:** Trading workspace for discretionary and paper strategies.');
+    expect(brief).toContain('# Coding Agent Brief');
+    expect(brief).toContain('## Project key point');
+    expect(brief).toContain('Trading workspace for discretionary and paper strategies.');
+    expect(brief).toContain('## Engineering rules (for implementation)');
   });
 
   it('rewrites a one-level catalog mermaid when JSON can form a tree', () => {

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 export const PROJECT_BRIEFING_PATHS = {
   review: 'docs/project/context/CONTEXT-REVIEW.md',
   projectContext: 'docs/project/context/PROJECT-CONTEXT.md',
+  codingAgentBrief: 'docs/project/context/CODING-AGENT-BRIEF.md',
   architectureMap: 'docs/project/context/ARCHITECTURE-MAP.md',
   architectureJson: 'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
   architectureMmd: 'docs/project/context/visualization/PROJECT-ARCHITECTURE.mmd',
@@ -64,6 +65,55 @@ function markdownSection(text: string, heading: string): string {
   const rest = text.slice(start);
   const next = /^##\s+/im.exec(rest);
   return (next ? rest.slice(0, next.index) : rest).trim();
+}
+
+function firstParagraph(text: string): string {
+  const clean = text.trim();
+  if (!clean) return '';
+  const [first] = clean.split(/\n\s*\n/g);
+  return first?.trim() ?? '';
+}
+
+function codingAgentBriefBody(projectContext: string, review: string): string {
+  const reviewSummary = markdownSection(review, 'Summary');
+  const projectOverview = markdownSection(projectContext, 'Overview')
+    || markdownSection(projectContext, 'Summary');
+  const keyPoint = firstParagraph(reviewSummary || projectOverview)
+    || '_Chưa có tóm tắt ngữ cảnh dự án._';
+  const engineeringRules = markdownSection(projectContext, 'Engineering Rules');
+  const sharedContracts = markdownSection(projectContext, 'Shared Contracts');
+  const domainModel = markdownSection(projectContext, 'Domain Model');
+  const navigationCoverage = markdownSection(projectContext, 'Navigation coverage');
+  const graphCoverage = markdownSection(review, 'Graph coverage');
+
+  const sections: string[] = [
+    '# Coding Agent Brief',
+    '',
+    '## Project key point',
+    '',
+    keyPoint,
+    '',
+    '## Pointers',
+    '',
+    '- `docs/project/context/PROJECT-CONTEXT.md`',
+    '- `docs/project/context/ARCHITECTURE-MAP.md`',
+    '- `docs/project/context/visualization/PROJECT-ARCHITECTURE.mmd`',
+    '- `docs/project/context/visualization/FEATURE-CATALOG.mmd`',
+    '- `docs/project/context/visualization/SCREEN-CATALOG.mmd`',
+    '',
+  ];
+
+  const pushSection = (heading: string, content: string) => {
+    if (!content.trim()) return;
+    sections.push(`## ${heading}`, '', content.trim(), '');
+  };
+  pushSection('Engineering rules (for implementation)', engineeringRules);
+  pushSection('Shared contracts (for integration)', sharedContracts);
+  pushSection('Domain model (for behavior)', domainModel);
+  pushSection('Navigation coverage (for UI work)', navigationCoverage);
+  pushSection('Graph coverage receipt', graphCoverage);
+
+  return sections.join('\n').trimEnd() + '\n';
 }
 
 function isMermaid(text: string): boolean {
@@ -432,8 +482,6 @@ export interface ScreenCatalogAreaDiagram {
 }
 
 function isGroupScreen(raw: Record<string, unknown>): boolean {
-  const kind = fieldString(raw, ['kind']).toLowerCase();
-  if (kind === 'tab' || kind === 'flow') return true;
   const id = fieldString(raw, ['id']);
   return id.startsWith('tab:') || id.startsWith('flow:');
 }
@@ -486,38 +534,69 @@ export function screenCatalogMermaidFromJson(catalog: Record<string, unknown> | 
   });
 }
 
-/** Hub map: UI → Home / Profile / Auth, plus cross-area jumps. */
+/**
+ * Grouped navigation diagram: each distinct tab/flow/area/nav/section value becomes a
+ * Mermaid subgraph; ungrouped screens are placed in an "Other" subgraph. Every screen
+ * gets its own node and every real transition becomes its own labeled edge — no count
+ * buckets, no data loss.
+ */
 export function screenCatalogOverviewMermaidFromJson(catalog: Record<string, unknown> | undefined): string | undefined {
   const rows = catalogScreenRows(catalog);
   if (!rows.length) return undefined;
-  const destinations = rows.filter((row) => !isGroupScreen(row.raw));
-  const counts = new Map<string, number>();
-  for (const row of destinations) {
-    const group = row.group || 'Other';
-    counts.set(group, (counts.get(group) ?? 0) + 1);
+  const realRows = rows.filter((row) => !isGroupScreen(row.raw));
+  if (!realRows.length) return undefined;
+
+  const nid = (id: string) => mermaidNodeId(id, 'screen');
+  const byId = new Map(rows.map((row) => [row.id, row]));
+
+  // Build group → rows map; ungrouped screens go into a virtual "" group (rendered last, top-level)
+  const groupMap = new Map<string, typeof realRows>();
+  for (const row of realRows) {
+    const g = row.group || '';
+    if (!groupMap.has(g)) groupMap.set(g, []);
+    groupMap.get(g)!.push(row);
   }
-  if (!counts.size) return undefined;
-  const groupOf = new Map(rows.map((row) => [row.id, row.group || 'Other']));
-  const nid = (name: string) => mermaidSafeId(`area_${name}`);
+
   const lines = ['flowchart LR', '  ui["UI"]'];
-  for (const [group, count] of [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-    lines.push(`  ${nid(group)}["${mermaidSafeLabel(`${group} (${count})`)}"]`);
-    lines.push(`  ui --> ${nid(group)}`);
+
+  // Named groups → subgraphs
+  const namedGroups = [...groupMap.keys()].filter((g) => g).sort((a, b) => a.localeCompare(b));
+  const ungrouped = groupMap.get('') ?? [];
+
+  for (const group of namedGroups) {
+    const subId = mermaidSafeId(`sg_${group}`);
+    lines.push(`  subgraph ${subId}["${mermaidSafeLabel(group)}"]`);
+    for (const row of groupMap.get(group)!) {
+      lines.push(`    ${nid(row.id)}["${mermaidSafeLabel(row.label)}"]`);
+    }
+    lines.push('  end');
+    lines.push(`  ui --> ${subId}`);
   }
+
+  // Ungrouped screens sit top-level (no subgraph wrapping)
+  for (const row of ungrouped) {
+    lines.push(`  ${nid(row.id)}["${mermaidSafeLabel(row.label)}"]`);
+    lines.push(`  ui --> ${nid(row.id)}`);
+  }
+
+  // Real transitions — every edge with real source and target
   const seen = new Set<string>();
+  const addTransitionEdge = (source: string, target: string, label: string) => {
+    if (!byId.has(source) || !byId.has(target)) return;
+    if (isGroupScreen(byId.get(source)!.raw) || isGroupScreen(byId.get(target)!.raw)) return;
+    const key = `${source}-->${target}-->${label}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const arrow = label && !WEAK_EDGE.has(label) ? `-->|"${mermaidEdgeLabel(label)}"|` : '-->';
+    lines.push(`  ${nid(source)} ${arrow} ${nid(target)}`);
+  };
+
   for (const raw of objects(catalog?.transitions)) {
     const edge = transitionEndpoints(raw);
     if (!edge) continue;
-    const from = groupOf.get(edge.source);
-    const to = groupOf.get(edge.target);
-    if (!from || !to || from === to) continue;
-    const label = transitionEdgeLabel(edge);
-    const key = `${from}-->${to}-->${label}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const arrow = label ? `-->|"${mermaidEdgeLabel(label)}"|` : '-->';
-    lines.push(`  ${nid(from)} ${arrow} ${nid(to)}`);
+    addTransitionEdge(edge.source, edge.target, transitionEdgeLabel(edge));
   }
+
   return lines.join('\n');
 }
 
@@ -739,6 +818,7 @@ export function ensureProjectBriefingFiles(workspaceRoot: string): string[] {
   const created: string[] = [];
   const abs = (rel: string) => path.join(workspaceRoot, rel);
 
+  const projectContextText = readText(abs(PROJECT_BRIEFING_PATHS.projectContext));
   const architectureJson = readJson(abs(PROJECT_BRIEFING_PATHS.architectureJson));
   const catalogJson = readJson(abs(PROJECT_BRIEFING_PATHS.catalogJson));
   const screensJson = readJson(abs(PROJECT_BRIEFING_PATHS.screensJson));
@@ -768,13 +848,16 @@ export function ensureProjectBriefingFiles(workspaceRoot: string): string[] {
   const reviewPath = abs(PROJECT_BRIEFING_PATHS.review);
   let review = readText(reviewPath);
   if (!review.trim()) {
-    const fallback = markdownSection(readText(abs(PROJECT_BRIEFING_PATHS.projectContext)), 'Overview')
-      || markdownSection(readText(abs(PROJECT_BRIEFING_PATHS.projectContext)), 'Summary')
+    const fallback = markdownSection(projectContextText, 'Overview')
+      || markdownSection(projectContextText, 'Summary')
       || '_Project baseline review has not been written yet._';
+    const keyPoint = firstParagraph(fallback) || fallback;
     const body = [
       '# Context Review',
       '',
       '## Summary',
+      '',
+      `**Key point:** ${keyPoint}`,
       '',
       fallback,
       '',
@@ -783,11 +866,28 @@ export function ensureProjectBriefingFiles(workspaceRoot: string): string[] {
     ].join('\n');
     if (writeNew(reviewPath, body)) created.push(PROJECT_BRIEFING_PATHS.review);
   } else if (!/^##\s+Summary\s*$/im.test(review)) {
-    const fallback = markdownSection(readText(abs(PROJECT_BRIEFING_PATHS.projectContext)), 'Overview')
-      || markdownSection(readText(abs(PROJECT_BRIEFING_PATHS.projectContext)), 'Summary')
+    const fallback = markdownSection(projectContextText, 'Overview')
+      || markdownSection(projectContextText, 'Summary')
       || '_Add a 1-2 paragraph summary of what this repository is._';
-    const inserted = `## Summary\n\n${fallback}\n\n${review.replace(/^\uFEFF/, '')}`;
+    const keyPoint = firstParagraph(fallback) || fallback;
+    const inserted = `## Summary\n\n**Key point:** ${keyPoint}\n\n${fallback}\n\n${review.replace(/^\uFEFF/, '')}`;
     if (writeNew(reviewPath, inserted)) created.push(PROJECT_BRIEFING_PATHS.review);
+    review = inserted;
+  } else if (!/\*\*Key point:\*\*/i.test(markdownSection(review, 'Summary'))) {
+    const summary = markdownSection(review, 'Summary');
+    if (summary) {
+      const keyPoint = firstParagraph(summary) || summary;
+      const upgradedSummary = `**Key point:** ${keyPoint}\n\n${summary}`;
+      const next = review.replace(summary, upgradedSummary);
+      if (writeNew(reviewPath, next)) created.push(PROJECT_BRIEFING_PATHS.review);
+      review = next;
+    }
+  }
+
+  const codingAgentBriefPath = abs(PROJECT_BRIEFING_PATHS.codingAgentBrief);
+  const codingAgentBrief = codingAgentBriefBody(projectContextText, review);
+  if (writeNew(codingAgentBriefPath, codingAgentBrief)) {
+    created.push(PROJECT_BRIEFING_PATHS.codingAgentBrief);
   }
 
   return created;
