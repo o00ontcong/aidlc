@@ -4,6 +4,7 @@ import {
   artifactDir, exists, formatError, loadCharter, markdownHasGo, pass, readJson,
   readText, reject,
 } from './lib.mjs';
+import featureFlow from './feature-flow.mjs';
 
 function resolveCommands(workspaceRoot) {
   const configFile = path.join(workspaceRoot, '.aidlc', 'cohesive-ci.json');
@@ -71,6 +72,8 @@ export default async function projectCi(ctx) {
     const report = readText(path.join(artifactDir(ctx.workspaceRoot, ctx.state.runId), 'SYSTEM-TEST-REPORT.md'));
     if (!markdownHasGo(report)) failures.push('SYSTEM-TEST-REPORT.md does not contain a GO verdict');
     for (const check of commands) if (check?.command && !report.includes(check.command)) failures.push(`system test report omits configured command: ${check.command}`);
+    const flowCheck = await featureFlow(ctx);
+    if (flowCheck.decision === 'reject') failures.push(flowCheck.reason);
     if (failures.length) return reject(`Project CI rejected the integrated feature:\n- ${failures.join('\n- ')}`);
     return pass(`All ${commands.length} configured project CI command(s) passed and are recorded in SYSTEM-TEST-REPORT.md.`);
   } catch (error) {

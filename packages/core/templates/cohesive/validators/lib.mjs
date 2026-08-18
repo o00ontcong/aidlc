@@ -445,6 +445,19 @@ export function collectFeatureImpactProblems(workspaceRoot, runId) {
     }
   }
   if (!changed) problems.push('FEATURE-IMPACT.json must add, modify, or delete at least one feature');
+  const flowFile = path.join(artifacts, 'FEATURE-FLOW.json');
+  const surfacesFile = path.join(artifacts, 'FEATURE-SURFACES.json');
+  const missionFile = path.join(artifacts, 'MISSION.md');
+  let flow;
+  let surfaces;
+  try { flow = exists(flowFile) ? readJson(flowFile) : undefined; } catch { flow = undefined; }
+  try { surfaces = exists(surfacesFile) ? readJson(surfacesFile) : undefined; } catch { surfaces = undefined; }
+  problems.push(...collectEpicCatalogCoverageProblems(workspaceRoot, runId, {
+    flow,
+    surfaces,
+    impact,
+    missionText: exists(missionFile) ? readText(missionFile) : '',
+  }).filter((item) => item.startsWith('FEATURE-CATALOG')));
   return problems;
 }
 
@@ -828,7 +841,410 @@ function needsMermaidFile(file) {
   return !text || !isMermaidDiagram(text) || isPlaceholderMermaid(text);
 }
 
-export function validateScreenCatalogNavigation(screens) {
+const SCAN_SKIP_DIRS = new Set([
+  '.git', 'node_modules', '.build', 'checkouts', 'DerivedData', 'vendor', 'Pods',
+  'dist', 'build', 'coverage', '.next', 'xcuserdata', 'SourcePackages', 'Carthage',
+  '.spm', '.aidlc', 'docs', '__pycache__', '.turbo', '.cache',
+]);
+
+const FEATURE_SKIP_DIRS = new Set([
+  'shared', 'common', 'components', 'designsystem', 'ui', 'utils', 'helpers',
+  'resources', 'assets', 'internal', 'preview', 'previews',
+]);
+
+function sourceRoots(workspaceRoot) {
+  if (!workspaceRoot || !exists(workspaceRoot)) return [];
+  const names = ['src', 'app', 'apps', 'ios', 'android', 'backend', 'frontend', 'packages', 'Targets'];
+  const found = names
+    .map((name) => path.join(workspaceRoot, name))
+    .filter((dir) => {
+      try { return fs.statSync(dir).isDirectory(); } catch { return false; }
+    });
+  return found.length ? found : [workspaceRoot];
+}
+
+function walkEntries(roots, onFile, onDir, limits = {}) {
+  const maxFiles = limits.maxFiles ?? 8000;
+  const stack = [...roots];
+  let seen = 0;
+  while (stack.length && seen < maxFiles) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const ent of entries) {
+      const name = ent.name;
+      if (name.startsWith('.')) continue;
+      const full = path.join(dir, name);
+      if (ent.isDirectory()) {
+        if (SCAN_SKIP_DIRS.has(name)) continue;
+        if (onDir) onDir(full, name, dir);
+        stack.push(full);
+      } else if (ent.isFile()) {
+        seen += 1;
+        if (onFile) onFile(full, name, dir);
+      }
+    }
+  }
+}
+
+function toPosixRel(workspaceRoot, absPath) {
+  return path.relative(workspaceRoot, absPath).split(path.sep).join('/');
+}
+
+function foldToken(value) {
+  return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
+function blobMentions(blobs, token) {
+  const needle = foldToken(token);
+  if (!needle || needle.length < 3) return false;
+  const hay = blobs.map((item) => foldToken(item)).join(' ');
+  return hay.includes(needle);
+}
+
+function unmatchedMessage(kind, items, limit = 8) {
+  const shown = items.slice(0, limit);
+  const more = items.length > limit ? ` (+${items.length - limit} more)` : '';
+  return `${kind} on disk not in catalog or discovery.unknowns: ${shown.join(', ')}${more}`;
+}
+
+export function listNavigationSourceFiles(workspaceRoot) {
+  const files = [];
+  const navName = /coordinator|navhost|navigationpath|routetable/i;
+  const navFile = /^(router|navigation|routes)\.(ts|tsx|js|jsx|kt)$/i;
+  walkEntries(sourceRoots(workspaceRoot), (full, name) => {
+    if (/\.(test|spec)\./i.test(name) || /tests?\.(swift|kt|ts|tsx)$/i.test(name)) return;
+    if (navName.test(name) || navFile.test(name)) files.push(toPosixRel(workspaceRoot, full));
+  });
+  return files;
+}
+
+export function listFeatureModuleDirs(workspaceRoot) {
+  const dirs = [];
+  walkEntries(sourceRoots(workspaceRoot), undefined, (full, name, parent) => {
+    const parentBase = path.basename(parent);
+    if (!/^features$/i.test(parentBase)) return;
+    if (FEATURE_SKIP_DIRS.has(name.toLowerCase())) return;
+    let hasSource = false;
+    try {
+      const kids = fs.readdirSync(full);
+      hasSource = kids.some((kid) => /\.(swift|kt|ts|tsx|js|jsx|vue|dart)$/i.test(kid)
+        || (() => {
+          try { return fs.statSync(path.join(full, kid)).isDirectory(); } catch { return false; }
+        })());
+    } catch {
+      hasSource = false;
+    }
+    if (hasSource) dirs.push(name);
+  });
+  return [...new Set(dirs)];
+}
+
+export function listFirstPartyPackages(workspaceRoot) {
+  const names = [];
+  walkEntries(sourceRoots(workspaceRoot), (full, name, dir) => {
+    if (name === 'Package.swift') {
+      const pkg = path.basename(dir);
+      if (pkg && pkg !== 'src' && pkg !== 'checkouts') names.push(pkg);
+    }
+  });
+  return [...new Set(names)];
+}
+
+export function listChallengeOverlayFiles(workspaceRoot) {
+  const files = [];
+  walkEntries(sourceRoots(workspaceRoot), (full, name) => {
+    if (/Challenge(FullScreenOverlay|OverlayState|Manager|ActiveFlow)/i.test(name)
+      || /OverlayState\.(swift|kt|ts)$/i.test(name)) {
+      files.push(toPosixRel(workspaceRoot, full));
+    }
+  });
+  return files;
+}
+
+export function markdownHasGraphCoverage(text) {
+  if (!text || !/^##\s+Graph coverage\s*$/im.test(text)) return false;
+  const re = new RegExp('^##\\s+Graph coverage\\s*$', 'im');
+  const match = re.exec(text);
+  if (!match) return false;
+  const start = match.index + match[0].length;
+  const rest = text.slice(start);
+  const next = /^##\s+/im.exec(rest);
+  const section = (next ? rest.slice(0, next.index) : rest);
+  return /architecture/i.test(section) && /feature/i.test(section) && /screen/i.test(section);
+}
+
+export function architectureGraphNodes(architecture) {
+  const layers = objects(architecture?.layers);
+  const nodes = objects(architecture?.nodes);
+  return layers.length ? layers : nodes;
+}
+
+export function validateArchitectureGraph(architecture, options = {}) {
+  const problems = [];
+  const nodes = architectureGraphNodes(architecture);
+  if (architecture?.schemaVersion !== 1 || nodes.length < 2) {
+    problems.push('PROJECT-ARCHITECTURE.json must be schemaVersion 1 with at least two layers or nodes');
+    return problems;
+  }
+  const ids = new Set();
+  for (const node of nodes) {
+    const id = typeof node.id === 'string' ? node.id.trim() : '';
+    const label = typeof node.label === 'string' ? node.label.trim()
+      : typeof node.name === 'string' ? node.name.trim()
+        : typeof node.responsibility === 'string' ? node.responsibility.trim()
+          : '';
+    if (!id || !label) problems.push('Every architecture layer/node needs id plus label, name, or responsibility');
+    if (id) ids.add(id);
+  }
+  const edges = objects(architecture?.edges);
+  if (!edges.length) problems.push('PROJECT-ARCHITECTURE.json must declare edges between modules');
+  if (edges.length < Math.max(1, nodes.length - 1)) {
+    problems.push(`PROJECT-ARCHITECTURE looks under-connected: ${edges.length} edges for ${nodes.length} nodes`);
+  }
+  for (const edge of edges) {
+    const source = typeof edge.source === 'string' ? edge.source : typeof edge.from === 'string' ? edge.from : '';
+    const target = typeof edge.target === 'string' ? edge.target : typeof edge.to === 'string' ? edge.to : '';
+    if (!source || !target) {
+      problems.push('Every architecture edge needs source/target (or from/to)');
+      continue;
+    }
+    if (!ids.has(source) || !ids.has(target)) {
+      problems.push(`Architecture edge ${source} → ${target} references unknown node ids`);
+    }
+  }
+  const catalogEvidence = typeof architecture?.evidence === 'string' ? architecture.evidence : '';
+  const nodeEvidence = nodes.some((node) => Array.isArray(node.evidence) && node.evidence.length);
+  if (nodes.length >= 3 && !catalogEvidence.trim() && !nodeEvidence) {
+    problems.push('PROJECT-ARCHITECTURE.json needs evidence (Package.swift / modules / per-node evidence[])');
+  }
+  if (nodes.length >= 3) {
+    const discovery = architecture.discovery;
+    if (discovery && typeof discovery === 'object' && !Array.isArray(discovery)) {
+      if (!Array.isArray(discovery.unknowns)) {
+        problems.push('architecture discovery.unknowns must be an array (empty when fully mapped)');
+      }
+    }
+  }
+  const workspaceRoot = options.workspaceRoot;
+  if (workspaceRoot) {
+    const packages = listFirstPartyPackages(workspaceRoot);
+    if (packages.length >= 2) {
+      const blobs = [
+        ...nodes.flatMap((node) => [node.id, node.label, node.name, node.responsibility, ...(node.evidence ?? [])]),
+        catalogEvidence,
+        ...(architecture.discovery?.packages ?? []),
+        ...(architecture.discovery?.unknowns ?? []),
+      ];
+      const missing = packages.filter((pkg) => !blobMentions(blobs, pkg));
+      if (missing.length) problems.push(unmatchedMessage('First-party packages', missing));
+    }
+  }
+  return problems;
+}
+
+export function validateFeatureCatalogCompleteness(catalog, options = {}) {
+  const problems = [];
+  const validId = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9._:-]*$/i.test(value);
+  const features = Array.isArray(catalog?.features) ? catalog.features : [];
+  if (catalog?.schemaVersion !== 1 || !features.length) {
+    problems.push('FEATURE-CATALOG.json must be schemaVersion 1 with at least one detected feature');
+    return problems;
+  }
+  for (const feature of features) {
+    if (!validId(feature.id) || typeof feature.name !== 'string') {
+      problems.push('Every feature needs a stable id and name');
+    }
+    if (!Array.isArray(feature.evidence) || !feature.evidence.length) {
+      problems.push(`Feature ${feature.id ?? '(unknown)'} needs evidence; inference alone is not enough`);
+    }
+    if (!['high', 'medium', 'low'].includes(feature.confidence)) {
+      problems.push(`Feature ${feature.id ?? '(unknown)'} needs high|medium|low confidence`);
+    }
+  }
+  if (features.length >= 4) {
+    const nested = features.filter((feature) => feature.parent || feature.module || feature.area).length;
+    if (nested < Math.ceil(features.length * 0.5)) {
+      problems.push('FEATURE-CATALOG is flattened to APP → feature; nest with parent and/or module/area');
+    }
+    const discovery = catalog.discovery;
+    if (!discovery || typeof discovery !== 'object' || Array.isArray(discovery)) {
+      problems.push('FEATURE-CATALOG.json with 4+ features must include discovery (method, moduleSources, unknowns)');
+    } else {
+      if (typeof discovery.method !== 'string' || !discovery.method.trim()) {
+        problems.push('feature discovery.method must describe the module scan used');
+      }
+      if (!Array.isArray(discovery.unknowns)) {
+        problems.push('feature discovery.unknowns must be an array (empty when fully mapped)');
+      }
+    }
+  }
+  const workspaceRoot = options.workspaceRoot;
+  if (workspaceRoot) {
+    const folders = listFeatureModuleDirs(workspaceRoot);
+    if (folders.length >= 3) {
+      const blobs = [
+        ...features.flatMap((feature) => [
+          feature.id, feature.name, feature.module, feature.area, feature.parent, ...(feature.evidence ?? []),
+        ]),
+        ...(catalog.discovery?.moduleSources ?? []),
+        ...(catalog.discovery?.unknowns ?? []),
+      ];
+      const missing = folders.filter((folder) => !blobMentions(blobs, folder));
+      if (missing.length) problems.push(unmatchedMessage('Feature folders', missing));
+    }
+  }
+  return problems;
+}
+
+export function validateContextReviewGraphCoverage(text) {
+  const problems = [];
+  if (!markdownHasGraphCoverage(text)) {
+    problems.push('CONTEXT-REVIEW.md is missing ## Graph coverage with Architecture, Feature catalog, and Screen catalog');
+  }
+  return problems;
+}
+
+function posixPath(value) {
+  return String(value || '').trim().replace(/\\/g, '/');
+}
+
+function discoverySources(discovery) {
+  if (!discovery || typeof discovery !== 'object' || Array.isArray(discovery)) return [];
+  return [
+    ...(Array.isArray(discovery.sources) ? discovery.sources : []),
+    ...(Array.isArray(discovery.routeSources) ? discovery.routeSources : []),
+    ...(Array.isArray(discovery.moduleSources) ? discovery.moduleSources : []),
+  ];
+}
+
+function graphMentionBlobs(graph) {
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  return [
+    ...nodes.flatMap((node) => [node.id, node.label, node.file, node.role, node.name]),
+    ...discoverySources(graph?.discovery),
+    ...(Array.isArray(graph?.discovery?.unknowns) ? graph.discovery.unknowns : []),
+  ];
+}
+
+function evidenceTouchesTouched(evidence, touched) {
+  const ev = posixPath(evidence);
+  if (!ev) return false;
+  for (const raw of touched) {
+    const file = posixPath(raw);
+    if (!file) continue;
+    if (file === ev || file.endsWith(`/${ev}`) || ev.endsWith(`/${file}`)) return true;
+  }
+  return false;
+}
+
+function extractBacktickPaths(text) {
+  if (!text) return [];
+  const out = [];
+  for (const match of String(text).matchAll(/`([^`]+)`/g)) {
+    const value = posixPath(match[1]);
+    if (!value || /\s/.test(value)) continue;
+    if (!/[./]/.test(value)) continue;
+    out.push(value);
+  }
+  return out;
+}
+
+/** Epic-scoped: discovery + no collapsed overlay/method/step host. */
+export function validateBriefingGraphCompleteness(graph, options = {}) {
+  const label = options.label || 'graph';
+  const problems = [];
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  if (nodes.length < 2) return problems;
+  const discovery = graph.discovery;
+  if (!discovery || typeof discovery !== 'object' || Array.isArray(discovery)) {
+    problems.push(`${label} must include discovery (method, sources, unknowns)`);
+  } else {
+    if (typeof discovery.method !== 'string' || !discovery.method.trim()) {
+      problems.push(`${label} discovery.method must describe how this epic path was scanned`);
+    }
+    if (!discoverySources(discovery).length) {
+      problems.push(`${label} discovery.sources must list files/routes scanned for this epic`);
+    }
+    if (!Array.isArray(discovery.unknowns)) {
+      problems.push(`${label} discovery.unknowns must be an array (empty when fully mapped)`);
+    }
+  }
+  const overlayish = nodes.filter((node) => (
+    /challenge|mfa|overlay|wizard|picker|layer/i.test(`${node.id} ${node.label} ${node.file ?? ''}`)
+  ));
+  if (overlayish.length === 1) {
+    const host = overlayish[0];
+    const unknowns = Array.isArray(discovery?.unknowns) ? discovery.unknowns : [];
+    const named = blobMentions(unknowns, host.id) || blobMentions(unknowns, 'layer')
+      || blobMentions(unknowns, host.label);
+    if (!named) {
+      problems.push(
+        `${label} collapses ${host.id} into one node — expand Layer/method/step destinations or name the gap in discovery.unknowns`,
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * If project catalogs exist, screens/features evidenced by files this epic
+ * already cites must appear on the briefing graph (or in unknowns).
+ */
+export function collectEpicCatalogCoverageProblems(workspaceRoot, runId, graphs = {}) {
+  const problems = [];
+  const { flow, surfaces, impact, missionText } = graphs;
+  const touched = new Set([
+    ...(Array.isArray(flow?.nodes) ? flow.nodes.map((node) => node.file) : []),
+    ...(Array.isArray(surfaces?.nodes) ? surfaces.nodes.map((node) => node.file) : []),
+    ...extractBacktickPaths(missionText),
+  ].filter(Boolean).map(posixPath));
+  if (!touched.size) return problems;
+
+  const screensFile = path.join(workspaceRoot, 'docs', 'project', 'context', 'visualization', 'SCREEN-CATALOG.json');
+  if (exists(screensFile)) {
+    let screens;
+    try { screens = readJson(screensFile); } catch { screens = undefined; }
+    const screenList = Array.isArray(screens?.screens) ? screens.screens : [];
+    const blobs = graphMentionBlobs(flow);
+    const missing = [];
+    for (const screen of screenList) {
+      const evidence = Array.isArray(screen.evidence) ? screen.evidence : [];
+      if (!evidence.some((item) => evidenceTouchesTouched(item, touched))) continue;
+      if (blobMentions(blobs, screen.id) || blobMentions(blobs, screen.name)) continue;
+      missing.push(screen.id);
+    }
+    if (missing.length) {
+      problems.push(unmatchedMessage('SCREEN-CATALOG destinations this epic touches but FEATURE-FLOW omits', missing));
+    }
+  }
+
+  const catalogFile = path.join(workspaceRoot, 'docs', 'project', 'context', 'visualization', 'FEATURE-CATALOG.json');
+  if (exists(catalogFile) && impact) {
+    let catalog;
+    try { catalog = readJson(catalogFile); } catch { catalog = undefined; }
+    const features = Array.isArray(catalog?.features) ? catalog.features : [];
+    const impactIds = new Set((Array.isArray(impact.features) ? impact.features : []).map((feature) => feature.id));
+    const blobs = [
+      ...impactIds,
+      ...(Array.isArray(impact.discovery?.unknowns) ? impact.discovery.unknowns : []),
+    ];
+    const missing = [];
+    for (const feature of features) {
+      const evidence = Array.isArray(feature.evidence) ? feature.evidence : [];
+      if (!evidence.some((item) => evidenceTouchesTouched(item, touched))) continue;
+      if (impactIds.has(feature.id) || blobMentions(blobs, feature.id) || blobMentions(blobs, feature.name)) continue;
+      missing.push(feature.id);
+    }
+    if (missing.length) {
+      problems.push(unmatchedMessage('FEATURE-CATALOG entries this epic touches but FEATURE-IMPACT omits', missing));
+    }
+  }
+
+  return problems;
+}
+
+export function validateScreenCatalogNavigation(screens, options = {}) {
   const problems = [];
   const validId = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9._:-]*$/i.test(value);
   const screenList = Array.isArray(screens?.screens) ? screens.screens : [];
@@ -901,13 +1317,50 @@ export function validateScreenCatalogNavigation(screens) {
       .filter(Boolean),
   );
   for (const screen of screenList) {
-    if (screen.kind === 'tab' || screen.kind === 'flow' || screen.kind === 'overlay') continue;
+    if (screen.kind === 'tab' || screen.kind === 'flow') continue;
     const reachable = roots.has(screen.id)
       || entryTargets.has(screen.id)
       || incoming.has(screen.id)
       || parentLinked.has(screen.id);
     if (!reachable && screenList.length >= 3) {
       problems.push(`Screen ${screen.id} has no incoming transition, root, entryPoint, or parent — likely missing navigation discovery`);
+    }
+  }
+  for (const host of screenList.filter((screen) => screen.kind === 'overlay')) {
+    if (!/challenge|mfa|wizard|picker|layer|step/i.test(`${host.id} ${host.name}`)) continue;
+    const children = screenList.filter((screen) => screen.parent === host.id || screen.flow === host.id);
+    const outbound = transitionList.filter((transition) => transition.source === host.id);
+    const named = blobMentions([
+      ...(Array.isArray(screens.discovery?.unknowns) ? screens.discovery.unknowns : []),
+    ], host.id) || blobMentions([
+      ...(Array.isArray(screens.discovery?.unknowns) ? screens.discovery.unknowns : []),
+    ], host.name);
+    if (children.length < 2 && outbound.length < 2 && !named) {
+      problems.push(`Overlay ${host.id} is a single node — expand OverlayState/ActiveFlow/step cases into screens or name the gap in discovery.unknowns`);
+    }
+  }
+  const workspaceRoot = options.workspaceRoot;
+  if (workspaceRoot) {
+    const coordinators = listNavigationSourceFiles(workspaceRoot);
+    if (coordinators.length >= 2) {
+      const blobs = [
+        ...(Array.isArray(screens.discovery?.routeSources) ? screens.discovery.routeSources : []),
+        ...(Array.isArray(screens.discovery?.inventory?.coordinators) ? screens.discovery.inventory.coordinators : []),
+        ...(Array.isArray(screens.discovery?.unknowns) ? screens.discovery.unknowns : []),
+      ];
+      const missing = coordinators.filter((file) => {
+        const base = file.split('/').pop();
+        return !blobs.some((blob) => String(blob).replace(/\\/g, '/').includes(file) || String(blob).includes(base));
+      });
+      if (missing.length) problems.push(unmatchedMessage('Navigation sources (*Coordinator*/router)', missing));
+    }
+    const challengeFiles = listChallengeOverlayFiles(workspaceRoot);
+    if (challengeFiles.length) {
+      const challengeScreens = screenList.filter((screen) => /challenge/i.test(`${screen.id} ${screen.name}`));
+      const named = blobMentions(Array.isArray(screens.discovery?.unknowns) ? screens.discovery.unknowns : [], 'challenge');
+      if (challengeScreens.length < 3 && !named) {
+        problems.push('Challenge overlay/manager files exist — expand Layer 1/Layer 2 (and method pickers) into ≥3 challenge screens or name the gap in discovery.unknowns');
+      }
     }
   }
   return problems;

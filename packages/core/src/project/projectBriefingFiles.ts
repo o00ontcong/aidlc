@@ -576,8 +576,10 @@ function screenAreaMermaidFromJson(
   const add = (source: string, target: string, label: string) => {
     if (!inArea.has(source) && !inArea.has(target)) return;
     if (isGroupScreen(byId.get(source)?.raw ?? {}) || isGroupScreen(byId.get(target)?.raw ?? {})) return;
-    const key = `${source}-->${target}`;
+    const pairKey = `${source}-->${target}`;
+    const key = `${pairKey}-->${label}`;
     if (pair.has(key)) return;
+    if (!label && [...pair].some((item) => item.startsWith(`${pairKey}-->`))) return;
     pair.add(key);
     needed.add(source);
     needed.add(target);
@@ -590,7 +592,8 @@ function screenAreaMermaidFromJson(
   }
   for (const row of inAreaRows) {
     const parent = fieldString(row.raw, ['parent', 'parentId', 'parent_id']);
-    if (!parent || !inArea.has(parent) || pair.has(`${parent}-->${row.id}`)) continue;
+    if (!parent || !inArea.has(parent)) continue;
+    if ([...pair].some((item) => item.startsWith(`${parent}-->${row.id}-->`))) continue;
     const kind = fieldString(row.raw, ['kind']);
     add(parent, row.id, kind === 'sheet' || kind === 'modal' ? kind : '');
   }
@@ -611,7 +614,11 @@ function screenAreaMermaidFromJson(
     if (!row) continue;
     lines.push(`  ${nid(id)}["${mermaidSafeLabel(row.label)}"]`);
   }
+  const strongPairs = new Set(
+    edges.filter((edge) => edge.label && !WEAK_EDGE.has(edge.label)).map((edge) => `${edge.source}-->${edge.target}`),
+  );
   for (const edge of edges) {
+    if (WEAK_EDGE.has(edge.label) && strongPairs.has(`${edge.source}-->${edge.target}`)) continue;
     const labeled = edge.label && !WEAK_EDGE.has(edge.label);
     const arrow = labeled ? `-->|"${mermaidEdgeLabel(edge.label)}"|` : '-->';
     lines.push(`  ${nid(edge.source)} ${arrow} ${nid(edge.target)}`);

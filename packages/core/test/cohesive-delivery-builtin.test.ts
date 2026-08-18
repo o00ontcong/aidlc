@@ -194,6 +194,10 @@ describe('Cohesive Delivery built-in bundle', () => {
     expect(shipCommand).toContain('Apply the approved `## Documentation Sync Plan`');
     expect(preset.skillContents['package-mission']).toContain('FEATURE-SURFACES.json');
     expect(preset.skillContents['package-mission']).toContain('FEATURE-IMPACT.json');
+    expect(preset.skillContents['package-mission']).toContain('Graph completeness');
+    expect(preset.skillContents['package-mission']).toContain('discovery');
+    expect(preset.skillContents['implement']).toContain('Graph completeness');
+    expect(preset.skillContents['implement']).toContain('discovery');
     expect(preset.skillContents['establish-baseline']).toContain('## Summary');
     expect(preset.skillContents['establish-baseline']).toContain('PROJECT-ARCHITECTURE.mmd');
     expect(preset.skillContents['establish-baseline']).toContain('FEATURE-CATALOG.mmd');
@@ -202,6 +206,12 @@ describe('Cohesive Delivery built-in bundle', () => {
     expect(preset.skillContents['establish-baseline']).toContain('Screen navigation discovery');
     expect(preset.skillContents['establish-baseline']).toContain('discovery');
     expect(preset.skillContents['establish-baseline']).toContain('Never treat an existing GO baseline as done');
+    expect(preset.skillContents['establish-baseline']).toContain('Graph completeness');
+    expect(preset.skillContents['establish-baseline']).toContain('## Graph coverage');
+    expect(preset.skillContents['establish-baseline']).toContain('Architecture discovery');
+    expect(preset.skillContents['establish-baseline']).toContain('Feature catalog discovery');
+    expect(preset.skillContents['establish-baseline']).toContain('Coordinator.Route');
+    expect(getBuiltinStepHelp('project-context', 'establish-baseline')!.acceptanceCriteria).toContain('## Graph coverage');
 
     const help = getBuiltinStepHelp('feature-implement', 'resolve-bugs')!;
     const helpMarkdown = renderBuiltinStepHelpMarkdown(help);

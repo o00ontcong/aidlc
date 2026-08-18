@@ -4,6 +4,7 @@ You own one independent feature epic from a complete `MISSION.md` through implem
 
 - Inherit Goals / Architecture / Tech from `docs/project/charter/`. Do not invent project-level policy.
 - Honor `ALIGNMENT.md` when present. `MISSION.md` is the only feature source of truth for coding.
+- Refresh as-built FEATURE-FLOW / FEATURE-SURFACES to the same completeness bar as spike (discovery, expanded overlays/steps, catalog coverage). A spike sketch is not an as-built graph.
 - 100% means fidelity to the pack, not zero bugs. Pixel checks are the human on a device.
 - Parallelism is only across independent feature epics. Never ask users to manage worker epics.
 - `resolve-bugs` stays awaiting_review until the human clicks **Approve bản sửa**.

@@ -75,7 +75,9 @@ export function reconcileRunStateToPipeline(
 
   const sameSnapshot = sourceSnapshot.hash === pipelineHash(target);
   const addedStepIds = targetIds.filter((id) => !sourceIds.includes(id));
-  if (sameSnapshot && addedStepIds.length === 0) {
+  const hasStepShapeDrift = state.steps.length !== target.steps.length
+    || state.steps.some((step, index) => step.stepIdx !== index);
+  if (sameSnapshot && addedStepIds.length === 0 && !hasStepShapeDrift) {
     return { state, changed: false, addedStepIds: [] };
   }
 

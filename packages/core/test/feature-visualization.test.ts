@@ -31,6 +31,11 @@ function writeCodeFlow(dir: string) {
       { id: 'api', label: 'charge', file: 'apps/api/charge.ts', layer: 'data', role: 'Charges card' },
     ],
     edges: [{ source: 'view', target: 'api', label: 'submit', confidence: 'observed' }],
+    discovery: {
+      method: 'mission path + cited files',
+      sources: ['apps/web/CheckoutView.tsx', 'apps/api/charge.ts'],
+      unknowns: [],
+    },
   }, null, 2)}\n`);
   fs.writeFileSync(path.join(dir, 'FEATURE-FLOW.mmd'), 'flowchart LR\n  view --> api\n');
 }
@@ -49,6 +54,11 @@ function writeSurfaces(dir: string, extra: Record<string, unknown> = {}) {
       { source: 'web', target: 'payments-api', label: 'REST', kind: 'http', confidence: 'observed' },
       { source: 'payments-api', target: 'stripe', label: 'SDK', kind: 'sdk', confidence: 'inferred' },
     ],
+    discovery: {
+      method: 'mission systems + cited files',
+      sources: ['apps/api/charge.ts'],
+      unknowns: [],
+    },
     ...extra,
   }, null, 2)}\n`);
   fs.writeFileSync(path.join(dir, 'FEATURE-SURFACES.mmd'), 'flowchart LR\n  web --> api\n  api --> stripe\n');
@@ -113,6 +123,36 @@ describe('feature-flow.mjs surfaces + code flow', () => {
     });
     const v = await runner(ctx());
     expect(v.decision).toBe('pass');
+  });
+
+  it('rejects a flow without discovery', async () => {
+    const dir = epicArtifacts(root);
+    writeCodeFlow(dir);
+    const flow = JSON.parse(fs.readFileSync(path.join(dir, 'FEATURE-FLOW.json'), 'utf8'));
+    delete flow.discovery;
+    fs.writeFileSync(path.join(dir, 'FEATURE-FLOW.json'), `${JSON.stringify(flow, null, 2)}\n`);
+    writeSurfaces(dir);
+    const v = await runner(ctx());
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/discovery/);
+  });
+
+  it('rejects when SCREEN-CATALOG has another destination on a file this flow already cites', async () => {
+    const dir = epicArtifacts(root);
+    writeCodeFlow(dir);
+    writeSurfaces(dir);
+    const viz = path.join(root, 'docs', 'project', 'context', 'visualization');
+    fs.mkdirSync(viz, { recursive: true });
+    fs.writeFileSync(path.join(viz, 'SCREEN-CATALOG.json'), `${JSON.stringify({
+      schemaVersion: 1,
+      screens: [
+        { id: 'checkout', name: 'Checkout', evidence: ['apps/web/CheckoutView.tsx'], confidence: 'high' },
+        { id: 'checkout-otp', name: 'Checkout OTP', evidence: ['apps/web/CheckoutView.tsx'], confidence: 'high' },
+      ],
+    }, null, 2)}\n`);
+    const v = await runner(ctx());
+    expect(v.decision).toBe('reject');
+    expect(v.reason).toMatch(/checkout-otp/);
   });
 });
 

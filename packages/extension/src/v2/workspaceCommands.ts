@@ -20,6 +20,7 @@ import {
   WORKSPACE_FILENAME,
   stepAgentId,
   CohesiveDeliveryUpgradeService,
+  LegacyMigrationService,
   installWorkflowGlobalsByIds,
   writeBuiltinAutoReviewValidators,
   builtinTemplatesRoot,
@@ -31,6 +32,7 @@ import {
   addPipelineCommand,
   generateFromRecipeCommand,
 } from './wizards';
+import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
 import { WorkspaceWebview } from './workspaceWebview';
 import { PresetStore } from './presetStore';
 import {
@@ -228,6 +230,8 @@ export function registerV2WorkspaceCommands(
       const prepared = migrateEpicStateFiles(root);
       let bundleUpdated = false;
       let commandsRefreshed = false;
+      let legacyEpicsConverted = 0;
+      let epicsDirSwitched = false;
       try {
         const service = new CohesiveDeliveryUpgradeService(root);
         const preview = service.preview();
@@ -260,6 +264,32 @@ export function registerV2WorkspaceCommands(
             writeBuiltinAutoReviewValidators(templatesRoot, root, workflow);
           }
         }
+
+        // After the Cohesive bundle/runs are stabilized, explicitly project
+        // legacy delivery/run/epic-scaffold records into the unified .aidlc/epics layout.
+        // This is idempotent and backed by migration manifests.
+        const legacyMigration = new LegacyMigrationService(root);
+        const migrationPreview = legacyMigration.preview();
+        const migrationConflicts = migrationPreview.items.filter((item) => item.disposition === 'conflict');
+        if (migrationConflicts.length > 0) {
+          throw new Error(
+            `Legacy epic migration conflicts:\n${migrationConflicts.map((item) => `${item.targetEpicId}: ${item.warnings.join('; ') || 'target already exists'}`).join('\n')}`,
+          );
+        }
+        const creatableItems = migrationPreview.items.filter((item) => item.disposition === 'create');
+        if (creatableItems.length > 0) {
+          legacyMigration.apply(migrationPreview, { confirm: true });
+          legacyEpicsConverted = creatableItems.length;
+        }
+        const currentEpicsDir = readEpicsDirFromYaml(root);
+        const hasUnifiedEpicsDir = fs.existsSync(path.join(root, '.aidlc', 'epics'));
+        if (
+          hasUnifiedEpicsDir
+          && (currentEpicsDir === DEFAULT_EPICS_DIR || currentEpicsDir === 'docs/epics')
+        ) {
+          writeEpicsDirToYaml(root, '.aidlc/epics');
+          epicsDirSwitched = true;
+        }
       } catch (err) {
         void vscode.window.showErrorMessage(
           `AIDLC: Cohesive migration failed — ${err instanceof Error ? err.message : String(err)}`,
@@ -282,6 +312,12 @@ export function registerV2WorkspaceCommands(
       }
       if (commandsRefreshed) {
         parts.push('graph skills/commands refreshed');
+      }
+      if (legacyEpicsConverted > 0) {
+        parts.push(`converted ${legacyEpicsConverted} legacy epic(s)`);
+      }
+      if (epicsDirSwitched) {
+        parts.push('epics dir switched to .aidlc/epics');
       }
       const addedCount = report.addedSteps.reduce((sum, item) => sum + item.stepIds.length, 0);
       if (addedCount > 0) {

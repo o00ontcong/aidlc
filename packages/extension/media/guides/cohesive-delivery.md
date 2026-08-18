@@ -88,9 +88,9 @@ flowchart LR
 
 | Stage | Kết quả chính (không trùng) |
 |---|---|
-| establish-baseline | `CONTEXT-REVIEW.md` `## Summary` + `docs/project/context/visualization/` (`PROJECT-ARCHITECTURE` / cây code `FEATURE-CATALOG` / cây màn hình `SCREEN-CATALOG`) |
-| package-mission | `MISSION.md` = Summary + AC + Tasks + UI + Flow mermaid. Ba graph cạnh pack: **Luồng** (`FEATURE-FLOW`), **Surfaces**, **Cây feature** (`FEATURE-IMPACT`) |
-| implement | Code + `IMPLEMENTATION-SUMMARY.md` với `## Acceptance criteria results` (chỉ AC-id, không copy AC). Refresh Flow/Surfaces từ code |
+| establish-baseline | `CONTEXT-REVIEW.md` `## Summary` + `## Graph coverage` + `docs/project/context/visualization/` (architecture / cây code / cây màn hình — đủ inventory, không sketch) |
+| package-mission | `MISSION.md` = Summary + AC + Tasks + UI + Flow mermaid. Ba graph cạnh pack: **Luồng** / **Surfaces** / **Cây feature** — đủ inventory trên path epic, có `discovery`, không sketch |
+| implement | Code + `IMPLEMENTATION-SUMMARY.md` với `## Acceptance criteria results`. Refresh Flow/Surfaces từ code — đủ inventory as-built, có `discovery`, không giữ sketch từ spike |
 | resolve-bugs | User nhập bug, agent sửa/lặp; **Approve bản sửa** |
 | ship | Một PR, human merge trên GitHub (không Approve AIDLC), rồi Reality sync |
 

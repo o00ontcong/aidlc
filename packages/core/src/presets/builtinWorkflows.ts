@@ -481,8 +481,8 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
     id: 'establish-baseline', name: 'Establish Baseline', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
     description:
-      'Interview or infer Intent, scan and model Reality, map features, record drift, and review until CONTEXT-REVIEW is GO. '
-      + 'Do not invent Goals the human did not confirm.',
+      'Interview or infer Intent, scan and model Reality, map complete architecture/feature/screen graphs, record drift, and review until CONTEXT-REVIEW is GO with ## Graph coverage. '
+      + 'Do not invent Goals the human did not confirm. Do not skip graphs because a prior GO exists.',
     inputs: 'inputs.json idea (from Description) + repository evidence + seeded charter templates',
     outputs: 'Charter, conventions, canonical context, visualization graphs, drift report, and GO review with ## Summary',
     artifact: 'CONTEXT-REVIEW.md', humanReview: true, autoReview: true,
@@ -510,7 +510,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
       'docs/project/conformance/DRIFT-REPORT.md',
       'docs/project/context/CONTEXT-REVIEW.md',
     ],
-    producesContains: ['## Discovery decisions', '## Summary', '**Verdict:** GO'],
+    producesContains: ['## Discovery decisions', '## Summary', '## Graph coverage', '**Verdict:** GO'],
     capabilities: ['files', 'github', 'ast-graph'],
   },
   {
@@ -550,7 +550,7 @@ const COHESIVE_FEATURE_SPIKE_PHASES: PhaseDef[] = [
     id: 'package-mission', name: 'Package Mission', persona: 'feature-spike-agent',
     skillFiles: ['feature-spike-workflow'], model: 'claude-opus-5',
     description:
-      'Produce one portable MISSION.md (AC, Tasks+files, UI spec, Flow mermaid) plus three briefing graphs. '
+      'Produce one portable MISSION.md (AC, Tasks+files, UI spec, Flow mermaid) plus three complete briefing graphs (Flow, Surfaces, Impact) with discovery. '
       + 'Does not implement. Spike does not depend_on implement.',
     inputs: 'Feature request, charter, optional Jira/Figma, repository context',
     outputs: 'MISSION.md pack plus Flow, Surfaces, and Impact graphs',
@@ -578,7 +578,7 @@ const COHESIVE_FEATURE_SPIKE_PHASES: PhaseDef[] = [
       '## Flow',
       '## Definition of done',
     ],
-    capabilities: ['files', 'github', 'core-business', 'web', 'jira', 'figma'],
+    capabilities: ['files', 'github', 'core-business', 'web', 'jira', 'figma', 'ast-graph'],
   },
 ];
 
@@ -587,7 +587,7 @@ const COHESIVE_FEATURE_IMPLEMENT_PHASES: PhaseDef[] = [
     id: 'implement', name: 'Implement Feature', persona: 'feature-implement-agent',
     skillFiles: ['feature-implement-workflow'], model: 'claude-sonnet-5',
     description:
-      'Implement the complete feature from MISSION.md only (plus charter and repo). Run focused tests and record as-built behavior. 100% means fidelity to the pack, not zero bugs.',
+      'Implement the complete feature from MISSION.md only (plus charter and repo). Run focused tests, record as-built behavior, and refresh Flow/Surfaces graphs to the same completeness bar as spike. 100% means fidelity to the pack, not zero bugs.',
     inputs: 'Complete MISSION.md, charter, and repository',
     outputs: 'Feature implementation, tests, as-built summary, and refreshed briefing graphs',
     artifact: 'IMPLEMENTATION-SUMMARY.md', humanReview: true, autoReview: true,
@@ -604,7 +604,7 @@ const COHESIVE_FEATURE_IMPLEMENT_PHASES: PhaseDef[] = [
       'docs/epics/{epic}/artifacts/FEATURE-SURFACES.mmd',
     ],
     producesContains: ['## Acceptance criteria results'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
+    capabilities: ['files', 'github', 'core-business', 'web', 'ast-graph'],
   },
   {
     id: 'resolve-bugs', name: 'Resolve Reported Bugs', persona: 'feature-implement-agent',

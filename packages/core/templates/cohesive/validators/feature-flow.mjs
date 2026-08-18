@@ -1,5 +1,8 @@
 import path from 'node:path';
-import { artifactDir, exists, formatError, isMermaidDiagram, pass, readJson, readText, reject } from './lib.mjs';
+import {
+  artifactDir, exists, formatError, isMermaidDiagram, pass, readJson, readText, reject,
+  validateBriefingGraphCompleteness, collectEpicCatalogCoverageProblems,
+} from './lib.mjs';
 
 const SURFACE_KINDS = new Set(['web', 'mobile', 'desktop', 'api', 'worker', 'sdk', 'external']);
 const SURFACE_EDGES = new Set(['http', 'sdk', 'event', 'webhook', 'internal']);
@@ -68,6 +71,14 @@ export default async function featureFlow(ctx) {
     if (!isMermaidDiagram(readText(surfacesMermaid))) {
       problems.push('FEATURE-SURFACES.mmd must be Mermaid flowchart or sequenceDiagram source');
     }
+    problems.push(...validateBriefingGraphCompleteness(flow, { label: 'FEATURE-FLOW' }));
+    problems.push(...validateBriefingGraphCompleteness(surfaces, { label: 'FEATURE-SURFACES' }));
+    const missionFile = path.join(dir, 'MISSION.md');
+    problems.push(...collectEpicCatalogCoverageProblems(ctx.workspaceRoot, ctx.state.runId, {
+      flow,
+      surfaces,
+      missionText: exists(missionFile) ? readText(missionFile) : '',
+    }));
     return problems.length
       ? reject(`Feature flow rejected:\n- ${[...new Set(problems)].join('\n- ')}`)
       : pass(`Feature flow for ${flow.featureId} is valid.`);

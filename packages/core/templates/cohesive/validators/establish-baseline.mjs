@@ -2,6 +2,7 @@ import path from 'node:path';
 import {
   exists, formatError, markdownHasGo, pass, readJson, readText, reject,
   ensureProjectVisualizationMermaid, isMermaidDiagram, validateScreenCatalogNavigation,
+  validateArchitectureGraph, validateFeatureCatalogCompleteness, validateContextReviewGraphCoverage,
 } from './lib.mjs';
 
 const CHARTER_FILES = [
@@ -66,6 +67,7 @@ export default async function establishBaseline(ctx) {
       if (!/^##\s+Summary\s*$/im.test(reviewText)) {
         problems.push('CONTEXT-REVIEW.md is missing ## Summary (human briefing of what this repo is)');
       }
+      problems.push(...validateContextReviewGraphCoverage(reviewText));
     }
 
     const viz = path.join(ctx.workspaceRoot, 'docs', 'project', 'context', 'visualization');
@@ -77,10 +79,28 @@ export default async function establishBaseline(ctx) {
       }
     }
 
+    const architectureFile = path.join(viz, 'PROJECT-ARCHITECTURE.json');
+    if (exists(architectureFile)) {
+      try {
+        problems.push(...validateArchitectureGraph(readJson(architectureFile), { workspaceRoot: ctx.workspaceRoot }));
+      } catch {
+        problems.push('PROJECT-ARCHITECTURE.json is not valid JSON');
+      }
+    }
+
+    const catalogFile = path.join(viz, 'FEATURE-CATALOG.json');
+    if (exists(catalogFile)) {
+      try {
+        problems.push(...validateFeatureCatalogCompleteness(readJson(catalogFile), { workspaceRoot: ctx.workspaceRoot }));
+      } catch {
+        problems.push('FEATURE-CATALOG.json is not valid JSON');
+      }
+    }
+
     const screensFile = path.join(viz, 'SCREEN-CATALOG.json');
     if (exists(screensFile)) {
       try {
-        problems.push(...validateScreenCatalogNavigation(readJson(screensFile)));
+        problems.push(...validateScreenCatalogNavigation(readJson(screensFile), { workspaceRoot: ctx.workspaceRoot }));
       } catch {
         problems.push('SCREEN-CATALOG.json is not valid JSON');
       }
