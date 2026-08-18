@@ -12,7 +12,6 @@ import type { EpicFilter, EpicSummary } from '@/lib/types';
 import { EPIC_DND_MIME } from '../EpicCard';
 import { FILTER_LABEL, ROW_DOT } from './adapt';
 import { DisclosureBtn } from './primitives';
-import { pipelineChipLabel } from './three-pipeline';
 
 const FILTER_ORDER: EpicFilter[] = ['all', 'in_progress', 'pending', 'done', 'failed'];
 
@@ -463,18 +462,6 @@ function Row({ epic, p }: { epic: EpicSummary; p: EpicListPanelProps }) {
       >
         {epic.id}
       </div>
-      {pipelineChipLabel(epic.pipeline) && (
-        <div
-          className="v3-mono"
-          title={pipelineChipLabel(epic.pipeline)!}
-          style={{
-            fontSize: 9, color: 'var(--txt3)', flex: 'none', maxWidth: 92,
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}
-        >
-          {pipelineChipLabel(epic.pipeline)}
-        </div>
-      )}
       <div
         style={{
           flex: 1, minWidth: 0, fontSize: 11.5, color: 'var(--txt)',

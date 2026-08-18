@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import mermaid from 'mermaid';
 
 import type { ArchitectureEdge, ArchitectureExplorerState, ArchitectureFeature, ArchitectureNode, EpicFeatureImpact, EpicSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { usePanelFullscreen } from '@/hooks/usePanelFullscreen';
+import { useSvgDiagramViewport } from '@/hooks/useSvgDiagramViewport';
 
 type Level = 'overview' | 'features' | 'screens' | 'flow';
 type Language = 'en' | 'vi';
@@ -164,19 +165,11 @@ function featureDelivery(feature: ArchitectureFeature, epics: readonly EpicSumma
 function MermaidDiagram({ source, empty, text }: { source?: string; empty: string; text: typeof copy.en | typeof copy.vi }) {
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
-  const [zoom, setZoom] = useState(100);
   const { fullscreen, toggle: toggleFullscreen } = usePanelFullscreen();
-  const diagramRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
-  const viewRef = useRef({ x: 0, y: 0 });
-  const panRef = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | undefined>(undefined);
-  const applyTransform = (nextZoom = zoom) => {
-    const view = viewRef.current;
-    const canvas = canvasRef.current;
-    if (canvas) canvas.style.transform = `translate(${view.x}px, ${view.y}px) scale(${nextZoom / 100})`;
-  };
+  const {
+    zoom, zoomIn, zoomOut, resetZoom, canZoomIn, canZoomOut,
+    viewportRef, canvasRef, panHandlers,
+  } = useSvgDiagramViewport(svg);
   useEffect(() => {
     if (!source) { setSvg(undefined); setError(undefined); return; }
     let active = true;
@@ -187,69 +180,20 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
       .catch((reason: unknown) => { if (active) { setSvg(undefined); setError(reason instanceof Error ? reason.message : 'Mermaid could not render this diagram.'); } });
     return () => { active = false; };
   }, [source]);
-  useEffect(() => {
-    const element = canvasRef.current?.querySelector('svg');
-    if (!element) return;
-    element.style.width = '100%';
-    element.style.height = 'auto';
-    element.style.maxWidth = 'none';
-    applyTransform();
-  }, [svg, zoom]);
-  useEffect(() => {
-    const viewport = diagramRef.current;
-    if (!viewport) return;
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
-      event.preventDefault();
-      const current = zoomRef.current;
-      const nextZoom = Math.max(50, Math.min(250, current - event.deltaY * 0.08));
-      if (nextZoom === current) return;
-      const rect = viewport.getBoundingClientRect();
-      const ratio = nextZoom / current;
-      const view = viewRef.current;
-      view.x = (1 - ratio) * (event.clientX - rect.left - rect.width / 2) + ratio * view.x;
-      view.y = (1 - ratio) * (event.clientY - rect.top - rect.height / 2) + ratio * view.y;
-      const canvas = canvasRef.current;
-      if (canvas) canvas.style.transform = `translate(${view.x}px, ${view.y}px) scale(${nextZoom / 100})`;
-      setZoom(nextZoom);
-    };
-    viewport.addEventListener('wheel', onWheel, { passive: false });
-    return () => viewport.removeEventListener('wheel', onWheel);
-  }, [svg]);
-  const startPan = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    const viewport = event.currentTarget;
-    viewport.setPointerCapture(event.pointerId);
-    panRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: viewRef.current.x, y: viewRef.current.y };
-    viewport.style.cursor = 'grabbing';
-    event.preventDefault();
-  };
-  const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
-    const pan = panRef.current;
-    if (!pan || pan.pointerId !== event.pointerId) return;
-    viewRef.current = { x: pan.x + event.clientX - pan.clientX, y: pan.y + event.clientY - pan.clientY };
-    applyTransform();
-    event.preventDefault();
-  };
-  const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (panRef.current?.pointerId !== event.pointerId) return;
-    panRef.current = undefined;
-    event.currentTarget.style.cursor = 'grab';
-  };
   if (!source) return <p className="p-6 text-sm text-muted-foreground">{empty}</p>;
   if (error) return <p className="p-6 text-sm text-destructive">{error}</p>;
   return <div className={fullscreen ? 'fixed inset-0 z-50 flex flex-col bg-background' : 'flex min-h-[520px] flex-col'} onWheel={fullscreen ? (event) => event.stopPropagation() : undefined}>
     <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
       <span className="text-xs text-muted-foreground">{text.panHint}</span>
       <div className="flex items-center gap-1">
-      <button type="button" title={text.zoomOut} aria-label={text.zoomOut} onClick={() => setZoom((value) => Math.max(50, value - 25))} disabled={zoom <= 50} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">−</button>
-      <button type="button" title={text.resetZoom} aria-label={text.resetZoom} onClick={() => { viewRef.current = { x: 0, y: 0 }; applyTransform(100); setZoom(100); }} className="min-w-12 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent">{zoom}%</button>
-      <button type="button" title={text.zoomIn} aria-label={text.zoomIn} onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">+</button>
+      <button type="button" title={text.zoomOut} aria-label={text.zoomOut} onClick={zoomOut} disabled={!canZoomOut} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">−</button>
+      <button type="button" title={text.resetZoom} aria-label={text.resetZoom} onClick={resetZoom} className="min-w-12 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent">{zoom}%</button>
+      <button type="button" title={text.zoomIn} aria-label={text.zoomIn} onClick={zoomIn} disabled={!canZoomIn} className="h-7 w-7 rounded border border-border text-sm text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40">+</button>
       <FullscreenButton active={fullscreen} enterLabel={text.enterFullscreen} exitLabel={text.exitFullscreen} onClick={toggleFullscreen} />
       </div>
     </div>
-    <div ref={diagramRef} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-hidden select-none">
-      <div ref={canvasRef} className="flex min-h-full min-w-full items-center justify-center p-5 will-change-transform [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
+    <div ref={viewportRef} {...panHandlers} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-hidden select-none">
+      <div ref={canvasRef} className="flex min-h-full min-w-full items-center justify-center p-5 [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
     </div>
   </div>;
 }

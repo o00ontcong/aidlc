@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import mermaid from 'mermaid';
 
 import type { EpicSummary, EpicVisualizations } from '@/lib/types';
 import { usePanelFullscreen } from '@/hooks/usePanelFullscreen';
+import { useSvgDiagramViewport } from '@/hooks/useSvgDiagramViewport';
 import { briefingGraphTabs, briefingSummary, isBriefingPipeline, isProjectContextPipeline, primaryFlowMermaid } from './epic-logic';
 import { Card, CardHeader, CardNote, CardTitle, Spacer } from './primitives';
 
@@ -195,19 +196,11 @@ function ImpactLegend() {
 function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
-  const [zoom, setZoom] = useState(100);
   const { fullscreen, toggle: toggleFullscreen } = usePanelFullscreen();
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
-  const viewRef = useRef({ x: 0, y: 0 });
-  const panRef = useRef<{ pointerId: number; clientX: number; clientY: number; x: number; y: number } | undefined>(undefined);
-  const applyTransform = (nextZoom = zoom) => {
-    const view = viewRef.current;
-    const canvas = canvasRef.current;
-    if (canvas) canvas.style.transform = `translate(${view.x}px, ${view.y}px) scale(${nextZoom / 100})`;
-  };
+  const {
+    zoom, zoomIn, zoomOut, resetZoom, canZoomIn, canZoomOut,
+    viewportRef, canvasRef, panHandlers,
+  } = useSvgDiagramViewport(svg);
   useEffect(() => {
     if (!source) { setSvg(undefined); setError(undefined); return; }
     let active = true;
@@ -225,35 +218,6 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
       });
     return () => { active = false; };
   }, [source]);
-  useEffect(() => {
-    const element = canvasRef.current?.querySelector('svg');
-    if (!element) return;
-    element.style.width = '100%';
-    element.style.height = 'auto';
-    element.style.maxWidth = 'none';
-    applyTransform();
-  }, [svg, zoom]);
-  useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    const onWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
-      event.preventDefault();
-      const current = zoomRef.current;
-      const nextZoom = Math.max(50, Math.min(250, current - event.deltaY * 0.08));
-      if (nextZoom === current) return;
-      const rect = viewport.getBoundingClientRect();
-      const ratio = nextZoom / current;
-      const view = viewRef.current;
-      view.x = (1 - ratio) * (event.clientX - rect.left - rect.width / 2) + ratio * view.x;
-      view.y = (1 - ratio) * (event.clientY - rect.top - rect.height / 2) + ratio * view.y;
-      const canvas = canvasRef.current;
-      if (canvas) canvas.style.transform = `translate(${view.x}px, ${view.y}px) scale(${nextZoom / 100})`;
-      setZoom(nextZoom);
-    };
-    viewport.addEventListener('wheel', onWheel, { passive: false });
-    return () => viewport.removeEventListener('wheel', onWheel);
-  }, [svg]);
 
   if (!source) return <p style={{ margin: 0, padding: '12px 14px', fontSize: 12, color: 'var(--txt3)' }}>{empty}</p>;
   if (error) return <p style={{ margin: 0, padding: '12px 14px', fontSize: 12, color: 'var(--err)' }}>{error}</p>;
@@ -266,9 +230,9 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
         : { minHeight: 280, display: 'flex', flexDirection: 'column' }}
     >
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, padding: '6px 10px' }}>
-        <button type="button" title="Thu nhỏ graph" onClick={() => setZoom((value) => Math.max(50, value - 25))} disabled={zoom <= 50} style={zoomBtn}>{'\u2212'}</button>
-        <button type="button" title="Reset zoom 100% và về giữa. Zoom: Ctrl + lăn chuột" onClick={() => { viewRef.current = { x: 0, y: 0 }; applyTransform(100); setZoom(100); }} style={zoomBtn}>{zoom}%</button>
-        <button type="button" title="Phóng to graph" onClick={() => setZoom((value) => Math.min(250, value + 25))} disabled={zoom >= 250} style={zoomBtn}>+</button>
+        <button type="button" title="Thu nhỏ graph" onClick={zoomOut} disabled={!canZoomOut} style={zoomBtn}>{'\u2212'}</button>
+        <button type="button" title="Reset zoom 100% và về giữa. Zoom: Ctrl + lăn chuột" onClick={resetZoom} style={zoomBtn}>{zoom}%</button>
+        <button type="button" title="Phóng to graph" onClick={zoomIn} disabled={!canZoomIn} style={zoomBtn}>+</button>
         <button
           type="button"
           title={fullscreen ? 'Thoát toàn màn hình (Esc)' : 'Toàn màn hình'}
@@ -282,28 +246,7 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
       </div>
       <div
         ref={viewportRef}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          panRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: viewRef.current.x, y: viewRef.current.y };
-          event.currentTarget.style.cursor = 'grabbing';
-        }}
-        onPointerMove={(event) => {
-          const pan = panRef.current;
-          if (!pan || pan.pointerId !== event.pointerId) return;
-          viewRef.current = { x: pan.x + event.clientX - pan.clientX, y: pan.y + event.clientY - pan.clientY };
-          applyTransform();
-        }}
-        onPointerUp={(event) => {
-          if (panRef.current?.pointerId !== event.pointerId) return;
-          panRef.current = undefined;
-          event.currentTarget.style.cursor = 'grab';
-        }}
-        onPointerCancel={(event) => {
-          if (panRef.current?.pointerId !== event.pointerId) return;
-          panRef.current = undefined;
-          event.currentTarget.style.cursor = 'grab';
-        }}
+        {...panHandlers}
         style={{ flex: 1, minHeight: fullscreen ? 0 : 240, cursor: 'grab', overflow: 'hidden', userSelect: 'none' }}
       >
         <div
