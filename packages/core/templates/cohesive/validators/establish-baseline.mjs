@@ -1,7 +1,7 @@
 import path from 'node:path';
 import {
   exists, formatError, markdownHasGo, pass, readJson, readText, reject,
-  ensureProjectVisualizationMermaid, isMermaidDiagram,
+  ensureProjectVisualizationMermaid, isMermaidDiagram, validateScreenCatalogNavigation,
 } from './lib.mjs';
 
 const CHARTER_FILES = [
@@ -74,6 +74,15 @@ export default async function establishBaseline(ctx) {
       if (!exists(file)) problems.push(`docs/project/context/visualization/${name} is missing`);
       else if (!isMermaidDiagram(readText(file))) {
         problems.push(`${name} must be Mermaid flowchart or sequenceDiagram source`);
+      }
+    }
+
+    const screensFile = path.join(viz, 'SCREEN-CATALOG.json');
+    if (exists(screensFile)) {
+      try {
+        problems.push(...validateScreenCatalogNavigation(readJson(screensFile)));
+      } catch {
+        problems.push('SCREEN-CATALOG.json is not valid JSON');
       }
     }
 

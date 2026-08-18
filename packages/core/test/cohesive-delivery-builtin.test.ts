@@ -198,7 +198,10 @@ describe('Cohesive Delivery built-in bundle', () => {
     expect(preset.skillContents['establish-baseline']).toContain('PROJECT-ARCHITECTURE.mmd');
     expect(preset.skillContents['establish-baseline']).toContain('FEATURE-CATALOG.mmd');
     expect(preset.skillContents['establish-baseline']).toContain('SCREEN-CATALOG.mmd');
-    expect(preset.skillContents['establish-baseline']).toContain('screen structure');
+    expect(preset.skillContents['establish-baseline']).toContain('transitions');
+    expect(preset.skillContents['establish-baseline']).toContain('Screen navigation discovery');
+    expect(preset.skillContents['establish-baseline']).toContain('discovery');
+    expect(preset.skillContents['establish-baseline']).toContain('Never treat an existing GO baseline as done');
 
     const help = getBuiltinStepHelp('feature-implement', 'resolve-bugs')!;
     const helpMarkdown = renderBuiltinStepHelpMarkdown(help);

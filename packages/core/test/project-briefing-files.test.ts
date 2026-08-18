@@ -13,6 +13,7 @@ import {
   ensureProjectBriefingFiles,
   featureCatalogMermaidFromJson,
   readProjectContextBriefing,
+  screenCatalogAreaMermaidsFromJson,
   screenCatalogMermaidFromJson,
 } from '../src/project/projectBriefingFiles';
 
@@ -134,7 +135,116 @@ describe('featureCatalogMermaidFromJson', () => {
 });
 
 describe('screenCatalogMermaidFromJson', () => {
-  it('nests UI → tab → screen → sheet, not code modules', () => {
+  it('renders navigation transitions with trigger labels, not tab grouping', () => {
+    const mermaid = screenCatalogMermaidFromJson({
+      screens: [
+        { id: 'login', name: 'Login' },
+        { id: 'home', name: 'Home' },
+        { id: 'unable-to-sign-in', name: 'Unable to sign in', parent: 'login', kind: 'sheet' },
+      ],
+      transitions: [
+        { source: 'login', target: 'home', trigger: 'Sign in' },
+      ],
+      roots: ['login'],
+    });
+    expect(mermaid).toContain('ui["UI"]');
+    expect(mermaid).toMatch(/n_screen_login -->.*n_screen_home/);
+    expect(mermaid).toContain('Sign in');
+    expect(mermaid).toMatch(/n_screen_login -->.*n_screen_unable_to_sign_in/);
+    expect(mermaid).not.toMatch(/n_area_/);
+  });
+
+  it('renders branching flows with reconverging targets and intermediate steps', () => {
+    const mermaid = screenCatalogMermaidFromJson({
+      screens: [
+        { id: 'profile', name: 'Profile' },
+        { id: 'change-password', name: 'Change password' },
+        { id: 'verify-password', name: 'Verify password' },
+        { id: 'forgot-password', name: 'Forgot password' },
+      ],
+      transitions: [
+        { source: 'profile', target: 'change-password', trigger: 'Change password' },
+        { source: 'change-password', target: 'verify-password', trigger: 'Continue' },
+        { source: 'forgot-password', target: 'change-password', trigger: 'Reset verified' },
+      ],
+    });
+    expect(mermaid).toMatch(/n_screen_profile -->.*n_screen_change_password/);
+    expect(mermaid).toMatch(/n_screen_change_password -->.*n_screen_verify_password/);
+    expect(mermaid).toMatch(/n_screen_forgot_password -->.*n_screen_change_password/);
+    expect(mermaid).toContain('Change password');
+    expect(mermaid).toContain('Verify password');
+  });
+
+  it('summarizes multi-area catalogs as a hub map', () => {
+    const mermaid = screenCatalogMermaidFromJson({
+      screens: [
+        { id: 'home', name: 'Home', tab: 'Main' },
+        { id: 'login', name: 'Login', tab: 'Auth' },
+        { id: 'settings', name: 'Settings', tab: 'Main' },
+      ],
+      transitions: [
+        { source: 'home', target: 'settings', trigger: 'Settings icon' },
+        { source: 'login', target: 'home', condition: 'authenticated' },
+      ],
+      discovery: {
+        entryPoints: [{ target: 'login', kind: 'coldStart' }],
+      },
+    });
+    expect(mermaid).toContain('flowchart LR');
+    expect(mermaid).toContain('Auth (1)');
+    expect(mermaid).toContain('Main (2)');
+    expect(mermaid).toContain('authenticated');
+    expect(mermaid).not.toContain('subgraph');
+    expect(mermaid).not.toMatch(/n_screen_settings/);
+  });
+
+  it('renders one readable slice per tab/flow', () => {
+    const areas = screenCatalogAreaMermaidsFromJson({
+      screens: [
+        { id: 'profile', name: 'Profile', tab: 'Profile' },
+        { id: 'verify-password', name: 'Verify password', tab: 'Profile' },
+        { id: 'change-password', name: 'Change password', tab: 'Profile' },
+        { id: 'forgot-password', name: 'Forgot password', flow: 'Auth' },
+        { id: 'tab:profile', name: 'Profile tab', kind: 'tab', tab: 'Profile' },
+      ],
+      transitions: [
+        { source: 'profile', target: 'verify-password', trigger: 'Change password' },
+        { source: 'verify-password', target: 'change-password', trigger: 'Continue' },
+        { source: 'verify-password', target: 'forgot-password', trigger: 'Forgot password' },
+      ],
+    });
+    const profile = areas.find((area) => area.id === 'Profile');
+    expect(profile?.count).toBe(3);
+    expect(profile?.mermaid).toContain('flowchart LR');
+    expect(profile?.mermaid).toMatch(/n_screen_profile -->.*n_screen_verify_password/);
+    expect(profile?.mermaid).toMatch(/n_screen_verify_password -->.*n_screen_change_password/);
+    expect(profile?.mermaid).toContain('Forgot password');
+    expect(profile?.mermaid).not.toContain('subgraph');
+    expect(profile?.mermaid).not.toContain('Profile tab');
+  });
+
+  it('shows every screen in an area even when most edges are parent/sheet', () => {
+    const areas = screenCatalogAreaMermaidsFromJson({
+      screens: [
+        { id: 'home', name: 'Home dashboard', tab: 'Home' },
+        { id: 'home-notifications', name: 'Notifications list', tab: 'Home', parent: 'home' },
+        { id: 'home-activity-log', name: 'Activity log', tab: 'Home', parent: 'home' },
+        { id: 'login', name: 'Login', tab: 'Auth' },
+      ],
+      transitions: [
+        { source: 'login', target: 'home', trigger: 'Sign in (guest/home)' },
+        { source: 'home', target: 'home-notifications', trigger: 'present', kind: 'present' },
+      ],
+    });
+    const home = areas.find((area) => area.id === 'Home');
+    expect(home?.count).toBe(3);
+    expect(home?.mermaid).toContain('Home dashboard');
+    expect(home?.mermaid).toContain('Notifications list');
+    expect(home?.mermaid).toContain('Activity log');
+    expect(home?.mermaid).toMatch(/n_screen_home -->.*n_screen_home_notifications/);
+  });
+
+  it('falls back to tab nesting when transitions are absent', () => {
     const mermaid = screenCatalogMermaidFromJson({
       screens: [
         { id: 'login', name: 'Login', tab: 'Auth' },

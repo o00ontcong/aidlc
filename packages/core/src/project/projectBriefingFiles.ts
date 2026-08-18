@@ -424,16 +424,289 @@ export function featureCatalogMermaidFromJson(catalog: Record<string, unknown> |
   return nestedCatalogMermaidFromJson(catalog);
 }
 
-/** Screen-structure feature tree: UI → tab/flow → screen → sheet. */
+export interface ScreenCatalogAreaDiagram {
+  id: string;
+  name: string;
+  count: number;
+  mermaid: string;
+}
+
+function isGroupScreen(raw: Record<string, unknown>): boolean {
+  const kind = fieldString(raw, ['kind']).toLowerCase();
+  if (kind === 'tab' || kind === 'flow') return true;
+  const id = fieldString(raw, ['id']);
+  return id.startsWith('tab:') || id.startsWith('flow:');
+}
+
+function screenGroup(raw: Record<string, unknown>): string {
+  return fieldString(raw, ['tab', 'flow', 'area', 'nav', 'section']);
+}
+
+function catalogScreenRows(catalog: Record<string, unknown> | undefined): Array<{
+  id: string; label: string; group: string; raw: Record<string, unknown>;
+}> {
+  const screens = objects(catalog?.screens).length ? objects(catalog?.screens) : objects(catalog?.features);
+  const rows: Array<{ id: string; label: string; group: string; raw: Record<string, unknown> }> = [];
+  const seen = new Set<string>();
+  for (const screen of screens) {
+    const node = nodeIdentity(screen);
+    if (!node || seen.has(node.id)) continue;
+    seen.add(node.id);
+    rows.push({
+      id: node.id,
+      label: fieldString(screen, ['name']) || node.label,
+      group: screenGroup(screen),
+      raw: screen,
+    });
+  }
+  return rows;
+}
+
+/** Screen-structure: small catalogs stay a flow graph; multi-area catalogs use a hub map. */
 export function screenCatalogMermaidFromJson(catalog: Record<string, unknown> | undefined): string | undefined {
+  if (!catalog) return undefined;
+  const rows = catalogScreenRows(catalog);
+  const transitions = objects(catalog.transitions);
+  if (rows.length && transitions.length) {
+    const groups = new Set(rows.filter((row) => !isGroupScreen(row.raw) && row.group).map((row) => row.group));
+    if (groups.size >= 2) return screenCatalogOverviewMermaidFromJson(catalog);
+    const discovery = catalog.discovery && typeof catalog.discovery === 'object' && !Array.isArray(catalog.discovery)
+      ? catalog.discovery as Record<string, unknown>
+      : undefined;
+    return screenTransitionMermaidFromJson(rows.map((row) => row.raw), transitions, catalog.roots, discovery?.entryPoints);
+  }
   return nestedCatalogMermaidFromJson(catalog, {
     listKeys: ['screens', 'features'],
     rootId: 'UI',
     rootLabel: 'UI',
     groupKeys: ['flow', 'tab', 'area', 'nav', 'section'],
+    useEvidenceDirs: false,
     useIdPrefix: false,
     nodePrefix: 'screen',
   });
+}
+
+/** Hub map: UI → Home / Profile / Auth, plus cross-area jumps. */
+export function screenCatalogOverviewMermaidFromJson(catalog: Record<string, unknown> | undefined): string | undefined {
+  const rows = catalogScreenRows(catalog);
+  if (!rows.length) return undefined;
+  const destinations = rows.filter((row) => !isGroupScreen(row.raw));
+  const counts = new Map<string, number>();
+  for (const row of destinations) {
+    const group = row.group || 'Other';
+    counts.set(group, (counts.get(group) ?? 0) + 1);
+  }
+  if (!counts.size) return undefined;
+  const groupOf = new Map(rows.map((row) => [row.id, row.group || 'Other']));
+  const nid = (name: string) => mermaidSafeId(`area_${name}`);
+  const lines = ['flowchart LR', '  ui["UI"]'];
+  for (const [group, count] of [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    lines.push(`  ${nid(group)}["${mermaidSafeLabel(`${group} (${count})`)}"]`);
+    lines.push(`  ui --> ${nid(group)}`);
+  }
+  const seen = new Set<string>();
+  for (const raw of objects(catalog?.transitions)) {
+    const edge = transitionEndpoints(raw);
+    if (!edge) continue;
+    const from = groupOf.get(edge.source);
+    const to = groupOf.get(edge.target);
+    if (!from || !to || from === to) continue;
+    const label = transitionEdgeLabel(edge);
+    const key = `${from}-->${to}-->${label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const arrow = label ? `-->|"${mermaidEdgeLabel(label)}"|` : '-->';
+    lines.push(`  ${nid(from)} ${arrow} ${nid(to)}`);
+  }
+  return lines.join('\n');
+}
+
+/** One mermaid per tab/flow so the explorer can show a readable slice. */
+export function screenCatalogAreaMermaidsFromJson(catalog: Record<string, unknown> | undefined): ScreenCatalogAreaDiagram[] {
+  const rows = catalogScreenRows(catalog);
+  const transitions = objects(catalog?.transitions);
+  if (!rows.length) return [];
+  const groups = new Map<string, number>();
+  for (const row of rows) {
+    if (isGroupScreen(row.raw) || !row.group) continue;
+    groups.set(row.group, (groups.get(row.group) ?? 0) + 1);
+  }
+  return [...groups.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([name, count]) => ({
+      id: name,
+      name,
+      count,
+      mermaid: screenAreaMermaidFromJson(rows, transitions, name),
+    }))
+    .filter((area) => area.mermaid.split('\n').length > 2);
+}
+
+function mermaidEdgeLabel(value: string): string {
+  return value.replace(/[\\"|]/g, '').replace(/[\r\n]+/g, ' ').trim().slice(0, 48);
+}
+
+function transitionEndpoints(raw: Record<string, unknown>): { source: string; target: string; trigger?: string; kind?: string; condition?: string } | undefined {
+  const source = fieldString(raw, ['source', 'from']);
+  const target = fieldString(raw, ['target', 'to']);
+  if (!source || !target) return undefined;
+  const trigger = fieldString(raw, ['trigger', 'label', 'action']) || undefined;
+  const kind = fieldString(raw, ['kind', 'type']) || undefined;
+  const condition = fieldString(raw, ['condition', 'when', 'guard']) || undefined;
+  return { source, target, trigger, kind, condition };
+}
+
+function transitionEdgeLabel(edge: { trigger?: string; kind?: string; condition?: string }): string {
+  return edge.trigger || edge.condition || (edge.kind && edge.kind !== 'push' ? edge.kind : '');
+}
+
+const WEAK_EDGE = new Set(['present', 'sheet', 'modal', 'parent', 'root']);
+
+function screenAreaMermaidFromJson(
+  rows: Array<{ id: string; label: string; group: string; raw: Record<string, unknown> }>,
+  transitions: Record<string, unknown>[],
+  area: string,
+): string {
+  const inAreaRows = rows.filter((row) => !isGroupScreen(row.raw) && row.group === area);
+  const inArea = new Set(inAreaRows.map((row) => row.id));
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const needed = new Set(inArea);
+  const edges: Array<{ source: string; target: string; label: string }> = [];
+  const pair = new Set<string>();
+  const add = (source: string, target: string, label: string) => {
+    if (!inArea.has(source) && !inArea.has(target)) return;
+    if (isGroupScreen(byId.get(source)?.raw ?? {}) || isGroupScreen(byId.get(target)?.raw ?? {})) return;
+    const key = `${source}-->${target}`;
+    if (pair.has(key)) return;
+    pair.add(key);
+    needed.add(source);
+    needed.add(target);
+    edges.push({ source, target, label });
+  };
+  for (const raw of transitions) {
+    const edge = transitionEndpoints(raw);
+    if (!edge) continue;
+    add(edge.source, edge.target, transitionEdgeLabel(edge));
+  }
+  for (const row of inAreaRows) {
+    const parent = fieldString(row.raw, ['parent', 'parentId', 'parent_id']);
+    if (!parent || !inArea.has(parent) || pair.has(`${parent}-->${row.id}`)) continue;
+    const kind = fieldString(row.raw, ['kind']);
+    add(parent, row.id, kind === 'sheet' || kind === 'modal' ? kind : '');
+  }
+  const hub = inAreaRows.find((row) => row.id === area.toLowerCase())
+    ?? inAreaRows.find((row) => !fieldString(row.raw, ['parent', 'parentId', 'parent_id']) || !inArea.has(fieldString(row.raw, ['parent', 'parentId', 'parent_id'])))
+    ?? inAreaRows[0];
+  if (hub) {
+    const incoming = new Set(edges.map((edge) => edge.target));
+    for (const row of inAreaRows) {
+      if (row.id === hub.id || incoming.has(row.id)) continue;
+      add(hub.id, row.id, '');
+    }
+  }
+  const nid = (id: string) => mermaidNodeId(id, 'screen');
+  const lines = ['flowchart LR'];
+  for (const id of [...needed].sort()) {
+    const row = byId.get(id);
+    if (!row) continue;
+    lines.push(`  ${nid(id)}["${mermaidSafeLabel(row.label)}"]`);
+  }
+  for (const edge of edges) {
+    const labeled = edge.label && !WEAK_EDGE.has(edge.label);
+    const arrow = labeled ? `-->|"${mermaidEdgeLabel(edge.label)}"|` : '-->';
+    lines.push(`  ${nid(edge.source)} ${arrow} ${nid(edge.target)}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Navigation-flow diagram: screens as nodes, transitions as labeled edges.
+ * Skips tab/flow containers and duplicate present edges.
+ */
+export function screenTransitionMermaidFromJson(
+  screens: Record<string, unknown>[],
+  transitions: Record<string, unknown>[],
+  rootsRaw: unknown,
+  entryPointsRaw?: unknown,
+): string | undefined {
+  const rows: Array<{ id: string; label: string; raw: Record<string, unknown> }> = [];
+  const seen = new Set<string>();
+  for (const screen of screens) {
+    const node = nodeIdentity(screen);
+    if (!node || seen.has(node.id)) continue;
+    seen.add(node.id);
+    rows.push({ id: node.id, label: fieldString(screen, ['name']) || node.label, raw: screen });
+  }
+  if (!rows.length) return undefined;
+
+  const nid = (id: string) => mermaidNodeId(id, 'screen');
+  const lines = ['flowchart LR'];
+  const drawn = new Set<string>();
+  const draw = (id: string, label: string) => {
+    if (drawn.has(id) || (id !== 'UI' && isGroupScreen(rows.find((row) => row.id === id)?.raw ?? {}))) return;
+    drawn.add(id);
+    lines.push(`  ${nid(id)}["${mermaidSafeLabel(label)}"]`);
+  };
+
+  for (const row of rows) {
+    if (!isGroupScreen(row.raw)) draw(row.id, row.label);
+  }
+
+  const incoming = new Set<string>();
+  const pairs = new Set<string>();
+  const addEdge = (source: string, target: string, label: string) => {
+    if (source !== 'UI' && !seen.has(source)) return;
+    if (!seen.has(target)) return;
+    if (source !== 'UI' && isGroupScreen(rows.find((row) => row.id === source)?.raw ?? {})) return;
+    if (isGroupScreen(rows.find((row) => row.id === target)?.raw ?? {})) return;
+    const key = `${source}-->${target}`;
+    if (pairs.has(key)) return;
+    pairs.add(key);
+    incoming.add(target);
+    draw(source, source === 'UI' ? 'UI' : (rows.find((row) => row.id === source)?.label || source));
+    draw(target, rows.find((row) => row.id === target)?.label || target);
+    const arrow = label && !WEAK_EDGE.has(label) ? `-->|"${mermaidEdgeLabel(label)}"|` : '-->';
+    lines.push(`  ${nid(source)} ${arrow} ${nid(target)}`);
+  };
+
+  for (const raw of transitions) {
+    const edge = transitionEndpoints(raw);
+    if (!edge) continue;
+    addEdge(edge.source, edge.target, transitionEdgeLabel(edge));
+  }
+
+  for (const row of rows) {
+    if (isGroupScreen(row.raw)) continue;
+    const parent = fieldString(row.raw, ['parent', 'parentId', 'parent_id']);
+    if (!parent || !seen.has(parent)) continue;
+    if (isGroupScreen(rows.find((item) => item.id === parent)?.raw ?? {})) continue;
+    if (pairs.has(`${parent}-->${row.id}`)) continue;
+    const kind = fieldString(row.raw, ['kind']);
+    addEdge(parent, row.id, kind === 'sheet' || kind === 'modal' ? kind : '');
+  }
+
+  const declaredRoots = Array.isArray(rootsRaw)
+    ? rootsRaw.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim())
+    : [];
+  const roots = declaredRoots.length
+    ? declaredRoots.filter((id) => seen.has(id) && !isGroupScreen(rows.find((row) => row.id === id)?.raw ?? {}))
+    : rows
+      .filter((row) => !isGroupScreen(row.raw) && !incoming.has(row.id))
+      .map((row) => row.id);
+
+  const entryPoints = objects(entryPointsRaw).filter((raw) => {
+    const target = fieldString(raw, ['target']);
+    return target && seen.has(target) && !isGroupScreen(rows.find((row) => row.id === target)?.raw ?? {});
+  });
+  if (declaredRoots.length || entryPoints.length) {
+    draw('UI', 'UI');
+    for (const root of declaredRoots.length ? roots : []) addEdge('UI', root, '');
+    for (const raw of entryPoints) {
+      addEdge('UI', fieldString(raw, ['target']), fieldString(raw, ['kind', 'type']) || '');
+    }
+  }
+
+  return lines.length > 1 ? lines.join('\n') : undefined;
 }
 
 const PENDING_ARCHITECTURE = 'flowchart TD\n  pending["Project architecture not generated yet"]\n';

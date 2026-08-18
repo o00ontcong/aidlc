@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import mermaid from 'mermaid';
 
-import type { EpicSummary, EpicVisualizations } from '@/lib/types';
+import type { EpicSummary, EpicVisualizations, ScreenAreaDiagram } from '@/lib/types';
 import { usePanelFullscreen } from '@/hooks/usePanelFullscreen';
 import { useSvgDiagramViewport } from '@/hooks/useSvgDiagramViewport';
 import { briefingGraphTabs, briefingSummary, isBriefingPipeline, isProjectContextPipeline, primaryFlowMermaid } from './epic-logic';
@@ -79,6 +79,14 @@ function BriefingVisuals({ epic, empty }: { epic: EpicSummary; empty: boolean })
     if (!tabs.some((tab) => tab.id === tabId)) setTabId(defaultId);
   }, [defaultId, tabId, tabs]);
   const active = tabs.find((tab) => tab.id === tabId) ?? tabs[0];
+  const screenAreas = epic.visualizations?.screenAreas ?? [];
+  const [screenAreaId, setScreenAreaId] = useState('map');
+  useEffect(() => {
+    if (tabId !== 'screens') setScreenAreaId('map');
+  }, [tabId]);
+  const screenSource = screenAreaId === 'map'
+    ? active?.src
+    : (screenAreas.find((area) => area.id === screenAreaId)?.mermaid ?? active?.src);
 
   return (
     <Card style={{ overflow: 'hidden' }}>
@@ -133,7 +141,24 @@ function BriefingVisuals({ epic, empty }: { epic: EpicSummary; empty: boolean })
           ) : (
             <>
               {active.id === 'impact' && !isContext && <ImpactLegend />}
-              <EpicMermaid source={active.src} empty="Graph này chưa có Mermaid." />
+              {active.id === 'screens' && screenAreas.length > 0 && (
+                <ScreenAreaBar
+                  areas={screenAreas}
+                  activeId={screenAreaId}
+                  onSelect={setScreenAreaId}
+                />
+              )}
+              <EpicMermaid
+                source={active.id === 'screens' ? screenSource : active.src}
+                empty="Graph này chưa có Mermaid."
+                curve={active.id === 'screens' ? 'linear' : 'basis'}
+                onNodeActivate={active.id === 'screens' && screenAreaId === 'map'
+                  ? (label) => {
+                    const id = screenAreaFromLabel(label, screenAreas);
+                    if (id) setScreenAreaId(id);
+                  }
+                  : undefined}
+              />
             </>
           )}
         </div>
@@ -193,7 +218,57 @@ function ImpactLegend() {
   );
 }
 
-function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
+function screenAreaFromLabel(label: string, areas: ScreenAreaDiagram[]): string | undefined {
+  const text = label.replace(/\s+/g, ' ').trim();
+  return areas.find((area) =>
+    text === area.name || text.startsWith(`${area.name} (`) || text === `${area.name} (${area.count})`,
+  )?.id;
+}
+
+function ScreenAreaBar({
+  areas, activeId, onSelect,
+}: {
+  areas: ScreenAreaDiagram[];
+  activeId: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div style={{ padding: '8px 14px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <p style={{ margin: 0, fontSize: 11, color: 'var(--txt3)' }}>
+        {activeId === 'map'
+          ? 'Bản đồ nhóm. Bấm một ô (ví dụ Profile (28)) hoặc nút bên dưới để xem màn hình và nút bên trong.'
+          : 'Đang xem chi tiết nhóm. Bấm Bản đồ để quay lại.'}
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <button type="button" onClick={() => onSelect('map')} style={chipStyle(activeId === 'map')}>Bản đồ</button>
+        {areas.map((area) => (
+          <button
+            key={area.id}
+            type="button"
+            onClick={() => onSelect(area.id)}
+            style={chipStyle(activeId === area.id)}
+          >
+            {area.name} ({area.count})
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function chipStyle(active: boolean): CSSProperties {
+  return {
+    cursor: 'pointer', font: 'inherit', fontSize: 11, padding: '4px 10px', borderRadius: 7,
+    border: `1px solid ${active ? 'var(--acc)' : 'var(--bd)'}`,
+    background: active ? 'var(--acc-bg)' : 'transparent',
+    color: active ? 'var(--acc-txt)' : 'var(--txt2)',
+    fontWeight: active ? 600 : 500,
+  };
+}
+
+function EpicMermaid({ source, empty, curve = 'basis', onNodeActivate }: {
+  source?: string; empty: string; curve?: 'basis' | 'linear'; onNodeActivate?: (label: string) => void;
+}) {
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
   const { fullscreen, toggle: toggleFullscreen } = usePanelFullscreen();
@@ -209,7 +284,7 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
       startOnLoad: false,
       securityLevel: 'strict',
       theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
-      flowchart: { curve: 'basis', htmlLabels: false },
+      flowchart: { curve, htmlLabels: false, nodeSpacing: curve === 'linear' ? 28 : 50, rankSpacing: curve === 'linear' ? 48 : 50 },
     });
     void mermaid.render(`aidlc-epic-${Date.now()}`, source)
       .then((result) => { if (active) setSvg(result.svg); })
@@ -217,7 +292,7 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
         if (active) { setSvg(undefined); setError(reason instanceof Error ? reason.message : 'Không render được Mermaid.'); }
       });
     return () => { active = false; };
-  }, [source]);
+  }, [curve, source]);
 
   if (!source) return <p style={{ margin: 0, padding: '12px 14px', fontSize: 12, color: 'var(--txt3)' }}>{empty}</p>;
   if (error) return <p style={{ margin: 0, padding: '12px 14px', fontSize: 12, color: 'var(--err)' }}>{error}</p>;
@@ -251,7 +326,15 @@ function EpicMermaid({ source, empty }: { source?: string; empty: string }) {
       >
         <div
           ref={canvasRef}
-          style={{ minHeight: '100%', minWidth: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}
+          onClick={onNodeActivate ? (event) => {
+            const node = (event.target as Element | null)?.closest?.('.node');
+            const label = node?.textContent?.replace(/\s+/g, ' ').trim();
+            if (label) onNodeActivate(label);
+          } : undefined}
+          style={{
+            minHeight: '100%', minWidth: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12,
+            ...(onNodeActivate ? { cursor: 'pointer' } : {}),
+          }}
           dangerouslySetInnerHTML={{ __html: svg ?? '' }}
         />
       </div>

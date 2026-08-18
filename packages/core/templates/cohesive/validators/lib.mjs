@@ -471,6 +471,14 @@ function mermaidSafeLabel(value) {
   return String(value).replace(/[\\"\[\]{}|<>]/g, '').replace(/[\r\n]+/g, ' ').trim();
 }
 
+function fieldString(raw, keys) {
+  for (const key of keys) {
+    const value = raw?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
 function nodeIdentity(raw) {
   const id = typeof raw.id === 'string' && raw.id.trim()
     ? raw.id.trim()
@@ -612,22 +620,24 @@ function featureCatalogMermaidFromJson(catalog, opts) {
 
   const dirLists = [];
   const dirsByFeature = new Map();
-  for (const row of rows) {
-    if (parentOf.has(row.id)) continue;
-    const evidence = Array.isArray(row.raw.evidence) ? row.raw.evidence : [];
-    const file = evidence.find((item) => typeof item === 'string' && item.trim());
-    const dirs = file ? meaningfulDirs(file) : [];
-    dirsByFeature.set(row.id, dirs);
-    if (dirs.length) dirLists.push(dirs);
-  }
-  const parentLists = dirLists.map((dirs) => dirs.slice(0, Math.max(0, dirs.length - 1))).filter((dirs) => dirs.length);
-  const shared = commonPrefix(parentLists);
-  for (const [id, dirs] of dirsByFeature) {
-    if (!dirs.length) continue;
-    const top = dirs.slice(shared.length)[0] ?? dirs[dirs.length - 1];
-    const key = `dir:${top}`;
-    groups.set(key, top);
-    setParent(parentOf, id, key);
+  if (opts.useEvidenceDirs !== false) {
+    for (const row of rows) {
+      if (parentOf.has(row.id)) continue;
+      const evidence = Array.isArray(row.raw.evidence) ? row.raw.evidence : [];
+      const file = evidence.find((item) => typeof item === 'string' && item.trim());
+      const dirs = file ? meaningfulDirs(file) : [];
+      dirsByFeature.set(row.id, dirs);
+      if (dirs.length) dirLists.push(dirs);
+    }
+    const parentLists = dirLists.map((dirs) => dirs.slice(0, Math.max(0, dirs.length - 1))).filter((dirs) => dirs.length);
+    const shared = commonPrefix(parentLists);
+    for (const [id, dirs] of dirsByFeature) {
+      if (!dirs.length) continue;
+      const top = dirs.slice(shared.length)[0] ?? dirs[dirs.length - 1];
+      const key = `dir:${top}`;
+      groups.set(key, top);
+      setParent(parentOf, id, key);
+    }
   }
 
   if (opts.useIdPrefix !== false) {
@@ -678,13 +688,131 @@ function featureCatalogMermaidFromJson(catalog, opts) {
   return lines.join('\n');
 }
 
-function screenCatalogMermaidFromJson(catalog) {
+function mermaidEdgeLabel(value) {
+  return String(value).replace(/[\\"|]/g, '').replace(/[\r\n]+/g, ' ').trim().slice(0, 48);
+}
+
+function transitionEndpoints(raw) {
+  const source = fieldString(raw, ['source', 'from']);
+  const target = fieldString(raw, ['target', 'to']);
+  if (!source || !target) return undefined;
+  const trigger = fieldString(raw, ['trigger', 'label', 'action']) || undefined;
+  const kind = fieldString(raw, ['kind', 'type']) || undefined;
+  const condition = fieldString(raw, ['condition', 'when', 'guard']) || undefined;
+  return { source, target, trigger, kind, condition };
+}
+
+function transitionEdgeLabel(edge) {
+  return edge.trigger || edge.condition || (edge.kind && edge.kind !== 'push' ? edge.kind : '');
+}
+
+function screenTransitionMermaidFromJson(screens, transitions, rootsRaw, entryPointsRaw) {
+  const rows = [];
+  const seen = new Set();
+  for (const screen of screens) {
+    const node = nodeIdentity(screen);
+    if (!node || seen.has(node.id)) continue;
+    seen.add(node.id);
+    rows.push({ id: node.id, label: fieldString(screen, ['name']) || node.label, raw: screen });
+  }
+  if (!rows.length) return undefined;
+
+  const nid = (id) => {
+    if (id === 'UI') return 'ui';
+    return mermaidSafeId(`screen_${id}`);
+  };
+  const lines = ['flowchart TD'];
+  const groups = new Map();
+  for (const row of rows) {
+    const group = fieldString(row.raw, ['tab', 'flow']);
+    if (!group) continue;
+    const list = groups.get(group) ?? [];
+    list.push(row.id);
+    groups.set(group, list);
+  }
+  const grouped = new Set();
+  for (const [group, ids] of groups) {
+    if (ids.length < 2) continue;
+    const sgId = mermaidSafeId(`sg_${group}`);
+    lines.push(`  subgraph ${sgId}["${mermaidSafeLabel(group)}"]`);
+    for (const id of ids) {
+      grouped.add(id);
+      const row = rows.find((item) => item.id === id);
+      if (row) lines.push(`    ${nid(id)}["${mermaidSafeLabel(row.label)}"]`);
+    }
+    lines.push('  end');
+  }
+  for (const row of rows) {
+    if (grouped.has(row.id)) continue;
+    lines.push(`  ${nid(row.id)}["${mermaidSafeLabel(row.label)}"]`);
+  }
+
+  const incoming = new Set();
+  const edgeKeys = new Set();
+  const addEdge = (source, target, label, keySuffix = '') => {
+    if (source !== 'UI' && !seen.has(source)) return;
+    if (!seen.has(target)) return;
+    const key = `${source}-->${target}-->${label}-->${keySuffix}`;
+    if (edgeKeys.has(key)) return;
+    edgeKeys.add(key);
+    incoming.add(target);
+    const arrow = label ? `-->|"${mermaidEdgeLabel(label)}"|` : '-->';
+    lines.push(`  ${nid(source)} ${arrow} ${nid(target)}`);
+  };
+
+  for (const raw of transitions) {
+    const edge = transitionEndpoints(raw);
+    if (!edge) continue;
+    const label = transitionEdgeLabel(edge);
+    addEdge(edge.source, edge.target, label, fieldString(raw, ['id']) || label);
+  }
+
+  for (const row of rows) {
+    const parent = fieldString(row.raw, ['parent', 'parentId', 'parent_id']);
+    if (!parent) continue;
+    const kind = fieldString(row.raw, ['kind']);
+    addEdge(parent, row.id, kind === 'sheet' || kind === 'modal' ? kind : 'present', 'parent');
+  }
+
+  const declaredRoots = Array.isArray(rootsRaw)
+    ? rootsRaw.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+    : [];
+  const roots = declaredRoots.length
+    ? declaredRoots.filter((id) => seen.has(id))
+    : rows.map((row) => row.id).filter((id) => !incoming.has(id));
+
+  const entryPoints = objects(entryPointsRaw);
+  if (roots.length || entryPoints.length) {
+    lines.splice(1, 0, '  ui["UI"]');
+    for (const root of roots) {
+      if (declaredRoots.length) addEdge('UI', root, 'root', 'root');
+    }
+    for (const raw of entryPoints) {
+      const target = fieldString(raw, ['target']);
+      const kind = fieldString(raw, ['kind', 'type']) || 'entry';
+      if (target) addEdge('UI', target, kind, `entry-${kind}`);
+    }
+  }
+
+  return lines.length > 1 ? lines.join('\n') : undefined;
+}
+
+export function screenCatalogMermaidFromJson(catalog) {
   if (!catalog) return undefined;
+  const screens = objects(catalog.screens).length ? objects(catalog.screens) : objects(catalog.features);
+  const transitions = objects(catalog.transitions);
+  if (screens.length && transitions.length) {
+    const discovery = catalog.discovery && typeof catalog.discovery === 'object' && !Array.isArray(catalog.discovery)
+      ? catalog.discovery
+      : undefined;
+    return screenTransitionMermaidFromJson(screens, transitions, catalog.roots, discovery?.entryPoints);
+  }
   return featureCatalogMermaidFromJson(catalog, {
     listKey: objects(catalog.screens).length ? 'screens' : 'features',
     rootId: 'UI',
     rootLabel: 'UI',
     groupKeys: ['flow', 'tab', 'area', 'nav', 'section'],
+    useEvidenceDirs: false,
     useIdPrefix: false,
     nodePrefix: 'screen',
   });
@@ -698,6 +826,91 @@ function needsMermaidFile(file) {
   if (!exists(file)) return true;
   const text = readText(file).trim();
   return !text || !isMermaidDiagram(text) || isPlaceholderMermaid(text);
+}
+
+export function validateScreenCatalogNavigation(screens) {
+  const problems = [];
+  const validId = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9._:-]*$/i.test(value);
+  const screenList = Array.isArray(screens?.screens) ? screens.screens : [];
+  if (screens?.schemaVersion !== 1 || !screenList.length) {
+    problems.push('SCREEN-CATALOG.json must be schemaVersion 1 with at least one screen');
+    return problems;
+  }
+  for (const screen of screenList) {
+    if (!validId(screen.id) || typeof screen.name !== 'string') problems.push('Every screen needs a stable id and name');
+    if (!Array.isArray(screen.evidence) || !screen.evidence.length) {
+      problems.push(`Screen ${screen.id ?? '(unknown)'} needs evidence; inference alone is not enough`);
+    }
+    if (!['high', 'medium', 'low'].includes(screen.confidence)) {
+      problems.push(`Screen ${screen.id ?? '(unknown)'} needs high|medium|low confidence`);
+    }
+  }
+  const transitionList = Array.isArray(screens?.transitions) ? screens.transitions : [];
+  const screenIds = new Set(screenList.map((screen) => screen.id));
+  if (screenList.length >= 2 && !transitionList.length) {
+    problems.push('SCREEN-CATALOG.json with 2+ screens must declare transitions[] from navigation handlers — legacy parent/tab-only trees are invalid');
+  }
+  for (const transition of transitionList) {
+    if (!validId(transition.source) || !validId(transition.target)) {
+      problems.push('Every screen transition needs stable source and target ids');
+      continue;
+    }
+    if (!screenIds.has(transition.source) || !screenIds.has(transition.target)) {
+      problems.push(`Transition ${transition.source} → ${transition.target} references unknown screen ids`);
+    }
+    if (!Array.isArray(transition.evidence) || !transition.evidence.length) {
+      problems.push(`Transition ${transition.source} → ${transition.target} needs evidence (handler/route file:line)`);
+    }
+    if (transition.confidence && !['high', 'medium', 'low'].includes(transition.confidence)) {
+      problems.push(`Transition ${transition.source} → ${transition.target} needs high|medium|low confidence when set`);
+    }
+  }
+  if (screenList.length >= 3) {
+    const discovery = screens.discovery;
+    if (!discovery || typeof discovery !== 'object' || Array.isArray(discovery)) {
+      problems.push('SCREEN-CATALOG.json with 3+ screens must include discovery (method, routeSources, entryPoints, passes, unknowns)');
+    } else {
+      if (typeof discovery.method !== 'string' || !discovery.method.trim()) {
+        problems.push('discovery.method must describe the navigation scan procedure used');
+      }
+      if (!Array.isArray(discovery.routeSources) || !discovery.routeSources.length) {
+        problems.push('discovery.routeSources must list route/nav config files scanned');
+      }
+      if (!Array.isArray(discovery.passes) || !discovery.passes.length) {
+        problems.push('discovery.passes must list completed scan passes (inventory, outbound, entry/guards, …)');
+      }
+      if (!Array.isArray(discovery.unknowns)) {
+        problems.push('discovery.unknowns must be an array (empty when fully mapped)');
+      }
+    }
+    const destinationCount = screenList.filter((screen) => screen.kind !== 'tab' && screen.kind !== 'flow').length;
+    if (transitionList.length < Math.max(1, Math.ceil(destinationCount * 0.5))) {
+      problems.push(`SCREEN-CATALOG looks under-connected: ${transitionList.length} transitions for ${destinationCount} destination screens — keep scanning outbound handlers`);
+    }
+  }
+  const roots = new Set(Array.isArray(screens.roots) ? screens.roots.filter(validId) : []);
+  const entryTargets = new Set(
+    (Array.isArray(screens.discovery?.entryPoints) ? screens.discovery.entryPoints : [])
+      .map((entry) => entry?.target)
+      .filter(validId),
+  );
+  const incoming = new Set(transitionList.map((t) => t.target));
+  const parentLinked = new Set(
+    screenList
+      .map((screen) => (validId(screen.parent) ? screen.id : undefined))
+      .filter(Boolean),
+  );
+  for (const screen of screenList) {
+    if (screen.kind === 'tab' || screen.kind === 'flow' || screen.kind === 'overlay') continue;
+    const reachable = roots.has(screen.id)
+      || entryTargets.has(screen.id)
+      || incoming.has(screen.id)
+      || parentLinked.has(screen.id);
+    if (!reachable && screenList.length >= 3) {
+      problems.push(`Screen ${screen.id} has no incoming transition, root, entryPoint, or parent — likely missing navigation discovery`);
+    }
+  }
+  return problems;
 }
 
 /**

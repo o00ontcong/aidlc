@@ -704,11 +704,20 @@ export interface EpicFeatureImpact {
   summary?: string;
 }
 
+export interface ScreenAreaDiagram {
+  id: string;
+  name: string;
+  count: number;
+  mermaid: string;
+}
+
 export interface EpicVisualizations {
   impactMermaid?: string;
   surfacesMermaid?: string;
   flowMermaid?: string;
   screensMermaid?: string;
+  /** Per-tab/flow slices — open from the hub map (Auth (15), Profile (28), …). */
+  screenAreas?: ScreenAreaDiagram[];
   impactFeatures?: EpicFeatureImpact[];
 }
 
@@ -899,6 +908,10 @@ export interface ArchitectureExplorerState {
   structuralNodes: ArchitectureNode[];
   structuralEdges: ArchitectureEdge[];
   featureFlows: Record<string, ArchitectureFeatureFlow>;
+  /** Hub map of tab/flow areas — used when the full graph would be unreadable. */
+  screensMermaid?: string;
+  /** One readable navigation slice per tab/flow. */
+  screenAreas?: ScreenAreaDiagram[];
   /** Script-free Archify SVG preview encoded for the webview image sandbox. */
   archifyOverviewSvgBase64?: string;
 }

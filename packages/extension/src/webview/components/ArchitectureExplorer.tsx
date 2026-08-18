@@ -14,6 +14,7 @@ const copy = {
   en: {
     title: 'Architecture', intro: 'Read the project from its overall shape to a code feature tree, a screen tree, then a feature flow.',
     overview: '1. Overview', features: '2. Code tree', screens: '3. Screen tree', flow: '4. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
+    screenMap: 'Map', screenSliceHint: 'Open one area at a time. Map shows how areas connect; a tab shows the screens and buttons inside it.',
     generateProject: 'Generate Overview + Trees', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
     codeFlow: 'Code flow', surfaces: 'Surfaces',
     visualOverview: 'Visual overview', technicalOverview: 'Technical overview', renderVisual: 'Render verified overview',
@@ -24,6 +25,7 @@ const copy = {
   vi: {
     title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, cây feature theo code, cây theo màn hình, rồi luồng mã nguồn.',
     overview: '1. Tổng quan', features: '2. Cây code', screens: '3. Cây màn hình', flow: '4. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
+    screenMap: 'Bản đồ', screenSliceHint: 'Xem từng khu vực. Bản đồ là nối giữa các khu; chọn tab để thấy màn hình và nút bên trong.',
     generateProject: 'Tạo Tổng quan + Cây', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
     codeFlow: 'Luồng mã', surfaces: 'Surfaces',
     visualOverview: 'Tổng quan trực quan', technicalOverview: 'Tổng quan kỹ thuật', renderVisual: 'Tạo tổng quan đã kiểm chứng',
@@ -162,7 +164,10 @@ function featureDelivery(feature: ArchitectureFeature, epics: readonly EpicSumma
   return { status: 'not_started', epic: linked[0] };
 }
 
-function MermaidDiagram({ source, empty, text }: { source?: string; empty: string; text: typeof copy.en | typeof copy.vi }) {
+function MermaidDiagram({ source, empty, text, curve = 'basis', onNodeActivate }: {
+  source?: string; empty: string; text: typeof copy.en | typeof copy.vi; curve?: 'basis' | 'linear';
+  onNodeActivate?: (label: string) => void;
+}) {
   const [svg, setSvg] = useState<string>();
   const [error, setError] = useState<string>();
   const { fullscreen, toggle: toggleFullscreen } = usePanelFullscreen();
@@ -174,12 +179,17 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
     if (!source) { setSvg(undefined); setError(undefined); return; }
     let active = true;
     setError(undefined);
-    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default', flowchart: { curve: 'basis', htmlLabels: false } });
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
+      flowchart: { curve, htmlLabels: false, nodeSpacing: curve === 'linear' ? 28 : 50, rankSpacing: curve === 'linear' ? 48 : 50 },
+    });
     void mermaid.render(`aidlc-diagram-${Date.now()}`, source)
       .then((result) => { if (active) setSvg(result.svg); })
       .catch((reason: unknown) => { if (active) { setSvg(undefined); setError(reason instanceof Error ? reason.message : 'Mermaid could not render this diagram.'); } });
     return () => { active = false; };
-  }, [source]);
+  }, [curve, source]);
   if (!source) return <p className="p-6 text-sm text-muted-foreground">{empty}</p>;
   if (error) return <p className="p-6 text-sm text-destructive">{error}</p>;
   return <div className={fullscreen ? 'fixed inset-0 z-50 flex flex-col bg-background' : 'flex min-h-[520px] flex-col'} onWheel={fullscreen ? (event) => event.stopPropagation() : undefined}>
@@ -193,7 +203,16 @@ function MermaidDiagram({ source, empty, text }: { source?: string; empty: strin
       </div>
     </div>
     <div ref={viewportRef} {...panHandlers} onDragStart={(event) => event.preventDefault()} className="min-h-0 flex-1 cursor-grab overflow-hidden select-none">
-      <div ref={canvasRef} className="flex min-h-full min-w-full items-center justify-center p-5 [&_svg]:max-w-none" dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
+      <div
+        ref={canvasRef}
+        className="flex min-h-full min-w-full items-center justify-center p-5 [&_svg]:max-w-none [&_.node]:cursor-pointer"
+        onClick={onNodeActivate ? (event) => {
+          const node = (event.target as Element | null)?.closest?.('.node');
+          const label = node?.textContent?.replace(/\s+/g, ' ').trim();
+          if (label) onNodeActivate(label);
+        } : undefined}
+        dangerouslySetInnerHTML={{ __html: svg ?? '' }}
+      />
     </div>
   </div>;
 }
@@ -208,17 +227,24 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
   const [level, setLevel] = useState<Level>('overview');
   const [featureId, setFeatureId] = useState<string>();
   const [flowKind, setFlowKind] = useState<'code' | 'surfaces'>('code');
+  const [screenAreaId, setScreenAreaId] = useState<string>('map');
   const [overviewRenderer, setOverviewRenderer] = useState<'visual' | 'technical'>(architecture.archifyOverviewSvgBase64 ? 'visual' : 'technical');
   useEffect(() => {
     if (architecture.archifyOverviewSvgBase64) setOverviewRenderer('visual');
   }, [architecture.archifyOverviewSvgBase64]);
+  const screenAreas = architecture.screenAreas ?? [];
   const flow = featureId ? architecture.featureFlows[featureId] : undefined;
   const source = useMemo(() => {
     if (level === 'overview') return overviewDiagram(architecture.layers, architecture.edges);
     if (level === 'features') return featureMapDiagram(architecture.features, epics, text);
-    if (level === 'screens') return featureMapDiagram(architecture.screens ?? [], [], text);
+    if (level === 'screens') {
+      const area = screenAreas.find((item) => item.id === screenAreaId);
+      return area?.mermaid
+        ?? architecture.screensMermaid
+        ?? featureMapDiagram(architecture.screens ?? [], [], text);
+    }
     return flowKind === 'surfaces' ? flow?.surfacesMermaid : flow?.mermaid;
-  }, [architecture, epics, flow?.mermaid, flow?.surfacesMermaid, flowKind, level, text]);
+  }, [architecture, epics, flow?.mermaid, flow?.surfacesMermaid, flowKind, level, screenAreaId, screenAreas, text]);
 
   if (!architecture.available) {
     return <div className="rounded-md border border-dashed border-border bg-card p-6"><h1 className="text-lg font-semibold text-foreground">{text.title}</h1><p className="mt-2 text-sm text-muted-foreground">{architecture.message}</p><DiagramActions text={text} /></div>;
@@ -239,6 +265,19 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
         <button type="button" onClick={() => setOverviewRenderer('technical')} className={tabClass(overviewRenderer === 'technical')}>{text.technicalOverview}</button>
       </div>
     )}
+    {level === 'screens' && screenAreas.length > 0 && (
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">{text.screenSliceHint}</p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setScreenAreaId('map')} className={tabClass(screenAreaId === 'map')}>{text.screenMap}</button>
+          {screenAreas.map((area) => (
+            <button key={area.id} type="button" onClick={() => setScreenAreaId(area.id)} className={tabClass(screenAreaId === area.id)}>
+              {area.name} ({area.count})
+            </button>
+          ))}
+        </div>
+      </div>
+    )}
     {level === 'flow' && <div className="flex flex-wrap gap-2">{architecture.features.map((feature) => <button key={feature.id} type="button" onClick={() => setFeatureId(feature.id)} className={`rounded-md border px-2.5 py-1 text-xs ${feature.id === featureId ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}>{feature.name}</button>)}</div>}
     {level === 'flow' && featureId && (
       <div className="flex flex-wrap gap-2">
@@ -249,7 +288,20 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
     <section className="min-h-[520px] overflow-hidden rounded-md border border-border bg-card">
       {level === 'overview' && overviewRenderer === 'visual' && architecture.archifyOverviewSvgBase64
         ? <ArchifyOverview svgBase64={architecture.archifyOverviewSvgBase64} title={text.visualOverview} text={text} />
-        : <MermaidDiagram source={source} empty={level === 'flow' && !featureId ? text.selectFeature : text.noDiagram} text={text} />}
+        : <MermaidDiagram
+            source={source}
+            empty={level === 'flow' && !featureId ? text.selectFeature : text.noDiagram}
+            text={text}
+            curve={level === 'screens' ? 'linear' : 'basis'}
+            onNodeActivate={level === 'screens' && screenAreaId === 'map'
+              ? (label) => {
+                const textLabel = label.replace(/\s+/g, ' ').trim();
+                const area = screenAreas.find((item) =>
+                  textLabel === item.name || textLabel.startsWith(`${item.name} (`) || textLabel === `${item.name} (${item.count})`);
+                if (area) setScreenAreaId(area.id);
+              }
+              : undefined}
+          />}
     </section>
   </div>;
 }

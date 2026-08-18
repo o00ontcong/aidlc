@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { exists, formatError, isMermaidDiagram, pass, readJson, readText, reject, ensureProjectVisualizationMermaid } from './lib.mjs';
+import { exists, formatError, isMermaidDiagram, pass, readJson, readText, reject, ensureProjectVisualizationMermaid, validateScreenCatalogNavigation } from './lib.mjs';
 
 const ROOT = [
   'PROJECT-ARCHITECTURE.json',
@@ -10,7 +10,7 @@ const ROOT = [
   'SCREEN-CATALOG.mmd',
   'STRUCTURAL-GRAPH-MANIFEST.json',
 ];
-const validId = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9._-]*$/i.test(value);
+const validId = (value) => typeof value === 'string' && /^[a-z0-9][a-z0-9._:-]*$/i.test(value);
 
 export default async function architectureVisualization(ctx) {
   try {
@@ -33,11 +33,7 @@ export default async function architectureVisualization(ctx) {
     }
     const screenList = Array.isArray(screens?.screens) ? screens.screens : [];
     if (screens.schemaVersion !== 1 || !screenList.length) problems.push('SCREEN-CATALOG.json must contain at least one detected screen');
-    for (const screen of screenList) {
-      if (!validId(screen.id) || typeof screen.name !== 'string') problems.push('Every screen needs a stable id and name');
-      if (!Array.isArray(screen.evidence) || !screen.evidence.length) problems.push(`Screen ${screen.id ?? '(unknown)'} needs evidence; inference alone is not enough`);
-      if (!['high', 'medium', 'low'].includes(screen.confidence)) problems.push(`Screen ${screen.id ?? '(unknown)'} needs high|medium|low confidence`);
-    }
+    problems.push(...validateScreenCatalogNavigation(screens));
     if (graph.schemaVersion !== 1 || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) problems.push('STRUCTURAL-GRAPH-MANIFEST.json must contain nodes and edges');
     for (const name of ['PROJECT-ARCHITECTURE.mmd', 'FEATURE-CATALOG.mmd', 'SCREEN-CATALOG.mmd']) {
       if (!isMermaidDiagram(readText(path.join(dir, name)))) {
