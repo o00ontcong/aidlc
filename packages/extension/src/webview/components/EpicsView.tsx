@@ -6,7 +6,7 @@ import { CharterBoard } from './CharterBoard';
 import { AutonomousDeliveryModal } from './AutonomousDeliveryModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 import '@/styles/v3-tokens.css';
-import { EpicListPanel } from './epic-v3/EpicListPanel';
+import { EpicListPanel, EPIC_LIST_DEFAULT_WIDTH, EPIC_LIST_MAX_WIDTH, EPIC_LIST_MIN_WIDTH } from './epic-v3/EpicListPanel';
 import { EpicDetail } from './epic-v3/EpicDetail';
 import { MockProvider } from './epic-v3/mock';
 import { Btn } from './epic-v3/primitives';
@@ -20,6 +20,7 @@ interface PersistedEpicsView {
   followOpen?: boolean;
   noFollowOpen?: boolean;
   followedIds?: string[];
+  listWidth?: number;
 }
 
 function matchesFilter(epic: EpicSummary, filter: EpicFilter): boolean {
@@ -44,14 +45,13 @@ function writeEpicsPersist(patch: PersistedEpicsView): void {
 /**
  * Epics screen, v3 design (AIDLC Workspace v3.dc.html §6).
  *
- * Two columns: the epic list (316px open / 46px rail) and the selected epic's
+ * Two columns: resizable epic list (default 316px, collapsible to 46px rail) and
  * detail stack. Everything below the presentation layer is unchanged from the
  * previous version of this file — same state, same `persistEpicsUi` patches,
  * same host message types.
  *
- * Selection / list-collapse / tools-open are new UI-only state and are
- * deliberately NOT persisted: `EpicsViewPrefs` on the host is a fixed shape and
- * the brief forbids changing it.
+ * Selection / list-collapse / tools-open stay session-only; list width persists
+ * in `epicsViewUi.listWidth`.
  */
 export function EpicsView({ state }: { state: WorkspaceState }) {
   const seed = state.epicsViewUi ?? {};
@@ -72,6 +72,11 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
   // v3 view state (session-only).
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [listCollapsed, setListCollapsed] = useState(false);
+  const [listWidth, setListWidth] = useState(() => {
+    const saved = seed.listWidth;
+    if (typeof saved !== 'number' || !Number.isFinite(saved)) return EPIC_LIST_DEFAULT_WIDTH;
+    return Math.max(EPIC_LIST_MIN_WIDTH, Math.min(EPIC_LIST_MAX_WIDTH, Math.round(saved)));
+  });
   const [toolsOpen, setToolsOpen] = useState(false);
   const [charterOpen, setCharterOpen] = useState(false);
 
@@ -232,6 +237,15 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
     }
   };
 
+  const onListWidthChange = (next: number) => {
+    setListWidth(next);
+  };
+
+  const onListWidthCommit = (next: number) => {
+    setListWidth(next);
+    persist({ listWidth: next });
+  };
+
   const themeClass = useThemeClass();
 
   return (
@@ -254,6 +268,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           followOpen={followOpen}
           noFollowOpen={noFollowOpen}
           listCollapsed={listCollapsed}
+          listWidth={listWidth}
           toolsOpen={toolsOpen}
           dragEpicId={dragEpicId}
           dropTarget={dropTarget}
@@ -264,6 +279,8 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           onToggleFollowOpen={toggleFollowOpen}
           onToggleNoFollowOpen={toggleNoFollowOpen}
           onToggleCollapsed={() => setListCollapsed((v) => !v)}
+          onListWidthChange={onListWidthChange}
+          onListWidthCommit={onListWidthCommit}
           onToggleTools={() => setToolsOpen((v) => !v)}
           onResetFilters={() => { onFilterChange('all'); onSearchChange(''); }}
           onRefresh={() => postMessage({ type: 'refreshEpics' })}

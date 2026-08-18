@@ -15,6 +15,8 @@ export interface EpicsViewPrefs {
   followOpen?: boolean;
   noFollowOpen?: boolean;
   followedIds?: string[];
+  /** Open epic-list column width in px (rail collapse stays fixed at 46px). */
+  listWidth?: number;
 }
 
 export interface WorkspaceUiPrefs {

@@ -840,6 +840,7 @@ export interface WorkspaceState {
     followOpen?: boolean;
     noFollowOpen?: boolean;
     followedIds?: string[];
+    listWidth?: number;
   };
   /** Project charter for Charter Board + Start Epic goal picker. */
   charter?: CharterSnapshot;

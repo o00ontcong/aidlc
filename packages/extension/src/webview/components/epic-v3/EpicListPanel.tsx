@@ -4,16 +4,21 @@
  * in EpicsView, which already persists them to the host via `persistEpicsUi`.
  * This component receives them as props and calls back — no new state shape.
  *
- * Three width states (§6.1): open 316px · rail 46px · open+search 316px.
+ * Width: resizable open column (default 316px, min 220 / max 560) · rail 46px.
  */
 
 import type { CSSProperties, DragEvent } from 'react';
 import type { EpicFilter, EpicSummary } from '@/lib/types';
+import { useHorizontalPanelResize } from '@/hooks/useHorizontalPanelResize';
 import { EPIC_DND_MIME } from '../EpicCard';
 import { FILTER_LABEL, ROW_DOT } from './adapt';
 import { DisclosureBtn } from './primitives';
 
 const FILTER_ORDER: EpicFilter[] = ['all', 'in_progress', 'pending', 'done', 'failed'];
+export const EPIC_LIST_DEFAULT_WIDTH = 316;
+export const EPIC_LIST_RAIL_WIDTH = 46;
+export const EPIC_LIST_MIN_WIDTH = 220;
+export const EPIC_LIST_MAX_WIDTH = 560;
 
 export interface EpicListPanelProps {
   epics: EpicSummary[];
@@ -28,6 +33,7 @@ export interface EpicListPanelProps {
   followOpen: boolean;
   noFollowOpen: boolean;
   listCollapsed: boolean;
+  listWidth: number;
   toolsOpen: boolean;
   dragEpicId: string | null;
   dropTarget: 'follow' | 'no-follow' | null;
@@ -38,6 +44,8 @@ export interface EpicListPanelProps {
   onToggleFollowOpen: () => void;
   onToggleNoFollowOpen: () => void;
   onToggleCollapsed: () => void;
+  onListWidthChange: (width: number) => void;
+  onListWidthCommit: (width: number) => void;
   onToggleTools: () => void;
   onResetFilters: () => void;
   onRefresh: () => void;
@@ -52,13 +60,21 @@ export interface EpicListPanelProps {
 }
 
 export function EpicListPanel(p: EpicListPanelProps) {
-  const width = p.listCollapsed ? 46 : 316;
+  const width = p.listCollapsed ? EPIC_LIST_RAIL_WIDTH : p.listWidth;
+  const { dragging, onPointerDown } = useHorizontalPanelResize({
+    min: EPIC_LIST_MIN_WIDTH,
+    max: EPIC_LIST_MAX_WIDTH,
+    disabled: p.listCollapsed,
+    onResize: p.onListWidthChange,
+    onCommit: p.onListWidthCommit,
+  });
 
   return (
     <div
       style={{
         width,
         flex: 'none',
+        position: 'relative',
         borderRight: '1px solid var(--bd)',
         display: 'flex',
         flexDirection: 'column',
@@ -67,6 +83,28 @@ export function EpicListPanel(p: EpicListPanelProps) {
       }}
     >
       {p.listCollapsed ? <Rail {...p} /> : <OpenList {...p} />}
+      {!p.listCollapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuenow={p.listWidth}
+          aria-valuemin={EPIC_LIST_MIN_WIDTH}
+          aria-valuemax={EPIC_LIST_MAX_WIDTH}
+          title="Drag to resize epic list"
+          onPointerDown={(event) => onPointerDown(event, p.listWidth)}
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: -3,
+            width: 6,
+            height: '100%',
+            cursor: 'col-resize',
+            zIndex: 2,
+            touchAction: 'none',
+            background: dragging ? 'var(--acc-bd)' : 'transparent',
+          }}
+        />
+      )}
     </div>
   );
 }
