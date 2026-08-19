@@ -1,3 +1,5 @@
+import { rewriteEpicsRootPrefix } from '../runs/RunState';
+
 /** Structural subset needed to render a command; kept independent of presets. */
 export interface StepCommandPhase {
   id: string;
@@ -25,7 +27,7 @@ export function buildStepCommandBody(
   epicRoot: string,
 ): string {
   const explicitOutputs = phase.produces?.map((output) =>
-    output.replaceAll('{epic}', '$ARGUMENTS')) ?? [];
+    rewriteEpicsRootPrefix(output, epicRoot).replaceAll('{epic}', '$ARGUMENTS')) ?? [];
   const isFilePath = !phase.artifact.includes('<') && !phase.artifact.includes('>');
   const artifactInstruction = explicitOutputs.length > 0
     ? `3. Produce every declared output below. These paths are pipeline gates; do not create placeholders or report completion before their contents are valid:\n${explicitOutputs.map((output) => `   - \`${output}\``).join('\n')}`

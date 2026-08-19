@@ -25,12 +25,13 @@ import {
   WORKSPACE_FILENAME,
   RunStateStore,
   normalizeStep,
-  resolvePath,
+  resolveArtifactPath,
   discoverAssets,
   getBuiltinWorkflow,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 import { listEpics } from './epicsList';
+import { readEpicsDirFromYaml } from './epicsDirSync';
 import type { PresetStore } from './presetStore';
 import { themeManager } from './themeManager';
 import { loadMcpServers, type McpServerInfo } from './mcpServers';
@@ -315,6 +316,7 @@ function listActiveRuns(root: string): ActiveRun[] {
     // Read pipelines once so we can map runs → step config without
     // re-parsing workspace.yaml per run.
     const doc = readYaml(root);
+    const epicsDir = readEpicsDirFromYaml(root);
     const pipelinesById = new Map<string, PipelineConfig>();
     // agent id → slash command name (including leading `/`). First wins
     // when multiple commands point at the same agent — the workspace
@@ -354,10 +356,10 @@ function listActiveRuns(root: string): ActiveRun[] {
           rejectReason: step?.rejectReason,
           feedback: step?.feedback,
           produces: norm
-            ? norm.produces.map((p) => resolveArtifact(root, p, r.context))
+            ? norm.produces.map((p) => resolveArtifact(root, p, r.context, epicsDir))
             : [],
           requires: norm
-            ? norm.requires.map((p) => resolveArtifact(root, p, r.context))
+            ? norm.requires.map((p) => resolveArtifact(root, p, r.context, epicsDir))
             : [],
           currentSlashCommand: agent ? slashByAgent.get(agent) : undefined,
         };
@@ -371,8 +373,9 @@ function resolveArtifact(
   root: string,
   template: string,
   context: Record<string, string>,
+  epicsDir: string,
 ): ArtifactPath {
-  const resolved = resolvePath(template, context);
+  const resolved = resolveArtifactPath(template, context, epicsDir);
   const abs = path.isAbsolute(resolved) ? resolved : path.join(root, resolved);
   return { path: resolved, exists: fs.existsSync(abs) };
 }

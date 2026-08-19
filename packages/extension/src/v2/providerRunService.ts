@@ -5,6 +5,7 @@ import * as path from 'path';
 import { getCommandProviderAdapter, assertImplementPackReady } from '@aidlc/core';
 
 import { syncBuiltinPipelineCommands } from './presetWizards';
+import { readEpicsDirFromYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
 import { availableModelsForProvider, getProviderConfigStore } from './providerConfig';
 import {
   buildCodexRunPrompt,
@@ -102,17 +103,26 @@ function syncExtensionCommandsForProvider(
       description: 'Split a completed feature spike into ready-to-run feature-implement epics.',
     },
   ];
+  // These commands' bodies hardcode `docs/epics/<epic>/...` prose (see
+  // assets/*.skill.md) rather than a `{epic}`-style template, so — unlike the
+  // built-in pipeline phase commands — the substitution has to happen here,
+  // against this project's *active* epics directory, before the file is
+  // written. Written once per project (destination check above), so a project
+  // that switches directories after these already exist needs them removed
+  // and regenerated to pick up the new root.
+  const epicsDir = readEpicsDirFromYaml(root);
   for (const command of commands) {
     const source = path.join(extensionPath, 'assets', command.sourceName);
     const destination = adapter.commandFilePath(root, command.commandName);
     if (!fs.existsSync(source) || fs.existsSync(destination)) { continue; }
-    const body = fs.readFileSync(source, 'utf8').replace(/^---[\s\S]*?---\n?/, '');
+    const rawBody = fs.readFileSync(source, 'utf8').replace(/^---[\s\S]*?---\n?/, '');
+    const body = epicsDir === DEFAULT_EPICS_DIR ? rawBody : rawBody.replaceAll(DEFAULT_EPICS_DIR, epicsDir);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.writeFileSync(destination, adapter.renderCommandFile({
       commandName: command.commandName,
       description: command.description,
       body,
-      epicRoot: 'docs/epics',
+      epicRoot: epicsDir,
     }, model), 'utf8');
   }
 }

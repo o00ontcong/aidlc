@@ -32,7 +32,7 @@ import {
   addPipelineCommand,
   generateFromRecipeCommand,
 } from './wizards';
-import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
+import { readEpicsDirFromYaml, writeEpicsDirToYaml, DEFAULT_EPICS_DIR, hasActiveEpicAtId } from './epicsDirSync';
 import { WorkspaceWebview } from './workspaceWebview';
 import { PresetStore } from './presetStore';
 import {
@@ -232,6 +232,7 @@ export function registerV2WorkspaceCommands(
       let commandsRefreshed = false;
       let legacyEpicsConverted = 0;
       let epicsDirSwitched = false;
+      let skippedActiveDuplicates = 0;
       try {
         const service = new CohesiveDeliveryUpgradeService(root);
         const preview = service.preview();
@@ -276,12 +277,28 @@ export function registerV2WorkspaceCommands(
             `Legacy epic migration conflicts:\n${migrationConflicts.map((item) => `${item.targetEpicId}: ${item.warnings.join('; ') || 'target already exists'}`).join('\n')}`,
           );
         }
-        const creatableItems = migrationPreview.items.filter((item) => item.disposition === 'create');
+        // A legacy record (e.g. `.aidlc/runs/SPIKE-01.json`) can be stale audit
+        // data for an id that already has a fully working epic sitting in the
+        // currently active epics dir (e.g. `<epicsDir>/SPIKE-01/state.json`).
+        // LegacyMigrationService only checks the *target* (`EPIC-SPIKE-01`) for
+        // conflicts, so without this check it would happily create an inert
+        // `EPIC-SPIKE-01` duplicate the user can't interact with, next to the
+        // real `SPIKE-01` epic. Skip migrating any record whose base id already
+        // has a live epic instead of shadowing it.
+        const currentEpicsDir = readEpicsDirFromYaml(root);
+        const creatableItems = migrationPreview.items.filter((item) => {
+          if (item.disposition !== 'create') { return false; }
+          const baseId = item.targetEpicId.replace(/^EPIC-/, '');
+          if (hasActiveEpicAtId(root, currentEpicsDir, baseId)) {
+            skippedActiveDuplicates++;
+            return false;
+          }
+          return true;
+        });
         if (creatableItems.length > 0) {
-          legacyMigration.apply(migrationPreview, { confirm: true });
+          legacyMigration.apply({ ...migrationPreview, items: creatableItems }, { confirm: true });
           legacyEpicsConverted = creatableItems.length;
         }
-        const currentEpicsDir = readEpicsDirFromYaml(root);
         const hasUnifiedEpicsDir = fs.existsSync(path.join(root, '.aidlc', 'epics'));
         if (
           hasUnifiedEpicsDir
@@ -315,6 +332,9 @@ export function registerV2WorkspaceCommands(
       }
       if (legacyEpicsConverted > 0) {
         parts.push(`converted ${legacyEpicsConverted} legacy epic(s)`);
+      }
+      if (skippedActiveDuplicates > 0) {
+        parts.push(`skipped ${skippedActiveDuplicates} legacy record(s) already live as an epic`);
       }
       if (epicsDirSwitched) {
         parts.push('epics dir switched to .aidlc/epics');

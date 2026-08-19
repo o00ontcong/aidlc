@@ -53,4 +53,32 @@ describe('CommandProviderAdapter', () => {
     const store = new ModelProviderConfigStore(root);
     expect(store.mapModel('claude-opus-5', 'opencode')).toBe('silvertiger/glm-5.3');
   });
+
+  // The 'implement' phase declares an explicit `produces:` (IMPLEMENTATION-
+  // SUMMARY.md etc, baked with the conventional `docs/epics` prefix in
+  // presets/builtinWorkflows.ts). Passing a non-default epicRoot must still
+  // rewrite that prefix in the "## Task" instructions the runner composes —
+  // otherwise the agent is told to write under `docs/epics` regardless of
+  // the workspace's active epics directory, which is exactly what caused a
+  // real-world SPIKE run to write its artifacts to the wrong place after the
+  // project's state.root was changed to `.aidlc/epics`.
+  //
+  // (The skill body's own prose — the part authored in
+  // templates/cohesive/skills/*.md — still hardcodes `docs/epics` and is not
+  // fixed by this: that's a separate, much larger change since those files
+  // are shared globally across every project on the machine and have no
+  // per-workspace substitution today.)
+  it('rewrites the baked docs/epics prefix in produces-driven Task instructions to the active epicRoot', () => {
+    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
+    const preset = loadBuiltinPreset(builtinTemplatesRoot(), workflow);
+    const phase = workflowCommandPhases(workflow).find((p) => p.phase.id === 'implement')!.phase;
+    expect(phase.produces?.length).toBeGreaterThan(0);
+    const skillBody = preset.skillContents.implement;
+    const commandName = pipelineCommandId('feature-implement', 'implement');
+    const spec = buildStepCommandSpec(phase, skillBody, '.aidlc/epics', commandName);
+    const taskSection = spec.body.slice(spec.body.indexOf('## Task'));
+
+    expect(taskSection).not.toContain('docs/epics');
+    expect(taskSection).toContain('.aidlc/epics/$ARGUMENTS/artifacts/');
+  });
 });

@@ -5,6 +5,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  hasActiveEpicAtId,
   readEpicsDirFromYaml,
   writeEpicsDirToYaml,
 } from '../src/v2/epicsDirSync';
@@ -142,6 +143,26 @@ state:
 `);
       writeEpicsDirToYaml(root, 'docs/epics');
       expect(readEpicsDirFromYaml(root)).toBe('docs/epics');
+    });
+  });
+
+  // Legacy migration must not shadow an already-live epic with a duplicate
+  // `EPIC-<id>` projection — see hasActiveEpicAtId's doc comment.
+  describe('hasActiveEpicAtId', () => {
+    it('returns true when <epicsDir>/<id>/state.json exists', () => {
+      const stateFile = path.join(root, 'docs/epics', 'SPIKE-01', 'state.json');
+      fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+      fs.writeFileSync(stateFile, '{}');
+      expect(hasActiveEpicAtId(root, 'docs/epics', 'SPIKE-01')).toBe(true);
+    });
+
+    it('returns false when no epic exists at that id', () => {
+      expect(hasActiveEpicAtId(root, 'docs/epics', 'SPIKE-01')).toBe(false);
+    });
+
+    it('returns false for a folder with no state.json (empty/stub folder)', () => {
+      fs.mkdirSync(path.join(root, 'docs/epics', 'SPIKE-01'), { recursive: true });
+      expect(hasActiveEpicAtId(root, 'docs/epics', 'SPIKE-01')).toBe(false);
     });
   });
 });

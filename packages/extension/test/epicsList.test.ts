@@ -471,3 +471,73 @@ describe('listEpics indexes produces: outside epic artifacts/', () => {
     ]);
   });
 });
+
+/**
+ * Built-in pipeline steps bake the conventional `docs/epics/{epic}/artifacts/...`
+ * prefix into `produces:` (see core's presets/builtinWorkflows.ts). A project
+ * can point its active epics directory elsewhere via the
+ * `aidlc.workspace.epicsDirectory` setting (`state.root` in workspace.yaml) —
+ * when it does, legacy-migration backfill must resolve `produces` against
+ * that *active* directory, not the literal baked into the step, or a
+ * genuinely-produced artifact gets recorded as missing. This is the bug
+ * behind a real-world repro: an epic scaffolded under a non-default
+ * `state.root` whose `package-mission` step nonetheless reported its
+ * MISSION.md as absent because the step's `produces:` still said
+ * `docs/epics/...`.
+ */
+describe('legacy migration backfill follows the active epics directory', () => {
+  let root: string;
+  const epicId = 'SPIKE-01';
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('resolves produces against a non-default state.root, not the docs/epics literal', () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-epicslist-epicsdir-'));
+    const epicDir = path.join(root, '.aidlc', 'epics', epicId);
+    fs.mkdirSync(path.join(epicDir, 'artifacts'), { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDir, 'artifacts', 'MISSION.md'),
+      '---\nstatus: approved\n---\n# Mission\n',
+    );
+    fs.writeFileSync(
+      path.join(epicDir, 'state.json'),
+      JSON.stringify({
+        id: epicId,
+        title: 'Spike',
+        pipeline: 'feature-spike',
+        currentStep: 0,
+        status: 'done',
+        stepStates: [{ agent: 'spike', status: 'done' }],
+      }),
+    );
+
+    fs.mkdirSync(path.join(root, '.aidlc'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.aidlc', 'workspace.yaml'),
+      JSON.stringify({
+        state: { root: '.aidlc/epics' },
+        pipelines: [
+          {
+            id: 'feature-spike',
+            steps: [
+              {
+                agent: 'spike',
+                name: 'package-mission',
+                produces: ['docs/epics/{epic}/artifacts/MISSION.md'],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const report = migrateEpicStateFiles(root);
+    expect(report.backfilled).toEqual([epicId]);
+
+    const run = JSON.parse(fs.readFileSync(path.join(root, '.aidlc', 'runs', `${epicId}.json`), 'utf8'));
+    expect(run.steps[0].status).toBe('approved');
+    expect(run.steps[0].artifactsProduced).toEqual(['.aidlc/epics/SPIKE-01/artifacts/MISSION.md']);
+  });
+});

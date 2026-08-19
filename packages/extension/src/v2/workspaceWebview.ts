@@ -460,6 +460,10 @@ interface EpicSummaryUi {
   reviewDiff?: string;
   visualizations?: EpicVisualizationsUi;
   missionBriefing?: { summary: string; acceptanceCriteria: string };
+  /** True when this epic's artifacts sit at the default `docs/epics/` path
+   * instead of the workspace's active epics directory — a config-drift
+   * signal, not evidence the mission pack is actually incomplete. */
+  epicsDirMismatch?: boolean;
 }
 
 interface RequirementRunSummary {
@@ -1126,6 +1130,24 @@ function toEpicSummaryUi(e: CoreEpicSummary, workspaceRoot?: string): EpicSummar
   const projectBriefing = workspaceRoot && isProjectContextPipeline(e.pipeline)
     ? readProjectContextBriefing(workspaceRoot)
     : undefined;
+  const isContextPipeline = isProjectContextPipeline(e.pipeline);
+  const artifactDirs = artifactSearchDirs(workspaceRoot, epicDir, e.id);
+  const visualizations = isContextPipeline
+    ? projectContextVisualizations(workspaceRoot ?? '', projectBriefing)
+    : readEpicVisualizations(artifactDirs);
+  const missionBriefing = projectBriefing?.summary
+    ? { summary: projectBriefing.summary, acceptanceCriteria: '' }
+    : readMissionBriefing(artifactDirs);
+  // Built-in pipeline steps write under the workspace's *active* epics
+  // directory now (see resolveArtifactPath/rewriteEpicsRootPrefix) — but an
+  // epic whose artifacts were produced before this fix, or whose workspace
+  // still runs a pipeline that bakes `docs/epics` into its own skill prose,
+  // can have its actual content sitting at the conventional default while
+  // `epicDir` (this project's active directory) is empty. Detect that split
+  // so the UI can say "wrong root", not "mission incomplete".
+  const epicsDirMismatch = !isContextPipeline && !visualizations && !missionBriefing && workspaceRoot
+    ? hasArtifactsAtDefaultEpicsDir(workspaceRoot, epicDir, e.id)
+    : false;
   return {
     id: e.id,
     title: e.title,
@@ -1187,13 +1209,48 @@ function toEpicSummaryUi(e: CoreEpicSummary, workspaceRoot?: string): EpicSummar
     alignment: e.alignment,
     ship: e.ship,
     reviewDiff: e.reviewDiff,
-    visualizations: isProjectContextPipeline(e.pipeline)
-      ? projectContextVisualizations(workspaceRoot ?? '', projectBriefing)
-      : readEpicVisualizations(epicDir),
-    missionBriefing: projectBriefing?.summary
-      ? { summary: projectBriefing.summary, acceptanceCriteria: '' }
-      : readMissionBriefing(epicDir),
+    visualizations,
+    missionBriefing,
+    epicsDirMismatch,
   };
+}
+
+function defaultArtifactsDir(workspaceRoot: string, epicId: string): string {
+  return path.resolve(workspaceRoot, DEFAULT_EPICS_DIR, epicId, 'artifacts');
+}
+
+/**
+ * True when `<workspaceRoot>/docs/epics/<epicId>/artifacts/` has files even
+ * though this epic's *active* `epicDir` (already resolved against
+ * `state.root`) does not — i.e. the epics-directory setting and where this
+ * epic's content actually landed have drifted apart. Only meaningful when
+ * `epicDir` differs from the conventional default in the first place.
+ */
+function hasArtifactsAtDefaultEpicsDir(workspaceRoot: string, epicDir: string, epicId: string): boolean {
+  const defaultArtifacts = defaultArtifactsDir(workspaceRoot, epicId);
+  if (path.resolve(epicDir, 'artifacts') === defaultArtifacts) { return false; }
+  try {
+    return fs.existsSync(defaultArtifacts) && fs.readdirSync(defaultArtifacts).some((f) => !f.startsWith('.'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ordered list of directories to look for an epic's briefing/visualization
+ * artifacts in: the workspace's *active* `epicDir` first (respects
+ * `state.root`), then the conventional `docs/epics/<id>/artifacts` default —
+ * because a pipeline driven by CLI skill prose (not this extension's own
+ * orchestration) bakes the default path in and ignores `state.root`, so its
+ * output can land there even when the active epics directory points
+ * elsewhere. See `hasArtifactsAtDefaultEpicsDir`, which flags this same split
+ * for the UI's "wrong root" message.
+ */
+function artifactSearchDirs(workspaceRoot: string | undefined, epicDir: string, epicId: string): string[] {
+  const primary = path.join(epicDir, 'artifacts');
+  if (!workspaceRoot) return [primary];
+  const fallback = defaultArtifactsDir(workspaceRoot, epicId);
+  return path.resolve(primary) === fallback ? [primary] : [primary, fallback];
 }
 
 function projectContextVisualizations(
@@ -1213,13 +1270,17 @@ function projectContextVisualizations(
   };
 }
 
-function readMissionBriefing(epicDir: string): { summary: string; acceptanceCriteria: string } | undefined {
-  const mission = readOptionalText(path.join(epicDir, 'artifacts', 'MISSION.md'));
-  if (!mission) return undefined;
-  const summary = markdownSection(mission, 'Summary') ?? '';
-  const acceptanceCriteria = markdownSection(mission, 'Acceptance criteria') ?? '';
-  if (!summary.trim() && !acceptanceCriteria.trim()) return undefined;
-  return { summary: summary.trim(), acceptanceCriteria: acceptanceCriteria.trim() };
+function readMissionBriefing(artifactDirs: string[]): { summary: string; acceptanceCriteria: string } | undefined {
+  for (const dir of artifactDirs) {
+    const mission = readOptionalText(path.join(dir, 'MISSION.md'));
+    if (!mission) continue;
+    const summary = markdownSection(mission, 'Summary') ?? '';
+    const acceptanceCriteria = markdownSection(mission, 'Acceptance criteria') ?? '';
+    if (summary.trim() || acceptanceCriteria.trim()) {
+      return { summary: summary.trim(), acceptanceCriteria: acceptanceCriteria.trim() };
+    }
+  }
+  return undefined;
 }
 
 function readOptionalText(file: string): string | undefined {
@@ -1232,35 +1293,36 @@ function readOptionalText(file: string): string | undefined {
   }
 }
 
-function readEpicVisualizations(epicDir: string): EpicVisualizationsUi | undefined {
-  const artifacts = path.join(epicDir, 'artifacts');
-  syncFlowMermaidFromMission(artifacts);
-  const impact = readJsonObject(path.join(artifacts, 'FEATURE-IMPACT.json'));
+function readEpicVisualizations(artifactDirs: string[]): EpicVisualizationsUi | undefined {
   const changes = new Set(['add', 'modify', 'delete', 'unchanged']);
-  const impactFeatures = Array.isArray(impact?.features)
-    ? impact.features.flatMap((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
-      const feature = item as Record<string, unknown>;
-      if (typeof feature.id !== 'string' || typeof feature.name !== 'string') return [];
-      if (typeof feature.change !== 'string' || !changes.has(feature.change)) return [];
-      return [{
-        id: feature.id,
-        name: feature.name,
-        change: feature.change as EpicFeatureImpactUi['change'],
-        summary: typeof feature.summary === 'string' ? feature.summary : undefined,
-      }];
-    })
-    : undefined;
-  const visualizations: EpicVisualizationsUi = {
-    impactMermaid: readOptionalText(path.join(artifacts, 'FEATURE-IMPACT.mmd')),
-    surfacesMermaid: readOptionalText(path.join(artifacts, 'FEATURE-SURFACES.mmd')),
-    flowMermaid: readOptionalText(path.join(artifacts, 'FEATURE-FLOW.mmd')),
-    impactFeatures: impactFeatures?.length ? impactFeatures : undefined,
-  };
-  if (!visualizations.impactMermaid && !visualizations.surfacesMermaid && !visualizations.flowMermaid && !visualizations.impactFeatures) {
-    return undefined;
+  for (const artifacts of artifactDirs) {
+    syncFlowMermaidFromMission(artifacts);
+    const impact = readJsonObject(path.join(artifacts, 'FEATURE-IMPACT.json'));
+    const impactFeatures = Array.isArray(impact?.features)
+      ? impact.features.flatMap((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+        const feature = item as Record<string, unknown>;
+        if (typeof feature.id !== 'string' || typeof feature.name !== 'string') return [];
+        if (typeof feature.change !== 'string' || !changes.has(feature.change)) return [];
+        return [{
+          id: feature.id,
+          name: feature.name,
+          change: feature.change as EpicFeatureImpactUi['change'],
+          summary: typeof feature.summary === 'string' ? feature.summary : undefined,
+        }];
+      })
+      : undefined;
+    const visualizations: EpicVisualizationsUi = {
+      impactMermaid: readOptionalText(path.join(artifacts, 'FEATURE-IMPACT.mmd')),
+      surfacesMermaid: readOptionalText(path.join(artifacts, 'FEATURE-SURFACES.mmd')),
+      flowMermaid: readOptionalText(path.join(artifacts, 'FEATURE-FLOW.mmd')),
+      impactFeatures: impactFeatures?.length ? impactFeatures : undefined,
+    };
+    if (visualizations.impactMermaid || visualizations.surfacesMermaid || visualizations.flowMermaid || visualizations.impactFeatures) {
+      return visualizations;
+    }
   }
-  return visualizations;
+  return undefined;
 }
 
 function extractSkillIds(a: Record<string, unknown>): string[] {
@@ -1920,7 +1982,9 @@ export class WorkspaceWebview {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const resolved = this.resolveArtifactAbsPath(epicDir, filename);
     const conventional = path.join(epicDir, 'artifacts', filename);
-    // /annotate-artifact only understands docs/epics/<epic>/artifacts/<file>.
+    // /annotate-artifact only understands <epicDir>/artifacts/<file> — epicDir
+    // already resolved against the workspace's active epics directory (see
+    // epicsRoot()), so this is directory-agnostic, not a `docs/epics` hardcode.
     // For produces: outside that folder (project-context), open the file for
     // manual edit instead of launching a loop that would look in the wrong place.
     if (resolved && path.resolve(resolved) !== path.resolve(conventional)) {

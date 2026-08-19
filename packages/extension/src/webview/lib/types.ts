@@ -693,6 +693,10 @@ export interface EpicSummary {
   visualizations?: EpicVisualizations;
   /** MISSION.md ## Summary + ## Acceptance criteria for the briefing card. */
   missionBriefing?: { summary: string; acceptanceCriteria: string };
+  /** True when this epic's artifacts sit at the default `docs/epics/` path
+   * instead of the workspace's active epics directory — a config-drift
+   * signal, not evidence the mission pack is actually incomplete. */
+  epicsDirMismatch?: boolean;
 }
 
 export type FeatureImpactChange = 'add' | 'modify' | 'delete' | 'unchanged';

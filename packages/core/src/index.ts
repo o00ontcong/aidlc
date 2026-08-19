@@ -287,7 +287,9 @@ export type { VerifyReport, StepDrift } from './runs/verifyRun';
 export { renderRunReport } from './runs/runReport';
 export { runAutoReview, AutoReviewerError } from './runs/AutoReviewer';
 export type { AutoReviewerContext, AutoReviewerFn } from './runs/AutoReviewer';
-export { resolvePath } from './runs/RunState';
+export {
+  resolvePath, resolveArtifactPath, rewriteEpicsRootPrefix, activeEpicsDir, DEFAULT_EPICS_DIR,
+} from './runs/RunState';
 export type {
   RunState,
   StepRecord,

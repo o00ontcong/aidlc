@@ -22,6 +22,12 @@
  * runner registry.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
+import * as yaml from 'js-yaml';
+
+import { WORKSPACE_DIR, WORKSPACE_FILENAME } from '../loader/WorkspaceLoader';
+
 export type StepStatus =
   | 'pending'                // not yet reached
   | 'awaiting_work'          // current step, user is doing the work externally
@@ -229,4 +235,59 @@ export function resolvePath(template: string, context: Record<string, string>): 
     const value = context[key];
     return typeof value === 'string' && value.length > 0 ? value : match;
   });
+}
+
+/** The conventional epics root every built-in phase's `produces`/`requires` bakes in. */
+export const DEFAULT_EPICS_DIR = 'docs/epics';
+
+/**
+ * Built-in phases (`presets/builtinWorkflows.ts`) bake the conventional
+ * `docs/epics` prefix into their `produces`/`requires` templates and into the
+ * agent's write instructions. A workspace can point its active epics
+ * directory (`state.root`) elsewhere via the `aidlc.workspace.epicsDirectory`
+ * setting — when it does, that baked prefix no longer matches where
+ * `EpicScaffold.epicsRoot` actually scaffolds the epic, so both the agent's
+ * instructions and the gate-check must be rewritten to the active directory
+ * instead of trusting the literal template.
+ */
+export function rewriteEpicsRootPrefix(template: string, epicsDir: string): string {
+  if (!epicsDir || epicsDir === DEFAULT_EPICS_DIR) { return template; }
+  if (template === DEFAULT_EPICS_DIR) { return epicsDir; }
+  if (template.startsWith(`${DEFAULT_EPICS_DIR}/`)) {
+    return epicsDir + template.slice(DEFAULT_EPICS_DIR.length);
+  }
+  return template;
+}
+
+/**
+ * Combines {@link rewriteEpicsRootPrefix} + {@link resolvePath}: rewrite a
+ * `produces`/`requires` template to the workspace's active epics directory,
+ * then substitute `{key}` placeholders from the run context. Use this
+ * instead of calling `resolvePath` directly on a step's `produces`/`requires`
+ * — plain `resolvePath` doesn't know about the active epics directory and
+ * will resolve against whatever root happens to be baked in the template.
+ */
+export function resolveArtifactPath(
+  template: string,
+  context: Record<string, string>,
+  epicsDir: string = DEFAULT_EPICS_DIR,
+): string {
+  return resolvePath(rewriteEpicsRootPrefix(template, epicsDir), context);
+}
+
+/**
+ * Active `state.root` for a workspace, read directly (not via
+ * `WorkspaceLoader`, which throws on any schema problem unrelated to this one
+ * field) so a produces/requires gate-check never fails for reasons unrelated
+ * to the epics directory itself.
+ */
+export function activeEpicsDir(workspaceRoot: string): string {
+  try {
+    const raw = fs.readFileSync(path.join(workspaceRoot, WORKSPACE_DIR, WORKSPACE_FILENAME), 'utf8');
+    const doc = yaml.load(raw) as { state?: { root?: unknown } } | null | undefined;
+    const root = doc?.state?.root;
+    return typeof root === 'string' && root.trim() ? root : DEFAULT_EPICS_DIR;
+  } catch {
+    return DEFAULT_EPICS_DIR;
+  }
 }

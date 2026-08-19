@@ -15,7 +15,7 @@ import {
   DeliveryStateStore,
   RunStateStore,
   normalizeStep,
-  resolvePath,
+  resolveArtifactPath,
   mirrorRunStateToEpic,
   getBuiltinStepHelp,
   getBuiltinWorkflowByPipelineId,
@@ -241,10 +241,16 @@ export function collectArtifactIndex(args: {
       epic: args.epicId,
       ...(args.inputs ?? {}),
     };
+    // `args.epicDir` is already resolved against the workspace's *active*
+    // epics directory (see `epicsRoot()`/callers) — derive it back out so
+    // `produces` templates that still bake the conventional `docs/epics`
+    // prefix resolve against wherever this epic actually lives, not the
+    // default, when the two differ (see `resolveArtifactPath`).
+    const epicsDir = path.relative(args.workspaceRoot, path.dirname(args.epicDir));
     for (const raw of args.pipelineCfg.steps) {
       const norm = normalizeStep(raw as PipelineStepConfig);
       for (const template of norm.produces) {
-        const rel = resolvePath(template, context);
+        const rel = resolveArtifactPath(template, context, epicsDir);
         const abs = path.isAbsolute(rel) ? rel : path.join(args.workspaceRoot, rel);
         addFile(abs);
       }
@@ -764,17 +770,25 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       //   awaiting_work | awaiting_auto_review |
       //   awaiting_review                           → in_progress
       //   pending / no run                          → fall back to state.json
-      const displayStatus = isNew
+      //
+      // `isNew` is checked only *after* the approved/done cases: a step can
+      // carry a stale `isNew: true` left over from before its last submit
+      // (the flag is meant to clear on submit — see PipelineRunner's
+      // `advance()` — but persisted state from older runs, or writers other
+      // than PipelineRunner, can leave it set). Letting `isNew` win there
+      // would permanently display a fully-approved step as "pending" and
+      // zero out the epic's progress percentage even though the work is done.
+      const displayStatus = runStatus === 'approved' || (runStatus === null && s.status === 'done')
+        ? ('done' as const)
+        : runStatus === 'rejected'
+        ? ('failed' as const)
+        : isNew
         ? ('pending' as const)
-        : runStatus === 'approved'
-          ? ('done' as const)
-          : runStatus === 'rejected'
-          ? ('failed' as const)
-          : runStatus === 'awaiting_work'
-          || runStatus === 'awaiting_auto_review'
-          || runStatus === 'awaiting_review'
-          ? ('in_progress' as const)
-          : asStatus(s.status);
+        : runStatus === 'awaiting_work'
+        || runStatus === 'awaiting_auto_review'
+        || runStatus === 'awaiting_review'
+        ? ('in_progress' as const)
+        : asStatus(s.status);
 
       // GH-74 Part 2: Parse branch info from artifact summary (for implement/branch-artifact steps)
       const branchInfo = artifactsForStep.some((name) => name.toUpperCase() === 'IMPLEMENT-SUMMARY.MD')
@@ -1138,6 +1152,7 @@ function backfillRunStateFromEpic(
   const inputsFile = path.join(epicsRoot(workspaceRoot, doc), epicId, 'inputs.json');
   const inputs = fs.existsSync(inputsFile) ? readInputs(path.dirname(inputsFile)) : {};
   const context: Record<string, string> = { epic: epicId, ...inputs };
+  const epicsDir = path.relative(workspaceRoot, epicsRoot(workspaceRoot, doc));
 
   const stepStatesRaw = Array.isArray(parsed.stepStates)
     ? (parsed.stepStates as Array<Record<string, unknown>>)
@@ -1171,7 +1186,7 @@ function backfillRunStateFromEpic(
         : 'pending';
     // Resolve produces against the epic context, then check the full
     // artifact index (epic artifacts/ + resolved produces paths).
-    const produces = norm.produces.map((p) => resolvePath(p, context));
+    const produces = norm.produces.map((p) => resolveArtifactPath(p, context, epicsDir));
     const artifactsProduced = produces.filter((p) => {
       const abs = path.isAbsolute(p) ? p : path.join(workspaceRoot, p);
       const base = path.basename(p);

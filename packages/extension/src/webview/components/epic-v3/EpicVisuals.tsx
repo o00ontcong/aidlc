@@ -108,7 +108,9 @@ function BriefingVisuals({ epic, empty }: { epic: EpicSummary; empty: boolean })
             color: 'var(--warn)', fontSize: 12, lineHeight: 1.5,
           }}
         >
-          Pack chưa đủ — thiếu Summary, AC (testable), Flow mermaid, In/Out. Graph Surfaces/Impact do spike ghi.
+          {epic.epicsDirMismatch
+            ? 'Tìm thấy artifact ở docs/epics/ (gốc mặc định) thay vì thư mục epics-directory đang cấu hình cho epic này — epics-directory setting có thể đang lệch với nơi pipeline đã ghi, không phải mission thiếu nội dung.'
+            : 'Pack chưa đủ — thiếu Summary, AC (testable), Flow mermaid, In/Out. Graph Surfaces/Impact do spike ghi.'}
         </div>
       )}
       {isContext && empty && (

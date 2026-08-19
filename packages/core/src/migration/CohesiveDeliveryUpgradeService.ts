@@ -9,7 +9,7 @@ import { builtinTemplatesRoot, BUILTIN_WORKFLOWS, loadBuiltinPreset, writeBuilti
 import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { pipelineHash, snapshotPipeline } from '../runs/PipelineSnapshot';
-import { resolvePath, type RunState, type StepRecord } from '../runs/RunState';
+import { activeEpicsDir, resolveArtifactPath, type RunState, type StepRecord } from '../runs/RunState';
 import {
   COHESIVE_OWNED_PHASES,
   isRetiredCohesiveSlash,
@@ -188,6 +188,7 @@ export function reopenApprovedStepsMissingProduces(
     return { state, reopenedStepIds: [] };
   }
   const context = { epic: state.runId, ...state.context };
+  const epicsDir = activeEpicsDir(workspaceRoot);
   const ids = pipeline.steps.map(stepDagId);
   const reopenedStepIds: string[] = [];
   const nextSteps = state.steps.map((record, index) => {
@@ -196,7 +197,7 @@ export function reopenApprovedStepsMissingProduces(
     const produces = normalizeStep(raw).produces.filter((item) => VISUALIZATION_ARTIFACTS.has(path.basename(item)));
     if (produces.length === 0) { return record; }
     const missing = produces.some((item) => {
-      const resolved = resolvePath(item, context);
+      const resolved = resolveArtifactPath(item, context, epicsDir);
       const abs = path.isAbsolute(resolved) ? resolved : path.join(workspaceRoot, resolved);
       return !fs.existsSync(abs);
     });

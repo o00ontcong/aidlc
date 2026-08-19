@@ -59,4 +59,27 @@ describe('syncPipelineCommands multi-provider', () => {
     const claudeFile = path.join(root, '.claude', 'commands', 'feature-implement-implement.md');
     expect(fs.existsSync(claudeFile)).toBe(false);
   });
+
+  it('rewrites baked-in docs/epics paths to a custom state.root before writing command files', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-sync-epicsdir-'));
+    roots.push(root);
+    const extPath = builtinTemplatesRoot();
+
+    fs.mkdirSync(path.join(root, '.aidlc'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.aidlc', 'workspace.yaml'),
+      yaml.dump({
+        state: { root: '.aidlc/epics' },
+        pipelines: [{ id: 'feature-implement', steps: [] }],
+      }),
+    );
+
+    syncPipelineCommandsForProvider(root, extPath, 'cursor');
+
+    const cursorFile = path.join(root, '.cursor', 'commands', 'feature-implement-implement.md');
+    const body = fs.readFileSync(cursorFile, 'utf8');
+    expect(body).toContain('.aidlc/epics/$ARGUMENTS/state.json');
+    expect(body).toContain('.aidlc/epics/$ARGUMENTS/artifacts/IMPLEMENTATION-SUMMARY.md');
+    expect(body).not.toContain('docs/epics/$ARGUMENTS');
+  });
 });

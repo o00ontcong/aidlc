@@ -5,6 +5,8 @@
  * The VS Code glue (setting sync, config listener) lives in extension.ts.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { readYaml, writeYaml } from './yamlIO';
 
 export const DEFAULT_EPICS_DIR = 'docs/epics';
@@ -33,4 +35,17 @@ export function writeEpicsDirToYaml(workspaceRoot: string, dir: string): void {
   if (!doc.state) { doc.state = {}; }
   (doc.state as Record<string, unknown>).root = dir;
   writeYaml(workspaceRoot, doc);
+}
+
+/**
+ * True when `<workspaceRoot>/<epicsDir>/<epicId>/state.json` already exists —
+ * i.e. this id is already a live, interactive epic in the currently active
+ * epics directory. Legacy migration must not project a duplicate over it: a
+ * legacy record (e.g. a stale `.aidlc/runs/<id>.json`) can be leftover audit
+ * data for an id whose real epic already lives here, and shadowing it with a
+ * separately-named `EPIC-<id>` projection would create a duplicate the user
+ * can't interact with, next to the real epic.
+ */
+export function hasActiveEpicAtId(workspaceRoot: string, epicsDir: string, epicId: string): boolean {
+  return fs.existsSync(path.join(path.resolve(workspaceRoot, epicsDir), epicId, 'state.json'));
 }

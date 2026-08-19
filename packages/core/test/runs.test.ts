@@ -617,3 +617,51 @@ describe('AutoReviewer — runAutoReview script invocation', () => {
     expect(verdict.reason).toMatch(/timed out/i);
   });
 });
+
+describe('gate-check follows the workspace\'s active epics directory', () => {
+  let root: string;
+  beforeEach(() => { root = tmpRoot(); });
+
+  // Built-in phases bake the conventional `docs/epics/{epic}/artifacts/...`
+  // prefix into `produces`/`requires` (see presets/builtinWorkflows.ts). A
+  // workspace can point its active epics directory elsewhere via
+  // `state.root` — when it does, the gate-check must follow that active
+  // directory instead of trusting the literal baked into the step config,
+  // or "Mark step done" reports a real artifact as missing.
+  const PIPELINE: PipelineConfig = {
+    id: 'feature-spike',
+    on_failure: 'stop',
+    steps: [
+      {
+        agent: 'spike',
+        requires: [],
+        produces: ['docs/epics/{epic}/artifacts/MISSION.md'],
+        human_review: false,
+        auto_review: false,
+        enabled: true,
+      },
+    ],
+  };
+
+  it('markStepDone finds the artifact under a non-default state.root', () => {
+    fs.mkdirSync(path.join(root, '.aidlc'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aidlc', 'workspace.yaml'), 'state:\n  root: .aidlc/epics\n');
+    touch(root, '.aidlc/epics/SPIKE-01/artifacts/MISSION.md', '# Mission\n');
+
+    const s = startRun({ runId: 'SPIKE-01', pipeline: PIPELINE, context: { epic: 'SPIKE-01' } });
+    expect(canStartStep({ state: s, pipeline: PIPELINE, workspaceRoot: root })).toEqual({ ok: true });
+    const next = markStepDone({ state: s, pipeline: PIPELINE, workspaceRoot: root });
+    expect(next.steps[0].status).toBe('approved');
+  });
+
+  it('markStepDone still blocks when the artifact is missing under the active state.root', () => {
+    fs.mkdirSync(path.join(root, '.aidlc'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aidlc', 'workspace.yaml'), 'state:\n  root: .aidlc/epics\n');
+    // Only the conventional default location has the file — the active
+    // directory (.aidlc/epics) does not, so the gate must still fail.
+    touch(root, 'docs/epics/SPIKE-01/artifacts/MISSION.md', '# Mission\n');
+
+    const s = startRun({ runId: 'SPIKE-01', pipeline: PIPELINE, context: { epic: 'SPIKE-01' } });
+    expect(() => markStepDone({ state: s, pipeline: PIPELINE, workspaceRoot: root })).toThrow(PipelineRunError);
+  });
+});

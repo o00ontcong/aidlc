@@ -26,7 +26,7 @@ import * as path from 'path';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import type { RunState, StepRecord, AutoReviewVerdict, StepHistoryEntry } from './RunState';
-import { resolvePath } from './RunState';
+import { activeEpicsDir, resolveArtifactPath } from './RunState';
 import { snapshotPipeline } from './PipelineSnapshot';
 
 export class PipelineRunError extends Error {
@@ -113,8 +113,9 @@ export function canStartStep(args: {
     return { ok: false, missing: [`(no step at index ${idx})`] };
   }
   const norm = normalizeStep(stepConfig);
+  const epicsDir = activeEpicsDir(workspaceRoot);
   const missing: string[] = [];
-  for (const rel of norm.requires.map((p) => resolvePath(p, state.context))) {
+  for (const rel of norm.requires.map((p) => resolveArtifactPath(p, state.context, epicsDir))) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
     if (!fs.existsSync(abs)) { missing.push(rel); }
   }
@@ -168,9 +169,10 @@ export function markStepDone(args: {
     throw new PipelineRunError(`Pipeline mismatch — index ${idx} not in pipeline.steps`);
   }
   const norm = normalizeStep(stepConfig);
+  const epicsDir = activeEpicsDir(workspaceRoot);
 
   // Hard gate-check on requires (separate from the soft check at start time).
-  const resolvedRequires = norm.requires.map((p) => resolvePath(p, state.context));
+  const resolvedRequires = norm.requires.map((p) => resolveArtifactPath(p, state.context, epicsDir));
   const missingRequires: string[] = [];
   for (const rel of resolvedRequires) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
@@ -184,7 +186,7 @@ export function markStepDone(args: {
   }
 
   // Validate produces — each path resolved with run context, then existsSync.
-  const resolvedProduces = norm.produces.map((p) => resolvePath(p, state.context));
+  const resolvedProduces = norm.produces.map((p) => resolveArtifactPath(p, state.context, epicsDir));
   const missing: string[] = [];
   for (const rel of resolvedProduces) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);

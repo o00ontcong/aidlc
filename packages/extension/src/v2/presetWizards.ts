@@ -370,20 +370,6 @@ export async function savePresetInlineCommand(
 }
 
 /**
- * Read the epic root from `workspace.yaml` if present; defaults to
- * `docs/epics` when no doc / no override is set.
- */
-function readEpicRootFrom(root: string): string {
-  const doc = readYaml(root);
-  if (!doc) { return 'docs/epics'; }
-  const state = doc.state as Record<string, unknown> | undefined;
-  if (state && typeof state.root === 'string' && state.root.trim()) {
-    return state.root;
-  }
-  return 'docs/epics';
-}
-
-/**
  * Ensure every built-in pipeline present in workspace.yaml has:
  *   1. command files under each enabled provider's commands directory
  *   2. matching `slash_commands` entries in workspace.yaml

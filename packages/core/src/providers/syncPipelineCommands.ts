@@ -24,6 +24,7 @@ import {
   AUTONOMOUS_MASTER_COMMAND,
 } from '../delivery/AutonomousMaster';
 import { ModelProviderConfigStore } from '../models/ModelProviderConfigStore';
+import { activeEpicsDir } from '../runs/RunState';
 import { getCommandProviderAdapter } from './CommandProviderAdapter';
 import { buildStepCommandSpec } from './stepCommand';
 
@@ -319,15 +320,7 @@ function readWorkspacePipelineIds(root: string): Set<string> {
 }
 
 function readEpicRootFrom(root: string): string {
-  try {
-    const file = path.join(root, '.aidlc', 'workspace.yaml');
-    if (!fs.existsSync(file)) { return 'docs/epics'; }
-    const doc = yaml.load(fs.readFileSync(file, 'utf8')) as { epics?: { dir?: unknown } } | null;
-    const dir = doc?.epics?.dir;
-    return typeof dir === 'string' && dir.trim() ? dir.trim() : 'docs/epics';
-  } catch {
-    return 'docs/epics';
-  }
+  return activeEpicsDir(root);
 }
 
 export { AUTONOMOUS_MASTER_COMMAND, AUTONOMOUS_EPIC_MASTER_COMMAND };
