@@ -75,6 +75,7 @@ export function registerStep(program: Command): void {
       state.steps[idx] = {
         ...state.steps[idx],
         status: 'approved',
+        isNew: undefined,
         finishedAt: now,
         feedback: opts.reason ?? 'Manually marked done via aidlc step done.',
         artifactsProduced: state.steps[idx].artifactsProduced ?? [],
@@ -116,6 +117,7 @@ export function registerStep(program: Command): void {
       state.steps[idx] = {
         ...state.steps[idx],
         status: 'approved',
+        isNew: undefined,
         finishedAt: now,
         feedback: 'Skipped via aidlc step skip.',
         artifactsProduced: [],
@@ -181,7 +183,11 @@ export function registerStep(program: Command): void {
       const state = requireRun(root, runId);
       const idx   = requireStepIdx(state, step);
 
-      state.steps[idx] = { ...state.steps[idx], status: status as StepStatus };
+      state.steps[idx] = {
+        ...state.steps[idx],
+        status: status as StepStatus,
+        ...(status === 'approved' && { isNew: undefined }),
+      };
       state.status = 'running';
 
       RunStateStore.save(root, state);
@@ -208,6 +214,7 @@ export function registerStep(program: Command): void {
           state.steps[i] = {
             ...state.steps[i],
             status: 'approved',
+            isNew: undefined,
             finishedAt: now,
             feedback: 'Auto-approved by aidlc step jump.',
           };
