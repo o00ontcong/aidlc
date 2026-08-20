@@ -1083,6 +1083,13 @@ function StepActions({
               onClick={stop(() => postMessage({ type: 'markStepDone', runId, stepIdx }))}
             />
           )}
+          {!packBlocked && step.stepSkippable && (
+            <StepBtn
+              label="Không có bug — bỏ qua"
+              title="Bỏ qua toàn bộ step này, không tạo artifact. Dùng khi không có bug nào cần sửa."
+              onClick={stop(() => postMessage({ type: 'skipStep', runId, stepIdx }))}
+            />
+          )}
         </>
       )}
       {status === 'awaiting_auto_review' && (

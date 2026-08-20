@@ -51,9 +51,9 @@ kind: bug_report entries in run history are in scope. The user's consolidated re
 
 ## Phase: `ship`
 
-Run only after `resolve-bugs` is approved (or the human confirmed there were no bugs and the log records that). No AIDLC Approve on this phase.
+Run only after `resolve-bugs` is approved, or skipped (the human clicked "Bỏ qua" — check `resolve-bugs`'s `history` in `state.json` for a `kind: "skip"` entry). No AIDLC Approve on this phase.
 
-1. Apply the approved `## Documentation Sync Plan` to the Markdown owned by affected steps.
+1. Apply the approved `## Documentation Sync Plan` to the Markdown owned by affected steps. If `resolve-bugs` was skipped, `BUG-FIX-LOG.md` will not exist — treat this as "no bugs, nothing to sync" and continue to step 2.
 2. Open exactly one PR `feature/$0` → charter default branch. Write `PR-LINK.md` with `**Head:**`, `**Base:**`, `**URL:**`, `**Status:**` (`open` until merged).
 3. Do not merge. Ask the human to merge on GitHub (or local human-approval escape hatch when charter `allowLocalMergeWithHumanOnly` is true).
 4. After merge is visible in git, update Reality only (`docs/project/context/**`, feature catalog impact). Never edit charter Intent or conventions. Write `PROJECT-UPDATE.md` with `## Project Knowledge Changes` and `## Final Feature Status`. Set `PR-LINK.md` `**Status:** merged`.

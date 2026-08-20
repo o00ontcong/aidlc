@@ -395,6 +395,7 @@ interface EpicStepDetailFull {
   autoReviewVerdict?: AutoReviewVerdict;
   stepHasAutoReview: boolean;
   stepHasHumanReview: boolean;
+  stepSkippable: boolean;
   dependsOn?: string[];
   startedAt?: string;
   finishedAt?: string;
@@ -1170,6 +1171,7 @@ function toEpicSummaryUi(e: CoreEpicSummary, workspaceRoot?: string): EpicSummar
       autoReviewVerdict: s.autoReviewVerdict,
       stepHasAutoReview: s.stepHasAutoReview,
       stepHasHumanReview: s.stepHasHumanReview,
+      stepSkippable: s.stepSkippable,
       dependsOn: s.dependsOn,
       startedAt: s.startedAt ?? undefined,
       finishedAt: s.finishedAt ?? undefined,
@@ -2729,6 +2731,7 @@ export class WorkspaceWebview {
 
       // Pipeline-run state machine
       case 'markStepDone':
+      case 'skipStep':
       case 'runAutoReview':
       case 'approveStep':
       case 'rejectStep':

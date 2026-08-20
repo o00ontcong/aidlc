@@ -523,6 +523,12 @@ export type StepHistoryEntry =
       revision: number;
     }
   | {
+      kind: 'skip';
+      at: string;
+      revision: number;
+      reason?: string;
+    }
+  | {
       // A /annotate-artifact round that edited the .md, merged from the
       // artifacts folder's `.annotation-history.json` at read time.
       kind: 'annotate';
@@ -588,6 +594,8 @@ export interface EpicStepDetailFull {
   autoReviewVerdict?: AutoReviewVerdict;
   stepHasAutoReview: boolean;
   stepHasHumanReview: boolean;
+  /** Step config: can a human skip this step from awaiting_work (`skippable: true`)? */
+  stepSkippable: boolean;
   /** Agent ids this step waits for (DAG edges) — empty for sequential. */
   dependsOn?: string[];
   startedAt?: string;

@@ -268,6 +268,7 @@ export {
   startRun,
   canStartStep,
   markStepDone,
+  skipStep,
   approveStep,
   rejectStep,
   rerunStep,

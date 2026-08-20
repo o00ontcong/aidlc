@@ -6,6 +6,8 @@
  *   aidlc.markStepDone      — validate the current step's `produces` exist,
  *                             then transition to awaiting_review (or auto-
  *                             approve when human_review=false).
+ *   aidlc.skipStep          — bypass produces/requires validation entirely
+ *                             for a step configured `skippable: true`.
  *   aidlc.approveStep       — human approves the awaiting_review step.
  *   aidlc.rejectStep        — human rejects with optional reason.
  *   aidlc.rerunStep         — retry a rejected step (revision++).
@@ -32,6 +34,7 @@ import {
   startRun,
   canStartStep,
   markStepDone,
+  skipStep,
   approveStep,
   rejectStep,
   rerunStep,
@@ -331,6 +334,41 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
     if (await offerApplyContextReviewCorrections(root, state, pipeline, stepIdx, err)) {
       return;
     }
+    surfaceRunError(err);
+  }
+}
+
+// ── skipStep ─────────────────────────────────────────────────────────────
+
+export async function skipStepCommand(runIdArg?: string, stepIdxArg?: number): Promise<void> {
+  const root = requireRoot('Skip Step');
+  if (!root) { return; }
+
+  const runId = await resolveRunId(
+    root,
+    runIdArg,
+    (s) => s.status === 'running' && currentStepStatus(s) === 'awaiting_work',
+  );
+  if (!runId) { return; }
+
+  const state = RunStateStore.load(root, runId);
+  if (!state) { void vscode.window.showWarningMessage(`Run "${runId}" not found.`); return; }
+
+  const pipeline = loadPipeline(root, state.pipelineId, state);
+  if (!pipeline) {
+    void vscode.window.showErrorMessage(
+      `Run "${runId}" references pipeline "${state.pipelineId}" which is no longer in workspace.yaml.`,
+    );
+    return;
+  }
+
+  const stepIdx = resolveStepIdx(state, stepIdxArg, 'awaiting_work');
+
+  try {
+    const next = skipStep({ state, pipeline, stepIdx });
+    saveRun(root, next);
+    notifyStepTransition(next, stepIdx);
+  } catch (err) {
     surfaceRunError(err);
   }
 }

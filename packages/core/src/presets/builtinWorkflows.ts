@@ -94,6 +94,12 @@ export interface PhaseDef {
   produces?: string[];
   /** Required text fragments checked by the runner after output creation. */
   producesContains?: string[];
+  /**
+   * When true, a human can skip this step from `awaiting_work` without
+   * producing its artifacts — for judgment calls like "resolve-bugs" when
+   * there were no bugs to report.
+   */
+  skippable?: boolean;
 }
 
 /** Compact step help surfaced on the Epic card + opened as Markdown. */
@@ -613,7 +619,7 @@ const COHESIVE_FEATURE_IMPLEMENT_PHASES: PhaseDef[] = [
       'Collect one consolidated bug report from the user, fix code and tests, and iterate until the user approves. No auto-review. Pixel checks are human-on-device.',
     inputs: 'User-supplied bug details, MISSION.md, and implementation evidence',
     outputs: 'Verified bug fixes plus an approval-ready bug-fix log',
-    artifact: 'BUG-FIX-LOG.md', humanReview: true, autoReview: false,
+    artifact: 'BUG-FIX-LOG.md', humanReview: true, autoReview: false, skippable: true,
     dependsOn: ['implement'],
     requires: [
       'docs/epics/{epic}/artifacts/MISSION.md',
@@ -1174,6 +1180,9 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
       if (p.producesContains && p.producesContains.length > 0) {
         step.produces_contains = p.producesContains;
       }
+      if (p.skippable) {
+        step.skippable = true;
+      }
       if (p.dependsOn && p.dependsOn.length > 0) {
         // Deps reference phase ids (step.name), not personas — multiple
         // steps backed by the same persona stay distinct in the DAG
@@ -1303,6 +1312,7 @@ export function getBuiltinPipelineSummary(workflow: BuiltinWorkflow) {
       depends_on: p.dependsOn ?? [],
       human_review: p.humanReview,
       auto_review: p.autoReview,
+      ...(p.skippable ? { skippable: true } : {}),
       ...(p.autoReview && p.autoReviewRunner ? { auto_review_runner: p.autoReviewRunner } : {}),
     })),
   };

@@ -155,6 +155,19 @@ export type StepHistoryEntry =
       revision: number;
     }
   | {
+      /**
+       * A human skipped this step from `awaiting_work` instead of producing
+       * its artifacts (only allowed when the step config sets `skippable`).
+       * The step still advances via the normal approve path right after this
+       * entry is recorded — see `skipStep` in PipelineRunner.
+       */
+      kind: 'skip';
+      at: string;
+      revision: number;
+      /** Optional human-supplied reason (e.g. "no bugs reported"). */
+      reason?: string;
+    }
+  | {
       /** Human review was intentionally deferred to a delivery-level bundle. */
       kind: 'aggregate_defer';
       at: string;

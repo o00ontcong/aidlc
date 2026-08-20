@@ -101,6 +101,8 @@ export interface EpicSummary {
     stepHasAutoReview: boolean;
     /** Step config: does this step opt into human_review in the pipeline yaml? */
     stepHasHumanReview: boolean;
+    /** Step config: can a human skip this step from awaiting_work (`skippable: true`)? */
+    stepSkippable: boolean;
     /** Agent ids this step waits for — DAG edges from the pipeline config. */
     dependsOn: string[];
     /** Append-only timeline of significant transitions for this step. */
@@ -508,6 +510,7 @@ function synthesizeArtifactsEpic(epicDir: string, folder: string): EpicSummary |
       isCurrentRunStep: false,
       stepHasAutoReview: false,
       stepHasHumanReview: false,
+      stepSkippable: false,
       // No DAG info from static files — leave empty so the UI renders a
       // straight LinearStepper rather than a DagStepper.
       dependsOn: [] as string[],
@@ -648,14 +651,14 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const pipelineCfg = pipelineId
       ? (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId)
       : undefined;
-    const stepGateByIdx = new Map<number, { auto: boolean; human: boolean }>();
+    const stepGateByIdx = new Map<number, { auto: boolean; human: boolean; skippable: boolean }>();
     const stepDependsByIdx = new Map<number, string[]>();
     const stepNameByIdx = new Map<number, string>();
     const stepArtifactsByIdx = new Map<number, string[]>();
     if (pipelineCfg && Array.isArray(pipelineCfg.steps)) {
       pipelineCfg.steps.forEach((raw, i) => {
         const norm = normalizeStep(raw as PipelineStepConfig);
-        stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review });
+        stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review, skippable: norm.skippable });
         stepDependsByIdx.set(i, norm.depends_on);
         if (norm.name) { stepNameByIdx.set(i, norm.name); }
         // Keep every declared output. Project-context phases commonly emit a
@@ -747,7 +750,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
 
     const stepDetails = stepStatesRaw.map((s, i) => {
       const agent = typeof s.agent === 'string' ? s.agent : '';
-      const gate = stepGateByIdx.get(i) ?? { auto: false, human: false };
+      const gate = stepGateByIdx.get(i) ?? { auto: false, human: false, skippable: false };
       const runStatus = runStepByIdx.get(i) ?? null;
       const isNew = runNewByIdx.has(i) || s.isNew === true;
       const artifactsForStep = [...new Set([
@@ -817,6 +820,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         autoReviewVerdict: runVerdictByIdx.get(i),
         stepHasAutoReview: gate.auto,
         stepHasHumanReview: gate.human,
+        stepSkippable: gate.skippable,
         dependsOn: stepDependsByIdx.get(i) ?? [],
         history,
         rejectCount,

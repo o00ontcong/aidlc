@@ -91,6 +91,32 @@ export function startRun(args: {
 }
 
 /**
+ * True when `resolvedPath` is a `produces` path of some step in the pipeline
+ * that a human explicitly skipped (a `kind: 'skip'` entry in that step's
+ * history). A skipped step never writes its declared artifacts, so any
+ * downstream step whose `requires` points at that path would otherwise stay
+ * permanently blocked — this lets the gate-checks below treat it as waived
+ * instead.
+ */
+function isWaivedBySkip(
+  resolvedPath: string,
+  state: RunState,
+  pipeline: PipelineConfig,
+  epicsDir: string,
+): boolean {
+  for (let i = 0; i < pipeline.steps.length; i++) {
+    const stepConfig = pipeline.steps[i];
+    if (!stepConfig) { continue; }
+    const producesResolved = normalizeStep(stepConfig).produces.map((p) =>
+      resolveArtifactPath(p, state.context, epicsDir),
+    );
+    if (!producesResolved.includes(resolvedPath)) { continue; }
+    if (state.steps[i]?.history?.some((h) => h.kind === 'skip')) { return true; }
+  }
+  return false;
+}
+
+/**
  * Soft gate-check for a step's `requires`. Returns `{ ok: true }` when all
  * required upstream artifacts exist on disk, `{ ok: false, missing: [...] }`
  * otherwise. Used by the extension UI to surface a warning *before* the user
@@ -117,7 +143,7 @@ export function canStartStep(args: {
   const missing: string[] = [];
   for (const rel of norm.requires.map((p) => resolveArtifactPath(p, state.context, epicsDir))) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
-    if (!fs.existsSync(abs)) { missing.push(rel); }
+    if (!fs.existsSync(abs) && !isWaivedBySkip(rel, state, pipeline, epicsDir)) { missing.push(rel); }
   }
   return missing.length === 0 ? { ok: true } : { ok: false, missing };
 }
@@ -176,7 +202,7 @@ export function markStepDone(args: {
   const missingRequires: string[] = [];
   for (const rel of resolvedRequires) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
-    if (!fs.existsSync(abs)) { missingRequires.push(rel); }
+    if (!fs.existsSync(abs) && !isWaivedBySkip(rel, state, pipeline, epicsDir)) { missingRequires.push(rel); }
   }
   if (missingRequires.length > 0) {
     throw new PipelineRunError(
@@ -243,6 +269,71 @@ export function markStepDone(args: {
   }
 
   // Neither gate — auto-approve + advance.
+  return advance(next, idx, pipeline);
+}
+
+/**
+ * User clicked "Skip step" — only allowed when the step config sets
+ * `skippable: true` (e.g. `resolve-bugs`, for the "no bugs reported" case).
+ * Unlike {@link markStepDone}, this performs NO `produces`/`requires`/
+ * content-marker validation: the whole point is to let a human declare
+ * "there is no work here" without fabricating a placeholder artifact.
+ *
+ * The step still advances through the normal `advance()` path (so it ends up
+ * `approved`, same as any other completed step) — the only trace of the skip
+ * is a `kind: 'skip'` history entry, which downstream `requires` checks
+ * recognize via {@link isWaivedBySkip}.
+ */
+export function skipStep(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  /** Step to skip. Defaults to `state.currentStepIdx` for back-compat. */
+  stepIdx?: number;
+  /** Optional human-supplied reason (e.g. "no bugs reported"). */
+  reason?: string;
+}): RunState {
+  const { state, pipeline, reason } = args;
+  const idx = args.stepIdx ?? state.currentStepIdx;
+  const step = state.steps[idx];
+  if (!step) {
+    throw new PipelineRunError(`No step at index ${idx}`);
+  }
+  // Idempotency: mirrors markStepDone — a duplicate skip for a step already
+  // moved past awaiting_work in this revision is a safe no-op.
+  if (
+    step.status === 'awaiting_auto_review' ||
+    step.status === 'awaiting_review' ||
+    step.status === 'approved'
+  ) {
+    return clone(state);
+  }
+  if (step.status !== 'awaiting_work') {
+    throw new PipelineRunError(
+      `Cannot skip step "${step.agent}": status is "${step.status}", expected "awaiting_work"`,
+    );
+  }
+
+  const stepConfig = pipeline.steps[idx];
+  if (!stepConfig) {
+    throw new PipelineRunError(`Pipeline mismatch — index ${idx} not in pipeline.steps`);
+  }
+  const norm = normalizeStep(stepConfig);
+  if (!norm.skippable) {
+    throw new PipelineRunError(`Step "${step.agent}" is not skippable`);
+  }
+
+  const next = clone(state);
+  const nextStep = next.steps[idx];
+  nextStep.artifactsProduced = [];
+  nextStep.isNew = undefined;
+  nextStep.autoReviewVerdict = undefined;
+  nextStep.history = pushHistory(nextStep.history, {
+    kind: 'skip',
+    at: new Date().toISOString(),
+    revision: nextStep.revision,
+    reason,
+  });
+
   return advance(next, idx, pipeline);
 }
 

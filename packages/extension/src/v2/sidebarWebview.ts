@@ -651,6 +651,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('aidlc.startPipelineRun');
         return;
       case 'markStepDone':
+      case 'skipStep':
       case 'approveStep':
       case 'rejectStep':
       case 'rerunStep':

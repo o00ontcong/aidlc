@@ -51,6 +51,8 @@ function renderHistory(history: StepHistoryEntry[]): string[] {
         return `  - 🤖 auto-review ${h.decision} (rev ${h.revision}): ${h.reason}`;
       case 'approve':
         return `  - ✔ approved (rev ${h.revision})`;
+      case 'skip':
+        return `  - ⏭ skipped (rev ${h.revision})${h.reason ? `: ${h.reason}` : ''}`;
       case 'aggregate_defer':
         return `  - ◷ human review deferred to aggregate bundle R${h.reviewBundleRevision} (rev ${h.revision})`;
       default:

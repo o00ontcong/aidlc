@@ -172,6 +172,15 @@ const PipelineStepObjectSchema = z
     /** When true, the runner pauses for human approval before advancing. */
     human_review: z.boolean().default(false),
     /**
+     * When true, a human can skip this step entirely from `awaiting_work`
+     * instead of producing its `produces` artifacts — for judgment calls
+     * where the expected output may legitimately not exist (e.g. `resolve-bugs`
+     * when there were no bugs). Skipped steps still advance the pipeline
+     * normally; downstream `requires` checks treat the skipped step's
+     * `produces` paths as satisfied even though the files were never written.
+     */
+    skippable: z.boolean().default(false),
+    /**
      * Git behavior for branch-artifact steps (e.g., implement). Controls whether
      * the step creates a feature branch, pushes to origin, and opens a PR.
      * (GH-74 Part 3) Defaults preserve current behavior: both true.
@@ -269,6 +278,8 @@ export interface NormalizedStep {
   auto_review_runner?: string;
   auto_review_timeout_ms?: number;
   human_review: boolean;
+  /** When true, this step can be skipped from `awaiting_work` — see schema for semantics. */
+  skippable: boolean;
   /** Git behavior for branch-artifact steps (GH-74 Part 3). */
   git?: { branch: boolean; push: boolean; open_pr: boolean };
 }
@@ -293,6 +304,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
       depends_on: [],
       auto_review: false,
       human_review: false,
+      skippable: false,
     };
   }
   const obj = step as Record<string, unknown>;
@@ -334,6 +346,7 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
         ? obj.auto_review_timeout_ms
         : undefined,
     human_review: obj.human_review === true,
+    skippable: obj.skippable === true,
     ...(git && { git }),
   };
 }

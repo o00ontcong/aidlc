@@ -7,6 +7,7 @@ import {
   startRun,
   canStartStep,
   markStepDone,
+  skipStep,
   approveStep,
   rejectStep,
   rerunStep,
@@ -479,6 +480,71 @@ describe('PipelineRunner — state machine', () => {
         verdict: { decision: 'pass', reason: 'ok', at: 't', runner: 'r' },
       }),
     ).toThrow(PipelineRunError);
+  });
+});
+
+describe('skipStep', () => {
+  let root: string;
+  beforeEach(() => { root = tmpRoot(); });
+
+  const PIPELINE_SKIPPABLE: PipelineConfig = {
+    id: 'p-skip',
+    on_failure: 'stop',
+    steps: [
+      { agent: 'po', requires: [], produces: ['PRD.md'], human_review: true, auto_review: false, enabled: true },
+      {
+        agent: 'resolve-bugs',
+        requires: ['PRD.md'],
+        produces: ['BUG-FIX-LOG.md'],
+        human_review: true,
+        auto_review: false,
+        enabled: true,
+        skippable: true,
+      },
+      { agent: 'ship', requires: ['BUG-FIX-LOG.md'], produces: [], human_review: false, auto_review: false, enabled: true },
+    ],
+  };
+
+  function toResolveBugsAwaitingWork(): RunState {
+    let s = startRun({ runId: 'R-SKIP', pipeline: PIPELINE_SKIPPABLE, context: {} });
+    touch(root, 'PRD.md');
+    s = markStepDone({ state: s, pipeline: PIPELINE_SKIPPABLE, workspaceRoot: root });
+    s = approveStep({ state: s, pipeline: PIPELINE_SKIPPABLE });
+    expect(s.steps[1].status).toBe('awaiting_work');
+    return s;
+  }
+
+  it('throws when the step is not skippable', () => {
+    const s = startRun({ runId: 'R-SKIP-2', pipeline: PIPELINE_HUMAN, context: {} });
+    expect(() => skipStep({ state: s, pipeline: PIPELINE_HUMAN })).toThrow(PipelineRunError);
+  });
+
+  it('advances the step without any produces on disk, recording a skip history entry', () => {
+    const s = toResolveBugsAwaitingWork();
+    const next = skipStep({ state: s, pipeline: PIPELINE_SKIPPABLE, stepIdx: 1, reason: 'no bugs reported' });
+    expect(next.steps[1].status).toBe('approved');
+    expect(next.steps[1].artifactsProduced).toEqual([]);
+    expect(next.steps[1].history?.some((h) => h.kind === 'skip' && h.reason === 'no bugs reported')).toBe(true);
+    // advance() still records its own 'approve' entry right after the skip.
+    expect(next.steps[1].history?.at(-1)?.kind).toBe('approve');
+    expect(next.currentStepIdx).toBe(2);
+    expect(next.steps[2].status).toBe('awaiting_work');
+  });
+
+  it('waives a downstream requires check for the skipped step\'s produces path', () => {
+    const s = toResolveBugsAwaitingWork();
+    const next = skipStep({ state: s, pipeline: PIPELINE_SKIPPABLE, stepIdx: 1 });
+    // BUG-FIX-LOG.md was never written, but `ship` requires it — should be waived.
+    expect(fs.existsSync(path.join(root, 'BUG-FIX-LOG.md'))).toBe(false);
+    expect(canStartStep({ state: next, pipeline: PIPELINE_SKIPPABLE, workspaceRoot: root, stepIdx: 2 })).toEqual({ ok: true });
+    expect(() => markStepDone({ state: next, pipeline: PIPELINE_SKIPPABLE, workspaceRoot: root, stepIdx: 2 })).not.toThrow();
+  });
+
+  it('is idempotent once the step has moved past awaiting_work', () => {
+    const s = toResolveBugsAwaitingWork();
+    const skipped = skipStep({ state: s, pipeline: PIPELINE_SKIPPABLE, stepIdx: 1 });
+    const again = skipStep({ state: skipped, pipeline: PIPELINE_SKIPPABLE, stepIdx: 1 });
+    expect(again).toEqual(skipped);
   });
 });
 

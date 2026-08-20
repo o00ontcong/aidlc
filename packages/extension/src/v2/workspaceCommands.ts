@@ -68,6 +68,7 @@ import { migrateEpicStateFiles } from './epicsList';
 import {
   startPipelineRunCommand,
   markStepDoneCommand,
+  skipStepCommand,
   approveStepCommand,
   rejectStepCommand,
   rerunStepCommand,
@@ -545,6 +546,11 @@ export function registerV2WorkspaceCommands(
     (runId?: unknown, stepIdx?: unknown) =>
       markStepDoneCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
   );
+  const skipStepCmd = vscode.commands.registerCommand(
+    'aidlc.skipStep',
+    (runId?: unknown, stepIdx?: unknown) =>
+      skipStepCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
+  );
   const approveStepCmd = vscode.commands.registerCommand(
     'aidlc.approveStep',
     (runId?: unknown, stepIdx?: unknown) =>
@@ -633,6 +639,7 @@ export function registerV2WorkspaceCommands(
       resumeAutonomousAfterMergeCmd,
       reconcileValidatorConflictsCmd,
       markStepDoneCmd,
+      skipStepCmd,
       approveStepCmd,
       rejectStepCmd,
       rerunStepCmd,

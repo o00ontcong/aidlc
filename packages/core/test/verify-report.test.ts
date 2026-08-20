@@ -9,6 +9,7 @@ import {
   approveStep,
   rejectStep,
   rerunStep,
+  skipStep,
   verifyRun,
   renderRunReport,
   type PipelineConfig,
@@ -105,6 +106,18 @@ describe('verifyRun — post-run drift check', () => {
     expect(report.checked).toBe(1);
     expect(report.ok).toBe(true);
   });
+
+  it('does not flag a skipped step as drift', () => {
+    const skippablePipeline: PipelineConfig = {
+      ...PIPELINE,
+      steps: [{ ...PIPELINE.steps[0] as object, skippable: true }, PIPELINE.steps[1]],
+    };
+    let state = startRun({ runId: 'R-SKIP', pipeline: skippablePipeline, context: { epic: 'E-1' } });
+    state = skipStep({ state, pipeline: skippablePipeline, stepIdx: 0 });
+    const report = verifyRun({ state, pipeline: skippablePipeline, workspaceRoot: root });
+    expect(report.checked).toBe(0);
+    expect(report.ok).toBe(true);
+  });
 });
 
 describe('renderRunReport — markdown', () => {
@@ -142,5 +155,17 @@ describe('renderRunReport — markdown', () => {
     state.steps[1].costUsd = 0.34;
     const md = renderRunReport({ state, pipeline: PIPELINE });
     expect(md).toContain('- **Total cost:** $0.4600');
+  });
+
+  it('renders a skip history entry instead of "(unknown event)"', () => {
+    const skippablePipeline: PipelineConfig = {
+      ...PIPELINE,
+      steps: [{ ...PIPELINE.steps[0] as object, skippable: true }, PIPELINE.steps[1]],
+    };
+    let state = startRun({ runId: 'R-SKIP-REPORT', pipeline: skippablePipeline, context: { epic: 'E-1' } });
+    state = skipStep({ state, pipeline: skippablePipeline, stepIdx: 0, reason: 'no bugs reported' });
+    const md = renderRunReport({ state, pipeline: skippablePipeline });
+    expect(md).toContain('skipped (rev 1): no bugs reported');
+    expect(md).not.toContain('(unknown event)');
   });
 });

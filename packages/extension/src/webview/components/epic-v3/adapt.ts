@@ -345,6 +345,13 @@ export function historyRows(step: EpicStepDetailFull | null): HistoryRowVM[] {
           };
         case 'approve':
           return { at, what: 'Approved', tone: 'var(--acc-txt)', actor: `rev ${e.revision}` };
+        case 'skip':
+          return {
+            at,
+            what: `Skipped${e.reason ? ` · ${e.reason}` : ''}`,
+            tone: 'var(--warn)',
+            actor: `rev ${e.revision}`,
+          };
         case 'annotate':
           return {
             at,
