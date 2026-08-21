@@ -19,10 +19,10 @@ import {
 } from '../src';
 
 const CHARTER_VALIDATOR = path.join(
-  __dirname, '..', 'templates', 'cohesive', 'validators', 'charter.mjs',
+  __dirname, '..', 'templates', 'project-workspace', 'validators', 'charter.mjs',
 );
 const RULES_VALIDATOR = path.join(
-  __dirname, '..', 'templates', 'cohesive', 'validators', 'rules-sync.mjs',
+  __dirname, '..', 'templates', 'project-workspace', 'validators', 'rules-sync.mjs',
 );
 
 type Verdict = { decision: 'pass' | 'reject'; reason: string };

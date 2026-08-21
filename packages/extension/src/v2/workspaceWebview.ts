@@ -171,7 +171,6 @@ import {
   normalizeStep,
   discoverAssets,
   RunStateStore,
-  DeliveryStateStore,
   startRun,
   targetPath,
   validateWorkspace,
@@ -216,25 +215,26 @@ import {
 import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
 import { readProjectContextBriefing, isProjectContextPipeline } from './projectBriefingVisuals';
+import {
+  initializeProjectWorkspace,
+  readProjectWorkspace,
+  type ProjectWorkspaceSummary,
+} from './projectWorkspace';
+import {
+  archiveLegacyCohesiveAssets,
+  isLegacyCohesiveAssetId,
+  stripLegacyCohesiveEntries,
+  summarizeLegacyCohesive,
+  type LegacyCohesiveSummary,
+} from './legacyWorkspaceCleanup';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
 import { PresetStore } from './presetStore';
 import {
-  startAutonomousDeliveryCommand,
-  startAutonomousDeliveryFromRequest,
-  resumeAutonomousDeliveryCommand,
-  openAutonomousReviewSummaryCommand,
-  addAutonomousReviewTaskCommand,
-  editInferredProjectContextCommand,
-  resumeAutonomousAfterMergeCommand,
-  reworkAutonomousDeliveryCommand,
-  openAutonomousFailureLogCommand,
-  openClaudeLoginTerminalCommand,
-  runAutonomousDoctorCommand,
   reconcileValidatorConflictsCommand,
-  runEpicAutonomouslyCommand,
-} from './autonomousDeliveryCommands';
+  runTaskWithProviderCommand,
+} from './providerManagedRunCommands';
 
-const autonomousDeliveryOutput = vscode.window.createOutputChannel('AIDLC Autonomous Delivery');
+const workspaceOutput = vscode.window.createOutputChannel('AIDLC Workspace');
 import { syncBuiltinPipelineCommands } from './presetWizards';
 import { buildProviderConfigUi, type ProviderConfigUi } from './providerConfig';
 import { runSlashCommandWithProvider } from './providerRunService';
@@ -286,7 +286,7 @@ function runSlashCommandInProvider(slash: string, root: string, extensionPath: s
 
 // ── Webview-side type shapes (must mirror src/webview/lib/types.ts) ───────
 
-type WorkspaceView = 'builder' | 'architecture' | 'epics' | 'analyze' | 'tests';
+type WorkspaceView = 'project' | 'builder' | 'architecture' | 'epics' | 'analyze' | 'tests';
 
 interface AgentSummary {
   id: string;
@@ -489,12 +489,13 @@ interface WorkspaceState {
   hasFolder: boolean;
   workspaceName: string;
   configExists: boolean;
+  projectWorkspace?: ProjectWorkspaceSummary;
+  legacyCohesive?: LegacyCohesiveSummary;
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
   recipes: RecipeSummary[];
   epics: EpicSummaryUi[];
-  deliveries: AutonomousDeliverySummaryUi[];
   projectContext?: ProjectContextSummaryUi;
   agentMeta: Record<string, AgentMeta>;
   slashCommandsByAgent: Record<string, string>;
@@ -560,29 +561,6 @@ interface ArchitectureExplorerStateUi {
   archifyOverviewSvgBase64?: string;
 }
 
-interface AutonomousDeliverySummaryUi {
-  id: string;
-  title: string;
-  status: 'pending' | 'project-context' | 'feature-contract' | 'executing-workers'
-    | 'integrating' | 'awaiting-aggregate-review' | 'awaiting-merge' | 'project-sync'
-    | 'completed' | 'blocked' | 'failed';
-  updatedAt: string;
-  reviewRevision: number;
-  workerCount: number;
-  openReviewTasks: number;
-  openBlockingTasks: number;
-  projectContextRunId?: string;
-  featureRunId?: string;
-  lastError?: string;
-  latestFailure?: {
-    id: string; at: string; code: string; summary: string; logPath: string;
-    retryable: boolean; recoveryCommands: string[]; runId: string; resumeCommand: string;
-    stepIdx?: number; agent?: string; current: boolean;
-  };
-  failureCount: number;
-  lastEventKind?: string;
-}
-
 interface ProjectContextSummaryUi {
   revision: number;
   generatedAt?: string;
@@ -640,7 +618,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       hasFolder: false,
       workspaceName: '',
       configExists: false,
-      agents: [], skills: [], pipelines: [], recipes: [], epics: [], deliveries: [],
+      agents: [], skills: [], pipelines: [], recipes: [], epics: [],
       agentMeta: {}, slashCommandsByAgent: {},
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0, epicsCount: 0,
       runIds: [],
@@ -648,7 +626,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       nextEpicId: 'EPIC-001',
       existingEpicIds: [],
       requirementRuns: [],
-      initialView: 'epics',
+      initialView: 'project',
       testAgentConfigExists: false,
       testAgentTargets: [],
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
@@ -664,8 +642,9 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
 
   const root = folder.uri.fsPath;
   const doc = readYaml(root);
+  const projectWorkspace = readProjectWorkspace(root);
+  const legacyCohesive = summarizeLegacyCohesive(doc);
   const discovered = discoverAssets(root);
-  const deliveries = listAutonomousDeliverySummaries(root);
   const projectContext = readProjectContextSummary(root, doc);
   const architecture = readArchitectureExplorer(root);
 
@@ -725,11 +704,12 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       hasFolder: true,
       workspaceName: folder.name,
       configExists: false,
+      projectWorkspace,
+      legacyCohesive,
       agents, skills,
       pipelines: builtinPipelines,
       recipes: getBuiltinRecipeSummaries(),
       epics,
-      deliveries,
       projectContext,
       agentMeta, slashCommandsByAgent,
       agentsCount: agents.length,
@@ -756,7 +736,9 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
 
   const agents = mergeAgents(doc, root, discovered.agents);
   const skills = mergeSkills(doc, root, discovered.skills);
-  const pipelines: PipelineSummary[] = doc.pipelines.map((p) => ({
+  const pipelines: PipelineSummary[] = doc.pipelines
+    .filter((p) => !isLegacyCohesiveAssetId(String(p.id)))
+    .map((p) => ({
     id: String(p.id),
     on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
     builtin: BUILTIN_WORKFLOWS.some((w) => w.pipelineId === String(p.id)),
@@ -779,13 +761,13 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
           };
         })
       : [],
-  }));
+    }));
 
   // Recipes → summaries, resolving each to its source pipeline's agents so
   // the modal can show step count + capability prompts without re-deriving.
   const recipes: RecipeSummary[] = (Array.isArray(doc.recipes) ? doc.recipes : [])
     .map((r) => buildRecipeSummary(r as Partial<RecipeConfig>, doc.pipelines as PipelineConfig[]))
-    .filter((r): r is RecipeSummary => r !== null);
+    .filter((r): r is RecipeSummary => r !== null && !isLegacyCohesiveAssetId(r.from));
   rlog(`[state] ${folder.name}: recipes=${recipes.length} (raw=${Array.isArray(doc.recipes) ? doc.recipes.length : 0}), pipelines=${pipelines.length}`);
 
   const epicRoot = readEpicRoot(doc);
@@ -795,7 +777,9 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     hasFolder: true,
     workspaceName: folder.name,
     configExists: true,
-    agents, skills, pipelines, recipes, epics, deliveries,
+    projectWorkspace,
+    legacyCohesive,
+    agents, skills, pipelines, recipes, epics,
     projectContext,
     agentMeta, slashCommandsByAgent,
     agentsCount: agents.length,
@@ -931,37 +915,6 @@ function readProjectContextSummary(
     };
   } catch {
     return undefined;
-  }
-}
-
-function listAutonomousDeliverySummaries(workspaceRoot: string): AutonomousDeliverySummaryUi[] {
-  try {
-    return DeliveryStateStore.list(workspaceRoot).map((state) => {
-      const history = state.failureHistory ?? [];
-      const latest = state.lastFailure ?? history[history.length - 1];
-      const openTasks = state.reviewTasks.filter((task) => !['done', 'cancelled'].includes(task.status));
-      return {
-        id: state.id,
-        title: state.request.title,
-        status: state.status,
-        updatedAt: state.updatedAt,
-        reviewRevision: state.reviewRevision,
-        workerCount: state.workerRunIds.length,
-        openReviewTasks: openTasks.length,
-        openBlockingTasks: openTasks.filter((task) => task.severity === 'blocking').length,
-        projectContextRunId: state.projectContextRunId,
-        featureRunId: state.featureRunId,
-        lastError: state.lastError,
-        latestFailure: latest ? {
-          ...latest,
-          current: state.lastFailure?.id === latest.id,
-        } : undefined,
-        failureCount: history.length,
-        lastEventKind: state.events[state.events.length - 1]?.kind,
-      };
-    });
-  } catch {
-    return [];
   }
 }
 
@@ -1455,7 +1408,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
     }
   }
 
-  return Array.from(byId.values());
+  return Array.from(byId.values()).filter((agent) => !isLegacyCohesiveAssetId(agent.id));
 }
 
 /**
@@ -1648,7 +1601,7 @@ function mergeSkills(
     }
   }
 
-  return Array.from(byId.values());
+  return Array.from(byId.values()).filter((skill) => !isLegacyCohesiveAssetId(skill.id));
 }
 
 // ── Singleton panel ───────────────────────────────────────────────────────
@@ -1688,7 +1641,7 @@ export class WorkspaceWebview {
   private currentView: WorkspaceView;
   private lastBundleMtime = 0;
 
-  static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'builder'): void {
+  static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'project'): void {
     const column = vscode.ViewColumn.One;
     const title = extensionDisplayName(extensionUri.fsPath);
     if (WorkspaceWebview.current) {
@@ -1730,7 +1683,7 @@ export class WorkspaceWebview {
       WorkspaceWebview.current.panel.reveal(undefined, false);
       return;
     }
-    const last = workspaceUiPrefs.get().lastView ?? 'builder';
+    const last = workspaceUiPrefs.get().lastView ?? 'project';
     WorkspaceWebview.show(extensionUri, last);
   }
 
@@ -1741,7 +1694,7 @@ export class WorkspaceWebview {
       try { panel.dispose(); } catch { /* ignore */ }
       return;
     }
-    const last = workspaceUiPrefs.get().lastView ?? 'builder';
+    const last = workspaceUiPrefs.get().lastView ?? 'project';
     WorkspaceWebview.current = new WorkspaceWebview(panel, extensionUri, last);
     // VS Code may write cached HTML *after* deserializeWebviewPanel returns,
     // overwriting loadHtml() from the constructor. Remount on the next tick.
@@ -1829,8 +1782,8 @@ export class WorkspaceWebview {
       (msg) => {
         void this.handleMessage(msg).catch((error: unknown) => {
           const detail = error instanceof Error ? error.message : String(error);
-          autonomousDeliveryOutput.appendLine(`[webview:${String(msg?.type ?? 'unknown')}] ${detail}`);
-          autonomousDeliveryOutput.show(true);
+          workspaceOutput.appendLine(`[webview:${String(msg?.type ?? 'unknown')}] ${detail}`);
+          workspaceOutput.show(true);
           void vscode.window.showErrorMessage(`AIDLC action failed: ${detail}`);
         });
       },
@@ -1852,6 +1805,16 @@ export class WorkspaceWebview {
       yamlWatcher.onDidCreate(refresh, null, this.disposables);
       yamlWatcher.onDidDelete(refresh, null, this.disposables);
       this.disposables.push(yamlWatcher);
+
+      const projectDocsPattern = new vscode.RelativePattern(
+        vscode.Uri.file(root),
+        '{AGENTS.md,PROJECT.md,STATUS.md,DECISIONS.md}',
+      );
+      const projectDocsWatcher = vscode.workspace.createFileSystemWatcher(projectDocsPattern);
+      projectDocsWatcher.onDidChange(refresh, null, this.disposables);
+      projectDocsWatcher.onDidCreate(refresh, null, this.disposables);
+      projectDocsWatcher.onDidDelete(refresh, null, this.disposables);
+      this.disposables.push(projectDocsWatcher);
 
       const statePattern = new vscode.RelativePattern(vscode.Uri.file(root), '**/state.json');
       const stateWatcher = vscode.workspace.createFileSystemWatcher(statePattern);
@@ -1920,7 +1883,7 @@ export class WorkspaceWebview {
       void this.panel.webview.postMessage({ type: 'state', state });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      autonomousDeliveryOutput.appendLine(`[workspace refresh] ${detail}`);
+      workspaceOutput.appendLine(`[workspace refresh] ${detail}`);
     }
   }
 
@@ -2150,9 +2113,53 @@ export class WorkspaceWebview {
 
       case 'setView': {
         const v = msg.view;
-        if (v === 'builder' || v === 'architecture' || v === 'epics' || v === 'analyze' || v === 'tests') {
+        if (v === 'project' || v === 'builder' || v === 'architecture' || v === 'epics' || v === 'analyze' || v === 'tests') {
           this.currentView = v;
           void workspaceUiPrefs.setLastView(v);
+        }
+        return;
+      }
+
+      case 'initializeProjectWorkspace': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const created = initializeProjectWorkspace(root, path.basename(root));
+        this.refresh();
+        if (created.length === 0) {
+          void vscode.window.showInformationMessage('AIDLC Workspace: shared project context is already initialized.');
+        } else {
+          void vscode.window.showInformationMessage(
+            `AIDLC Workspace: created ${created.length} shared context file${created.length === 1 ? '' : 's'}. Existing files were preserved.`,
+          );
+        }
+        return;
+      }
+
+      case 'removeLegacyCohesiveElements': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const doc = readYaml(root);
+        if (!doc) {
+          void vscode.window.showInformationMessage('AIDLC Workspace: no workspace.yaml to clean.');
+          return;
+        }
+        const summary = summarizeLegacyCohesive(doc);
+        const archive = archiveLegacyCohesiveAssets(root);
+        if (summary.present) {
+          stripLegacyCohesiveEntries(doc as unknown as Record<string, unknown>);
+          writeYaml(root, doc);
+        }
+        this.refresh();
+        const removedCount = summary.agents + summary.skills + summary.pipelines
+          + summary.commands + summary.recipes + archive.archivedPaths.length
+          + (summary.executionProfile ? 1 : 0);
+        if (removedCount === 0) {
+          void vscode.window.showInformationMessage('AIDLC Workspace: no legacy Cohesive elements remain.');
+        } else {
+          const detail = archive.backupDir ? ` Backup: ${archive.backupDir}` : '';
+          void vscode.window.showInformationMessage(
+            `AIDLC Workspace: removed ${removedCount} legacy element${removedCount === 1 ? '' : 's'}.${detail}`,
+          );
         }
         return;
       }
@@ -2197,33 +2204,6 @@ export class WorkspaceWebview {
         await vscode.commands.executeCommand('aidlc.migrateEpics');
         this.refresh();
         return;
-      case 'startAutonomousDelivery':
-        await startAutonomousDeliveryCommand(autonomousDeliveryOutput);
-        return;
-      case 'startAutonomousDeliveryInline': {
-        const raw = msg.request;
-        if (!raw || typeof raw !== 'object') {
-          throw new Error('Autonomous Delivery request is missing.');
-        }
-        const request = raw as {
-          id?: unknown;
-          title?: unknown;
-          description?: unknown;
-          source?: { type?: unknown; reference?: unknown };
-        };
-        await startAutonomousDeliveryFromRequest({
-          id: String(request.id ?? ''),
-          title: String(request.title ?? ''),
-          description: String(request.description ?? ''),
-          source: {
-            type: request.source?.type === 'file' ? 'file' : 'manual',
-            reference: typeof request.source?.reference === 'string'
-              ? request.source.reference
-              : undefined,
-          },
-        }, autonomousDeliveryOutput);
-        return;
-      }
       case 'setEpicRunMode': {
         const epicId = String(msg.epicId ?? '').trim();
         const mode = msg.mode === 'autonomous' ? 'autonomous' : msg.mode === 'guided' ? 'guided' : null;
@@ -2237,16 +2217,16 @@ export class WorkspaceWebview {
         this.refresh();
         if (mode === 'guided') {
           void vscode.window.showInformationMessage(
-            'Epic sẽ dừng Autonomous Delivery ở checkpoint trước phase kế tiếp.',
+            'Task sẽ dừng provider-managed execution ở checkpoint trước phase kế tiếp.',
           );
         }
         return;
       }
-      case 'runEpicAutonomously': {
+      case 'runTaskWithProvider': {
         const epicId = String(msg.epicId ?? '').trim();
         if (!epicId) { return; }
         try {
-          await runEpicAutonomouslyCommand(epicId);
+          await runTaskWithProviderCommand(epicId);
         } catch (error) {
           void vscode.window.showErrorMessage(
             error instanceof Error ? error.message : String(error),
@@ -2254,57 +2234,8 @@ export class WorkspaceWebview {
         }
         return;
       }
-      case 'resumeAutonomousDelivery':
-        await resumeAutonomousDeliveryCommand(
-          autonomousDeliveryOutput,
-          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
-        );
-        return;
-      case 'openAutonomousReviewSummary':
-        await openAutonomousReviewSummaryCommand(
-          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
-        );
-        return;
-      case 'addAutonomousReviewTask':
-        await addAutonomousReviewTaskCommand(
-          autonomousDeliveryOutput,
-          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
-        );
-        return;
-      case 'editInferredProjectContext':
-        await editInferredProjectContextCommand(
-          autonomousDeliveryOutput,
-          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
-        );
-        return;
-      case 'resumeAutonomousAfterMerge':
-        await resumeAutonomousAfterMergeCommand(
-          autonomousDeliveryOutput,
-          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
-        );
-        return;
-      case 'reworkAutonomousDelivery':
-        await reworkAutonomousDeliveryCommand(
-          autonomousDeliveryOutput,
-          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
-        );
-        return;
-      case 'openAutonomousFailureLog':
-        await openAutonomousFailureLogCommand(
-          typeof msg.deliveryId === 'string' ? msg.deliveryId : undefined,
-        );
-        return;
-      case 'openClaudeLoginTerminal':
-        openClaudeLoginTerminalCommand();
-        return;
-      case 'runAutonomousDoctor':
-        await runAutonomousDoctorCommand();
-        return;
       case 'reconcileAutonomousValidators':
         await reconcileValidatorConflictsCommand();
-        return;
-      case 'applyCohesiveDelivery':
-        await vscode.commands.executeCommand('aidlc.applyPreset', 'cohesive-delivery');
         return;
       case 'addAgent':     await vscode.commands.executeCommand('aidlc.addAgent');      return;
       case 'addSkill':     await vscode.commands.executeCommand('aidlc.addSkill');      return;
@@ -5503,7 +5434,7 @@ export class WorkspaceWebview {
 <link rel="stylesheet" href="${cssUri}">
 </head>
 <body>
-<div id="app"><p style="margin:24px;font:13px/1.5 var(--vscode-font-family);color:var(--vscode-descriptionForeground)">Loading Cohesive Delivery…</p></div>
+<div id="app"><p style="margin:24px;font:13px/1.5 var(--vscode-font-family);color:var(--vscode-descriptionForeground)">Loading AIDLC Workspace…</p></div>
 <script nonce="${nonce}">
 window.__AIDLC_INITIAL_STATE__ = ${embedJsonForScript(initialState)};
 window.__AIDLC_INITIAL_THEME__ = ${embedJsonForScript(initialTheme)};
@@ -5513,7 +5444,7 @@ window.__AIDLC_INITIAL_THEME__ = ${embedJsonForScript(initialTheme)};
 </html>`;
     } catch (error) {
       const detail = error instanceof Error ? error.stack ?? error.message : String(error);
-      autonomousDeliveryOutput.appendLine(`[workspace html] ${detail}`);
+      workspaceOutput.appendLine(`[workspace html] ${detail}`);
       return this.errorHtml(`${title} could not load`, detail, cspSource);
     }
   }

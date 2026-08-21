@@ -55,15 +55,7 @@ import { analyzeRequirementsCommand } from './requirementWizard';
 import { registerAskCommand } from './askCommand';
 import { insertDemoEpicCommand } from './demoEpic';
 import { loadDemoProjectCommand } from './demoProject';
-import {
-  startAutonomousDeliveryCommand,
-  resumeAutonomousDeliveryCommand,
-  openAutonomousReviewSummaryCommand,
-  addAutonomousReviewTaskCommand,
-  editInferredProjectContextCommand,
-  resumeAutonomousAfterMergeCommand,
-  reconcileValidatorConflictsCommand,
-} from './autonomousDeliveryCommands';
+import { reconcileValidatorConflictsCommand } from './providerManagedRunCommands';
 import { migrateEpicStateFiles } from './epicsList';
 import {
   startPipelineRunCommand,
@@ -237,26 +229,26 @@ export function registerV2WorkspaceCommands(
       try {
         const service = new CohesiveDeliveryUpgradeService(root);
         const preview = service.preview();
-        const cohesiveInstalled = preview.items.some((item) => item.currentSteps.length > 0);
+        const legacyBundleInstalled = preview.items.some((item) => item.currentSteps.length > 0);
         const conflicts = preview.items.filter((item) => item.disposition === 'conflict');
-        if (cohesiveInstalled && conflicts.length > 0) {
+        if (legacyBundleInstalled && conflicts.length > 0) {
           throw new Error(conflicts.map((item) => `${item.pipelineId}: ${item.warning}`).join('\n'));
         }
         if (
-          cohesiveInstalled
+          legacyBundleInstalled
           && preview.items.some((item) => item.disposition === 'upgrade' || item.disposition === 'missing')
         ) {
           service.apply(preview, { confirm: true });
           bundleUpdated = true;
         }
-        if (cohesiveInstalled) {
-          const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === 'cohesive-delivery');
-          const templatesRoot = fs.existsSync(path.join(context.extensionPath, 'templates', 'cohesive'))
+        if (legacyBundleInstalled) {
+          const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === 'project-workspace');
+          const templatesRoot = fs.existsSync(path.join(context.extensionPath, 'templates', 'project-workspace'))
             ? context.extensionPath
             : builtinTemplatesRoot();
           installWorkflowGlobalsByIds(
             templatesRoot,
-            ['cohesive-delivery'],
+            ['project-workspace'],
             undefined,
             resolveTechStackForRoot(root),
           );
@@ -267,7 +259,7 @@ export function registerV2WorkspaceCommands(
           }
         }
 
-        // After the Cohesive bundle/runs are stabilized, explicitly project
+        // After legacy bundle/runs are stabilized, explicitly project
         // legacy delivery/run/epic-scaffold records into the unified .aidlc/epics layout.
         // This is idempotent and backed by migration manifests.
         const legacyMigration = new LegacyMigrationService(root);
@@ -310,7 +302,7 @@ export function registerV2WorkspaceCommands(
         }
       } catch (err) {
         void vscode.window.showErrorMessage(
-          `AIDLC: Cohesive migration failed — ${err instanceof Error ? err.message : String(err)}`,
+          `AIDLC: legacy workspace migration failed — ${err instanceof Error ? err.message : String(err)}`,
         );
         return;
       }
@@ -326,7 +318,7 @@ export function registerV2WorkspaceCommands(
       };
       const parts: string[] = [];
       if (bundleUpdated) {
-        parts.push('Cohesive pipeline updated');
+        parts.push('legacy pipeline updated to Project Workspace');
       }
       if (commandsRefreshed) {
         parts.push('graph skills/commands refreshed');
@@ -511,30 +503,6 @@ export function registerV2WorkspaceCommands(
     (pipelineId?: unknown) =>
       startPipelineRunCommand(typeof pipelineId === 'string' ? pipelineId : undefined),
   );
-  const startAutonomousDeliveryCmd = vscode.commands.registerCommand(
-    'aidlc.startAutonomousDelivery',
-    () => startAutonomousDeliveryCommand(output),
-  );
-  const resumeAutonomousDeliveryCmd = vscode.commands.registerCommand(
-    'aidlc.resumeAutonomousDelivery',
-    () => resumeAutonomousDeliveryCommand(output),
-  );
-  const openAutonomousReviewSummaryCmd = vscode.commands.registerCommand(
-    'aidlc.openAutonomousReviewSummary',
-    () => openAutonomousReviewSummaryCommand(),
-  );
-  const addAutonomousReviewTaskCmd = vscode.commands.registerCommand(
-    'aidlc.addAutonomousReviewTask',
-    () => addAutonomousReviewTaskCommand(output),
-  );
-  const editInferredProjectContextCmd = vscode.commands.registerCommand(
-    'aidlc.editInferredProjectContext',
-    () => editInferredProjectContextCommand(output),
-  );
-  const resumeAutonomousAfterMergeCmd = vscode.commands.registerCommand(
-    'aidlc.resumeAutonomousAfterMerge',
-    () => resumeAutonomousAfterMergeCommand(output),
-  );
   const reconcileValidatorConflictsCmd = vscode.commands.registerCommand(
     'aidlc.reconcileValidatorConflicts',
     () => reconcileValidatorConflictsCommand(),
@@ -631,12 +599,6 @@ export function registerV2WorkspaceCommands(
       insertDemoEpicCmd,
       loadDemoProjectCmd,
       startRunCmd,
-      startAutonomousDeliveryCmd,
-      resumeAutonomousDeliveryCmd,
-      openAutonomousReviewSummaryCmd,
-      addAutonomousReviewTaskCmd,
-      editInferredProjectContextCmd,
-      resumeAutonomousAfterMergeCmd,
       reconcileValidatorConflictsCmd,
       markStepDoneCmd,
       skipStepCmd,

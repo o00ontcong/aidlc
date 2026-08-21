@@ -497,7 +497,7 @@ export function StartEpicModal({
     ? (!selected.id ? 'Pick a pipeline' : null)
     : (!effectiveRecipeId ? 'Add a task description and click “Suggest recipe”, or pick a pipeline' : null);
   const projectError = !hasFolder && extraProjects.length === 0
-    ? 'Add at least one project to start an epic'
+    ? 'Add at least one project to create a task'
     : null;
   const cohesiveFeature = isCohesiveFeatureTarget(selected, pipelines);
   const projectContext = isProjectContextTarget(selected, pipelines);
@@ -546,16 +546,16 @@ export function StartEpicModal({
   const [localEpicsDir, setLocalEpicsDir] = useState(epicsDir);
 
   return (
-    <Modal title="Start epic" maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit} closeOnBackdrop={false}>
+    <Modal title="New task" maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit} closeOnBackdrop={false}>
       <div className="space-y-4">
         {isFirstEpic && hasFolder && (
           <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
             <label className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-primary">
               <FolderOpen className="h-3 w-3" />
-              Epics directory
+              Tasks directory
             </label>
             <p className="mb-2 text-[11px] text-muted-foreground">
-              Where should epics be stored? You can change this later from the Epics view.
+              Where should task workspaces be stored? You can change this later from the Tasks view.
             </p>
             <div className="flex items-center gap-1.5">
               <input
@@ -600,7 +600,7 @@ export function StartEpicModal({
             )}
             {!hasFolder && extraProjects.length === 0 && (
               <div className="rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 px-3 py-2.5 text-[11px] text-amber-600 dark:text-amber-400">
-                No project open. Add at least one project below to start an epic.
+                No project open. Add at least one project below to create a task.
               </div>
             )}
 
@@ -759,7 +759,7 @@ export function StartEpicModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-              Epic id
+              Task id
             </label>
             <input
               ref={idInputRef}
@@ -1031,7 +1031,7 @@ export function StartEpicModal({
 
       <ModalFooter>
         <ModalCancelButton onClick={onClose} />
-        <ModalConfirmButton onClick={submit} label="Start epic" disabled={!!error} />
+        <ModalConfirmButton onClick={submit} label="Create task" disabled={!!error} />
       </ModalFooter>
     </Modal>
   );
@@ -1084,7 +1084,7 @@ function AutoRow({
 
   const sub = suggestion && recipe
     ? `→ ${suggestion.recipeId} (${suggestion.confidence}) · ${recipe.steps.join(' → ')}`
-    : 'Enter an epic id (Jira key), a URL, or a description — I\'ll pick the pipeline automatically.';
+    : 'Enter a task id (Jira key), a URL, or a description — I\'ll pick the pipeline automatically.';
 
   return (
     <button

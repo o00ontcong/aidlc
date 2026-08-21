@@ -14,14 +14,14 @@ class WorkspaceErrorBoundary extends Component<{ children: ReactNode }, { error:
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('[Cohesive Delivery] workspace render failed', error, info.componentStack);
+    console.error('[AIDLC Workspace] render failed', error, info.componentStack);
   }
 
   render(): ReactNode {
     if (this.state.error) {
       return (
         <div style={{ padding: 24, font: '13px/1.5 sans-serif', color: 'var(--vscode-errorForeground, #f14c4c)' }}>
-          <p style={{ margin: '0 0 8px', fontWeight: 600 }}>Cohesive Delivery could not render.</p>
+          <p style={{ margin: '0 0 8px', fontWeight: 600 }}>AIDLC Workspace could not render.</p>
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{this.state.error.message}</pre>
         </div>
       );

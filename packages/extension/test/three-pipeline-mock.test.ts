@@ -173,7 +173,8 @@ describe('epic briefing layout', () => {
     expect(detail).toContain('Start implement');
     expect(detail).toContain('onStartImplementFromSpike');
     expect(detail).toContain('Approve bản sửa');
-    expect(list).toContain('pipelineChipLabel');
+    expect(list).toContain('Tasks');
+    expect(detail).toContain('pipelineChipLabel');
     const startModal = fs.readFileSync(path.join(root, 'src/webview/components/epic-v3/StartImplementModal.tsx'), 'utf8');
     expect(startModal).toContain('Start Feature Implement');
     expect(startModal).toContain('Completeness');

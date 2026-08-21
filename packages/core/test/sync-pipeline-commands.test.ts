@@ -25,7 +25,7 @@ describe('syncPipelineCommands multi-provider', () => {
     const extPath = builtinTemplatesRoot();
 
     fs.mkdirSync(path.join(root, '.aidlc'), { recursive: true });
-    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
+    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'project-workspace')!;
     fs.writeFileSync(
       path.join(root, '.aidlc', 'workspace.yaml'),
       yaml.dump({
@@ -53,7 +53,7 @@ describe('syncPipelineCommands multi-provider', () => {
     expect(fs.existsSync(opencodeFile)).toBe(true);
     expect(fs.readFileSync(opencodeFile, 'utf8')).toContain('model: silvertiger/glm-5.3');
 
-    const opencodeAutonomousFile = path.join(root, '.opencode', 'commands', 'aidlc-autonomous-epic.md');
+    const opencodeAutonomousFile = path.join(root, '.opencode', 'commands', 'aidlc-provider-managed-task.md');
     expect(fs.readFileSync(opencodeAutonomousFile, 'utf8')).toContain('model: silvertiger/glm-5.3');
 
     const claudeFile = path.join(root, '.claude', 'commands', 'feature-implement-implement.md');

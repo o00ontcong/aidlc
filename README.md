@@ -1,6 +1,6 @@
 # AIDLC v3.4 🚀
 
-**AI-driven SDLC pipeline runner. Plan → Prototype → Design ∥ Test → Implement → Release. See what Claude is building, control every step, track every token.**
+**A shared AI development workspace. Keep project context, focused tasks, pipelines, review, verification, and durable handoffs in one visible place.**
 
 [![VS Code Marketplace](https://img.shields.io/badge/VS%20Code%20Marketplace-Install-2b6cb0)](https://marketplace.visualstudio.com/items?itemName=hueanmy.aidlc)
 [![Open VSX](https://img.shields.io/open-vsx/v/hueanmy/aidlc?label=Open%20VSX&color=a259e6)](https://open-vsx.org/extension/hueanmy/aidlc)
@@ -20,6 +20,7 @@ Code transcript.
 
 ## ✨ What's New in v3.4
 
+- **🗂️ Project Workspace** — a new Project Overview keeps `AGENTS.md`, `PROJECT.md`, `STATUS.md`, and `DECISIONS.md` beside focused task workspaces. Every task can see what is already complete, while review and verification remain human-visible.
 - **📊 Mermaid renders for every diagram type** — Sequence, state, and mindmap diagrams (and any newer mermaid type) now render as real diagrams in the review/preview, not a dark ASCII box. Common types stay zero-runtime SVG; the rest fall back to a lazily-loaded mermaid runtime.
 - **🖼️ Feedback & Preview render the Markdown natively** — the Feedback button and the new **Preview** action open the artifact in annotron itself (diagrams included); revision history is still logged per round.
 - **✍️ Inline text edit** — in Annotate mode, selecting plain text offers **Edit** beside Comment to retype/delete it straight into the `.md` (only when it maps to an exact spot in the source).
@@ -109,17 +110,10 @@ aidlc run exec <runId>                  # spawns claude, streams output, advance
 aidlc run exec <runId> --auto-approve
 ```
 
-For an existing project using the Cohesive Delivery preset, the opt-in autonomous
-profile coordinates project context, feature planning, work packages, integration,
-testing, PR creation, and one aggregate review bundle:
-
-```sh
-aidlc preset apply cohesive-delivery
-aidlc cohesive run --id FEATURE-123 \
-  --description "Implement an auditable export workflow for authorized users."
-```
-
-This does not replace guided pipelines and never auto-merges the default branch.
+In the VS Code extension, open **Project** and initialize the shared context files,
+then create one focused task per outcome under **Tasks**. Dependent tasks can use the
+same local checkout; independent parallel work can use separate worktrees and be
+integrated before combined review and testing.
 
 ### 4. Watch what's happening
 
@@ -167,7 +161,7 @@ aidlc ask "<question>"        # ask Claude about aidlc — setup, concepts, comm
 aidlc skill    add | list | show | remove           # 5 built-in templates
 aidlc agent    add | list | show | remove
 aidlc pipeline add | list | show | remove
-aidlc preset   apply | save | list                  # includes cohesive-delivery
+aidlc preset   apply | save | list
 ```
 
 ### Epic inspection (mirrors the extension's epics panel)
@@ -216,8 +210,8 @@ aidlc run report   <runId> [--format md|json] [--output <file>]
 
 `run exec` runs `auto_review` validators headlessly and exit-codes for CI:
 `0` completed, `2` paused on a gate, `1` error (`--require-complete` ⇒ any
-non-completed is `1`). See [packages/cli/AUTOMATION.md](packages/cli/AUTOMATION.md) for the
-full headless guide + a GitHub Action recipe.
+non-completed is `1`). Run `aidlc run exec --help` for the complete headless
+execution options.
 
 ### Step control (jump to any step, any order — bypasses sequential gate)
 ```

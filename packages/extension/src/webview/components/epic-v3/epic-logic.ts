@@ -12,7 +12,7 @@ export function isFeaturePipeline(pipeline: string | null): boolean {
     || pipeline === 'feature-implement' || pipeline.startsWith('feature-implement');
 }
 
-/** Cohesive project-context or feature epic — human surface is SUMMARY + AC + graphs. */
+/** Project-context or feature task — human surface is SUMMARY + AC + graphs. */
 export function isBriefingPipeline(pipeline: string | null): boolean {
   if (!pipeline) return false;
   return isProjectContextPipeline(pipeline) || isFeaturePipeline(pipeline);

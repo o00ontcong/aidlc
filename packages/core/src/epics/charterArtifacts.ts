@@ -1,5 +1,5 @@
 /**
- * Project-tier Charter artifacts (Cohesive Delivery tầng 1).
+ * Shared project charter artifacts for Project Workspace.
  *
  * Seeds Intent + Conventions once under `docs/project/`, validates machine-
  * readable `CHARTER.json`, and projects a marked summary into repo rule files
@@ -116,13 +116,13 @@ export interface RecordHumanCharterEditResult extends SyncProjectRulesResult {
 
 /** Resolve bundled charter templates (packages/core/templates/…). */
 export function defaultCharterTemplatesDir(): string {
-  // Core layout: dist/epics → ../../templates/cohesive/artifacts
-  // Extension bundle (esbuild out/extension.js): out → ../templates/cohesive/artifacts
+  // Core layout: dist/epics → ../../templates/project-workspace/artifacts
+  // Extension bundle: out → ../templates/project-workspace/artifacts
   // Extension root (if __dirname is already extensionPath): ./templates/...
   const candidates = [
-    path.join(__dirname, '..', '..', 'templates', 'cohesive', 'artifacts'),
-    path.join(__dirname, '..', 'templates', 'cohesive', 'artifacts'),
-    path.join(__dirname, 'templates', 'cohesive', 'artifacts'),
+    path.join(__dirname, '..', '..', 'templates', 'project-workspace', 'artifacts'),
+    path.join(__dirname, '..', 'templates', 'project-workspace', 'artifacts'),
+    path.join(__dirname, 'templates', 'project-workspace', 'artifacts'),
   ];
   for (const dir of candidates) {
     if (fs.existsSync(path.join(dir, 'charter', 'NORTH-STAR.md'))) {

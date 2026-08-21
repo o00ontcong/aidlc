@@ -107,11 +107,11 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
     },
   },
   {
-    id: 'cohesive-delivery',
-    description: 'Project context → feature contract → parallel work packages → integration → human-only merge',
+    id: 'project-workspace',
+    description: 'Shared context → scoped tasks → human review → verification',
     apply(root, doc) {
-      const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === 'cohesive-delivery');
-      if (!workflow) throw new Error('Cohesive Delivery bundle is unavailable.');
+      const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === 'project-workspace');
+      if (!workflow) throw new Error('Project Workspace bundle is unavailable.');
       const templatesRoot = cliTemplatesRoot();
       installWorkflowGlobalsByIds(templatesRoot, [workflow.id]);
       const preset = loadBuiltinPreset(templatesRoot, workflow);
@@ -121,7 +121,6 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
         slash_commands?: Array<Record<string, unknown>>;
         pipelines?: Array<Record<string, unknown>>;
         recipes?: Array<Record<string, unknown>>;
-        cohesive_delivery?: Record<string, unknown>;
       };
       for (const a of ws.agents ?? []) addIfMissing(doc.agents, a);
       for (const s of ws.skills ?? []) addIfMissing(doc.skills, s);
@@ -131,18 +130,6 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
       }
       const docRecipes = (Array.isArray(doc.recipes) ? doc.recipes : (doc.recipes = [])) as Array<Record<string, unknown>>;
       for (const recipe of ws.recipes ?? []) addIfMissing(docRecipes, recipe);
-
-      if (ws.cohesive_delivery) {
-        const existing = doc.cohesive_delivery && typeof doc.cohesive_delivery === 'object'
-          ? doc.cohesive_delivery as Record<string, unknown>
-          : {};
-        const incomingProfiles = ws.cohesive_delivery.execution_profiles as Record<string, unknown> | undefined;
-        const existingProfiles = existing.execution_profiles && typeof existing.execution_profiles === 'object'
-          ? existing.execution_profiles as Record<string, unknown>
-          : {};
-        existing.execution_profiles = { ...(incomingProfiles ?? {}), ...existingProfiles };
-        doc.cohesive_delivery = existing;
-      }
       writeBuiltinAutoReviewValidators(templatesRoot, root, workflow);
       return doc;
     },

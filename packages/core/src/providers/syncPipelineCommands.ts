@@ -19,9 +19,7 @@ import {
 } from '../presets/commandModel';
 import {
   autonomousEpicMasterCommandBody,
-  autonomousMasterCommandBody,
   AUTONOMOUS_EPIC_MASTER_COMMAND,
-  AUTONOMOUS_MASTER_COMMAND,
 } from '../delivery/AutonomousMaster';
 import { ModelProviderConfigStore } from '../models/ModelProviderConfigStore';
 import { activeEpicsDir } from '../runs/RunState';
@@ -160,7 +158,7 @@ export function writeTwoLayerCommandsForProvider(
   return { written, skipped };
 }
 
-export function syncAutonomousCommandsForProvider(
+export function syncProviderManagedCommandForProvider(
   root: string,
   providerId: string,
   overwrite = false,
@@ -170,13 +168,8 @@ export function syncAutonomousCommandsForProvider(
   const written: string[] = [];
   for (const entry of [
     {
-      name: 'aidlc-autonomous-delivery',
-      description: 'Run an entire AIDLC Cohesive Delivery autonomously.',
-      body: autonomousMasterCommandBody(),
-    },
-    {
-      name: 'aidlc-autonomous-epic',
-      description: 'Run one AIDLC epic pipeline autonomously.',
+      name: 'aidlc-provider-managed-task',
+      description: 'Run one AIDLC task pipeline in the selected provider terminal.',
       body: autonomousEpicMasterCommandBody(),
     },
   ]) {
@@ -298,7 +291,7 @@ function syncPipelineCommandsForProviderFiltered(
   if (pipelineIds.size > 0) {
     const twoLayer = writeTwoLayerCommandsForProvider(root, providerId, { epicRoot, overwrite });
     written.push(...twoLayer.written);
-    written.push(...syncAutonomousCommandsForProvider(root, providerId, overwrite));
+    written.push(...syncProviderManagedCommandForProvider(root, providerId, overwrite));
   }
 
   return written;
@@ -323,4 +316,4 @@ function readEpicRootFrom(root: string): string {
   return activeEpicsDir(root);
 }
 
-export { AUTONOMOUS_MASTER_COMMAND, AUTONOMOUS_EPIC_MASTER_COMMAND };
+export { AUTONOMOUS_EPIC_MASTER_COMMAND };

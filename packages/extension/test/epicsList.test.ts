@@ -15,7 +15,7 @@ describe('migrateEpicStateFiles pipeline reconciliation', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('adds every missing Cohesive phase dynamically, preserves old records, and is idempotent', () => {
+  it('adds every missing legacy phase dynamically, preserves old records, and is idempotent', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-epic-migrate-'));
     const oldPipeline = {
       id: 'feature-implement',
@@ -251,7 +251,7 @@ describe('listEpics run-state overlay with a multi-step agent', () => {
     expect(steps[1].runStatus).toBe('approved');
   });
 
-  it('reports guided mode until a durable Cohesive Delivery checkpoint exists', () => {
+  it('reports guided mode until a durable legacy delivery checkpoint exists', () => {
     expect(listEpics(root, doc).find((epic) => epic.id === epicId)?.runMode).toBe('guided');
 
     const deliveryDir = path.join(root, '.aidlc', 'deliveries', epicId);

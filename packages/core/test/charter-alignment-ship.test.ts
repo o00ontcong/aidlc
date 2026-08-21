@@ -13,7 +13,7 @@ import {
   type PipelineConfig,
 } from '../src';
 
-const VALIDATORS = path.join(__dirname, '..', 'templates', 'cohesive', 'validators');
+const VALIDATORS = path.join(__dirname, '..', 'templates', 'project-workspace', 'validators');
 
 type Verdict = { decision: 'pass' | 'reject'; reason: string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -159,7 +159,7 @@ describe('ship phase placement', () => {
     expect(ship.autoReviewRunner).toBe('.aidlc/validators/ship.mjs');
     expect(ship.humanReview).toBe(false);
 
-    const bundle = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
+    const bundle = BUILTIN_WORKFLOWS.find((w) => w.id === 'project-workspace')!;
     expect(bundle.primaryPhases!.some((p) => p.id === 'ship')).toBe(true);
     expect(bundle.additionalPipelines!.some((p) => p.id === 'feature-spike')).toBe(true);
     expect(bundle.additionalPipelines!.some((p) => p.id === 'cohesive-work-package')).toBe(false);
@@ -393,126 +393,13 @@ describe('ship.mjs', () => {
   });
 });
 
-describe('extended cohesive validators', () => {
+describe('Project Workspace validators', () => {
   let root: string;
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-ext-val-'));
   });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
-
-  it('work-packages requires Implements/AC and enforces deliveryBudget', async () => {
-    const runner = await loadRunner('work-packages.mjs');
-    writeCharter(root, { deliveryBudget: { maxTasksPerPackage: 1, maxFilesPerPackage: 2 } });
-    execFileSync('git', ['init'], { cwd: root });
-    execFileSync('git', ['config', 'user.email', 't@example.com'], { cwd: root });
-    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
-    fs.writeFileSync(path.join(root, 'README'), 'x');
-    execFileSync('git', ['add', '.'], { cwd: root });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: root });
-    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-
-    const artifacts = epicArtifacts(root);
-    fs.writeFileSync(
-      path.join(artifacts, 'TASKS.md'),
-      '## FEAT-1-T01 Task one\nImplements: FEAT-1-FR01\nAC: works\n\n## FEAT-1-T02 Task two\nImplements: FEAT-1-FR01\nAC: works\n',
-    );
-    fs.writeFileSync(
-      path.join(artifacts, 'WORK-PACKAGES.json'),
-      JSON.stringify({
-        schemaVersion: 1,
-        feature: 'FEAT-1',
-        projectContextRevision: 1,
-        featureContractRevision: 1,
-        featureContractHash: 'pending',
-        baseCommit: sha,
-        packages: [{
-          id: 'WP-01',
-          name: 'Too many tasks',
-          runId: 'FEAT-1-WP-01',
-          status: 'ready',
-          dependsOn: [],
-          tasks: ['FEAT-1-T01', 'FEAT-1-T02'],
-          writeScope: ['a/**', 'b/**', 'c/**'],
-          acceptanceCriteria: ['FEAT-1-AC01'],
-        }],
-      }, null, 2),
-    );
-
-    const v = await runner({
-      workspaceRoot: root,
-      state: { runId: 'FEAT-1' },
-    });
-    expect(v.decision).toBe('reject');
-    expect(v.reason).toMatch(/maxTasksPerPackage|maxFilesPerPackage/);
-  });
-
-  it('feature-contract requires Charter Invariants and rejects stale charterHash', async () => {
-    const runner = await loadRunner('feature-contract.mjs');
-    const charter = writeCharter(root);
-    execFileSync('git', ['init'], { cwd: root });
-    execFileSync('git', ['config', 'user.email', 't@example.com'], { cwd: root });
-    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
-    fs.writeFileSync(path.join(root, 'README'), 'x');
-    execFileSync('git', ['add', '.'], { cwd: root });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: root });
-    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-
-    const artifacts = epicArtifacts(root);
-    const contractBody = [
-      '# Feature Contract',
-      '**Status:** FROZEN',
-      '**Contract Hash:** pending',
-      '',
-      '## Goal',
-      'Ship',
-      '## Invariants',
-      '- keep boundaries',
-      '## Charter Invariants',
-      '- INV-1',
-      '## Shared Contracts',
-      '- none',
-      '## Definition of Done',
-      '- tests',
-      '## Change Request Protocol',
-      '- file CR',
-    ].join('\n');
-    // Compute hash the same way as the validator (pending normalized)
-    const crypto = await import('node:crypto');
-    const normalized = contractBody.replace(
-      /\*\*Contract Hash:\*\*\s*[^\r\n]*/i,
-      '**Contract Hash:** pending',
-    );
-    const hash = `sha256:${crypto.createHash('sha256').update(normalized).digest('hex')}`;
-    const contract = contractBody.replace('**Contract Hash:** pending', `**Contract Hash:** ${hash}`);
-    fs.writeFileSync(path.join(artifacts, 'FEATURE-CONTRACT.md'), contract + '\n');
-    fs.writeFileSync(path.join(artifacts, 'ANALYSIS.md'), '**Verdict:** GO\n');
-    fs.writeFileSync(path.join(artifacts, 'TASKS.md'), '## FEAT-1-T01\nImplements: FEAT-1-FR01\nAC: works\n');
-    fs.writeFileSync(
-      path.join(artifacts, 'PROJECT-CONTEXT-SNAPSHOT.md'),
-      `**Charter Hash:** sha256:${'b'.repeat(64)}\n`,
-    );
-    const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
-    expect(v.decision).toBe('reject');
-    expect(v.reason).toMatch(/stale charterHash/);
-    void charter;
-  });
-
-  it('integration-cohesion NO-GO on INV VIOLATED without approved VR', async () => {
-    const runner = await loadRunner('integration-cohesion.mjs');
-    const artifacts = epicArtifacts(root);
-    fs.writeFileSync(
-      path.join(artifacts, 'COHESION-REPORT.md'),
-      'Duplicate ok\nContract ok\nTraceability ok\nVertical ok\nINV-1 VIOLATED in shared module\n**Verdict:** GO\n',
-    );
-    fs.writeFileSync(
-      path.join(artifacts, 'IMPLEMENTATION-CONTEXT.md'),
-      '## Planned Versus Actual\nx\n## Implemented Behavior\nx\n## Requirement Traceability\nx\n## Remaining Risks\nx\n',
-    );
-    const v = await runner({ workspaceRoot: root, state: { runId: 'FEAT-1' } });
-    expect(v.decision).toBe('reject');
-    expect(v.reason).toMatch(/INV-1.*VIOLATED|NO-GO/);
-  });
 
   it('project-ci fail-closed when requiredQualityGates missing', async () => {
     const runner = await loadRunner('project-ci.mjs');

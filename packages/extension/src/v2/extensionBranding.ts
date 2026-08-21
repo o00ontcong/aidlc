@@ -13,7 +13,7 @@ export function extensionDisplayName(extensionRoot: string): string {
   } catch {
     /* fall through */
   }
-  return 'Cohesive Delivery';
+  return 'AIDLC Workspace';
 }
 
 /** JSON embedded in a <script> tag must not contain a raw `</script>` sequence. */

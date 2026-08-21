@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 
-const VALIDATORS = path.join(__dirname, '..', 'templates', 'cohesive', 'validators');
+const VALIDATORS = path.join(__dirname, '..', 'templates', 'project-workspace', 'validators');
 
 type Verdict = { decision: 'pass' | 'reject'; reason: string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

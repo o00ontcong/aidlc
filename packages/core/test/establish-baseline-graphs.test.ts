@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-const LIB = path.join(__dirname, '..', 'templates', 'cohesive', 'validators', 'lib.mjs');
+const LIB = path.join(__dirname, '..', 'templates', 'project-workspace', 'validators', 'lib.mjs');
 
 type Lib = {
   validateArchitectureGraph: (doc: unknown, opts?: { workspaceRoot?: string }) => string[];

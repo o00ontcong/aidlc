@@ -158,7 +158,7 @@ export interface ScaffoldEpicArgs {
    */
   aidlcDir?: string;
   /**
-   * Root of cohesive charter templates (`…/templates/cohesive/artifacts`).
+   * Root of Project Workspace charter templates (`…/templates/project-workspace/artifacts`).
    * The VS Code extension must pass its own copy — esbuild sets `__dirname`
    * to the extension `out/` folder, not `@aidlc/core`.
    */

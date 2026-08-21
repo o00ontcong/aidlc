@@ -12,11 +12,11 @@ import type { DeliveryRequest } from './DeliveryTypes';
  * decomposition is Claude's decision, not a TypeScript state machine's.
  */
 export const AUTONOMOUS_MASTER_COMMAND = '/aidlc-autonomous-delivery';
-export const AUTONOMOUS_EPIC_MASTER_COMMAND = '/aidlc-autonomous-epic';
+export const AUTONOMOUS_EPIC_MASTER_COMMAND = '/aidlc-provider-managed-task';
 
 /** Body for multi-provider sync (provider adapters add their own frontmatter). */
 export function autonomousEpicMasterCommandBody(): string {
-  return `# AIDLC Autonomous Epic Master
+  return `# AIDLC Provider-managed Task
 
 Own epic \`$ARGUMENTS\` until its configured pipeline completes, its saved
 mode switches to Guided, or an unresolved product/architecture question needs
@@ -51,8 +51,8 @@ a human answer. Work visibly in this session.
    - Only the top-level run status uses \`completed\`; the top-level epic status
      uses \`done\`.
    - Record every validated output path in that step's \`artifactsProduced\`.
-3. Treat \`human_review: true\` as an **autonomous approval**, not a pause,
-   except for the Cohesive Delivery phase named \`resolve-bugs\`:
+3. Treat \`human_review: true\` as a **provider-managed approval**, not a pause,
+   except for the Project Workspace phase named \`resolve-bugs\`:
    - for ordinary phases, after declared outputs and auto-review pass, record
      the run step as \`approved\` and continue;
    - for \`resolve-bugs\`, collect the user's bug report, complete fixes and
@@ -142,10 +142,10 @@ validation results, and failures. Never invoke a global \`aidlc\` CLI.
  * state rather than reimplementing pipeline semantics in TypeScript.
  */
 export function ensureAutonomousEpicMasterCommand(workspaceRoot: string): void {
-  const file = path.join(workspaceRoot, '.claude', 'commands', 'aidlc-autonomous-epic.md');
+  const file = path.join(workspaceRoot, '.claude', 'commands', 'aidlc-provider-managed-task.md');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `---
-description: Run one AIDLC epic's configured pipeline autonomously. Usage: /aidlc-autonomous-epic <epic-id>
+description: Run one AIDLC task pipeline in the selected provider terminal. Usage: /aidlc-provider-managed-task <task-id>
 ---
 
 ${autonomousEpicMasterCommandBody()}`, 'utf8');

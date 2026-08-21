@@ -16,8 +16,8 @@ import { AIDLC_KNOWLEDGE, buildClaudeSpawnEnv } from '@aidlc/core';
 
 const SUGGESTIONS = [
   'What is AIDLC and how do I get started?',
-  'How do I set up the extension on a new project?',
-  'What does Start Epic do?',
+  'How do I set up shared project context?',
+  'How do tasks know what is already done?',
   'How do I run a pipeline from the Builder?',
 ];
 
@@ -40,30 +40,26 @@ ${AIDLC_KNOWLEDGE}`;
 interface QuickAnswer { keywords: string[]; answer: string; }
 const QUICK_ANSWERS: QuickAnswer[] = [
   {
-    keywords: ['autonomous delivery', 'cohesive auto', 'existing project autonomous', 'auto delivery'],
+    keywords: ['shared context', 'project status', 'already done', 'project workspace', 'task workspace'],
     answer: [
-      '**Existing Project Autonomous Delivery** is an opt-in Cohesive Delivery flow for an existing project.',
-      '1. Open **Open Workspace → Epics**.',
-      '2. Click **Autonomous Delivery** next to **Start Epic**.',
-      '3. Use **Start new delivery**; AIDLC opens visible Claude master command `/aidlc-autonomous-delivery <delivery-id>` for one independent feature epic: context → contract → implementation/tests → bug resolution → PR → project sync. It auto-approves validated phase gates except the dedicated bug-resolution approval.',
-      '4. If it stops, choose **Resume interrupted delivery**: Claude reads the saved checkpoint, keeps approved work, and continues only the incomplete/failed branch — not from the start.',
-      '5. It pauses for the `resolve-bugs` checkpoint so you can enter/test bugs and explicitly Approve, or for an unresolved product/architecture/ship-policy question (or a real external blocker).',
+      '**AIDLC Workspace** separates shared project memory from focused task work.',
+      '1. Open **Workspace → Project**.',
+      '2. Choose **Create missing files** to scaffold `AGENTS.md`, `PROJECT.md`, `STATUS.md`, and `DECISIONS.md`. Existing files are preserved.',
+      '3. Open **Tasks → New Task** for each distinct outcome. Every task keeps its own pipeline state, artifacts, diff, and verification history.',
+      '4. Before work, the agent reads the shared files and summarizes what is already complete. Before handoff, it updates `STATUS.md` and records durable decisions.',
       '',
-      'For a single Guided step that exits or is rejected, use **Run again with Claude**; this is separate from Autonomous Delivery resume.',
-      'Parallel means starting several independent feature epics at the same time. Claude decides internal task decomposition; you never create work-package worker epics or choose an agent count.',
-      'The extension never starts a hidden global `aidlc cohesive` process; Autonomous Delivery runs visibly in Claude. The same modal also has Resume, Open review summary, and Edit inferred project context.',
-      '**Epic Autopilot** (`aidlc.autopilot.enabled`) is a separate regular-epic pre-planning experiment and is not required.',
+      'Use one local checkout for dependent tasks so they see completed file changes immediately. Use separate worktrees only for independent parallel tasks; integrate them before validating the combined application.',
     ].join('\n'),
   },
   {
-    keywords: ['start epic', 'epic'],
+    keywords: ['new task', 'start task', 'start epic', 'epic'],
     answer: [
-      '**Start Epic** kicks off a unit of work:',
+      '**New Task** starts a focused unit of work:',
       '1. You give a short **brief** of the task.',
       '2. AIDLC classifies it, picks a matching **recipe** (bugfix, small-feature, refactor, …) and assembles a pipeline.',
       '3. The run advances step by step — each step is **awaiting_work / awaiting_review**, with approve / reject / rerun.',
       '',
-      'Find it at the top of the **AIDLC** sidebar (**Start Epic**), or run `aidlc epic start <id> --brief "…"` from the CLI.',
+      'Find it under **Workspace → Tasks → New Task**. The CLI command remains `aidlc epic start <id> --brief "…"` for compatibility.',
     ].join('\n'),
   },
   {
@@ -84,11 +80,11 @@ const QUICK_ANSWERS: QuickAnswer[] = [
   {
     keywords: ['set up', 'setup', 'set-up', 'cài đặt', 'cai dat', 'install', 'new project', 'cấu hình'],
     answer: [
-      '**Set up AIDLC on a project:**',
+      '**Set up AIDLC Workspace on a project:**',
       '1. Install the **AIDLC** extension; make sure `claude` is on PATH and authenticated.',
       '2. Open your project folder.',
-      '3. In the **AIDLC** sidebar → **Init Sample Workspace** (creates `.aidlc/workspace.yaml`), or apply a **Workflow** template.',
-      '4. Use **Open Workspace Builder** to add agents / skills / pipelines visually.',
+      '3. Open **Workspace → Project** and create the missing shared-context files.',
+      '4. Create a task and select a pipeline, or use **Builder** to configure agents / skills / pipelines manually.',
       '',
       'Verify anytime with `aidlc doctor` (checks workspace, claude binary, and auth).',
     ].join('\n'),
@@ -96,12 +92,12 @@ const QUICK_ANSWERS: QuickAnswer[] = [
   {
     keywords: ['get started', 'getting started', 'how to start', 'how do i start', 'what is aidlc', 'aidlc là gì', 'aidlc la gi', 'bắt đầu', 'bat dau', 'introduc', 'overview'],
     answer: [
-      '**AIDLC** drives Claude through a pipeline you declare in `.aidlc/workspace.yaml` — agents, skills, pipelines, epics and runs — tracking every step and token.',
+      '**AIDLC Workspace** combines durable project context with focused task pipelines, review, and verification.',
       '',
       '**Fastest start in VS Code:**',
       '1. Open the **AIDLC** sidebar (activity bar).',
-      '2. **Load Demo Project** to explore, or **Init Sample Workspace** on your own folder.',
-      '3. Apply a **Workflow** template (`code-review`, `sdlc`, `release-notes`) or hit **Start Epic**.',
+      '2. Open **Project** and initialize shared context.',
+      '3. Open **Tasks → New Task**, then choose a workflow or let Auto recommend one.',
       '',
       '**From the CLI:**',
       '```',

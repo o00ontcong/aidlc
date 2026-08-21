@@ -51,7 +51,6 @@ export interface EpicListPanelProps {
   onRefresh: () => void;
   onMigrate: () => void;
   onNewEpic: () => void;
-  onAutonomousDelivery: () => void;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   onSectionDragOver: (s: 'follow' | 'no-follow') => (e: DragEvent) => void;
@@ -128,7 +127,7 @@ function Rail(p: EpicListPanelProps) {
         type="button"
         onClick={p.onToggleCollapsed}
         aria-expanded={false}
-        title="Mở rộng danh sách epic"
+        title="Mở rộng danh sách task"
         style={{
           cursor: 'pointer', width: 32, minHeight: 52, borderRadius: 6, border: '1px solid var(--bd)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -196,7 +195,7 @@ function OpenList(p: EpicListPanelProps) {
                 color: 'var(--txt3)', fontWeight: 600,
               }}
             >
-              Epics
+              Tasks
             </div>
             <div style={{ fontSize: 10.5, color: 'var(--txt3)' }}>{p.epics.length}</div>
             <div
@@ -213,7 +212,7 @@ function OpenList(p: EpicListPanelProps) {
           <button
             type="button"
             onClick={p.onMigrate}
-            title="Đồng bộ epic cũ với cấu trúc Cohesive Delivery mới nhất"
+            title="Đồng bộ task cũ với cấu trúc workspace mới nhất"
             style={{
               cursor: 'pointer', height: 26, padding: '0 9px', borderRadius: 6,
               border: '1px solid var(--acc-bd)', background: 'var(--acc-bg)',
@@ -226,7 +225,7 @@ function OpenList(p: EpicListPanelProps) {
           <button
             type="button"
             onClick={p.onRefresh}
-            title="Đọc lại danh sách epic từ disk; không chạy agent và không thay đổi dữ liệu"
+            title="Đọc lại danh sách task từ disk; không chạy agent và không thay đổi dữ liệu"
             style={iconBtn}
           >
             ↻
@@ -235,7 +234,7 @@ function OpenList(p: EpicListPanelProps) {
             type="button"
             onClick={p.onToggleTools}
             aria-expanded={p.toolsOpen}
-            title={p.toolsOpen ? 'Ẩn ô tìm và bộ lọc' : 'Mở ô tìm và bộ lọc epic'}
+            title={p.toolsOpen ? 'Ẩn ô tìm và bộ lọc' : 'Mở ô tìm và bộ lọc task'}
             style={iconBtn}
           >
             ⌕
@@ -244,7 +243,7 @@ function OpenList(p: EpicListPanelProps) {
             type="button"
             onClick={p.onToggleCollapsed}
             aria-expanded
-            title="Thu hẹp danh sách epic thành thanh icon"
+            title="Thu hẹp danh sách task thành thanh icon"
             style={iconBtn}
           >
             ‹
@@ -263,7 +262,7 @@ function OpenList(p: EpicListPanelProps) {
               <input
                 value={p.search}
                 onChange={(e) => p.onSearch(e.target.value)}
-                placeholder="Search epics…"
+                placeholder="Search tasks…"
                 spellCheck={false}
                 style={{
                   flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
@@ -322,11 +321,11 @@ function OpenList(p: EpicListPanelProps) {
               ⌕
             </div>
             <div style={{ fontSize: 12.5, color: 'var(--txt)', fontWeight: 600 }}>
-              {p.epics.length === 0 ? 'No epics yet' : 'No epics match'}
+              {p.epics.length === 0 ? 'No tasks yet' : 'No tasks match'}
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--txt2)', lineHeight: 1.5 }}>
               {p.epics.length === 0
-                ? 'Tạo epic đầu tiên bằng + New Epic.'
+                ? 'Tạo task đầu tiên bằng + New Task.'
                 : 'Thử xoá từ khoá hoặc chọn filter All.'}
             </div>
             {p.epics.length > 0 && (
@@ -373,7 +372,7 @@ function OpenList(p: EpicListPanelProps) {
             </Section>
           </>
         )}
-        {/* Actions follow the epic rows instead of remaining pinned to the panel bottom. */}
+        {/* Actions follow the task rows instead of remaining pinned to the panel bottom. */}
         <div style={{ display: 'flex', gap: 6, paddingTop: 1 }}>
           <button
             type="button"
@@ -384,18 +383,7 @@ function OpenList(p: EpicListPanelProps) {
               border: 'none', fontFamily: 'inherit',
             }}
           >
-            + New Epic
-          </button>
-          <button
-            type="button"
-            onClick={p.onAutonomousDelivery}
-            title="Autonomous Delivery: tạo epic mới và để provider chạy đến human gate. Không phải Start epic đang chọn."
-            style={{
-              cursor: 'pointer', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--bd)',
-              color: 'var(--txt2)', fontSize: 11.5, background: 'transparent', fontFamily: 'inherit',
-            }}
-          >
-            ⚡
+            + New Task
           </button>
         </div>
       </div>
@@ -527,7 +515,7 @@ function Row({ epic, p }: { epic: EpicSummary; p: EpicListPanelProps }) {
           e.stopPropagation();
           p.onToggleFollow(epic.id);
         }}
-        title={isFollowed ? 'Bỏ theo dõi — epic này sẽ xuống nhóm Không theo dõi' : 'Theo dõi epic — ghim lên nhóm Đang theo dõi'}
+        title={isFollowed ? 'Bỏ theo dõi — task này sẽ xuống nhóm Không theo dõi' : 'Theo dõi task — ghim lên nhóm Đang theo dõi'}
         style={{
           cursor: 'pointer', fontSize: 11, flex: 'none',
           color: isFollowed ? 'var(--acc-txt)' : 'var(--track)',

@@ -75,7 +75,7 @@ export function MockBoundary({
  * epic.flow.loop            pipeline reject-edge metadata
  * epic.gate.consequence     gate consequence text + diff stat from the run
  * epic.ship.policy          artifact-policy counters
- * epic.independence         cohesive-delivery independence checklist
+ * epic.independence         Project Workspace independence checklist
  */
 export const MOCK_IDS = {
   projectContext: 'epic.projectContext',

@@ -677,7 +677,7 @@ export interface EpicSummary {
   pipeline: string | null;
   agent: string | null;
   runId: string | null;
-  /** Derived from the matching durable Cohesive Delivery checkpoint. */
+  /** Derived from the matching durable legacy delivery checkpoint. */
   runMode: 'guided' | 'autonomous';
   inputs: Record<string, string>;
   epicDir: string;
@@ -747,55 +747,7 @@ export interface AgentMeta {
   capabilities?: string[];
 }
 
-export type AutonomousDeliveryStatus =
-  | 'pending'
-  | 'project-context'
-  | 'feature-contract'
-  | 'executing-workers'
-  | 'integrating'
-  | 'awaiting-aggregate-review'
-  | 'awaiting-merge'
-  | 'project-sync'
-  | 'completed'
-  | 'blocked'
-  | 'failed';
-
-export interface AutonomousDeliveryFailureSummary {
-  id: string;
-  at: string;
-  code: string;
-  summary: string;
-  logPath: string;
-  retryable: boolean;
-  recoveryCommands: string[];
-  runId: string;
-  resumeCommand: string;
-  stepIdx?: number;
-  agent?: string;
-  /** False when this is a recovered historical failure rather than the current blocker. */
-  current: boolean;
-}
-
-/** Compact, display-safe delivery state sent from the extension host to the webview. */
-export interface AutonomousDeliverySummary {
-  id: string;
-  title: string;
-  status: AutonomousDeliveryStatus;
-  updatedAt: string;
-  reviewRevision: number;
-  workerCount: number;
-  openReviewTasks: number;
-  openBlockingTasks: number;
-  projectContextRunId?: string;
-  featureRunId?: string;
-  lastError?: string;
-  latestFailure?: AutonomousDeliveryFailureSummary;
-  failureCount: number;
-  /** The most recent event identifies special recovery phases such as post-merge sync. */
-  lastEventKind?: string;
-}
-
-/** Published, repository-wide context consumed by Cohesive feature epics. */
+/** Published, repository-wide context consumed by Project Workspace tasks. */
 export interface ProjectContextSummary {
   revision: number;
   generatedAt?: string;
@@ -809,18 +761,47 @@ export interface ProjectContextSummary {
   totalSteps?: number;
 }
 
+export interface ProjectDocumentSummary {
+  id: 'agents' | 'project' | 'status' | 'decisions';
+  label: string;
+  description: string;
+  path: string;
+  exists: boolean;
+  updatedAt?: string;
+  excerpt?: string;
+}
+
+export interface ProjectWorkspaceSummary {
+  initialized: boolean;
+  readyCount: number;
+  totalCount: number;
+  documents: ProjectDocumentSummary[];
+}
+
+export interface LegacyCohesiveSummary {
+  present: boolean;
+  agents: number;
+  skills: number;
+  pipelines: number;
+  commands: number;
+  recipes: number;
+  executionProfile: boolean;
+}
+
 export interface WorkspaceState {
   hasFolder: boolean;
   workspaceName: string;
   configExists: boolean;
+  /** Shared, durable project memory used by every task. */
+  projectWorkspace?: ProjectWorkspaceSummary;
+  /** Retired entries detected in an upgraded workspace; never included in visible catalogs. */
+  legacyCohesive?: LegacyCohesiveSummary;
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
   /** Task-type recipes for the Start-Epic modal's auto-generate path. */
   recipes: RecipeSummary[];
   epics: EpicSummary[];
-  /** Durable Cohesive Delivery states used to render direct, state-aware actions. */
-  deliveries?: AutonomousDeliverySummary[];
   /** Current published Project Context, if the workspace has one. */
   projectContext?: ProjectContextSummary;
   /** id → display metadata (pulled from workspace.yaml) for the step-detail card. */
@@ -935,7 +916,7 @@ export interface TestAgentTarget {
   url?: string;
 }
 
-export type WorkspaceView = 'builder' | 'architecture' | 'epics' | 'analyze' | 'tests';
+export type WorkspaceView = 'project' | 'builder' | 'architecture' | 'epics' | 'analyze' | 'tests';
 
 export type EpicFilter = 'all' | 'in_progress' | 'pending' | 'done' | 'failed';
 

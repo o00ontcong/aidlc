@@ -1,5 +1,5 @@
 /**
- * Feature-tier Alignment artifacts for Cohesive Delivery (Charter slice 2).
+ * Feature-tier alignment artifacts for Project Workspace.
  *
  * Features inherit Goals / Architecture / Tech from `docs/project/charter/`.
  * They declare which Goals they serve and may only add narrower constraints —
@@ -69,7 +69,7 @@ function formatServesGoals(goalIds: string[]): string {
 }
 
 /**
- * Build ALIGNMENT.md content written at Start Epic for `cohesive-feature`.
+ * Build ALIGNMENT.md content written when a feature task is created.
  */
 export function buildAlignmentSeedFile(input: AlignmentSeedInput): string {
   const scope = input.scope.trim() || '_(human: describe what this feature delivers)_';

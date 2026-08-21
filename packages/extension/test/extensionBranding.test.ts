@@ -6,7 +6,7 @@ import { embedJsonForScript, extensionDisplayName } from '../src/v2/extensionBra
 describe('extensionDisplayName', () => {
   it('reads displayName from the extension package.json', () => {
     const root = path.resolve(__dirname, '..');
-    expect(extensionDisplayName(root)).toBe('Cohesive Delivery');
+    expect(extensionDisplayName(root)).toBe('AIDLC Workspace');
   });
 });
 

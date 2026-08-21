@@ -108,7 +108,7 @@ export function EpicDetail({
         </div>
       </div>
 
-      {/* User-entered brief and Cohesive Delivery alignment captured at creation. */}
+      {/* User-entered brief and project alignment captured at creation. */}
       {!briefing && <EpicRequestCard epic={epic} />}
 
       <EpicVisualsCard epic={epic} />
@@ -664,8 +664,8 @@ function EpicConfigCard({ epic }: { epic: EpicSummary }) {
             onClick={() => setRunMode('guided')}
           />
           <RunModeOption
-            label="Autonomous Delivery"
-            desc="Provider đang chọn chạy trọn flow, dừng ở human gate"
+            label="Provider-managed"
+            desc="Provider đang chọn chạy flow và dừng ở human gate"
             selected={epic.runMode === 'autonomous'}
             disabled={!hasPipelineCheckpoint}
             title={hasPipelineCheckpoint
@@ -676,7 +676,7 @@ function EpicConfigCard({ epic }: { epic: EpicSummary }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ flex: 1, fontSize: 11, color: 'var(--txt3)', lineHeight: 1.5 }}>
-            Không có CLI cohesive chạy ngầm — mọi thao tác đều mở lệnh nhìn thấy được trong terminal của provider đang chọn.
+            Không có tiến trình ẩn — mọi thao tác đều mở lệnh nhìn thấy được trong terminal của provider đang chọn.
           </div>
           <Btn
             label="Run / resume selected-provider master"
@@ -687,9 +687,9 @@ function EpicConfigCard({ epic }: { epic: EpicSummary }) {
             title={!hasPipelineCheckpoint
               ? 'Epic này không có pipeline checkpoint để chạy.'
               : epic.runMode !== 'autonomous'
-                ? 'Chọn Autonomous Delivery trước khi chạy provider master.'
+                ? 'Chọn Provider-managed trước khi chạy provider master.'
                 : 'Chạy hoặc tiếp tục pipeline từ checkpoint hiện có; có thể dùng lại sau khi pause/fail.'}
-            onClick={() => postMessage({ type: 'runEpicAutonomously', epicId: epic.id })}
+            onClick={() => postMessage({ type: 'runTaskWithProvider', epicId: epic.id })}
           />
         </div>
       </div>

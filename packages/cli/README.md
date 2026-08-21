@@ -68,39 +68,6 @@ Global flags available on every subcommand:
 | `-w, --workspace <path>` | `cwd` | Workspace root (containing `.aidlc/`). Also reads `AIDLC_WORKSPACE` env. |
 | `-q, --quiet` | off | Suppress decorative progress output (errors and `--json` still print). |
 
-### `cohesive` — autonomous delivery for an existing project
-
-This is an opt-in, project-level execution profile included by the Cohesive Delivery
-preset. It infers/refreshes `project-context`, executes the feature and dependency-aware
-work packages, opens one feature PR, and writes an aggregate review bundle. It never
-merges the default branch.
-
-```sh
-aidlc preset apply cohesive-delivery
-aidlc cohesive run --id FEATURE-123 --title "Add export" \
-  --description "Add a CSV export with authorization and audit coverage."
-aidlc cohesive status FEATURE-123
-aidlc cohesive logs FEATURE-123
-# Fix the reported cause, then continue the same run/step:
-aidlc cohesive resume FEATURE-123
-aidlc cohesive review FEATURE-123
-aidlc cohesive add-task FEATURE-123 --title "Cover the empty result case"
-aidlc cohesive rework FEATURE-123
-
-# After manually editing docs/project/charter/*:
-aidlc cohesive confirm-context FEATURE-123
-
-# Human merges the feature PR, then:
-aidlc cohesive resume-after-merge FEATURE-123
-```
-
-Requests may come from text or a file. Jira/GitHub are optional source metadata,
-not required workflow roots. State lives under `.aidlc/deliveries/<id>/`; review
-artifacts live with the feature under `docs/epics/<id>/artifacts/`.
-Failed runner output is secret-redacted and stored under
-`.aidlc/runs/<run-id>/logs/`; delivery state retains current and historical log
-references so a corrected error can resume without creating duplicate state.
-
 ### `guide` — getting-started reference
 
 ```
@@ -222,9 +189,9 @@ aidlc preset apply <name>                 # merges into current workspace (no ov
 aidlc preset save <name>                  # snapshot current workspace to .aidlc/presets/<name>.json
 ```
 
-Built-in presets: `code-review`, `release-notes`, `sdlc`, and `cohesive-delivery`.
-The last installs the three connected Cohesive pipelines plus the opt-in
-existing-project autonomous execution profile.
+Built-in presets include `code-review`, `release-notes`, `sdlc`, and
+`project-workspace`. Project Workspace installs shared project context plus
+focused spike and implementation task pipelines.
 
 ### Epics
 
@@ -306,8 +273,7 @@ aidlc run report    <runId> [--format md|json] [--output <file>]  # shareable ru
 `--until`, or `--dry-run`), `2` paused on a gate (awaiting review / rejected /
 budget), `1` error. `--require-complete` maps any non-completed outcome to `1`.
 `--json` prints a final summary object to stdout (claude's stream goes to stderr).
-See [AUTOMATION.md](AUTOMATION.md) for the full headless guide +
-a GitHub Action recipe.
+Run `aidlc run exec --help` for the complete headless execution options.
 
 **`run verify`** is a read-only post-run drift check: a `completed` run still
 claims its artifacts exist, but someone may have since deleted or gutted one.

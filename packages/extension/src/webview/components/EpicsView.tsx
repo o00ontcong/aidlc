@@ -3,7 +3,6 @@ import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EPIC_DND_MIME } from './EpicCard';
 import { StartEpicModal, type StartEpicDraft } from './StartEpicModal';
 import { CharterBoard } from './CharterBoard';
-import { AutonomousDeliveryModal } from './AutonomousDeliveryModal';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 import '@/styles/v3-tokens.css';
 import { EpicListPanel, EPIC_LIST_DEFAULT_WIDTH, EPIC_LIST_MAX_WIDTH, EPIC_LIST_MIN_WIDTH } from './epic-v3/EpicListPanel';
@@ -53,7 +52,7 @@ function writeEpicsPersist(patch: PersistedEpicsView): void {
  * Selection / list-collapse / tools-open stay session-only; list width persists
  * in `epicsViewUi.listWidth`.
  */
-export function EpicsView({ state }: { state: WorkspaceState }) {
+export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState; initialSelectedId?: string }) {
   const seed = state.epicsViewUi ?? {};
   const [filter, setFilter] = useState<EpicFilter>(seed.filter ?? 'all');
   const [search, setSearch] = useState(seed.search ?? '');
@@ -65,12 +64,11 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
   const [startEpicOpen, setStartEpicOpen] = useState(false);
   const [startImplementOpen, setStartImplementOpen] = useState(false);
   const [implementDraft, setImplementDraft] = useState<StartEpicDraft | null>(null);
-  const [autonomousDeliveryOpen, setAutonomousDeliveryOpen] = useState(false);
   const [dragEpicId, setDragEpicId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<'follow' | 'no-follow' | null>(null);
 
   // v3 view state (session-only).
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
   const [listCollapsed, setListCollapsed] = useState(false);
   const [listWidth, setListWidth] = useState(() => {
     const saved = seed.listWidth;
@@ -87,6 +85,12 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (initialSelectedId && state.epics.some((task) => task.id === initialSelectedId)) {
+      setSelectedId(initialSelectedId);
+    }
+  }, [initialSelectedId, state.epics]);
 
   // Drop stale follow ids when epics disappear.
   useEffect(() => {
@@ -286,7 +290,6 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
           onRefresh={() => postMessage({ type: 'refreshEpics' })}
           onMigrate={() => postMessage({ type: 'migrateEpics' })}
           onNewEpic={() => setStartEpicOpen(true)}
-          onAutonomousDelivery={() => setAutonomousDeliveryOpen(true)}
           onDragStart={setDragEpicId}
           onDragEnd={() => { setDragEpicId(null); setDropTarget(null); }}
           onSectionDragOver={onSectionDragOver}
@@ -328,7 +331,7 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
               fontSize: 12.5, color: 'var(--txt3)',
             }}
           >
-            Chọn một epic ở danh sách bên trái.
+            Chọn một task ở danh sách bên trái.
           </div>
         )}
       </div>
@@ -393,13 +396,6 @@ export function EpicsView({ state }: { state: WorkspaceState }) {
             setStartImplementOpen(false);
             setImplementDraft(null);
           }}
-        />
-      )}
-      {autonomousDeliveryOpen && (
-        <AutonomousDeliveryModal
-          pipelines={state.pipelines}
-          deliveries={state.deliveries ?? []}
-          onClose={() => setAutonomousDeliveryOpen(false)}
         />
       )}
     </MockProvider>

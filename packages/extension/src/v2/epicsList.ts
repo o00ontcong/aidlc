@@ -592,7 +592,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       : [];
 
     const epicId = typeof parsed.id === 'string' ? parsed.id : folder;
-    // Keep older Cohesive Delivery epics autonomous after upgrade when they
+    // Keep older delivery epics autonomous after upgrade when they
     // have a delivery checkpoint but no explicit persisted mode yet.
     const delivery = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(epicId)
       ? DeliveryStateStore.load(workspaceRoot, epicId)
@@ -1066,7 +1066,7 @@ export function migrateEpicStateFiles(workspaceRoot: string): MigrationReport {
           pipelineSnapshot: snapshotPipeline(pipelineCfg),
         };
         changed = true;
-      } else if (builtin?.id === 'cohesive-delivery') {
+      } else if (builtin?.id === 'project-workspace') {
         const reconciled = reconcileRunStateToPipeline(runState, pipelineCfg);
         runState = reconciled.state;
         changed = changed || reconciled.changed;

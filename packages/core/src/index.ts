@@ -400,7 +400,7 @@ export {
   commandProviderRegistry,
   syncPipelineCommands,
   syncPipelineCommandsForProvider,
-  syncAutonomousCommandsForProvider,
+  syncProviderManagedCommandForProvider,
   writeTwoLayerCommandsForProvider,
 } from './providers';
 export type {

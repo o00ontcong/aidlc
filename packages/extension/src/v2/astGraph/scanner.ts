@@ -19,6 +19,23 @@ const WATCH_GLOB = '**/*.{ts,tsx,js,jsx,mjs,cjs,py,rs,cs,java,go}';
 /** Directories we never re-scan on save (skip noise that would loop). */
 const IGNORE_DIR_RE = /(^|[\\/])(node_modules|dist|out|build|target|\.next|\.git|\.ast-graph)([\\/]|$)/;
 
+/**
+ * `ast-graph scan` (CLI v0.3.0) takes no `--ignore`/`--exclude` flag and
+ * doesn't reliably honor `.gitignore` for dependency directories — on a
+ * real project this let `node_modules/` alone account for 92% of all
+ * scanned nodes (115k/125k), burying the project's own symbols under
+ * generic library internals (TypeScript, Vite, React-DOM…) badly enough
+ * that `search`/`symbol` queries read as if the graph had no useful
+ * content. We can't fix the scanner itself (separate upstream binary),
+ * so we prune these paths out of `graph.db` after every scan instead.
+ */
+const VENDOR_PATH_SQL = [
+  "file_path LIKE '%/node_modules/%'", "file_path LIKE 'node_modules/%'",
+  "file_path LIKE '%/venv/%'", "file_path LIKE 'venv/%'",
+  "file_path LIKE '%/.venv/%'", "file_path LIKE '.venv/%'",
+  "file_path LIKE '%/__pycache__/%'",
+].join(' OR ');
+
 export interface ScanSummary {
   files: number;
   nodes: number;
@@ -120,9 +137,79 @@ export async function runScan(opts: ScanOpts): Promise<ScanSummary> {
           reject(new Error('ast-graph scan: could not parse summary from stdout. Tail: ' + stdout.split(/\r?\n/).slice(-4).join(' | ')));
           return;
         }
-        resolve({ ...summary, durationMs, finishedAt: Date.now(), dbPath });
+        pruneVendorPaths(dbPath, output)
+          .then(() => recomputeCountsAfterPrune(dbPath, summary))
+          .then((counts) => {
+            resolve({ ...summary, ...counts, durationMs, finishedAt: Date.now(), dbPath });
+          });
       },
     );
+  });
+}
+
+/**
+ * Delete node_modules/venv/__pycache__ rows from an existing graph.db via
+ * the system `sqlite3` CLI. A naive `DELETE FROM nodes WHERE …` at this
+ * scale (100k+ matching rows) takes minutes, because the `nodes_fts_ad`
+ * trigger re-syncs the FTS5 index once per deleted row; dropping that
+ * trigger, clearing the FTS/edge rows explicitly, then recreating it
+ * brings the whole pass down to ~1s (measured on a 125k-node graph).
+ *
+ * Best-effort: if `sqlite3` isn't on PATH, this silently no-ops (logged
+ * to the output channel) rather than failing the scan — pruning improves
+ * query quality, it isn't required for the scan to have succeeded.
+ */
+function pruneVendorPaths(dbPath: string, output: vscode.OutputChannel): Promise<void> {
+  const sql = `
+DROP TRIGGER IF EXISTS nodes_fts_ad;
+DELETE FROM symbol_fts WHERE id IN (SELECT id FROM nodes WHERE ${VENDOR_PATH_SQL});
+DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE ${VENDOR_PATH_SQL}) OR target_id IN (SELECT id FROM nodes WHERE ${VENDOR_PATH_SQL});
+DELETE FROM nodes WHERE ${VENDOR_PATH_SQL};
+DELETE FROM file_hashes WHERE ${VENDOR_PATH_SQL};
+CREATE TRIGGER IF NOT EXISTS nodes_fts_ad AFTER DELETE ON nodes BEGIN DELETE FROM symbol_fts WHERE id = OLD.id; END;
+`;
+  return new Promise((resolve) => {
+    const child = execFile(
+      'sqlite3',
+      [dbPath],
+      { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 },
+      (err, _stdout, stderr) => {
+        if (err) {
+          output.appendLine(`ast-graph: vendor-path prune skipped (${err.message}${stderr ? ` — ${stderr.toString().trim()}` : ''}).`);
+        }
+        resolve();
+      },
+    );
+    child.stdin?.end(sql);
+  });
+}
+
+/** Files/nodes/edges shrink after pruning — re-count so the status bar and report reflect reality instead of the CLI's pre-prune numbers. */
+function recomputeCountsAfterPrune(
+  dbPath: string,
+  fallback: { files: number; nodes: number; edges: number },
+): Promise<{ files: number; nodes: number; edges: number }> {
+  const sql = `.mode list
+SELECT COUNT(*) FROM nodes WHERE kind = 'File';
+SELECT COUNT(*) FROM nodes;
+SELECT COUNT(*) FROM edges;
+`;
+  return new Promise((resolve) => {
+    const child = execFile(
+      'sqlite3',
+      [dbPath],
+      { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) { resolve(fallback); return; }
+        const [files, nodes, edges] = stdout
+          .split(/\r?\n/)
+          .filter((l) => l.length > 0)
+          .map((l) => parseInt(l, 10));
+        if ([files, nodes, edges].some((n) => Number.isNaN(n))) { resolve(fallback); return; }
+        resolve({ files, nodes, edges });
+      },
+    );
+    child.stdin?.end(sql);
   });
 }
 

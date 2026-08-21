@@ -171,21 +171,14 @@ From the epic detail panel:
 - **Update with feedback** → re-opens an already-approved step with
   feedback so a later phase can ask earlier ones to redo work.
 
-For **Existing Project Autonomous Delivery**, use **Autonomous Delivery** beside
-**Start Epic** instead. It opens visible Claude master command
-`/aidlc-autonomous-delivery <delivery-id>` to drive the complete delivery; do not
-click **Mark step done** between its phases. **Resume interrupted delivery** opens
-that same master command again and resumes from the saved checkpoint rather than
-restarting approved work. In Autonomous Delivery, validated `human_review` gates
-are approved automatically except `resolve-bugs`: Claude pauses there so you can
-submit/test bug fixes and explicitly Approve before accepted changes are synchronized
-into step-owned Markdown. Claude can also pause for a real unresolved question or
-external blocker. The extension does not launch a global `aidlc cohesive` process
-in the background.
+Use **Project** as the shared area above individual task pipelines. Initialize the
+four durable context files there, then create one task per outcome under **Tasks**.
+Every task should read shared context before work and update `STATUS.md` plus
+`DECISIONS.md` before handoff.
 
-For Cohesive Delivery, **parallel** means several independent feature epics running
-at the same time. It does not mean creating worker/work-package epics or choosing
-how many agents run inside one epic; Claude owns that internal decomposition.
+For dependent tasks, work sequentially in the same local checkout so later tasks
+see earlier changes immediately. Use separate worktrees only for independent work;
+integrate them before reviewing and testing the combined application.
 
 ---
 

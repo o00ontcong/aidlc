@@ -19,6 +19,7 @@ import {
 
 export const COHESIVE_DELIVERY_BUNDLE_VERSION = '3.0.0';
 const WORKFLOW_ID = 'cohesive-delivery';
+const CURRENT_WORKFLOW_ID = 'project-workspace';
 const MANIFEST_DIR = path.join('.aidlc', 'migration-backups');
 const LOCK_RELATIVE = path.join('.aidlc', 'locks', 'cohesive-delivery.json');
 
@@ -239,7 +240,7 @@ function assertInside(root: string, target: string): string {
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function stepName(step: unknown): string { const value = asRecord(step); return typeof step === 'string' ? step : typeof value.name === 'string' ? value.name : typeof value.agent === 'string' ? value.agent : ''; }
 function desiredWorkspace(): Record<string, unknown> {
-  const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === WORKFLOW_ID);
+  const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === CURRENT_WORKFLOW_ID);
   if (!workflow) throw new Error('Cohesive Delivery built-in workflow is unavailable.');
   return loadBuiltinPreset(builtinTemplatesRoot(), workflow).workspace as Record<string, unknown>;
 }
@@ -341,7 +342,7 @@ export class CohesiveDeliveryUpgradeService {
       remapCohesiveRunsToThreePipeline(this.workspaceRoot, current.pipelines as unknown as PipelineConfig[], this.clock());
       pruneRetiredCohesiveCommandFiles(this.workspaceRoot);
       const lock: CohesiveBundleLock = { schemaVersion: 1, workflowId: WORKFLOW_ID, bundleVersion: COHESIVE_DELIVERY_BUNDLE_VERSION, installedAt: this.clock(), migrationId: preview.id }; writeFileAtomic(assertInside(this.workspaceRoot, path.join(this.workspaceRoot, LOCK_RELATIVE)), `${JSON.stringify(lock, null, 2)}\n`);
-      writeBuiltinAutoReviewValidators(builtinTemplatesRoot(), this.workspaceRoot, BUILTIN_WORKFLOWS.find((item) => item.id === WORKFLOW_ID)!); manifest.status = 'applied'; manifest.appliedAt = this.clock();
+      writeBuiltinAutoReviewValidators(builtinTemplatesRoot(), this.workspaceRoot, BUILTIN_WORKFLOWS.find((item) => item.id === CURRENT_WORKFLOW_ID)!); manifest.status = 'applied'; manifest.appliedAt = this.clock();
     } catch (error) { manifest.status = 'partial-failure'; manifest.errors.push(error instanceof Error ? error.message : String(error)); writeFileAtomic(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`); throw error; }
     writeFileAtomic(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`); return manifest;
   }

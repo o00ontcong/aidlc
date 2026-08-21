@@ -1,7 +1,7 @@
 {
   "name": "aidlc-o00ontcong",
-  "displayName": "Cohesive Delivery",
-  "description": "Cohesive Delivery is an AI-driven SDLC pipeline runner for VS Code. Plan → Prototype → Design ∥ Test → Implement → Release, with workflow orchestration, requirements traceability, and live agent observability.",
+  "displayName": "AIDLC Workspace",
+  "description": "A shared AI development workspace for VS Code. Keep project context, decisions, status, focused tasks, workflow pipelines, review, and verification in one visible place.",
   "version": "3.4.37",
   "publisher": "o00ontcong",
   "license": "MIT",
@@ -12,7 +12,7 @@
     "type": "git",
     "url": "https://github.com/aidlc-io/aidlc"
   },
-  "icon": "media/cohesive-delivery-icon.png",
+  "icon": "media/aidlc-workspace-icon.png",
   "keywords": [
     "ai",
     "agents",
@@ -45,8 +45,8 @@
       "activitybar": [
         {
           "id": "aidlc",
-          "title": "Cohesive Delivery",
-          "icon": "media/cohesive-delivery-activitybar.svg"
+          "title": "AIDLC Workspace",
+          "icon": "media/aidlc-workspace-activitybar.svg"
         }
       ]
     },
@@ -55,7 +55,7 @@
         {
           "id": "aidlcSidebar",
           "name": "Workspace",
-          "icon": "media/cohesive-delivery-activitybar.svg",
+          "icon": "media/aidlc-workspace-activitybar.svg",
           "type": "webview"
         }
       ]
@@ -180,50 +180,14 @@
       },
       {
         "command": "aidlc.migrateEpics",
-        "title": "Migrate Epics to Current Cohesive Pipeline",
+        "title": "Migrate Tasks to Current Workspace Pipelines",
         "icon": "$(sync)",
         "category": "AIDLC"
       },
       {
         "command": "aidlc.startEpic",
-        "title": "Start Epic",
+        "title": "New Task",
         "icon": "$(rocket)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.startAutonomousDelivery",
-        "title": "Start Autonomous Delivery for Existing Project",
-        "icon": "$(run-all)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.resumeAutonomousDelivery",
-        "title": "Resume Autonomous Delivery",
-        "icon": "$(debug-continue)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.openAutonomousReviewSummary",
-        "title": "Open Autonomous Delivery Review Summary",
-        "icon": "$(preview)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.addAutonomousReviewTask",
-        "title": "Add Autonomous Delivery Review Task",
-        "icon": "$(tasklist)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.editInferredProjectContext",
-        "title": "Edit and Confirm Inferred Project Context",
-        "icon": "$(edit)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.resumeAutonomousAfterMerge",
-        "title": "Resume Autonomous Delivery After Merge",
-        "icon": "$(git-merge)",
         "category": "AIDLC"
       },
       {
@@ -240,19 +204,19 @@
       },
       {
         "command": "aidlc.openEpicsList",
-        "title": "Open Epics List",
+        "title": "Open Tasks",
         "icon": "$(checklist)",
         "category": "AIDLC"
       },
       {
         "command": "aidlc.insertDemoEpic",
-        "title": "Insert Demo Epic (EPIC-100)",
+        "title": "Insert Demo Task (EPIC-100)",
         "icon": "$(beaker)",
         "category": "AIDLC"
       },
       {
         "command": "aidlc.loadDemoProject",
-        "title": "Load Demo Project (full pipeline + 6 epics)",
+        "title": "Load Demo Project (full pipeline + 6 tasks)",
         "icon": "$(beaker)",
         "category": "AIDLC"
       },
@@ -306,12 +270,12 @@
       }
     ],
     "configuration": {
-      "title": "Cohesive Delivery",
+      "title": "AIDLC Workspace",
       "properties": {
         "aidlc.autopilot.enabled": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "🚧 **Epic pre-planning experiment — unrelated to Cohesive Delivery Autonomous Delivery.** When enabled, regular Start Epic collects epic context and generates a recommended plan (`context.json` + `autopilot-plan.md`) before its selected pipeline runs. Off by default."
+          "markdownDescription": "🚧 **Task pre-planning experiment.** When enabled, New Task collects project context and generates a recommended plan (`context.json` + `autopilot-plan.md`) before its selected pipeline runs. Off by default."
         },
         "aidlc.tokenMonitor.enabled": {
           "type": "boolean",
@@ -362,7 +326,7 @@
         "aidlc.workspace.epicsDirectory": {
           "type": "string",
           "default": "docs/epics",
-          "description": "Relative path (from the project root) where epics are stored. Changing this updates `state.root` in workspace.yaml. The epic list and Start Epic wizard use this directory immediately.",
+          "description": "Relative path (from the project root) where task workspaces are stored. Changing this updates `state.root` in workspace.yaml. The Tasks view and New Task wizard use this directory immediately.",
           "scope": "resource"
         },
         "aidlc.displayLanguage": {
@@ -434,8 +398,8 @@
           },
           {
             "id": "aidlc.runEpic",
-            "title": "Run your first epic",
-            "description": "Pick a sample epic and watch Claude work through the pipeline. Approve, reject, or rerun any step.\n[Open Epics List](command:aidlc.openEpicsList) · [Start Epic](command:aidlc.startEpic)",
+            "title": "Run your first task",
+            "description": "Pick a sample task and watch the provider work through the pipeline. Approve, reject, or rerun any step.\n[Open Tasks](command:aidlc.openEpicsList) · [New Task](command:aidlc.startEpic)",
             "media": {
               "markdown": "media/walkthrough/epics.md"
             },

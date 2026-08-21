@@ -16,7 +16,7 @@ import {
 
 describe('CommandProviderAdapter', () => {
   it('renders provider-specific command formats from the same StepCommandSpec', () => {
-    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
+    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'project-workspace')!;
     const preset = loadBuiltinPreset(builtinTemplatesRoot(), workflow);
     const phase = workflowCommandPhases(workflow).find((p) => p.phase.id === 'implement')!.phase;
     const skillBody = preset.skillContents.implement;
@@ -64,12 +64,12 @@ describe('CommandProviderAdapter', () => {
   // project's state.root was changed to `.aidlc/epics`.
   //
   // (The skill body's own prose — the part authored in
-  // templates/cohesive/skills/*.md — still hardcodes `docs/epics` and is not
+  // templates/project-workspace/skills/*.md — still hardcodes `docs/epics` and is not
   // fixed by this: that's a separate, much larger change since those files
   // are shared globally across every project on the machine and have no
   // per-workspace substitution today.)
   it('rewrites the baked docs/epics prefix in produces-driven Task instructions to the active epicRoot', () => {
-    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'cohesive-delivery')!;
+    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'project-workspace')!;
     const preset = loadBuiltinPreset(builtinTemplatesRoot(), workflow);
     const phase = workflowCommandPhases(workflow).find((p) => p.phase.id === 'implement')!.phase;
     expect(phase.produces?.length).toBeGreaterThan(0);

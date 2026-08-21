@@ -134,7 +134,7 @@ Run implement for epic \`$ARGUMENTS\`.`, 'utf8');
   it('can inspect an OpenCode synced command file', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-opencode-run-'));
     roots.push(root);
-    const commandName = 'aidlc-autonomous-epic';
+    const commandName = 'aidlc-provider-managed-task';
     const adapter = getCommandProviderAdapter('opencode');
     const file = adapter.commandFilePath(root, commandName);
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -146,8 +146,8 @@ Run implement for epic \`$ARGUMENTS\`.`, 'utf8');
   });
 
   it('keeps OpenCode execution as a native slash command', () => {
-    expect(buildTaskPrompt('/aidlc-autonomous-epic', 'PROJECT-CONTEXT', 'retry this', 'opencode', '/tmp'))
-      .toBe('/aidlc-autonomous-epic PROJECT-CONTEXT');
+    expect(buildTaskPrompt('/aidlc-provider-managed-task', 'PROJECT-CONTEXT', 'retry this', 'opencode', '/tmp'))
+      .toBe('/aidlc-provider-managed-task PROJECT-CONTEXT');
   });
 
   it('expands a Cursor command file instead of passing Claude slash syntax', () => {

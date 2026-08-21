@@ -54,6 +54,10 @@ import {
 import type { ProviderConfigUi } from './providerConfig';
 import { syncBuiltinPipelineCommands } from './presetWizards';
 import { resolveAidlcLanguage } from './outputLanguage';
+import {
+  LEGACY_COHESIVE_PIPELINE_IDS,
+  isLegacyCohesiveAssetId,
+} from './legacyWorkspaceCleanup';
 
 // VS Code reuses output channels by name, so this resolves to the same
 // channel created in extension.ts activate().
@@ -202,8 +206,10 @@ function buildState(
   // too, but for counting we ignore those and rely on the workspace.yaml
   // declarations (the runtime source of truth for AIDLC pipelines).
   const discovered = discoverAssets(root);
-  const claudeSkills = discovered.skills.filter((s) => s.scope !== 'aidlc');
-  const claudeAgents = discovered.agents.filter((a) => a.scope !== 'aidlc');
+  const claudeSkills = discovered.skills.filter((s) =>
+    s.scope !== 'aidlc' && !isLegacyCohesiveAssetId(s.id));
+  const claudeAgents = discovered.agents.filter((a) =>
+    a.scope !== 'aidlc' && !isLegacyCohesiveAssetId(a.id));
   const recentEpics = allEpics.slice(0, 3).map((e) => ({
     id: e.id,
     title: e.title,
@@ -231,7 +237,8 @@ function buildState(
 
   // Active pipeline runs live in .aidlc/runs/ and are independent of the
   // workspace doc — surface them whenever the folder is open.
-  const activeRuns = listActiveRuns(root);
+  const activeRuns = listActiveRuns(root)
+    .filter((run) => !LEGACY_COHESIVE_PIPELINE_IDS.has(run.pipelineId));
   const runIds = listAllRunIds(root);
 
   if (!doc) {
@@ -259,7 +266,11 @@ function buildState(
     };
   }
 
-  const pipelines: PipelineRef[] = (doc.pipelines as PipelineConfig[]).map((p) => ({
+  const visibleAgents = doc.agents.filter((agent) => !isLegacyCohesiveAssetId(String(agent.id)));
+  const visibleSkills = doc.skills.filter((skill) => !isLegacyCohesiveAssetId(String(skill.id)));
+  const visiblePipelines = (doc.pipelines as PipelineConfig[])
+    .filter((pipeline) => !LEGACY_COHESIVE_PIPELINE_IDS.has(String(pipeline.id)));
+  const pipelines: PipelineRef[] = visiblePipelines.map((p) => ({
     id: String(p.id),
     stepCount: Array.isArray(p.steps) ? p.steps.length : 0,
     onFailure: p.on_failure === 'continue' ? 'continue' : 'stop',
@@ -274,12 +285,20 @@ function buildState(
     configExists: true,
     // Counts span all 3 scopes: workspace.yaml entries (aidlc) + .claude/
     // (project) + ~/.claude/ (global). Same total the Builder tab shows.
-    agentsCount: doc.agents.length + claudeAgents.length,
-    skillsCount: doc.skills.length + claudeSkills.length,
-    pipelinesCount: doc.pipelines.length,
+    agentsCount: visibleAgents.length + claudeAgents.length,
+    skillsCount: visibleSkills.length + claudeSkills.length,
+    pipelinesCount: visiblePipelines.length,
     epicsCount: allEpics.length,
     recentEpics,
-    slashCommands: doc.slash_commands.map((c) => ({
+    slashCommands: doc.slash_commands
+      .filter((c) => {
+        const agent = (c as { agent?: unknown }).agent;
+        const pipeline = (c as { pipeline?: unknown }).pipeline;
+        return !(typeof agent === 'string' && isLegacyCohesiveAssetId(agent))
+          && !(typeof pipeline === 'string' && LEGACY_COHESIVE_PIPELINE_IDS.has(pipeline))
+          && !(typeof c.name === 'string' && (c.name.startsWith('/cohesive-feature-') || c.name.startsWith('/cohesive-work-package-')));
+      })
+      .map((c) => ({
       name: typeof c.name === 'string' ? c.name : '',
       target:
         typeof (c as { agent?: unknown }).agent === 'string'
@@ -287,7 +306,7 @@ function buildState(
           : typeof (c as { pipeline?: unknown }).pipeline === 'string'
           ? `pipeline ${(c as { pipeline: string }).pipeline}`
           : '',
-    })),
+      })),
     builtinTemplates,
     projectTemplates,
     activeRuns,
@@ -845,7 +864,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     const fallback = missingBundleHtml(this.extensionUri.fsPath, 'sidebar.js', cspSource, nonce);
     if (fallback) { return fallback; }
     const iconUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'media', 'cohesive-delivery-icon.png'),
+      vscode.Uri.joinPath(this.extensionUri, 'media', 'aidlc-workspace-icon.png'),
     ).toString();
     const version = readExtensionVersion(this.extensionUri.fsPath);
     const initialState = buildState(this.presetStore, this.mcp);
@@ -865,7 +884,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
            font-src ${cspSource} https: data:;
            style-src ${cspSource} 'unsafe-inline';
            script-src 'nonce-${nonce}' ${cspSource};">
-<title>Cohesive Delivery</title>
+<title>AIDLC Workspace</title>
 <link rel="stylesheet" href="${cssUri}">
 </head>
 <body>

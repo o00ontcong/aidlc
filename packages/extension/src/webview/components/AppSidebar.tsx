@@ -88,15 +88,15 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
         <div className="flex items-center gap-2 min-w-0">
           <BrandIcon />
           <div className="min-w-0">
-            <h2 className="text-[11px] font-bold tracking-widest uppercase">Cohesive Delivery</h2>
-            <p className="truncate text-[10px] text-muted-foreground">AI delivery workflow runner</p>
+            <h2 className="text-[11px] font-bold tracking-widest uppercase">AIDLC Workspace</h2>
+            <p className="truncate text-[10px] text-muted-foreground">Shared project and task workspace</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => postMessage({ type: 'openSettings' })}
-            title={`Cohesive Delivery output language: ${state.displayLanguage === 'vi' ? 'Tiếng Việt' : 'English'}. Change language`}
+            title={`AIDLC Workspace output language: ${state.displayLanguage === 'vi' ? 'Tiếng Việt' : 'English'}. Change language`}
             className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-secondary/50 px-1.5 text-[10px] font-bold tracking-wide text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <Globe2 className="h-3 w-3" />
@@ -194,11 +194,11 @@ function AskButton() {
     <button
       type="button"
       onClick={() => postMessage({ type: 'askAidlc' })}
-      title="Ask Claude about Cohesive Delivery — what it does, how to set it up"
+      title="Ask your agent about AIDLC Workspace — what it does and how to set it up"
       className="flex w-full items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
     >
       <HelpCircle className="h-3.5 w-3.5" />
-      <span>Ask Cohesive Delivery</span>
+      <span>Ask AIDLC Workspace</span>
       <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
     </button>
   );
@@ -210,7 +210,7 @@ function BrandIcon() {
     return (
       <img
         src={uri}
-        alt="Cohesive Delivery"
+        alt="AIDLC Workspace"
         className="h-7 w-7 shrink-0 rounded-md object-cover shadow-md shadow-primary/20"
       />
     );
@@ -349,8 +349,7 @@ function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
 
 function StatsGrid({ state }: { state: SidebarState }) {
   // Each tile doubles as navigation: Agents/Skills/Flows deep-link into the
-  // matching Builder tab, while Epics opens the dedicated top-level Epics view
-  // (the Builder no longer has an Epics tab).
+  // matching Builder tab, while Tasks opens the dedicated task workspace.
   const stats: { label: string; value: number; onClick: () => void }[] = [
     {
       label: 'Agents',
@@ -368,7 +367,7 @@ function StatsGrid({ state }: { state: SidebarState }) {
       onClick: () => postMessage({ type: 'openBuilderTab', tab: 'workflows' }),
     },
     {
-      label: 'Epics',
+      label: 'Tasks',
       value: state.epicsCount,
       onClick: () => postMessage({ type: 'openEpicsList' }),
     },
@@ -442,7 +441,7 @@ function RecentEpicsSection({
   return (
     <div>
       <SectionHeader
-        label="Recent Epics"
+        label="Recent Tasks"
         collapsed={collapsed}
         onToggle={onToggle}
         trailing={
@@ -783,20 +782,19 @@ function TemplateRow({
 // (active look) when enabled. Clicking either state deep-links to the setting
 // so the user can flip it. The shared concept blurb frames the feature.
 const AUTOPILOT_CONCEPT =
-  'Epic Autopilot (experimental)\n\n' +
+  'Task Autopilot (experimental)\n\n' +
   "Reads your project's real context — codebase, tests, spec, and design — " +
-  'sizes the epic, then drafts a plan tailored to it: which agents run in ' +
+  'sizes the task, then drafts a plan tailored to it: which agents run in ' +
   'which phases, what to clarify first, and which phases to add. A near-' +
   'superpower that stays grounded in your business and codebase, not generic ' +
-  'boilerplate. This is separate from Cohesive Delivery\'s Existing Project ' +
-  'Autonomous Delivery flow.';
+  'boilerplate. It is an optional planning aid inside the shared workspace.';
 
 function AutopilotRow({ enabled }: { enabled: boolean }) {
   const tip = useTooltip();
   const tipText =
     AUTOPILOT_CONCEPT +
     (enabled
-      ? '\n\n✅ On — runs automatically when you start an epic. Click to manage the setting.'
+      ? '\n\n✅ On — runs automatically when you create a task. Click to manage the setting.'
       : '\n\n🚧 Coming soon — ships disabled. Click to enable the experimental `aidlc.autopilot.enabled` setting.');
   return (
     <div
@@ -820,9 +818,9 @@ function AutopilotRow({ enabled }: { enabled: boolean }) {
     >
       <Zap className={cn('h-3 w-3 shrink-0', enabled ? 'text-primary opacity-80' : 'text-muted-foreground')} />
       <span className={cn('shrink-0 truncate font-semibold max-w-[40%]', enabled ? 'text-primary' : 'text-muted-foreground')}>
-        Epic Autopilot
+        Task Autopilot
       </span>
-      <span className="truncate text-muted-foreground">· Auto-plan epics from your project context</span>
+      <span className="truncate text-muted-foreground">· Auto-plan tasks from your project context</span>
       <span
         className={cn(
           'ml-auto shrink-0 rounded-sm border px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider',

@@ -302,9 +302,8 @@ export function activate(context: vscode.ExtensionContext): void {
   registerAstGraph(context, output);
 
   // Auto-open Workspace once — deferred so a restored panel from the serializer
-  // can reclaim first (avoids duplicate Cohesive Delivery tabs on reload).
-  const hasFolder = (vscode.workspace.workspaceFolders ?? []).length > 0;
-  WorkspaceWebview.scheduleAutoOpen(context.extensionUri, hasFolder ? 'builder' : 'epics');
+  // can reclaim first (avoids duplicate AIDLC Workspace tabs on reload).
+  WorkspaceWebview.scheduleAutoOpen(context.extensionUri, 'project');
 
   output.appendLine('Activation complete.');
 }

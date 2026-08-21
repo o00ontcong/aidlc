@@ -293,7 +293,7 @@ export interface BuiltinWorkflow {
   description: string;
   /**
    * Optional user guide shipped with the extension (path relative to
-   * `extensionPath`, e.g. `media/guides/cohesive-delivery.md`). Surfaced as
+   * `extensionPath`, e.g. `media/guides/project-workspace.md`). Surfaced as
    * a "View guide" action on the Apply template confirmation.
    */
   guide?: string;
@@ -316,7 +316,7 @@ export interface BuiltinWorkflow {
     phases: PhaseDef[];
   }>;
   /**
-   * Whether phase artifact templates should be pre-seeded. Cohesive Delivery
+   * Whether phase artifact templates should be pre-seeded. Project Workspace
    * disables this: creating empty gate outputs would make cross-pipeline
    * existence checks pass before an agent has actually produced the context.
    */
@@ -472,7 +472,7 @@ const SPECKIT_RECIPES: RecipeDef[] = [
 ];
 
 /**
- * Cohesive Delivery has two durable layers:
+ * Project Workspace has two durable layers:
  *
  *   project-context     establish-baseline (human) → publish-context (auto)
  *   feature-spike       package-mission (human)
@@ -482,7 +482,7 @@ const SPECKIT_RECIPES: RecipeDef[] = [
  * MISSION.md is the machine gate at Start implement. Parallelism belongs
  * between independent feature epics, not inside one epic's DAG.
  */
-const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
+const PROJECT_WORKSPACE_CONTEXT_PHASES: PhaseDef[] = [
   {
     id: 'establish-baseline', name: 'Establish Baseline', persona: 'project-context-agent',
     skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
@@ -551,7 +551,7 @@ const COHESIVE_PROJECT_CONTEXT_PHASES: PhaseDef[] = [
   },
 ];
 
-const COHESIVE_FEATURE_SPIKE_PHASES: PhaseDef[] = [
+const PROJECT_WORKSPACE_SPIKE_PHASES: PhaseDef[] = [
   {
     id: 'package-mission', name: 'Package Mission', persona: 'feature-spike-agent',
     skillFiles: ['feature-spike-workflow'], model: 'claude-opus-5',
@@ -588,7 +588,7 @@ const COHESIVE_FEATURE_SPIKE_PHASES: PhaseDef[] = [
   },
 ];
 
-const COHESIVE_FEATURE_IMPLEMENT_PHASES: PhaseDef[] = [
+const PROJECT_WORKSPACE_IMPLEMENT_PHASES: PhaseDef[] = [
   {
     id: 'implement', name: 'Implement Feature', persona: 'feature-implement-agent',
     skillFiles: ['feature-implement-workflow'], model: 'claude-sonnet-5',
@@ -657,10 +657,10 @@ const COHESIVE_FEATURE_IMPLEMENT_PHASES: PhaseDef[] = [
   },
 ];
 
-const COHESIVE_ALL_PHASES: PhaseDef[] = [
-  ...COHESIVE_PROJECT_CONTEXT_PHASES,
-  ...COHESIVE_FEATURE_SPIKE_PHASES,
-  ...COHESIVE_FEATURE_IMPLEMENT_PHASES,
+const PROJECT_WORKSPACE_PHASES: PhaseDef[] = [
+  ...PROJECT_WORKSPACE_CONTEXT_PHASES,
+  ...PROJECT_WORKSPACE_SPIKE_PHASES,
+  ...PROJECT_WORKSPACE_IMPLEMENT_PHASES,
 ];
 
 export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
@@ -685,18 +685,18 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
     recipes: SPECKIT_RECIPES,
   },
   {
-    id: 'cohesive-delivery',
+    id: 'project-workspace',
     pipelineId: 'feature-implement',
-    name: 'Cohesive Delivery',
-    templatesDir: 'cohesive',
-    guide: 'media/guides/cohesive-delivery.md',
+    name: 'Project Workspace',
+    templatesDir: 'project-workspace',
+    guide: 'media/guides/project-workspace.md',
     description:
-      'Three pipelines: project-context, feature-spike, feature-implement. Human is the bus. Completeness of MISSION.md gates Start implement.',
-    phases: COHESIVE_ALL_PHASES,
-    primaryPhases: COHESIVE_FEATURE_IMPLEMENT_PHASES,
+      'Shared project context plus focused feature tasks. Each task keeps its own artifacts and execution state; project context, review, and integration remain visible to the human.',
+    phases: PROJECT_WORKSPACE_PHASES,
+    primaryPhases: PROJECT_WORKSPACE_IMPLEMENT_PHASES,
     additionalPipelines: [
-      { id: 'project-context', name: 'Project Context', phases: COHESIVE_PROJECT_CONTEXT_PHASES },
-      { id: 'feature-spike', name: 'Feature Spike', phases: COHESIVE_FEATURE_SPIKE_PHASES },
+      { id: 'project-context', name: 'Project Context', phases: PROJECT_WORKSPACE_CONTEXT_PHASES },
+      { id: 'feature-spike', name: 'Feature Spike', phases: PROJECT_WORKSPACE_SPIKE_PHASES },
     ],
     seedArtifacts: false,
   },
@@ -741,7 +741,7 @@ export function workflowSlug(workflow: BuiltinWorkflow): string {
  * Look up a built-in workflow by its preset id (e.g. `ios-native-pipeline`).
  */
 export function getBuiltinWorkflow(id: string): BuiltinWorkflow | undefined {
-  return BUILTIN_BY_ID.get(id);
+  return BUILTIN_BY_ID.get(id === 'cohesive-delivery' ? 'project-workspace' : id);
 }
 
 /**
@@ -755,7 +755,7 @@ export function getBuiltinWorkflowByPipelineId(pipelineId: string): BuiltinWorkf
 
 /**
  * Resolve a single phase inside a built-in pipeline (including companion
- * pipelines like `project-context` on the cohesive-delivery bundle).
+ * pipelines like `project-context` in the Project Workspace bundle).
  */
 export function getBuiltinPhase(
   pipelineId: string,
@@ -867,8 +867,8 @@ export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
     '',
     '- If Claude exits or fails while this step remains **Awaiting work**, click **Run again with Claude**. It reopens this exact slash command with the same run id.',
     '- If a review rejects this step, click **Run again with Claude** to create a new revision and relaunch with the reject feedback. Choose **Edit feedback first** when the feedback needs changing before the retry.',
-    '- In Cohesive Delivery, parallelism means independent feature epics may run at the same time. It does not mean creating worker/work-package epics or setting an agent count inside this epic; Claude owns any internal decomposition.',
-    '- This help is for **Guided** execution: after Claude completes, use **Mark step done** and any review gates. In **Autonomous Delivery**, the visible `/aidlc-autonomous-delivery <delivery-id>` Claude master controls phases and resume checkpoints; do not mark individual phases done yourself.',
+    '- In Project Workspace, parallelism means independent feature tasks may run at the same time. It does not mean creating worker tasks or setting an agent count inside this task; the provider owns any internal decomposition.',
+    '- After the provider completes, inspect the output and use **Mark step done** plus any review gates. Before handoff, update shared project status and decisions so the next task sees what changed.',
     '',
     '## Command',
     '',
@@ -978,7 +978,7 @@ export function pipelineCommandId(pipelineId: string, phaseId: string): string {
  * Which pipeline id owns a phase's slash command for a (possibly multi-
  * pipeline) built-in workflow. Primary phases use `workflow.pipelineId`;
  * companion pipeline phases use that companion's id. Without this,
- * cohesive-delivery stamped every phase as `/feature-implement-<phase>`
+ * The retired bundle stamped every phase as `/feature-implement-<phase>`
  * — including companion `establish-baseline` — so the Epic card showed
  * the wrong command and agents followed the wrong namespace.
  */
@@ -1217,18 +1217,6 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
       environment: {},
       slash_commands: slashCommands,
       pipelines,
-      ...(workflow.id === 'cohesive-delivery' ? {
-        cohesive_delivery: {
-          execution_profiles: {
-            'existing-project-autonomous': {
-              project_context: 'infer-or-refresh',
-              review_strategy: 'aggregate',
-              open_feature_pr: true,
-              merge: 'human-only',
-            },
-          },
-        },
-      } : {}),
       // Task-type recipes draw from the pipeline we just composed, so a
       // freshly-applied preset can `assemblePipeline` right away.
       recipes: (workflow.recipes ?? []).map((r) => ({

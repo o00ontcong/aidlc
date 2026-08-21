@@ -33,7 +33,7 @@ export function missingBundleHtml(
   content="default-src 'none';
            style-src ${cspSource} 'unsafe-inline';
            script-src 'nonce-${nonce}';">
-<title>Cohesive Delivery — webview bundle missing</title>
+<title>AIDLC Workspace — webview bundle missing</title>
 <style nonce="${nonce}">
   body { font-family: var(--vscode-font-family); padding: 24px; color: var(--vscode-foreground); line-height: 1.5; }
   h1 { font-size: 1.05rem; margin: 0 0 12px; }
@@ -43,7 +43,7 @@ export function missingBundleHtml(
 </style>
 </head>
 <body>
-<h1>Cohesive Delivery webview bundle missing</h1>
+<h1>AIDLC Workspace webview bundle missing</h1>
 <p>The compiled bundle <code>out/webviews/${listed}</code> wasn't found, so the React UI can't mount.</p>
 <p>Rebuild it from the repo root with one of:</p>
 <ul>

@@ -42,9 +42,9 @@ describe('builtin step help', () => {
     expect(md).toContain('/project-context-establish-baseline');
   });
 
-  it('cohesive-delivery ships a user guide path', () => {
-    expect(getBuiltinWorkflow('cohesive-delivery')?.guide).toBe(
-      'media/guides/cohesive-delivery.md',
+  it('project-workspace ships a user guide path', () => {
+    expect(getBuiltinWorkflow('project-workspace')?.guide).toBe(
+      'media/guides/project-workspace.md',
     );
   });
 });
