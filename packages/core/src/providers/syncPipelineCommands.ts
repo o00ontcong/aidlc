@@ -18,9 +18,9 @@ import {
   type WriteCommandsResult,
 } from '../presets/commandModel';
 import {
-  autonomousEpicMasterCommandBody,
-  AUTONOMOUS_EPIC_MASTER_COMMAND,
-} from '../delivery/AutonomousMaster';
+  providerManagedTaskCommandBody,
+  PROVIDER_MANAGED_TASK_COMMAND,
+} from './ProviderManagedTaskCommand';
 import { ModelProviderConfigStore } from '../models/ModelProviderConfigStore';
 import { activeEpicsDir } from '../runs/RunState';
 import { getCommandProviderAdapter } from './CommandProviderAdapter';
@@ -170,7 +170,7 @@ export function syncProviderManagedCommandForProvider(
     {
       name: 'aidlc-provider-managed-task',
       description: 'Run one AIDLC task pipeline in the selected provider terminal.',
-      body: autonomousEpicMasterCommandBody(),
+      body: providerManagedTaskCommandBody(),
     },
   ]) {
     const file = writeStandaloneCommand(
@@ -316,4 +316,4 @@ function readEpicRootFrom(root: string): string {
   return activeEpicsDir(root);
 }
 
-export { AUTONOMOUS_EPIC_MASTER_COMMAND };
+export { PROVIDER_MANAGED_TASK_COMMAND };

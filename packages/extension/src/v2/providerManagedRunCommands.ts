@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 
 import {
-  AUTONOMOUS_EPIC_MASTER_COMMAND,
-  ensureAutonomousEpicMasterCommand,
+  PROVIDER_MANAGED_TASK_COMMAND,
+  ensureProviderManagedTaskCommand,
   listValidatorConflicts,
   resolveValidatorConflict,
   RunStateStore,
@@ -21,10 +21,10 @@ export async function runTaskWithProviderCommand(taskId: string): Promise<void> 
   if (!RunStateStore.load(root, taskId)) {
     throw new Error(`Task "${taskId}" does not have a runnable pipeline checkpoint.`);
   }
-  ensureAutonomousEpicMasterCommand(root);
+  ensureProviderManagedTaskCommand(root);
   await vscode.commands.executeCommand(
     'aidlc.runStepWithFeedback',
-    AUTONOMOUS_EPIC_MASTER_COMMAND,
+    PROVIDER_MANAGED_TASK_COMMAND,
     taskId,
     '',
   );

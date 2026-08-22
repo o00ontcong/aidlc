@@ -164,41 +164,13 @@ export {
 } from './epics/alignmentArtifacts';
 export type { AlignmentSeedInput } from './epics/alignmentArtifacts';
 
-export { DeliveryStateStore } from './delivery/DeliveryStateStore';
+export { LegacyDeliveryStateStore } from './migration/LegacyDeliveryStateStore';
+export type { LegacyDeliveryState } from './migration/LegacyDeliveryStateStore';
 export {
-  DEFAULT_EXISTING_PROJECT_PROFILE,
-  validateDeliveryRequest,
-} from './delivery/DeliveryTypes';
-export {
-  AUTONOMOUS_MASTER_COMMAND,
-  AUTONOMOUS_EPIC_MASTER_COMMAND,
-  ensureAutonomousEpicMasterCommand,
-  ensureAutonomousMasterCommand,
-  writeAutonomousRequest,
-  ensureCohesiveBundleInstalled,
-} from './delivery/AutonomousMaster';
-export {
-  renderDeliveryReviewBundle,
-  deliveryReviewSummaryPath,
-  writeDeliveryReviewBundle,
-} from './delivery/DeliveryReview';
-export { DeliveryOrchestrator } from './delivery/DeliveryOrchestrator';
-export type {
-  DeliveryHooks,
-  StartDeliveryOptions,
-  AddDeliveryTaskInput,
-} from './delivery/DeliveryOrchestrator';
-export type {
-  DeliveryRequest,
-  DeliveryProfile,
-  DeliveryStatus,
-  DeliveryState,
-  DeliveryReviewTask,
-  DeliveryReviewTaskTarget,
-  DeliveryEvent,
-  DeliveryFailureRef,
-  DeliverySourceType,
-} from './delivery/DeliveryTypes';
+  PROVIDER_MANAGED_TASK_COMMAND,
+  ensureProviderManagedTaskCommand,
+  providerManagedTaskCommandBody,
+} from './providers/ProviderManagedTaskCommand';
 
 export {
   WorkspaceLoader,
@@ -342,7 +314,7 @@ export type {
 } from './presets/builtinWorkflows';
 
 // Human reconciliation for pending `.aidlc/validators/*.aidlc-new` upgrades
-// (see `DeliveryOrchestrator.assertValidatorsReady`, which blocks autonomous
+// (see the validator readiness checks, which block provider-managed
 // execution while any are pending).
 export {
   listValidatorConflicts,

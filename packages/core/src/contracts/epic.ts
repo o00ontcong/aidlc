@@ -52,7 +52,7 @@ export type EpicStatus = z.infer<typeof EpicStatusSchema>;
  * second, competing top-level status. That competing-status pattern is
  * exactly the Epic/Run/Delivery overlap this redesign replaces (see
  * `EpicScaffold.ts` `EpicStatus`, `RunState.ts` `RunStatus`,
- * `DeliveryTypes.ts` `DeliveryStatus` — three separate vocabularies for
+ * legacy delivery state — three separate vocabularies for
  * "how far along is this" today).
  *
  * The design doc's linear-with-fanout diagram doesn't spell out every edge

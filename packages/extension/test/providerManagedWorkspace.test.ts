@@ -16,7 +16,7 @@ describe('Project Workspace provider-managed execution', () => {
     expect(detail).toContain("type: 'runTaskWithProvider'");
     expect(host).toContain("case 'runTaskWithProvider'");
     expect(host).toContain('await runTaskWithProviderCommand(epicId)');
-    expect(commands).toContain('ensureAutonomousEpicMasterCommand(root)');
+    expect(commands).toContain('ensureProviderManagedTaskCommand(root)');
     expect(commands).toContain("'aidlc.runStepWithFeedback'");
   });
 

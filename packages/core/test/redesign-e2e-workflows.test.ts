@@ -145,6 +145,14 @@ describe('redesign E2E fixtures', () => {
   it('previews only commit-enabled artifacts and locks a provider-neutral fake model selection', async () => {
     const root = workspace('artifacts');
     const artifacts = new ArtifactPolicyService(root);
+    artifacts.save({
+      schemaVersion: 1,
+      defaults: { persist: 'runtime', commit: false },
+      types: {
+        specification: { path: 'docs/epics/{epic}/SPEC.md', persist: 'project', commit: true },
+        review: { path: 'docs/epics/{epic}/REVIEW.md' },
+      },
+    });
     const preview = artifacts.preview(artifacts.load(), ['specification', 'review'], { epic: 'EPIC-ARTIFACT-E2E' }, ['src/index.ts']);
     expect(preview).toEqual({
       artifacts: [expect.objectContaining({ resolvedPath: 'docs/epics/EPIC-ARTIFACT-E2E/SPEC.md', commit: true })],

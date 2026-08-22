@@ -1606,7 +1606,7 @@ export default async function ci(_ctx) {
  * `<name>.aidlc-new` for explicit human reconciliation — see
  * {@link listValidatorConflicts} / {@link resolveValidatorConflict} for the
  * CLI/extension-facing reconciliation flow, and
- * `DeliveryOrchestrator.assertValidatorsReady` for where unresolved conflicts
+ * the provider-managed task validator for where unresolved conflicts
  * block autonomous execution.
  */
 export function writeBuiltinAutoReviewValidators(

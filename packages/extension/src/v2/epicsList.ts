@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
-  DeliveryStateStore,
+  LegacyDeliveryStateStore,
   RunStateStore,
   normalizeStep,
   resolveArtifactPath,
@@ -595,7 +595,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     // Keep older delivery epics autonomous after upgrade when they
     // have a delivery checkpoint but no explicit persisted mode yet.
     const delivery = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(epicId)
-      ? DeliveryStateStore.load(workspaceRoot, epicId)
+      ? LegacyDeliveryStateStore.load(workspaceRoot, epicId)
       : null;
     const savedRunMode = parsed.runMode;
     const runMode: EpicSummary['runMode'] = savedRunMode === 'guided' || savedRunMode === 'autonomous'

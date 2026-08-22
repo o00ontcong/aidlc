@@ -10,8 +10,8 @@
  * version. This mirrors the existing convention in `runs/RunState.ts`
  * (`StepRecord`, `AutoReviewVerdict`, `StepHistoryEntry` carry no version of
  * their own — only the top-level `RunState.schemaVersion` does) and in
- * `delivery/DeliveryTypes.ts` (`DeliveryEvent`, `DeliveryReviewTask` likewise
- * unversioned under `DeliveryState.schemaVersion`).
+ * the legacy delivery checkpoint format (whose records are likewise
+ * unversioned under its top-level schema version).
  */
 
 import { z } from 'zod';

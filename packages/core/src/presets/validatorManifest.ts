@@ -17,7 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Prefix of the error `DeliveryOrchestrator.assertValidatorsReady` throws
+ * Prefix of the error emitted when a provider-managed task lacks validators
  * when conflicts are pending. The CLI and extension match on this to offer a
  * "resolve validator conflicts" action instead of just surfacing raw text.
  */
@@ -84,7 +84,7 @@ export interface ValidatorConflict {
  * List every pending validator reconciliation in a workspace — i.e. every
  * `.aidlc/validators/<name>.aidlc-new` sidecar that `writeBuiltinAutoReviewValidators`
  * wrote because the installed file diverged from its bundled replacement.
- * Read-only. `DeliveryOrchestrator.assertValidatorsReady` blocks autonomous
+ * Read-only. Provider-managed task validation blocks execution when
  * execution while this list is non-empty; the CLI/extension use it to ask
  * the human which side to keep.
  */

@@ -1,6 +1,6 @@
 # Project Workspace Migration Handoff
 
-Last updated: 2026-08-21 on macOS, from the uncommitted working tree on `main`. This document is the continuation guide for replacing the user-facing Cohesive Delivery experience with Project Workspace in the AIDLC extension.
+Last updated: 2026-08-22 on macOS, on `main`. This document is the continuation guide for replacing the user-facing Cohesive Delivery experience with Project Workspace in the AIDLC extension.
 
 ## Goal and product model
 
@@ -102,20 +102,19 @@ Keep these until migration support is explicitly retired:
 
 These references should never appear as normal new-workspace choices. They exist only to detect, hide, archive, or migrate old state.
 
-## Known unfinished work
+## Continuation completed on 2026-08-22
 
-Work stopped during a dead-code audit. Continue from here:
+The dead-code audit and safe internal rename are complete:
 
-1. Audit `packages/core/src/delivery/`.
-   - `DeliveryOrchestrator.ts`, `DeliveryReview.ts`, and parts of `AutonomousMaster.ts` still contain the retired delivery engine and old terminology.
-   - The extension and CLI entry points for Cohesive have already been removed.
-   - `DeliveryStateStore` is still read by `packages/extension/src/v2/epicsList.ts` for historical delivery metadata.
-   - Migration tests still exercise the old delivery state format.
-   - Decide whether to keep this subsystem as migration-only code, split out the minimal reader/types, or remove the unused orchestrator/review writer and their exports/tests.
-2. Rename remaining internal current-path symbols where safe.
-   - Examples include `AUTONOMOUS_EPIC_MASTER_COMMAND`, `ensureAutonomousEpicMasterCommand`, and `autonomousEpicMasterCommandBody` even though their visible command is already `/aidlc-provider-managed-task`.
-   - Preserve a compatibility alias only if a real importer needs it.
-3. Review all remaining matches before changing them:
+- Removed the retired delivery orchestrator, review-bundle writer, mutable delivery state store, delivery types, and the obsolete autonomous-delivery command body.
+- Retained only `LegacyDeliveryStateStore`, a minimal read-only parser for old `.aidlc/deliveries/<id>/state.json` files. `epicsList.ts` uses it solely to infer the mode of historical tasks.
+- Moved the active provider command into `providers/ProviderManagedTaskCommand.ts` and renamed its API to `PROVIDER_MANAGED_TASK_COMMAND`, `ensureProviderManagedTaskCommand`, and `providerManagedTaskCommandBody`.
+- Replaced retired-engine tests with compatibility tests for the reader and active provider command.
+- Fixed the redesign E2E artifact fixture by explicitly seeding the policy it expects.
+
+## Remaining work
+
+1. Review all remaining compatibility matches before changing them:
 
    ```sh
    rg -n -i "cohesive|autonomous delivery|aidlc-autonomous-delivery" \
@@ -124,14 +123,15 @@ Work stopped during a dead-code audit. Continue from here:
    ```
 
    Classify each match as migration compatibility, historical prose, ordinary English (for example “cohesive chunk”), or dead old behavior.
-4. Run manual UI QA in an Extension Development Host.
-5. Build a VSIX before committing or publishing. No version bump, changelog entry, tag, marketplace publish, or commit has been made for this work.
+2. Run manual UI QA in an Extension Development Host.
+3. Install/smoke-test the packaged VSIX before publishing. The current package is `aidlc-o00ontcong-3.4.37.vsix`; no version bump, changelog entry, tag, or marketplace publish has been made for this continuation.
+4. Review and commit the continuation separately from the migration base commit.
 
 ## Important unrelated working-tree change
 
-`packages/extension/src/v2/astGraph/scanner.ts` contained a pre-existing user change before this migration work. It prunes dependency/vendor paths from `graph.db` after an AST scan.
+`packages/extension/src/v2/astGraph/scanner.ts` was a pre-existing user change before the migration work. It prunes dependency/vendor paths from `graph.db` after an AST scan.
 
-Do not discard, rewrite, or attribute that file to the Project Workspace migration without reviewing it separately. If the final commit should contain only Project Workspace work, stage that file separately or leave it unstaged.
+It was included in migration base commit `8b42d81`; do not rewrite or attribute it to subsequent Project Workspace cleanup without reviewing it separately.
 
 ## Set up another macOS machine
 
@@ -184,13 +184,13 @@ Do not commit generated `dist/`, `out/`, copied build output, or a `.vsix` unles
 
 ## Automated verification
 
-The following checks passed immediately before this handoff:
+The following checks passed after the 2026-08-22 continuation:
 
-- core: 68 test files, 555 tests passed;
+- core: 68 test files, 552 tests passed;
 - extension: 16 test files, 94 tests passed;
 - extension TypeScript and webview TypeScript typecheck passed;
 - CLI TypeScript build passed;
-- `.aidlc/workspace.yaml` parsed successfully.
+- `pnpm package:extension` produced `packages/extension/aidlc-o00ontcong-3.4.37.vsix`.
 
 Re-run them after continuing:
 
@@ -243,7 +243,7 @@ Before committing:
    git status --short
    ```
 
-No commit has been created by the assistant.
+Migration base commit: `8b42d81 feat: replace Cohesive Delivery with Project Workspace`. The continuation described above is intentionally uncommitted.
 
 ## Local state outside this repository
 
