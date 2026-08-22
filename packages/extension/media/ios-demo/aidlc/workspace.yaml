@@ -1,0 +1,297 @@
+version: "1.0"
+name: TodoKit iOS Demo
+description: >-
+  Demo hai tầng của AIDLC iOS pipeline trên một app to-do SwiftUI có thật (src/,
+  build được bằng `swift build`). Parent `project-foundation` dựng nền hiểu-biết
+  dự án; child `ios-pipeline` chạy từng epic tính năng.
+agents:
+  - id: project-architect
+    name: Project Architect
+    skills:
+      - scan-project
+      - standardize-structure
+      - map-system
+      - document-business-rules
+      - publish-context
+    model: claude-opus-5
+    description: Dựng nền hiểu-biết dự án — context, cấu trúc chuẩn, business rules, file chỉ dẫn AI ở root
+    capabilities:
+      - files
+  - id: po
+    name: Product Owner
+    skills:
+      - requirement
+    model: claude-sonnet-5
+    description: Chuẩn hoá yêu cầu epic thành REQUIREMENT.md
+    capabilities:
+      - files
+  - id: tech-lead
+    name: Tech Lead
+    skills:
+      - create-plan
+      - fix-bug
+    model: claude-sonnet-5
+    description: Breakdown task và lập kế hoạch sửa bug
+    capabilities:
+      - files
+  - id: developer
+    name: iOS Developer
+    skills:
+      - ui-spec
+      - implement
+    model: claude-sonnet-5
+    description: Chốt UI-SPEC từ ảnh màn rồi implement Swift trong src/
+    capabilities:
+      - files
+skills:
+  - id: scan-project
+    path: .aidlc/skills/scan-project.md
+  - id: standardize-structure
+    path: .aidlc/skills/standardize-structure.md
+  - id: map-system
+    path: .aidlc/skills/map-system.md
+  - id: document-business-rules
+    path: .aidlc/skills/document-business-rules.md
+  - id: publish-context
+    path: .aidlc/skills/publish-context.md
+  - id: requirement
+    path: .aidlc/skills/requirement.md
+  - id: create-plan
+    path: .aidlc/skills/create-plan.md
+  - id: ui-spec
+    path: .aidlc/skills/ui-spec.md
+  - id: implement
+    path: .aidlc/skills/implement.md
+  - id: fix-bug
+    path: .aidlc/skills/fix-bug.md
+environment: {}
+slash_commands:
+  - name: /scan-project
+    agent: project-architect
+  - name: /standardize-structure
+    agent: project-architect
+  - name: /map-system
+    agent: project-architect
+  - name: /document-business-rules
+    agent: project-architect
+  - name: /publish-context
+    agent: project-architect
+  - name: /requirement
+    agent: po
+  - name: /create-plan
+    agent: tech-lead
+  - name: /ui-spec
+    agent: developer
+  - name: /implement
+    agent: developer
+  - name: /fix-bug
+    agent: tech-lead
+pipelines:
+  - id: project-foundation
+    on_failure: stop
+    steps:
+      - name: scan-project
+        agent: project-architect
+        skills:
+          - scan-project
+        enabled: true
+        requires: []
+        produces:
+          - docs/project/context/PROJECT-SCAN.md
+        produces_contains:
+          - "## Repository Layout"
+          - "## Modules"
+          - "## Build and Test Commands"
+        human_review: false
+        auto_review: false
+      - name: standardize-structure
+        agent: project-architect
+        skills:
+          - standardize-structure
+        enabled: true
+        requires:
+          - docs/project/context/PROJECT-SCAN.md
+        produces:
+          - docs/project/conventions/CONVENTIONS.md
+          - docs/project/conformance/STRUCTURE-DRIFT.md
+        produces_contains:
+          - "## Canonical Layout"
+          - "## Layering Rules"
+          - "## Drift Table"
+        human_review: true
+        auto_review: false
+        depends_on:
+          - scan-project
+      - name: map-system
+        agent: project-architect
+        skills:
+          - map-system
+        enabled: true
+        requires:
+          - docs/project/context/PROJECT-SCAN.md
+          - docs/project/conventions/CONVENTIONS.md
+        produces:
+          - docs/project/context/ARCHITECTURE-MAP.md
+          - docs/project/context/PROJECT-CONTEXT.md
+        produces_contains:
+          - "## Layer Map"
+          - "## Read This First"
+        human_review: true
+        auto_review: false
+        depends_on:
+          - standardize-structure
+      - name: document-business-rules
+        agent: project-architect
+        skills:
+          - document-business-rules
+        enabled: true
+        requires:
+          - docs/project/context/ARCHITECTURE-MAP.md
+        produces:
+          - docs/project/domain/BUSINESS-RULES.md
+          - docs/project/domain/RULE-OPEN-QUESTIONS.md
+        produces_contains:
+          - "## Rule Index"
+          - "## Unresolved"
+          - "**Evidence:**"
+        human_review: true
+        auto_review: true
+        auto_review_runner: .aidlc/validators/business-rules.mjs
+        depends_on:
+          - map-system
+      - name: publish-context
+        agent: project-architect
+        skills:
+          - publish-context
+        enabled: true
+        requires:
+          - docs/project/context/ARCHITECTURE-MAP.md
+          - docs/project/domain/BUSINESS-RULES.md
+        produces:
+          - docs/README.md
+          - docs/project/context/CONTEXT-MANIFEST.json
+          - CLAUDE.md
+        produces_contains:
+          - "aidlc:context start"
+          - "aidlc:context end"
+          - "## Reading Order"
+        human_review: true
+        auto_review: false
+        depends_on:
+          - document-business-rules
+
+  - id: ios-pipeline
+    on_failure: stop
+    steps:
+      - name: requirement
+        agent: po
+        skills:
+          - requirement
+        enabled: true
+        requires:
+          - docs/project/context/CONTEXT-MANIFEST.json
+        produces:
+          - docs/epics/{epic}/artifacts/REQUIREMENT.md
+        produces_contains:
+          - "Acceptance Criteria"
+        human_review: false
+        auto_review: false
+      - name: create-plan
+        agent: tech-lead
+        skills:
+          - create-plan
+        enabled: true
+        requires:
+          - docs/epics/{epic}/artifacts/REQUIREMENT.md
+        produces:
+          - docs/epics/{epic}/artifacts/TASK-PLAN.md
+        produces_contains:
+          - "## Tasks"
+        human_review: true
+        auto_review: false
+        depends_on:
+          - requirement
+      - name: ui-spec
+        agent: developer
+        skills:
+          - ui-spec
+        enabled: true
+        requires:
+          - docs/epics/{epic}/artifacts/TASK-PLAN.md
+        produces:
+          - docs/epics/{epic}/artifacts/UI-SPEC.md
+        human_review: true
+        auto_review: false
+        depends_on:
+          - create-plan
+      - name: implement
+        agent: developer
+        skills:
+          - implement
+        enabled: true
+        requires:
+          - docs/epics/{epic}/artifacts/UI-SPEC.md
+        produces:
+          - docs/epics/{epic}/artifacts/IMPLEMENT-SUMMARY.md
+        produces_contains:
+          - "## Build Evidence"
+          - "Build complete!"
+        human_review: true
+        auto_review: true
+        auto_review_runner: .aidlc/validators/swift-build.mjs
+        depends_on:
+          - ui-spec
+      - name: fix-bug
+        agent: tech-lead
+        skills:
+          - fix-bug
+        enabled: true
+        requires: []
+        produces: []
+        human_review: false
+        auto_review: false
+        skippable: true
+        depends_on:
+          - implement
+sidebar:
+  views:
+    - type: agents-list
+    - type: skills-list
+    - type: pipelines-list
+recipes:
+  - id: bootstrap
+    description: "Parent: dựng nền lần đầu — quét, chuẩn hoá, map, business rules, publish."
+    from: project-foundation
+    steps:
+      - scan-project
+      - standardize-structure
+      - map-system
+      - document-business-rules
+      - publish-context
+  - id: refresh-context
+    description: "Parent: code đã trôi — quét và map lại rồi publish, giữ nguyên conventions và rules."
+    from: project-foundation
+    steps:
+      - scan-project
+      - map-system
+      - publish-context
+  - id: feature
+    description: "Child: tính năng có UI — requirement → plan → ui-spec → implement."
+    from: ios-pipeline
+    steps:
+      - requirement
+      - create-plan
+      - ui-spec
+      - implement
+  - id: small
+    description: "Child: sửa nhỏ, bỏ TASK-PLAN — requirement → ui-spec → implement."
+    from: ios-pipeline
+    steps:
+      - requirement
+      - ui-spec
+      - implement
+  - id: bugfix
+    description: "Child: chỉ lập kế hoạch sửa bug."
+    from: ios-pipeline
+    steps:
+      - fix-bug

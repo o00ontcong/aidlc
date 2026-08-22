@@ -54,6 +54,7 @@ import { analyzeRequirementsCommand } from './requirementWizard';
 import { registerAskCommand } from './askCommand';
 import { insertDemoEpicCommand } from './demoEpic';
 import { loadDemoProjectCommand } from './demoProject';
+import { loadIosDemoProjectCommand } from './demoIosProject';
 import { reconcileValidatorConflictsCommand } from './providerManagedRunCommands';
 import { migrateEpicStateFiles } from './epicsList';
 import {
@@ -379,6 +380,15 @@ export function registerV2WorkspaceCommands(
       ),
   );
 
+  const loadIosDemoProjectCmd = vscode.commands.registerCommand(
+    'aidlc.loadIosDemoProject',
+    (mode?: unknown) =>
+      loadIosDemoProjectCommand(
+        context.extensionPath,
+        mode === 'reseed' || mode === 'open-as-is' ? mode : undefined,
+      ),
+  );
+
   // Reuses an existing terminal if one is open so the user doesn't end up
   // with a stack of Claude REPLs after multiple clicks.
   //
@@ -551,6 +561,7 @@ export function registerV2WorkspaceCommands(
       openEpicsListCmd,
       insertDemoEpicCmd,
       loadDemoProjectCmd,
+      loadIosDemoProjectCmd,
       startRunCmd,
       reconcileValidatorConflictsCmd,
       markStepDoneCmd,

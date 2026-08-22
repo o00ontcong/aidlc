@@ -400,6 +400,8 @@ export interface SidebarState {
    * button uses this to pop an inline modal asking re-seed vs open-as-is
    * instead of letting the host show a VS Code notification. */
   demoProjectExists: boolean;
+  /** True when ~/aidlc-ios-demo already exists. */
+  iosDemoProjectExists: boolean;
   /** MCP servers Claude is currently connected to. null = first load is in
    * flight, [] = none configured. */
   mcpServers: McpServerInfo[] | null;

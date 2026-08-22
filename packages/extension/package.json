@@ -221,6 +221,12 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.loadIosDemoProject",
+        "title": "Load iOS Demo Project (TodoKit — parent + child pipeline)",
+        "icon": "$(device-mobile)",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.showTokenUsage",
         "title": "Show Claude Token Usage",
         "icon": "$(graph)",

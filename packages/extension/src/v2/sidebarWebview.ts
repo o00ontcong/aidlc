@@ -18,6 +18,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 
 const DEMO_DIR_NAME = 'aidlc-demo-project';
+const IOS_DEMO_DIR_NAME = 'aidlc-ios-demo';
 
 import { readYaml } from './yamlIO';
 import {
@@ -128,6 +129,8 @@ interface SidebarState {
   pipelines: PipelineRef[];
   /** All existing run ids (any status). */
   runIds: string[];
+  /** True when ~/aidlc-ios-demo already exists. */
+  iosDemoProjectExists: boolean;
   /** True when ~/aidlc-demo-project already exists — surfaced so the
    * sidebar can pop an inline "re-seed / open-as-is / cancel" modal
    * instead of letting the host show a VS Code notification. */
@@ -164,6 +167,7 @@ function buildState(
   const configuredLanguage = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
   const displayLanguage = resolveAidlcLanguage(configuredLanguage, vscode.env.language);
   const demoProjectExists = fs.existsSync(path.join(os.homedir(), DEMO_DIR_NAME));
+  const iosDemoProjectExists = fs.existsSync(path.join(os.homedir(), IOS_DEMO_DIR_NAME));
   const autopilotEnabled = vscode.workspace
     .getConfiguration('aidlc')
     .get<boolean>('autopilot.enabled', false);
@@ -182,6 +186,7 @@ function buildState(
       activeRuns: [],
       pipelines: [], runIds: [],
       demoProjectExists,
+      iosDemoProjectExists,
       mcpServers: mcp.servers,
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
@@ -250,6 +255,7 @@ function buildState(
       pipelines: [],
       runIds,
       demoProjectExists,
+      iosDemoProjectExists,
       mcpServers: mcp.servers,
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
@@ -298,6 +304,7 @@ function buildState(
     pipelines,
     runIds,
     demoProjectExists,
+    iosDemoProjectExists,
     mcpServers: mcp.servers,
     mcpLoading: mcp.loading,
     mcpError: mcp.error,
@@ -548,6 +555,13 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'init':
         await vscode.commands.executeCommand('aidlc.initWorkspace');
         return;
+      case 'loadIosDemoProject': {
+        const mode = msg.mode === 'reseed' || msg.mode === 'open-as-is'
+          ? msg.mode
+          : undefined;
+        await vscode.commands.executeCommand('aidlc.loadIosDemoProject', mode);
+        return;
+      }
       case 'loadDemoProject': {
         // mode is set by the React modal so the host skips the VS Code
         // notification — undefined falls back to the legacy prompt.

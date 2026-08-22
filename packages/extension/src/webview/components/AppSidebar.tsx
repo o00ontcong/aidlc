@@ -8,6 +8,7 @@ import {
   ChevronDown,
   FolderOpen,
   Beaker,
+  Smartphone,
   FileCode2,
   X,
   Sparkles,
@@ -110,7 +111,10 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
         <AskButton />
         {!state.hasFolder ? (
-          <EmptyNoFolder demoProjectExists={state.demoProjectExists} />
+          <EmptyNoFolder
+            demoProjectExists={state.demoProjectExists}
+            iosDemoProjectExists={state.iosDemoProjectExists}
+          />
         ) : (
           <>
             <ProjectBar workspaceName={state.workspaceName} configExists={state.configExists} extraProjects={state.extraProjects} />
@@ -302,16 +306,29 @@ function ProjectBar({
   );
 }
 
-function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
-  const [demoModalOpen, setDemoModalOpen] = useState(false);
+function EmptyNoFolder({
+  demoProjectExists,
+  iosDemoProjectExists,
+}: {
+  demoProjectExists: boolean;
+  iosDemoProjectExists: boolean;
+}) {
+  const [demoModalOpen, setDemoModalOpen] = useState<null | 'generic' | 'ios'>(null);
   const onLoadDemo = () => {
     if (demoProjectExists) {
       // Pop the inline picker — replaces the VS Code notification chrome
       // that the host would otherwise show when the dir already exists.
-      setDemoModalOpen(true);
+      setDemoModalOpen('generic');
     } else {
       // Fresh install — just create + open. No prompt needed.
       postMessage({ type: 'loadDemoProject' });
+    }
+  };
+  const onLoadIosDemo = () => {
+    if (iosDemoProjectExists) {
+      setDemoModalOpen('ios');
+    } else {
+      postMessage({ type: 'loadIosDemoProject' });
     }
   };
   return (
@@ -337,10 +354,24 @@ function EmptyNoFolder({ demoProjectExists }: { demoProjectExists: boolean }) {
         <Beaker className="h-3.5 w-3.5" />
         <span>Load Demo Project</span>
       </button>
+      <button
+        type="button"
+        onClick={onLoadIosDemo}
+        title="TodoKit — app SwiftUI build được thật, pipeline cha + con, 5 epic đậu ở các gate khác nhau"
+        className="mt-2 flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <Smartphone className="h-3.5 w-3.5" />
+        <span>Load iOS Demo (TodoKit)</span>
+      </button>
       {demoModalOpen && (
         <LoadDemoModal
-          onChoose={(mode) => postMessage({ type: 'loadDemoProject', mode })}
-          onClose={() => setDemoModalOpen(false)}
+          demoDirName={demoModalOpen === 'ios' ? 'aidlc-ios-demo' : 'aidlc-demo-project'}
+          onChoose={(mode) =>
+            postMessage({
+              type: demoModalOpen === 'ios' ? 'loadIosDemoProject' : 'loadDemoProject',
+              mode,
+            })}
+          onClose={() => setDemoModalOpen(null)}
         />
       )}
     </div>

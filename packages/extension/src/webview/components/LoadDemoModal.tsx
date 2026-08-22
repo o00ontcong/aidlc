@@ -3,6 +3,8 @@ import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Mod
 interface Props {
   onChoose: (mode: 'reseed' | 'open-as-is') => void;
   onClose: () => void;
+  /** Folder under ~ that already exists. Defaults to the generic demo. */
+  demoDirName?: string;
 }
 
 /**
@@ -10,13 +12,13 @@ interface Props {
  * already exists. Replaces the VS Code notification chrome with an inline
  * modal so the affordance lives in the same surface as the button.
  */
-export function LoadDemoModal({ onChoose, onClose }: Props) {
+export function LoadDemoModal({ onChoose, onClose, demoDirName = 'aidlc-demo-project' }: Props) {
   return (
     <Modal
       title="Demo project already exists"
       subtitle={
         <>
-          <span className="font-mono text-foreground/80">~/aidlc-demo-project</span>
+          <span className="font-mono text-foreground/80">~/{demoDirName}</span>
         </>
       }
       onClose={onClose}
@@ -26,9 +28,7 @@ export function LoadDemoModal({ onChoose, onClose }: Props) {
         <ul className="ml-3 list-disc space-y-1 text-[11.5px] text-muted-foreground">
           <li>
             <span className="font-semibold text-foreground/80">Re-seed and open</span> —
-            wipes <span className="font-mono">.aidlc/</span> and{' '}
-            <span className="font-mono">docs/epics/</span>, writes fresh demo data,
-            then opens the folder.
+            wipes the seeded folders, writes fresh demo data, then opens the folder.
           </li>
           <li>
             <span className="font-semibold text-foreground/80">Open as-is</span> —
