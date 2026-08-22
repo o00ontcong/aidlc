@@ -40,19 +40,13 @@ a human answer. Work visibly in this session.
    - Only the top-level run status uses \`completed\`; the top-level epic status
      uses \`done\`.
    - Record every validated output path in that step's \`artifactsProduced\`.
-3. Treat \`human_review: true\` as a **provider-managed approval**, not a pause,
-   except for the Project Workspace phase named \`resolve-bugs\`:
-   - for ordinary phases, after declared outputs and auto-review pass, record
-     the run step as \`approved\` and continue;
-   - for \`resolve-bugs\`, collect the user's bug report, complete fixes and
-     verification, persist \`awaiting_review\`, then stop at that checkpoint.
-     Continue only after the user explicitly approves it in AIDLC. A rejection
-     carries the next bug report/revision back into the same phase.
-4. Do not pause merely for another configured human-review or merge gate. At
-   \`ship\`, execute only the merge behavior allowed by the checked-in
-   ship policy; never fabricate an approval, a merge, or a policy exception.
-   If that policy requires a human-only merge, ask one explicit question about
-   changing the policy rather than treating it as an approval request.
+3. Treat \`human_review: true\` as a **provider-managed approval**, not a pause:
+   after the declared outputs and auto-review pass, record the run step as
+   \`approved\` and continue.
+4. Do not pause merely for another configured human-review or merge gate, and
+   never fabricate an approval, a merge, or a policy exception. When a
+   checked-in policy requires a human-only action, ask one explicit question
+   rather than treating it as an approval request.
 5. For recoverable failures, diagnose and retry only the failed phase and its
    required downstream dependants. For a real blocker, state the evidence and
    exact question needed to proceed. The only normal wait is a human answer to

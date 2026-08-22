@@ -621,50 +621,6 @@ export interface EpicStepDetailFull {
   };
 }
 
-/** Project-level charter snapshot for Charter Board + Start Epic. */
-export interface CharterGoal {
-  id: string;
-  title: string;
-  metric?: string;
-  status?: string;
-}
-
-export interface CharterInvariant {
-  id: string;
-  rule: string;
-  severity?: string;
-}
-
-export interface CharterTechRule {
-  id: string;
-  kind: string;
-  value: string;
-}
-
-export interface CharterSnapshot {
-  present: boolean;
-  revision?: number;
-  hash?: string;
-  goals: CharterGoal[];
-  invariants: CharterInvariant[];
-  techRules: CharterTechRule[];
-  driftSummary?: string;
-  conventionsPath?: string;
-  rulesSyncStatus?: 'fresh' | 'stale' | 'unknown';
-}
-
-export interface EpicAlignment {
-  goals: string[];
-  status?: 'aligned' | 'variance' | 'stale';
-}
-
-export interface EpicShipInfo {
-  prUrl?: string;
-  status?: 'open' | 'approved' | 'merged';
-  head?: string;
-  base?: string;
-}
-
 export interface EpicSummary {
   id: string;
   title: string;
@@ -677,7 +633,6 @@ export interface EpicSummary {
   pipeline: string | null;
   agent: string | null;
   runId: string | null;
-  /** Derived from the matching durable legacy delivery checkpoint. */
   runMode: 'guided' | 'autonomous';
   inputs: Record<string, string>;
   epicDir: string;
@@ -691,19 +646,11 @@ export interface EpicSummary {
   artifactsOnly?: boolean;
   /** Aggregate token usage for the epic. */
   tokenUsage?: EpicUsage;
-  /** Feature alignment strip (Goals served + status). */
-  alignment?: EpicAlignment;
-  /** Feature-level ship info from PR-LINK.md (never for work-package). */
-  ship?: EpicShipInfo;
-  /** REVIEW-DIFF.md contents when present (diff-first human review). */
-  reviewDiff?: string;
-  /** Human-scale graphs produced by spike / implement (Flow, Surfaces, Impact). */
+  /** Human-scale graphs checked in beside the epic (Flow, Surfaces, Impact). */
   visualizations?: EpicVisualizations;
-  /** MISSION.md ## Summary + ## Acceptance criteria for the briefing card. */
-  missionBriefing?: { summary: string; acceptanceCriteria: string };
   /** True when this epic's artifacts sit at the default `docs/epics/` path
    * instead of the workspace's active epics directory — a config-drift
-   * signal, not evidence the mission pack is actually incomplete. */
+   * signal. */
   epicsDirMismatch?: boolean;
 }
 
@@ -747,20 +694,6 @@ export interface AgentMeta {
   capabilities?: string[];
 }
 
-/** Published, repository-wide context consumed by Project Workspace tasks. */
-export interface ProjectContextSummary {
-  revision: number;
-  generatedAt?: string;
-  sourceCommit?: string;
-  /** Absolute path to CONTEXT-MANIFEST.json for the Open action. */
-  manifestPath: string;
-  /** Canonical context artifact filenames declared by the manifest. */
-  artifacts: string[];
-  /** Completed versus configured Project Context pipeline phases, when known. */
-  completedSteps?: number;
-  totalSteps?: number;
-}
-
 export interface ProjectDocumentSummary {
   id: 'agents' | 'project' | 'status' | 'decisions';
   label: string;
@@ -778,24 +711,12 @@ export interface ProjectWorkspaceSummary {
   documents: ProjectDocumentSummary[];
 }
 
-export interface LegacyCohesiveSummary {
-  present: boolean;
-  agents: number;
-  skills: number;
-  pipelines: number;
-  commands: number;
-  recipes: number;
-  executionProfile: boolean;
-}
-
 export interface WorkspaceState {
   hasFolder: boolean;
   workspaceName: string;
   configExists: boolean;
   /** Shared, durable project memory used by every task. */
   projectWorkspace?: ProjectWorkspaceSummary;
-  /** Retired entries detected in an upgraded workspace; never included in visible catalogs. */
-  legacyCohesive?: LegacyCohesiveSummary;
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
@@ -803,7 +724,6 @@ export interface WorkspaceState {
   recipes: RecipeSummary[];
   epics: EpicSummary[];
   /** Current published Project Context, if the workspace has one. */
-  projectContext?: ProjectContextSummary;
   /** id → display metadata (pulled from workspace.yaml) for the step-detail card. */
   agentMeta: Record<string, AgentMeta>;
   /** id → slash command string (with leading /). First wins on duplicates. */
@@ -844,10 +764,6 @@ export interface WorkspaceState {
     followedIds?: string[];
     listWidth?: number;
   };
-  /** Project charter for Charter Board + Start Epic goal picker. */
-  charter?: CharterSnapshot;
-  /** Display-only ignore patterns for the epic diff pane. */
-  diffIgnore?: string[];
   /** Curated, feature-centric diagram model. It is read-only and never replaces workspace state. */
   architecture: ArchitectureExplorerState;
   /** Resolved once in the extension host from aidlc.displayLanguage / VS Code. */

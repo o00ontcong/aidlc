@@ -689,7 +689,7 @@ function WorkflowsSection({
               This project already has <span className="font-mono">.aidlc/workspace.yaml</span>.
               Overwrite matching pipelines/agents from template{' '}
               <span className="font-mono">{pendingApply.id}</span>?
-              {' '}(e.g. upgrade stale <span className="font-mono">project-context</span> steps.)
+              {' '}(e.g. upgrade stale pipeline steps.)
               Other custom pipelines are kept.
             </>
           }

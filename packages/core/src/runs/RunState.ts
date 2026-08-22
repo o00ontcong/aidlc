@@ -214,8 +214,8 @@ export interface RunState {
   /** Pipeline id this run is executing. Must exist in workspace.yaml. */
   pipelineId: string;
   /**
-   * Immutable copy of the pipeline used by this run. Added in Cohesive
-   * Delivery v2 so a preset upgrade cannot change an in-flight run's steps.
+   * Immutable copy of the pipeline used by this run, so a preset upgrade
+   * cannot change an in-flight run's steps.
    * Optional because state files written by earlier versions remain valid.
    */
   pipelineSnapshot?: import('./PipelineSnapshot').PipelineSnapshot;

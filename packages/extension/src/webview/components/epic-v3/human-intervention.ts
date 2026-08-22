@@ -1,8 +1,8 @@
 import type { EpicStepDetailFull } from '@/lib/types';
 
 /**
- * Human-facing recovery guidance for the Cohesive Feature pipeline.  Keep
- * this close to the Epic UI rather than persisting it in run state: it is
+ * Human-facing recovery guidance for the AIDLC pipeline steps. Keep this
+ * close to the Epic UI rather than persisting it in run state: it is
  * explanatory copy, not a new workflow contract.
  */
 export interface HumanInterventionGuide {
@@ -19,107 +19,47 @@ export interface HumanInterventionGuide {
 type StepLike = Pick<EpicStepDetailFull, 'agent' | 'stepName' | 'artifact'>;
 
 const GUIDE_BY_STEP: Record<string, HumanInterventionGuide> = {
-  'capture-context': {
-    fixAt: 'Đối chiếu snapshot với project context hiện tại; bổ sung convention, dependency hoặc ràng buộc bị thiếu trước khi các step sau đọc nó.',
-    source: 'PROJECT-CONTEXT-SNAPSHOT.md',
-    feedback: 'Bối cảnh hiện tại thiếu/sai: …; ràng buộc cần giữ là: … . Hãy cập nhật snapshot trước khi tiếp tục.',
-    followUp: 'Chạy lại step này; các step đã dựa vào snapshot cũ cũng cần được xem xét chạy lại.',
-  },
-  specify: {
-    fixAt: 'Sửa Functional Requirements, Acceptance Criteria và Out of Scope để mô tả đúng hành vi sản phẩm; không sửa thẳng code ở step này.',
-    source: 'SPEC.md',
-    feedback: 'Hiện tại: … . Mong muốn: … . In scope: …; out of scope: … . Hãy sửa SPEC và acceptance criteria.',
-    followUp: 'Rerun specify; nếu đã qua clarify thì rerun các step phía sau để chúng dùng SPEC mới.',
-  },
-  clarify: {
-    fixAt: 'Thêm quyết định rõ ràng vào phần Clarifications: ai dùng, khi nào xảy ra, dữ liệu nào hợp lệ và AC nào chứng minh kết quả.',
-    source: 'SPEC.md · Clarifications',
-    feedback: 'Cần chốt rõ: … . Hành vi mong muốn: … . Tiêu chí nghiệm thu: … .',
-    followUp: 'Reject/Request update rồi chạy lại clarify; downstream cần chạy lại nếu quyết định thay đổi.',
-  },
   plan: {
-    fixAt: 'Sửa approach kỹ thuật, Shared Contract Impact, File Impact, cây feature (add/sửa/xoá) và traceability để kiến trúc/điểm tích hợp khớp quyết định đã chốt.',
-    source: 'PLAN.md · FEATURE-IMPACT.json / FEATURE-IMPACT.mmd',
-    feedback: 'Phương án hiện tại: … . Hãy dùng phương án: … vì … . Giữ các ràng buộc: … . Cây feature cần thêm/sửa/xoá: … .',
-    followUp: 'Chạy lại plan rồi làm mới task/contract/flow phụ thuộc để tránh triển khai theo hướng cũ.',
+    fixAt: 'Sửa Problem/Goal, scope và Acceptance Criteria trong PRD để mô tả đúng hành vi sản phẩm; chốt các Discovery decisions còn treo.',
+    source: 'PRD.md',
+    feedback: 'Hiện tại: … . Mong muốn: … . In scope: …; out of scope: … . Hãy sửa PRD và acceptance criteria.',
+    followUp: 'Chạy lại plan; các step phía sau cần chạy lại nếu PRD đổi.',
   },
-  'plan-tasks': {
-    fixAt: 'Thêm task thiếu, đặt lại dependency/thứ tự và gắn mỗi task với requirement hoặc AC mà nó thực hiện.',
-    source: 'TASKS.md',
-    feedback: 'Bổ sung/chỉnh task: … . Thứ tự phụ thuộc cần là: … . Mỗi task phải trace được về requirement: … .',
-    followUp: 'Chạy lại plan-tasks trước khi sửa contract hoặc implementation.',
+  prototype: {
+    fixAt: 'Chỉnh phương án UI đã chọn, các option so sánh và lý do chọn; sửa prototype HTML tương ứng.',
+    source: 'PROTOTYPE.md + các file prototype HTML',
+    feedback: 'Option hiện tại chưa đạt vì: … . Hướng UI mong muốn: … . Ràng buộc thiết kế cần giữ: … .',
+    followUp: 'Chạy lại prototype rồi cập nhật design nếu phương án UI thay đổi.',
   },
-  'tasks-package': {
-    fixAt: 'Thêm task thiếu, đặt lại dependency/thứ tự và gắn mỗi task với requirement hoặc AC mà nó thực hiện.',
-    source: 'TASKS.md',
-    feedback: 'Bổ sung/chỉnh task: … . Thứ tự phụ thuộc cần là: … . Mỗi task phải trace được về requirement: … .',
-    followUp: 'Chạy lại step này trước khi sửa contract hoặc implementation.',
+  design: {
+    fixAt: 'Sửa kiến trúc, API contract, DI plan và File Impact để khớp quyết định đã chốt; ghi rõ invariant không được phá.',
+    source: 'TECH-DESIGN.md',
+    feedback: 'Phương án hiện tại: … . Hãy dùng phương án: … vì … . Giữ các ràng buộc: … .',
+    followUp: 'Chạy lại design rồi làm mới test plan và implementation phụ thuộc.',
   },
-  'analyze-contract': {
-    fixAt: 'Chỉnh request/response, ownership dữ liệu, API và boundary giữa layer; ghi rõ invariant không được phá trước khi implement.',
-    source: 'FEATURE-CONTRACT.md',
-    feedback: 'Contract hiện tại sai ở: … . Contract mong muốn: … . Boundary/ràng buộc không được phá: … .',
-    followUp: 'Chạy lại analyze-contract, sau đó cập nhật flow và implementation theo contract đã chốt.',
-  },
-  'map-feature-flow': {
-    fixAt: 'Vẽ lại Surfaces (frontend/backend/SDK/API ngoài) và luồng mã: entry point, transition giữa layer, callback/error state và edge case trong cả JSON lẫn Mermaid.',
-    source: 'FEATURE-SURFACES.json / FEATURE-FLOW.json và các file .mmd',
-    feedback: 'Surfaces hiện tại: … . Surfaces mong muốn: … . Luồng mã từ điểm vào đến kết quả: … . Edge case cần có: … .',
-    followUp: 'Chạy lại map-feature-flow trước implement để code không đi theo flow cũ.',
-  },
-  'package-mission': {
-    fixAt: 'Bổ sung heading còn thiếu trong MISSION.md (Summary, AC testable, Tasks, UI spec, Flow mermaid) và ba graph: FEATURE-FLOW, FEATURE-SURFACES, FEATURE-IMPACT. Không implement ở step này.',
-    source: 'MISSION.md + FEATURE-FLOW / FEATURE-SURFACES / FEATURE-IMPACT',
-    feedback: 'Pack còn thiếu: … . Graph nào trống: … . Hãy điền MISSION.md và graph trước khi Start implement.',
-    followUp: 'Chạy lại package-mission rồi Start implement khi completeness chips đều đủ.',
+  'test-plan': {
+    fixAt: 'Bổ sung loại kiểm thử còn thiếu (UT/UI/integration/performance), device matrix và mapping tới từng acceptance criteria.',
+    source: 'TEST-PLAN.md',
+    feedback: 'Test plan còn thiếu: … . AC chưa được phủ: … . Môi trường/thiết bị cần bổ sung: … .',
+    followUp: 'Chạy lại test-plan trước khi sinh test cases.',
   },
   implement: {
-    fixAt: 'Sửa source code tại hành vi tái hiện được, bổ sung/điều chỉnh test liên quan và cập nhật implementation summary; chỉ đổi contract nếu contract mới là nguồn sai.',
-    source: 'Source code + IMPLEMENTATION-SUMMARY.md',
+    fixAt: 'Sửa source code tại hành vi tái hiện được, bổ sung/điều chỉnh unit test liên quan; chỉ đổi tech design nếu design mới là nguồn sai.',
+    source: 'Source code + TECH-DESIGN.md',
     feedback: 'Bug hiện tại: … . Kết quả mong muốn: … . Cách tái hiện/AC: … . Giữ contract đã chốt: … .',
-    followUp: 'Rerun implement; sau đó chạy resolve-bugs nếu còn lệch so với pack.',
+    followUp: 'Rerun implement rồi chạy lại execute-test để lấy evidence mới.',
   },
-  'implementation-context': {
-    fixAt: 'Cập nhật Planned Versus Actual, Implemented Behavior, traceability và remaining risks để phản ánh đúng code đã merge vào branch.',
-    source: 'IMPLEMENTATION-CONTEXT.md',
-    feedback: 'Hành vi thực tế cần ghi nhận là: … . Sai khác với kế hoạch: … . Risk còn lại: … .',
-    followUp: 'Cập nhật context rồi rerun review/test nếu thông tin này làm thay đổi đánh giá.',
+  'generate-test-cases': {
+    fixAt: 'Bổ sung case còn thiếu, dữ liệu/fixture và trace từng case về requirement hoặc AC mà nó chứng minh.',
+    source: 'TEST-CASES.md',
+    feedback: 'Case còn thiếu: … . Dữ liệu/fixture cần có: … . Mỗi case phải trace được về AC: … .',
+    followUp: 'Chạy lại generate-test-cases trước khi execute-test.',
   },
-  'cohesion-review': {
-    fixAt: 'Dùng report để tìm contract hoặc source code gây lệch; sửa nguyên nhân đó thay vì sửa kết luận trong report, rồi tạo report mới.',
-    source: 'COHESION-REPORT.md, rồi source/FEATURE-CONTRACT.md gây lệch',
-    feedback: 'Review phát hiện lệch: … . Hãy sửa ở nguồn: … . Kết quả cần chứng minh lại: … .',
-    followUp: 'Không vá báo cáo cuối: quay về contract hoặc implement, rồi rerun cohesion-review.',
-  },
-  'system-test': {
-    fixAt: 'Lấy lệnh fail, log và bước tái hiện từ report; sửa source/contract gây lỗi, rồi chạy lại đúng kiểm tra hệ thống để cập nhật evidence.',
-    source: 'SYSTEM-TEST-REPORT.md, rồi source/contract gây fail',
+  'execute-test': {
+    fixAt: 'Lấy lệnh fail, log và bước tái hiện từ report; sửa nguyên nhân ở implement hoặc design, rồi chạy lại đúng bộ kiểm thử để cập nhật evidence.',
+    source: 'TEST-REPORT.md, rồi source/design gây fail',
     feedback: 'Lệnh/kiểm tra fail: … . Kết quả hiện tại: … . Kết quả mong muốn: … . Log hoặc bước tái hiện: … .',
-    followUp: 'Sửa nguyên nhân ở implement/contract, sau đó rerun system-test.',
-  },
-  'resolve-bugs': {
-    fixAt: 'Nhập tất cả bug tại step này; agent tự truy vết về code và artifact sở hữu, sửa và chạy regression test.',
-    source: 'Source code + BUG-FIX-LOG.md',
-    feedback: 'Hiện tại: … . Mong muốn: … . Cách tái hiện: … . Log/ảnh/file liên quan: … .',
-    followUp: 'Chưa hài lòng thì Reject kèm thông tin mới; hài lòng thì Approve để step kế tiếp đồng bộ docs và mở PR.',
-  },
-  'open-pr': {
-    fixAt: 'Kiểm tra head/base branch, PR URL và evidence test; sửa branch hoặc mở lại PR đúng target rồi cập nhật record ship.',
-    source: 'PR-LINK.md',
-    feedback: 'PR cần trỏ từ branch … vào … . Thiếu/sai evidence: … .',
-    followUp: 'Chạy lại open-pr sau khi branch và kiểm thử đã đúng.',
-  },
-  'await-merge': {
-    fixAt: 'Kiểm tra trạng thái PR thật trên remote; hoàn tất review/merge theo policy và chỉ cập nhật status sau khi merge đã được xác minh.',
-    source: 'PR-LINK.md',
-    feedback: 'PR cần được xử lý như sau: … . Trạng thái merge thực tế: … .',
-    followUp: 'Đây là human gate: review/merge PR theo policy, rồi xác nhận lại step. Agent không tự merge branch mặc định.',
-  },
-  'ship': {
-    fixAt: 'Mở đúng một PR feature/$EPIC, chờ human merge trên GitHub, rồi cập nhật Reality (không sửa charter).',
-    source: 'PR-LINK.md + PROJECT-UPDATE.md',
-    feedback: 'PR cần trỏ từ branch … vào … . Sau merge cần cập nhật Reality: … .',
-    followUp: 'Merge trên GitHub rồi chạy lại ship để ghi PROJECT-UPDATE.md.',
+    followUp: 'Không vá báo cáo cuối: sửa nguyên nhân rồi rerun execute-test.',
   },
 };
 

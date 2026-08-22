@@ -12,20 +12,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
-  LegacyDeliveryStateStore,
   RunStateStore,
   normalizeStep,
   resolveArtifactPath,
   mirrorRunStateToEpic,
   getBuiltinStepHelp,
   getBuiltinWorkflowByPipelineId,
-  reconcileRunStateToPipeline,
-  reopenApprovedStepsMissingProduces,
   snapshotPipeline,
-  isLegacyFeatureRun,
-  isLegacyProjectContextRun,
-  remapFeatureRun,
-  remapProjectContextRun,
 } from '@aidlc/core';
 import type {
   RunState,
@@ -42,14 +35,6 @@ import {
   type EpicUsage,
   type StepUsage,
 } from './epicTokenAttribution';
-import {
-  readEpicAlignment,
-  readEpicShip,
-  readReviewDiff,
-  type EpicAlignment,
-  type EpicShipInfo,
-} from './charterUi';
-
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
 export interface EpicSummary {
@@ -149,7 +134,7 @@ export interface EpicSummary {
   /**
    * Basenames of artifacts that currently exist on disk — both under
    * `epicDir/artifacts/` and any resolved pipeline `produces:` path
-   * (e.g. `docs/project/context/PROJECT-SCAN.md` for project-context).
+   * (e.g. a `produces:` path outside the epic folder).
    */
   existingArtifacts: string[];
   /**
@@ -165,12 +150,6 @@ export interface EpicSummary {
    * artifact's own frontmatter `status:` field, not a run-state machine.
    */
   artifactsOnly?: boolean;
-  /** Feature alignment strip (Goals + status). */
-  alignment?: EpicAlignment;
-  /** Feature-level ship info — never for work-package pipelines. */
-  ship?: EpicShipInfo;
-  /** REVIEW-DIFF.md text for diff-first human review. */
-  reviewDiff?: string;
 }
 
 /** Persist a mode switch atomically; the autonomous master observes it before each phase. */
@@ -202,7 +181,7 @@ export function setEpicRunMode(
  * Index on-disk artifacts for an epic: basename → absolute path.
  *
  * Covers the conventional `epicDir/artifacts/` folder **and** every resolved
- * pipeline `produces:` path. Needed for pipelines like `project-context`
+ * pipeline `produces:` path. Needed for pipelines
  * whose canonical outputs live under `docs/project/context/` rather than
  * the epic's artifacts folder — without this, the Epic card keeps showing
  * "PROJECT-SCAN.md · not produced yet" even after the agent wrote the file.
@@ -235,7 +214,7 @@ export function collectArtifactIndex(args: {
 
   // Conventional epic artifacts folder.
   addDir(path.join(args.epicDir, 'artifacts'));
-  // Canonical project-context outputs (outside epicDir).
+  // Canonical outputs declared outside epicDir.
   addDir(path.join(args.workspaceRoot, 'docs', 'project', 'context'));
 
   if (args.pipelineCfg && Array.isArray(args.pipelineCfg.steps)) {
@@ -592,16 +571,9 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       : [];
 
     const epicId = typeof parsed.id === 'string' ? parsed.id : folder;
-    // Keep older delivery epics autonomous after upgrade when they
-    // have a delivery checkpoint but no explicit persisted mode yet.
-    const delivery = /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(epicId)
-      ? LegacyDeliveryStateStore.load(workspaceRoot, epicId)
-      : null;
     const savedRunMode = parsed.runMode;
     const runMode: EpicSummary['runMode'] = savedRunMode === 'guided' || savedRunMode === 'autonomous'
       ? savedRunMode
-      : delivery && (!delivery.featureRunId || delivery.featureRunId === epicId)
-      ? 'autonomous'
       : 'guided';
 
     // Overlay run-state if there's a matching pipeline run. The runId
@@ -661,7 +633,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review, skippable: norm.skippable });
         stepDependsByIdx.set(i, norm.depends_on);
         if (norm.name) { stepNameByIdx.set(i, norm.name); }
-        // Keep every declared output. Project-context phases commonly emit a
+        // Keep every declared output. Some phases emit a
         // bundle of Markdown files; retaining only produces[0] made the other
         // files impossible to open from the Artifacts row.
         const artifacts = artifactBasenames(norm.produces);
@@ -723,9 +695,8 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       if (namespaced && slashNames.has(namespaced)) { return namespaced; }
       const bare = `/${stepName}`;
       if (slashNames.has(bare)) { return bare; }
-      // Built-in companion pipelines (e.g. project-context next to cohesive-feature)
-      // must keep their own prefix — never steal `/cohesive-feature-<phase>` when
-      // the epic is on `project-context`. Recipe-assembled pipelines are not in
+      // Built-in companion pipelines must keep their own prefix rather than
+      // borrowing the primary pipeline's. Recipe-assembled pipelines are not in
       // the builtin map, so they still fall back to the source pipeline command.
       const isBuiltinPipeline = !!(pipelineId && getBuiltinWorkflowByPipelineId(pipelineId));
       if (!isBuiltinPipeline) {
@@ -881,9 +852,6 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       artifactPaths,
       runId: runState ? runState.runId : null,
       runMode,
-      alignment: readEpicAlignment(epicDir),
-      ship: readEpicShip(epicDir, pipeline),
-      reviewDiff: readReviewDiff(epicDir),
     });
   }
 
@@ -999,11 +967,6 @@ export interface MigrationReport {
  *     the epic gets a full live run-state machine going forward.
  *   - Pipeline missing from workspace.yaml or unparseable state.json
  *     → record as an error and continue.
- *   - Cohesive run snapshot differs from the installed pipeline
- *     → reconcile by phase id, preserving existing records and marking only
- *   - Cohesive feature epics whose pipeline now requires FEATURE-IMPACT /
- *     FEATURE-SURFACES graphs reopen those approved steps when the files
- *     are missing, without resetting later work.
  *
  * Idempotent — re-running on a fully-migrated workspace does not rewrite the
  * run state or add duplicate phases.
@@ -1039,19 +1002,6 @@ export function migrateEpicStateFiles(workspaceRoot: string): MigrationReport {
       }
       const pipelines = (doc?.pipelines as PipelineConfig[] | undefined) ?? [];
       let changed = didBackfill;
-      if (isLegacyFeatureRun(runState)) {
-        const target = pipelines.find((pipeline) => pipeline.id === 'feature-implement');
-        if (target) {
-          runState = remapFeatureRun(runState, target, workspaceRoot);
-          changed = true;
-        }
-      } else if (isLegacyProjectContextRun(runState)) {
-        const target = pipelines.find((pipeline) => pipeline.id === 'project-context');
-        if (target) {
-          runState = remapProjectContextRun(runState, target);
-          changed = true;
-        }
-      }
       const pipelineCfg = pipelines.find(
         (pipeline) => pipeline.id === runState!.pipelineId,
       );
@@ -1059,26 +1009,12 @@ export function migrateEpicStateFiles(workspaceRoot: string): MigrationReport {
         report.skipped.push({ epicId, reason: `pipeline "${runState.pipelineId}" not found in workspace.yaml` });
         continue;
       }
-      const builtin = getBuiltinWorkflowByPipelineId(runState.pipelineId);
       if (!runState.pipelineSnapshot) {
         runState = {
           ...runState,
           pipelineSnapshot: snapshotPipeline(pipelineCfg),
         };
         changed = true;
-      } else if (builtin?.id === 'project-workspace') {
-        const reconciled = reconcileRunStateToPipeline(runState, pipelineCfg);
-        runState = reconciled.state;
-        changed = changed || reconciled.changed;
-        if (reconciled.addedStepIds.length > 0) {
-          report.addedSteps.push({ epicId, stepIds: reconciled.addedStepIds });
-        }
-        const reopened = reopenApprovedStepsMissingProduces(runState, pipelineCfg, workspaceRoot);
-        runState = reopened.state;
-        changed = changed || reopened.reopenedStepIds.length > 0;
-        if (reopened.reopenedStepIds.length > 0) {
-          report.reopenedSteps.push({ epicId, stepIds: reopened.reopenedStepIds });
-        }
       }
       if (changed) { RunStateStore.save(workspaceRoot, runState); }
       mirrorRunStateToEpic(workspaceRoot, runState, doc);

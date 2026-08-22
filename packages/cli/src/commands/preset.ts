@@ -106,34 +106,6 @@ const BUILTIN_PRESETS: BuiltinPreset[] = [
       return doc;
     },
   },
-  {
-    id: 'project-workspace',
-    description: 'Shared context → scoped tasks → human review → verification',
-    apply(root, doc) {
-      const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === 'project-workspace');
-      if (!workflow) throw new Error('Project Workspace bundle is unavailable.');
-      const templatesRoot = cliTemplatesRoot();
-      installWorkflowGlobalsByIds(templatesRoot, [workflow.id]);
-      const preset = loadBuiltinPreset(templatesRoot, workflow);
-      const ws = preset.workspace as {
-        agents?: Array<Record<string, unknown>>;
-        skills?: Array<Record<string, unknown>>;
-        slash_commands?: Array<Record<string, unknown>>;
-        pipelines?: Array<Record<string, unknown>>;
-        recipes?: Array<Record<string, unknown>>;
-      };
-      for (const a of ws.agents ?? []) addIfMissing(doc.agents, a);
-      for (const s of ws.skills ?? []) addIfMissing(doc.skills, s);
-      for (const p of ws.pipelines ?? []) addIfMissing(doc.pipelines, p);
-      for (const command of ws.slash_commands ?? []) {
-        if (!doc.slash_commands.some((item) => item.name === command.name)) doc.slash_commands.push(command);
-      }
-      const docRecipes = (Array.isArray(doc.recipes) ? doc.recipes : (doc.recipes = [])) as Array<Record<string, unknown>>;
-      for (const recipe of ws.recipes ?? []) addIfMissing(docRecipes, recipe);
-      writeBuiltinAutoReviewValidators(templatesRoot, root, workflow);
-      return doc;
-    },
-  },
 ];
 
 // ── User presets (stored in .aidlc/presets/*.json) ────────────────────────────

@@ -7,142 +7,6 @@ import { snapshotPipeline, type PipelineConfig } from '@aidlc/core';
 
 import { listEpics, migrateEpicStateFiles, setEpicRunMode } from '../src/v2/epicsList';
 
-describe('migrateEpicStateFiles pipeline reconciliation', () => {
-  let root: string;
-  const epicId = 'EPIC-MIGRATE';
-
-  afterEach(() => {
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-
-  it('adds every missing legacy phase dynamically, preserves old records, and is idempotent', () => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-epic-migrate-'));
-    const oldPipeline = {
-      id: 'feature-implement',
-      name: 'Old Implement',
-      steps: [
-        { name: 'implement', agent: 'cohesive-agent' },
-      ],
-    } as PipelineConfig;
-    const currentPipeline = {
-      ...oldPipeline,
-      name: 'Current Implement',
-      steps: [
-        oldPipeline.steps[0],
-        { name: 'resolve-bugs', agent: 'cohesive-agent', depends_on: ['implement'] },
-        { name: 'ship', agent: 'cohesive-agent', depends_on: ['resolve-bugs'] },
-      ],
-    } as PipelineConfig;
-    fs.mkdirSync(path.join(root, '.aidlc', 'runs'), { recursive: true });
-    fs.mkdirSync(path.join(root, 'docs', 'epics', epicId), { recursive: true });
-    fs.writeFileSync(path.join(root, '.aidlc', 'workspace.yaml'), JSON.stringify({
-      state: { root: 'docs/epics' },
-      pipelines: [currentPipeline],
-    }));
-    fs.writeFileSync(path.join(root, 'docs', 'epics', epicId, 'state.json'), JSON.stringify({
-      id: epicId,
-      title: 'Migrate me',
-      pipeline: 'feature-implement',
-      currentStep: 0,
-      status: 'done',
-      stepStates: [
-        { agent: 'cohesive-agent', status: 'done' },
-      ],
-    }));
-    fs.writeFileSync(path.join(root, '.aidlc', 'runs', `${epicId}.json`), JSON.stringify({
-      schemaVersion: 1,
-      runId: epicId,
-      pipelineId: 'feature-implement',
-      pipelineSnapshot: snapshotPipeline(oldPipeline, '2026-08-01T00:00:00.000Z'),
-      context: { epic: epicId },
-      startedAt: '2026-08-01T00:00:00.000Z',
-      updatedAt: '2026-08-01T00:00:00.000Z',
-      currentStepIdx: 0,
-      status: 'completed',
-      steps: [
-        {
-          stepIdx: 0,
-          agent: 'cohesive-agent',
-          revision: 4,
-          status: 'approved',
-          artifactsProduced: ['IMPLEMENTATION-SUMMARY.md'],
-          feedback: 'preserve me',
-        },
-      ],
-    }));
-
-    const first = migrateEpicStateFiles(root);
-    expect(first.addedSteps).toEqual([{ epicId, stepIds: ['resolve-bugs', 'ship'] }]);
-    const run = JSON.parse(fs.readFileSync(path.join(root, '.aidlc', 'runs', `${epicId}.json`), 'utf8'));
-    expect(run.steps).toHaveLength(3);
-    expect(run.steps[0]).toMatchObject({ revision: 4, feedback: 'preserve me', status: 'approved' });
-    expect(run.steps[1]).toMatchObject({ isNew: true, status: 'awaiting_work' });
-    expect(run.steps[2]).toMatchObject({ isNew: true, status: 'pending' });
-
-    const epic = listEpics(root).find((item) => item.id === epicId)!;
-    expect(epic.stepDetails.map((step) => step.isNew)).toEqual([false, true, true]);
-    expect(epic.stepDetails[1].status).toBe('pending');
-    expect(epic.stepDetails[1].runStatus).toBe('awaiting_work');
-
-    const repeated = migrateEpicStateFiles(root);
-    expect(repeated.migrated).toEqual([]);
-    expect(repeated.addedSteps).toEqual([]);
-    expect(repeated.reopenedSteps).toEqual([]);
-  });
-
-  it('reopens approved implement when FEATURE-SURFACES graphs are missing', () => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-epic-graph-migrate-'));
-    const pipeline = {
-      id: 'feature-implement',
-      steps: [
-        {
-          name: 'implement',
-          agent: 'cohesive-agent',
-          produces: [
-            'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
-            'docs/epics/{epic}/artifacts/FEATURE-SURFACES.json',
-            'docs/epics/{epic}/artifacts/FEATURE-SURFACES.mmd',
-          ],
-        },
-        { name: 'resolve-bugs', agent: 'cohesive-agent', depends_on: ['implement'] },
-      ],
-    } as PipelineConfig;
-    fs.mkdirSync(path.join(root, '.aidlc', 'runs'), { recursive: true });
-    fs.mkdirSync(path.join(root, 'docs', 'epics', epicId, 'artifacts'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'docs', 'epics', epicId, 'artifacts', 'IMPLEMENTATION-SUMMARY.md'), '# done\n');
-    fs.writeFileSync(path.join(root, '.aidlc', 'workspace.yaml'), JSON.stringify({
-      state: { root: 'docs/epics' },
-      pipelines: [pipeline],
-    }));
-    fs.writeFileSync(path.join(root, 'docs', 'epics', epicId, 'state.json'), JSON.stringify({
-      id: epicId, title: 'Graphs', pipeline: 'feature-implement', currentStep: 1, status: 'in_progress',
-      stepStates: [{ agent: 'cohesive-agent', status: 'done' }, { agent: 'cohesive-agent', status: 'in_progress' }],
-    }));
-    fs.writeFileSync(path.join(root, '.aidlc', 'runs', `${epicId}.json`), JSON.stringify({
-      schemaVersion: 1,
-      runId: epicId,
-      pipelineId: 'feature-implement',
-      pipelineSnapshot: snapshotPipeline(pipeline, '2026-08-01T00:00:00.000Z'),
-      context: { epic: epicId },
-      startedAt: '2026-08-01T00:00:00.000Z',
-      updatedAt: '2026-08-01T00:00:00.000Z',
-      currentStepIdx: 1,
-      status: 'running',
-      steps: [
-        { stepIdx: 0, agent: 'cohesive-agent', revision: 1, status: 'approved', artifactsProduced: ['IMPLEMENTATION-SUMMARY.md'] },
-        { stepIdx: 1, agent: 'cohesive-agent', revision: 1, status: 'awaiting_work', artifactsProduced: [] },
-      ],
-    }));
-
-    const report = migrateEpicStateFiles(root);
-    expect(report.reopenedSteps).toEqual([{ epicId, stepIds: ['implement'] }]);
-    const run = JSON.parse(fs.readFileSync(path.join(root, '.aidlc', 'runs', `${epicId}.json`), 'utf8'));
-    expect(run.steps[0]).toMatchObject({ status: 'awaiting_work', isNew: true });
-    expect(run.steps[1].status).toBe('awaiting_work');
-    expect(run.currentStepIdx).toBe(1);
-  });
-});
-
 /**
  * Regression coverage for issue #57: a step showed "IN PROGRESS" with no
  * "Mark step done" affordance because the run-state overlay was keyed by
@@ -249,21 +113,6 @@ describe('listEpics run-state overlay with a multi-step agent', () => {
     // Earlier single-agent steps are unaffected.
     expect(steps[0].runStatus).toBe('approved');
     expect(steps[1].runStatus).toBe('approved');
-  });
-
-  it('reports guided mode until a durable legacy delivery checkpoint exists', () => {
-    expect(listEpics(root, doc).find((epic) => epic.id === epicId)?.runMode).toBe('guided');
-
-    const deliveryDir = path.join(root, '.aidlc', 'deliveries', epicId);
-    fs.mkdirSync(deliveryDir, { recursive: true });
-    fs.writeFileSync(path.join(deliveryDir, 'state.json'), JSON.stringify({
-      schemaVersion: 1,
-      id: epicId,
-      status: 'feature-contract',
-      workerRunIds: [],
-    }));
-
-    expect(listEpics(root, doc).find((epic) => epic.id === epicId)?.runMode).toBe('autonomous');
   });
 
   it('persists a user mode switch for the generic autonomous master', () => {
@@ -487,7 +336,7 @@ describe('listEpics indexes produces: outside epic artifacts/', () => {
  */
 describe('legacy migration backfill follows the active epics directory', () => {
   let root: string;
-  const epicId = 'SPIKE-01';
+  const epicId = 'EPIC-01';
 
   afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
@@ -498,18 +347,18 @@ describe('legacy migration backfill follows the active epics directory', () => {
     const epicDir = path.join(root, '.aidlc', 'epics', epicId);
     fs.mkdirSync(path.join(epicDir, 'artifacts'), { recursive: true });
     fs.writeFileSync(
-      path.join(epicDir, 'artifacts', 'MISSION.md'),
-      '---\nstatus: approved\n---\n# Mission\n',
+      path.join(epicDir, 'artifacts', 'PRD.md'),
+      '---\nstatus: approved\n---\n# PRD\n',
     );
     fs.writeFileSync(
       path.join(epicDir, 'state.json'),
       JSON.stringify({
         id: epicId,
-        title: 'Spike',
-        pipeline: 'feature-spike',
+        title: 'Plan the epic',
+        pipeline: 'aidlc-workflow-full',
         currentStep: 0,
         status: 'done',
-        stepStates: [{ agent: 'spike', status: 'done' }],
+        stepStates: [{ agent: 'po', status: 'done' }],
       }),
     );
 
@@ -520,12 +369,12 @@ describe('legacy migration backfill follows the active epics directory', () => {
         state: { root: '.aidlc/epics' },
         pipelines: [
           {
-            id: 'feature-spike',
+            id: 'aidlc-workflow-full',
             steps: [
               {
-                agent: 'spike',
-                name: 'package-mission',
-                produces: ['docs/epics/{epic}/artifacts/MISSION.md'],
+                agent: 'po',
+                name: 'plan',
+                produces: ['docs/epics/{epic}/artifacts/PRD.md'],
               },
             ],
           },
@@ -538,6 +387,6 @@ describe('legacy migration backfill follows the active epics directory', () => {
 
     const run = JSON.parse(fs.readFileSync(path.join(root, '.aidlc', 'runs', `${epicId}.json`), 'utf8'));
     expect(run.steps[0].status).toBe('approved');
-    expect(run.steps[0].artifactsProduced).toEqual(['.aidlc/epics/SPIKE-01/artifacts/MISSION.md']);
+    expect(run.steps[0].artifactsProduced).toEqual(['.aidlc/epics/EPIC-01/artifacts/PRD.md']);
   });
 });

@@ -85,35 +85,6 @@ function stepIdxMatchingSlash(state: RunState, slash: string, pipeline?: Pipelin
   return state.currentStepIdx;
 }
 
-/**
- * Append a `bug_report` history entry for `resolve-bugs` so previously
- * filed bugs stay in the step timeline and in epic `state.json`.
- */
-export function recordBugReportForRun(
-  workspaceRoot: string,
-  runId: string,
-  report: string,
-  slashCommand?: string,
-): void {
-  const body = report.trim();
-  if (!body) { return; }
-  const state = RunStateStore.load(workspaceRoot, runId);
-  if (!state) { return; }
-  const pipeline = loadPipeline(workspaceRoot, state.pipelineId, state);
-  const stepIdx = slashCommand
-    ? stepIdxMatchingSlash(state, slashCommand, pipeline)
-    : state.currentStepIdx;
-  try {
-    saveRun(workspaceRoot, recordBugReport({ state, report: body, stepIdx }));
-  } catch (err) {
-    if (err instanceof PipelineRunError) {
-      void vscode.window.showWarningMessage(`AIDLC: ${err.message}`);
-      return;
-    }
-    throw err;
-  }
-}
-
 function getRoot(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }

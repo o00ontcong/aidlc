@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { getCommandProviderAdapter, assertImplementPackReady } from '@aidlc/core';
+import { getCommandProviderAdapter } from '@aidlc/core';
 
 import { syncBuiltinPipelineCommands } from './presetWizards';
 import { readEpicsDirFromYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
@@ -13,10 +13,6 @@ import {
   buildProviderCommandPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
-  isBugResolutionCommand,
-  isImplementStartCommand,
-  loadContextReviewFixFeedback,
-  persistBugReportInput,
   resolveRunnableModel,
   terminalNameForProvider,
 } from './providerRunLogic';
@@ -32,7 +28,6 @@ export {
   buildProviderCommandPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
-  loadContextReviewFixFeedback,
   resolveRunnableModel,
   slashCommandName,
   terminalNameForProvider,
@@ -96,11 +91,6 @@ function syncExtensionCommandsForProvider(
       commandName: 'annotate-artifact',
       sourceName: 'annotate-artifact.skill.md',
       description: 'Review an epic Markdown artifact interactively in annotron.',
-    },
-    {
-      commandName: 'start-implement-from-spike',
-      sourceName: 'start-implement-from-spike.skill.md',
-      description: 'Split a completed feature spike into ready-to-run feature-implement epics.',
     },
   ];
   // These commands' bodies hardcode `docs/epics/<epic>/...` prose (see
@@ -239,25 +229,7 @@ export function runStepWithProvider(opts: {
 
   ensureCommandFilesForProvider(opts.root, opts.extensionPath, providerId);
 
-  if (isImplementStartCommand(opts.slashCommand)) {
-    try {
-      assertImplementPackReady(path.join(opts.root, 'docs', 'epics', opts.runId, 'artifacts'));
-    } catch (err) {
-      void vscode.window.showWarningMessage(
-        `AIDLC: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return;
-    }
-  }
-
-  const bugResolution = isBugResolutionCommand(opts.slashCommand);
-  let effectiveFb = (opts.feedback ?? '').trim();
-  if (!effectiveFb && !bugResolution) {
-    effectiveFb = loadContextReviewFixFeedback(opts.root) ?? '';
-  }
-  if (bugResolution) {
-    persistBugReportInput(opts.root, opts.runId, effectiveFb);
-  }
+  const effectiveFb = (opts.feedback ?? '').trim();
 
   const taskPrompt = buildTaskPrompt(
     opts.slashCommand,
@@ -320,7 +292,7 @@ export function runSlashCommandWithProvider(
 
   let prompt = slash;
   if (id !== 'claude' && id !== 'opencode') {
-    const runId = slash.trim().split(/\s+/).slice(1).join(' ') || 'PROJECT-CONTEXT';
+    const runId = slash.trim().split(/\s+/).slice(1).join(' ') || 'EPIC';
     prompt = buildProviderCommandPrompt(root, slash, runId, '', id);
   }
   if (id !== 'opencode') {

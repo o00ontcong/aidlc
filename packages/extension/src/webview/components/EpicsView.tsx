@@ -2,15 +2,12 @@ import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EPIC_DND_MIME } from './EpicCard';
 import { StartEpicModal, type StartEpicDraft } from './StartEpicModal';
-import { CharterBoard } from './CharterBoard';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 import '@/styles/v3-tokens.css';
 import { EpicListPanel, EPIC_LIST_DEFAULT_WIDTH, EPIC_LIST_MAX_WIDTH, EPIC_LIST_MIN_WIDTH } from './epic-v3/EpicListPanel';
 import { EpicDetail } from './epic-v3/EpicDetail';
 import { MockProvider } from './epic-v3/mock';
 import { Btn } from './epic-v3/primitives';
-import { StartImplementModal, type SpikePackOption } from './epic-v3/StartImplementModal';
-import { SAMPLE_MISSION, isFeatureImplementPipeline } from './epic-v3/three-pipeline';
 
 /** Slice of Epics UI prefs persisted on the extension host (workspaceState). */
 interface PersistedEpicsView {
@@ -76,7 +73,6 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
     return Math.max(EPIC_LIST_MIN_WIDTH, Math.min(EPIC_LIST_MAX_WIDTH, Math.round(saved)));
   });
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [charterOpen, setCharterOpen] = useState(false);
 
   useEffect(() => {
     return onHostMessage((msg) => {
@@ -189,22 +185,6 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
     return byId ?? visible[0] ?? null;
   }, [visible, selectedId]);
 
-  const spikePacks: SpikePackOption[] = useMemo(
-    () =>
-      state.epics
-        .filter((epic) => (epic.pipeline ?? '').startsWith('feature-spike') || epic.pipeline === 'feature-spike')
-        .map((epic) => ({
-          id: epic.id,
-          title: epic.title,
-          missionMd: (epic.existingArtifacts ?? []).includes('MISSION.md') ? SAMPLE_MISSION : '',
-        })),
-    [state.epics],
-  );
-
-  const openStartImplement = (draft?: StartEpicDraft | null) => {
-    setImplementDraft(draft ?? null);
-    setStartImplementOpen(true);
-  };
 
   const onSectionDragOver = (section: 'follow' | 'no-follow') => (e: DragEvent) => {
     if (![...e.dataTransfer.types].includes(EPIC_DND_MIME) && dragEpicId === null) {
@@ -307,22 +287,8 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
               <EpicDetail
                 epic={selected}
                 state={state}
-                onOpenCharter={() => setCharterOpen((v) => !v)}
-                onChoosePack={() => openStartImplement(null)}
-                onStartImplementFromSpike={(epic) =>
-                  postMessage({ type: 'startImplementFromSpike', epicId: epic.id })}
               />
             </div>
-            {charterOpen && (
-              <div
-                style={{
-                  flex: 'none', maxHeight: '38%', overflow: 'auto', padding: '12px 18px',
-                  borderTop: '1px solid var(--bd)', background: 'var(--panel)',
-                }}
-              >
-                <CharterBoard charter={state.charter} />
-              </div>
-            )}
           </div>
         ) : (
           <div
@@ -346,56 +312,8 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
           epicsDir={state.epicsDir}
           isFirstEpic={state.epics.length === 0}
           workspaceName={state.workspaceName}
-          charter={state.charter}
-          onSubmit={(draft) => {
-            if (draft.target.kind === 'pipeline' && isFeatureImplementPipeline(draft.target.id)) {
-              setStartEpicOpen(false);
-              openStartImplement(draft);
-              return;
-            }
-            postMessage({ type: 'startEpicInline', draft });
-          }}
+          onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
           onClose={() => setStartEpicOpen(false)}
-        />
-      )}
-      {startImplementOpen && (
-        <StartImplementModal
-          spikeEpics={spikePacks}
-          initialSource={selected && isFeatureImplementPipeline(selected.pipeline) && !implementDraft
-            ? (selected.inputs?.jira ? 'jira' : 'spike')
-            : 'spike'}
-          initialJira={implementDraft ? '' : (selected?.inputs?.jira ?? '')}
-          onStart={(result) => {
-            if (implementDraft) {
-              postMessage({
-                type: 'startEpicInline',
-                draft: {
-                  ...implementDraft,
-                  inputs: {
-                    ...implementDraft.inputs,
-                    spec_source: result.source,
-                    spec_ref: result.specRef,
-                  },
-                  missionMd: result.missionMd,
-                },
-              });
-            } else if (selected) {
-              postMessage({
-                type: 'startPipelineRunForEpic',
-                epicId: selected.id,
-                pipelineId: 'feature-implement',
-                specSource: result.source,
-                specRef: result.specRef,
-                missionMd: result.missionMd,
-              });
-            }
-            setStartImplementOpen(false);
-            setImplementDraft(null);
-          }}
-          onClose={() => {
-            setStartImplementOpen(false);
-            setImplementDraft(null);
-          }}
         />
       )}
     </MockProvider>

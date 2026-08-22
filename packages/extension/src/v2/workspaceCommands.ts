@@ -19,7 +19,6 @@ import {
   WORKSPACE_DIR,
   WORKSPACE_FILENAME,
   stepAgentId,
-  CohesiveDeliveryUpgradeService,
   LegacyMigrationService,
   installWorkflowGlobalsByIds,
   writeBuiltinAutoReviewValidators,
@@ -70,9 +69,7 @@ import {
   openRunStateCommand,
   deleteRunCommand,
   deleteEpicCommand,
-  recordBugReportForRun,
 } from './runCommands';
-import { isBugResolutionCommand } from './providerRunLogic';
 import { resolveTechStackForRoot } from './techStackResolver';
 
 /**
@@ -221,44 +218,10 @@ export function registerV2WorkspaceCommands(
       // That preserves stable phase identities before the bundle definition is
       // upgraded and lets the second pass insert phases by name.
       const prepared = migrateEpicStateFiles(root);
-      let bundleUpdated = false;
-      let commandsRefreshed = false;
       let legacyEpicsConverted = 0;
       let epicsDirSwitched = false;
       let skippedActiveDuplicates = 0;
       try {
-        const service = new CohesiveDeliveryUpgradeService(root);
-        const preview = service.preview();
-        const legacyBundleInstalled = preview.items.some((item) => item.currentSteps.length > 0);
-        const conflicts = preview.items.filter((item) => item.disposition === 'conflict');
-        if (legacyBundleInstalled && conflicts.length > 0) {
-          throw new Error(conflicts.map((item) => `${item.pipelineId}: ${item.warning}`).join('\n'));
-        }
-        if (
-          legacyBundleInstalled
-          && preview.items.some((item) => item.disposition === 'upgrade' || item.disposition === 'missing')
-        ) {
-          service.apply(preview, { confirm: true });
-          bundleUpdated = true;
-        }
-        if (legacyBundleInstalled) {
-          const workflow = BUILTIN_WORKFLOWS.find((item) => item.id === 'project-workspace');
-          const templatesRoot = fs.existsSync(path.join(context.extensionPath, 'templates', 'project-workspace'))
-            ? context.extensionPath
-            : builtinTemplatesRoot();
-          installWorkflowGlobalsByIds(
-            templatesRoot,
-            ['project-workspace'],
-            undefined,
-            resolveTechStackForRoot(root),
-          );
-          const synced = syncBuiltinPipelineCommands(root, templatesRoot, { overwrite: true });
-          commandsRefreshed = synced.commandsWritten.length > 0;
-          if (workflow) {
-            writeBuiltinAutoReviewValidators(templatesRoot, root, workflow);
-          }
-        }
-
         // After legacy bundle/runs are stabilized, explicitly project
         // legacy delivery/run/epic-scaffold records into the unified .aidlc/epics layout.
         // This is idempotent and backed by migration manifests.
@@ -317,12 +280,6 @@ export function registerV2WorkspaceCommands(
         errors: [...prepared.errors, ...updated.errors],
       };
       const parts: string[] = [];
-      if (bundleUpdated) {
-        parts.push('legacy pipeline updated to Project Workspace');
-      }
-      if (commandsRefreshed) {
-        parts.push('graph skills/commands refreshed');
-      }
       if (legacyEpicsConverted > 0) {
         parts.push(`converted ${legacyEpicsConverted} legacy epic(s)`);
       }
@@ -453,10 +410,6 @@ export function registerV2WorkspaceCommands(
 
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) { return; }
-
-      if (isBugResolutionCommand(slash) && fb) {
-        recordBugReportForRun(root, id, fb, slash);
-      }
 
       runStepWithProvider({
         slashCommand: slash,

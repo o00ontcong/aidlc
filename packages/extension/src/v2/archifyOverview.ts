@@ -178,7 +178,7 @@ export function buildArchifyOverviewSpec(
     diagram_type: 'architecture',
     meta: {
       title: `${projectName} architecture`,
-      subtitle: 'Verified overview from AIDLC project-context artifacts',
+      subtitle: 'Verified overview from the checked-in architecture artifacts',
       quality_profile: 'standard',
       visual_preset: 'blueprint',
     },
@@ -188,7 +188,7 @@ export function buildArchifyOverviewSpec(
     cards: [
       { dot: 'cyan', title: 'Layers', items: components.map((component) => component.label) },
       { dot: 'emerald', title: 'Relationships', items: connections.length ? connections.map((connection) => `${connection.from} → ${connection.to}`) : ['No layer relationships were published.'] },
-      { dot: 'violet', title: 'Source', items: ['AIDLC project-context visualization artifacts', 'Rendered with Archify validation'] },
+      { dot: 'violet', title: 'Source', items: ['docs/project/context/visualization artifacts', 'Rendered with Archify validation'] },
     ],
   };
 }

@@ -130,6 +130,4 @@ export function validatorResult(input: Omit<TypedValidatorResult, 'schemaVersion
 export const DEFAULT_BUNDLED_VALIDATORS: readonly BundledValidator[] = Object.freeze([
   { id: 'traceability', packId: 'regulated', version: '1.0.0', description: 'Checks requirement-to-evidence traceability.', source: 'export default async function validate(ctx) { return { decision: "pass", reason: "traceability checked" }; }\n' },
   { id: 'project-ci', packId: 'sdlc-core', version: '1.0.0', description: 'Checks the project validation command result.', source: 'export default async function validate(ctx) { return { decision: "pass", reason: "CI evidence checked" }; }\n' },
-  { id: 'feature-contract', packId: 'cohesive', version: '1.0.0', description: 'Checks cohesive feature contract evidence.', source: 'export default async function validate(ctx) { return { decision: "pass", reason: "feature contract checked" }; }\n' },
-  { id: 'specification', packId: 'speckit', version: '1.0.0', description: 'Checks the specification artifact.', source: 'export default async function validate(ctx) { return { decision: "pass", reason: "specification checked" }; }\n' },
 ]);

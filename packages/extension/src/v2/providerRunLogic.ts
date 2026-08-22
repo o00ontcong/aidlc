@@ -51,28 +51,10 @@ function stripMarkdownFrontmatter(content: string): string {
   return content.replace(/^---[\s\S]*?---\n?/, '');
 }
 
-export function isBugResolutionCommand(slash: string): boolean {
-  const name = slashCommandName(slash);
-  return name === 'feature-implement-resolve-bugs'
-    || name === 'cohesive-feature-resolve-bugs';
-}
-
-export function isImplementStartCommand(slash: string): boolean {
-  const name = slashCommandName(slash);
-  return name === 'feature-implement-implement'
-    || name === 'cohesive-feature-implement';
-}
-
 export const BUG_SCREENSHOT_DIR = 'bug-screenshots';
 export const BUG_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp'] as const;
 export const MAX_BUG_IMAGES = 10;
 export const MAX_BUG_IMAGE_BYTES = 8 * 1024 * 1024;
-
-const BUG_REPORT_HEADER = `# Bug Report
-
-This file is an append-only log of user-reported bugs for \`resolve-bugs\`. Every round stays in scope until the step is approved.
-
-`;
 
 function assertSafeEpicArtifact(root: string, runId: string, ...parts: string[]): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(runId)) {
@@ -140,31 +122,6 @@ export function writeBugScreenshot(
   return { fileName, relativePath: bugScreenshotRelPath(runId, fileName), absPath };
 }
 
-function nextBugReportRound(existing: string): number {
-  const rounds = [...existing.matchAll(/^## Round (\d+)/gm)].map((m) => Number(m[1]));
-  if (rounds.length > 0) { return Math.max(...rounds) + 1; }
-  const body = existing.replace(/^# Bug Report\s*/i, '').trim();
-  return body ? 2 : 1;
-}
-
-/** Persist bug input because native slash-command providers cannot carry prose arguments. */
-export function persistBugReportInput(root: string, runId: string, feedback: string): string | undefined {
-  const body = feedback.trim();
-  if (!body) { return undefined; }
-  const file = assertSafeEpicArtifact(root, runId, 'BUG-REPORT.md');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const at = new Date().toISOString();
-  let existing = '';
-  try { existing = fs.readFileSync(file, 'utf8'); } catch { /* first round */ }
-  const round = nextBugReportRound(existing);
-  const section = `## Round ${round} — ${at}\n\n${body}\n`;
-  const next = existing.trim().length > 0
-    ? `${existing.replace(/\s*$/, '')}\n\n${section}`
-    : `${BUG_REPORT_HEADER}${section}`;
-  fs.writeFileSync(file, next, 'utf8');
-  return file;
-}
-
 export function buildCodexRunPrompt(root: string, slash: string, runId: string, feedback: string): string {
   return buildCommandFileRunPrompt(root, slash, runId, feedback, 'codex');
 }
@@ -207,9 +164,7 @@ function buildCommandFileRunPrompt(
   }
   body = body.replaceAll('$ARGUMENTS', runId);
   if (feedback) {
-    body += isBugResolutionCommand(slash)
-      ? `\n\n## Bug Report\n\n${feedback}`
-      : `\n\n## Feedback\n\nUpdate artifact per feedback: ${feedback}`;
+    body += `\n\n## Feedback\n\nUpdate artifact per feedback: ${feedback}`;
   }
   return body;
 }
@@ -231,25 +186,6 @@ export function buildTaskPrompt(
     return `${slashOnly} ${runId}`;
   }
   return feedback
-    ? `${slashOnly} ${runId} — ${isBugResolutionCommand(slash) ? 'Bug report' : 'Update artifact per feedback'}: "${feedback.replace(/"/g, '\\"')}"`
+    ? `${slashOnly} ${runId} — Update artifact per feedback: "${feedback.replace(/"/g, '\\"')}"`
     : `${slashOnly} ${runId}`;
-}
-
-export function loadContextReviewFixFeedback(root: string): string | undefined {
-  const reviewPath = path.join(root, 'docs', 'project', 'context', 'CONTEXT-REVIEW.md');
-  if (!fs.existsSync(reviewPath)) { return undefined; }
-  let text = '';
-  try { text = fs.readFileSync(reviewPath, 'utf8'); } catch { return undefined; }
-  if (!/\*\*Verdict:\*\*\s*NO-GO/i.test(text)) { return undefined; }
-  const correctionsMatch = text.match(
-    /##\s*Required Corrections[\s\S]*?(?=\n##\s+|\n\*\*Verdict:\*\*|\s*$)/i,
-  );
-  const corrections = correctionsMatch?.[0]?.trim()
-    ?? 'Apply every Required Correction listed in docs/project/context/CONTEXT-REVIEW.md.';
-  return (
-    'CONTEXT-REVIEW has **Verdict:** NO-GO. Apply ALL Required Corrections yourself to the ' +
-    'owning files under docs/project/context/ (do not ask the user to edit Markdown by hand). ' +
-    'Then rewrite CONTEXT-REVIEW.md ending with exactly `**Verdict:** GO`.\n\n' +
-    corrections
-  );
 }

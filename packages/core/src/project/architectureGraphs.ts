@@ -1,54 +1,16 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
-/** Canonical project-context briefing files. Pipeline writes here; UI reads here. */
-export const PROJECT_BRIEFING_PATHS = {
-  review: 'docs/project/context/CONTEXT-REVIEW.md',
-  projectContext: 'docs/project/context/PROJECT-CONTEXT.md',
-  codingAgentBrief: 'docs/project/context/CODING-AGENT-BRIEF.md',
-  architectureMap: 'docs/project/context/ARCHITECTURE-MAP.md',
-  architectureJson: 'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
-  architectureMmd: 'docs/project/context/visualization/PROJECT-ARCHITECTURE.mmd',
-  catalogJson: 'docs/project/context/visualization/FEATURE-CATALOG.json',
-  catalogMmd: 'docs/project/context/visualization/FEATURE-CATALOG.mmd',
-  screensJson: 'docs/project/context/visualization/SCREEN-CATALOG.json',
-  screensMmd: 'docs/project/context/visualization/SCREEN-CATALOG.mmd',
-  structuralJson: 'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
-} as const;
-
-export interface ProjectContextBriefing {
-  summary?: string;
-  flowMermaid?: string;
-  impactMermaid?: string;
-  screensMermaid?: string;
-  created: string[];
-}
-
+/**
+ * Pure readers that turn checked-in architecture / feature / screen JSON into
+ * graph structures and Mermaid diagrams for the Architecture explorer.
+ *
+ * No pipeline coupling: everything here takes a parsed JSON document and
+ * returns UI-ready data, so any producer of those files works.
+ */
 export function mermaidSafeId(value: string): string {
   return `n_${value.replace(/[^A-Za-z0-9_]/g, '_')}`;
 }
 
 export function mermaidSafeLabel(value: string): string {
   return value.replace(/[\\"\[\]{}|<>]/g, '').replace(/[\r\n]+/g, ' ').trim();
-}
-
-function readText(file: string): string {
-  try {
-    return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-  } catch {
-    return '';
-  }
-}
-
-function readJson(file: string): Record<string, unknown> | undefined {
-  try {
-    const value = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function objects(value: unknown): Record<string, unknown>[] {
@@ -116,19 +78,6 @@ function codingAgentBriefBody(projectContext: string, review: string): string {
   return sections.join('\n').trimEnd() + '\n';
 }
 
-function isMermaid(text: string): boolean {
-  return /^(flowchart|sequenceDiagram)\b/m.test(text.trim());
-}
-
-function isPlaceholderMermaid(text: string): boolean {
-  return /not generated yet/i.test(text);
-}
-
-function needsMermaidFile(abs: string): boolean {
-  if (!fs.existsSync(abs)) return true;
-  const text = fs.readFileSync(abs, 'utf8').trim();
-  return !text || !isMermaid(text) || isPlaceholderMermaid(text);
-}
 
 function nodeIdentity(raw: Record<string, unknown>): { id: string; label: string } | undefined {
   const id = typeof raw.id === 'string' && raw.id.trim()
@@ -793,123 +742,4 @@ export function screenTransitionMermaidFromJson(
   }
 
   return lines.length > 1 ? lines.join('\n') : undefined;
-}
-
-const PENDING_ARCHITECTURE = 'flowchart TD\n  pending["Project architecture not generated yet"]\n';
-const PENDING_CATALOG = 'flowchart TD\n  app["APP"]\n  app --> pending["Feature catalog not generated yet"]\n';
-const PENDING_SCREENS = 'flowchart TD\n  ui["UI"]\n  ui --> pending["Screen catalog not generated yet"]\n';
-
-function writeNew(abs: string, body: string): boolean {
-  fs.mkdirSync(path.dirname(abs), { recursive: true });
-  const next = body.endsWith('\n') ? body : `${body}\n`;
-  if (fs.existsSync(abs) && fs.readFileSync(abs, 'utf8') === next) return false;
-  fs.writeFileSync(abs, next, 'utf8');
-  return true;
-}
-
-/**
- * Make sure canonical briefing files exist at their pipeline paths.
- * Never invent a second location: JSON and mermaid live under
- * docs/project/context/visualization/. If the sibling .mmd is missing (or still
- * a placeholder), derive it from that folder's JSON and write it there. If the
- * JSON is also missing, create the .mmd anyway so the path exists.
- */
-export function ensureProjectBriefingFiles(workspaceRoot: string): string[] {
-  const created: string[] = [];
-  const abs = (rel: string) => path.join(workspaceRoot, rel);
-
-  const projectContextText = readText(abs(PROJECT_BRIEFING_PATHS.projectContext));
-  const architectureJson = readJson(abs(PROJECT_BRIEFING_PATHS.architectureJson));
-  const catalogJson = readJson(abs(PROJECT_BRIEFING_PATHS.catalogJson));
-  const screensJson = readJson(abs(PROJECT_BRIEFING_PATHS.screensJson));
-
-  const architectureMmd = abs(PROJECT_BRIEFING_PATHS.architectureMmd);
-  if (needsMermaidFile(architectureMmd)) {
-    const mermaid = architectureOverviewMermaidFromJson(architectureJson) || PENDING_ARCHITECTURE;
-    if (writeNew(architectureMmd, mermaid)) created.push(PROJECT_BRIEFING_PATHS.architectureMmd);
-  }
-
-  const catalogMmd = abs(PROJECT_BRIEFING_PATHS.catalogMmd);
-  if (catalogJson) {
-    const mermaid = featureCatalogMermaidFromJson(catalogJson);
-    if (mermaid && writeNew(catalogMmd, mermaid)) created.push(PROJECT_BRIEFING_PATHS.catalogMmd);
-  } else if (needsMermaidFile(catalogMmd)) {
-    if (writeNew(catalogMmd, PENDING_CATALOG)) created.push(PROJECT_BRIEFING_PATHS.catalogMmd);
-  }
-
-  const screensMmd = abs(PROJECT_BRIEFING_PATHS.screensMmd);
-  if (screensJson) {
-    const mermaid = screenCatalogMermaidFromJson(screensJson);
-    if (mermaid && writeNew(screensMmd, mermaid)) created.push(PROJECT_BRIEFING_PATHS.screensMmd);
-  } else if (needsMermaidFile(screensMmd)) {
-    if (writeNew(screensMmd, PENDING_SCREENS)) created.push(PROJECT_BRIEFING_PATHS.screensMmd);
-  }
-
-  const reviewPath = abs(PROJECT_BRIEFING_PATHS.review);
-  let review = readText(reviewPath);
-  if (!review.trim()) {
-    const fallback = markdownSection(projectContextText, 'Overview')
-      || markdownSection(projectContextText, 'Summary')
-      || '_Project baseline review has not been written yet._';
-    const keyPoint = firstParagraph(fallback) || fallback;
-    const body = [
-      '# Context Review',
-      '',
-      '## Summary',
-      '',
-      `**Key point:** ${keyPoint}`,
-      '',
-      fallback,
-      '',
-      '**Verdict:** NO-GO',
-      '',
-    ].join('\n');
-    if (writeNew(reviewPath, body)) created.push(PROJECT_BRIEFING_PATHS.review);
-  } else if (!/^##\s+Summary\s*$/im.test(review)) {
-    const fallback = markdownSection(projectContextText, 'Overview')
-      || markdownSection(projectContextText, 'Summary')
-      || '_Add a 1-2 paragraph summary of what this repository is._';
-    const keyPoint = firstParagraph(fallback) || fallback;
-    const inserted = `## Summary\n\n**Key point:** ${keyPoint}\n\n${fallback}\n\n${review.replace(/^\uFEFF/, '')}`;
-    if (writeNew(reviewPath, inserted)) created.push(PROJECT_BRIEFING_PATHS.review);
-    review = inserted;
-  } else if (!/\*\*Key point:\*\*/i.test(markdownSection(review, 'Summary'))) {
-    const summary = markdownSection(review, 'Summary');
-    if (summary) {
-      const keyPoint = firstParagraph(summary) || summary;
-      const upgradedSummary = `**Key point:** ${keyPoint}\n\n${summary}`;
-      const next = review.replace(summary, upgradedSummary);
-      if (writeNew(reviewPath, next)) created.push(PROJECT_BRIEFING_PATHS.review);
-      review = next;
-    }
-  }
-
-  const codingAgentBriefPath = abs(PROJECT_BRIEFING_PATHS.codingAgentBrief);
-  const codingAgentBrief = codingAgentBriefBody(projectContextText, review);
-  if (writeNew(codingAgentBriefPath, codingAgentBrief)) {
-    created.push(PROJECT_BRIEFING_PATHS.codingAgentBrief);
-  }
-
-  return created;
-}
-
-/** Ensure canonical files exist, then read only those paths. */
-export function readProjectContextBriefing(workspaceRoot: string): ProjectContextBriefing {
-  const created = ensureProjectBriefingFiles(workspaceRoot);
-  const abs = (rel: string) => path.join(workspaceRoot, rel);
-  const review = readText(abs(PROJECT_BRIEFING_PATHS.review));
-  const flow = readText(abs(PROJECT_BRIEFING_PATHS.architectureMmd)).trim();
-  const impact = readText(abs(PROJECT_BRIEFING_PATHS.catalogMmd)).trim();
-  const screens = readText(abs(PROJECT_BRIEFING_PATHS.screensMmd)).trim();
-  return {
-    summary: markdownSection(review, 'Summary') || undefined,
-    flowMermaid: isMermaid(flow) ? flow : undefined,
-    impactMermaid: isMermaid(impact) ? impact : undefined,
-    screensMermaid: isMermaid(screens) ? screens : undefined,
-    created,
-  };
-}
-
-export function isProjectContextPipeline(pipeline: string | null | undefined): boolean {
-  return !!pipeline && (pipeline === 'project-context' || pipeline.startsWith('project-context'));
 }

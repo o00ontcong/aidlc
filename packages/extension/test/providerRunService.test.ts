@@ -11,8 +11,6 @@ import {
   buildTaskPrompt,
   canonicalModelForSlash,
   formatBugReportScreenshotSection,
-  isBugResolutionCommand,
-  persistBugReportInput,
   sanitizeBugScreenshotName,
   slashCommandName,
   terminalNameForProvider,
@@ -35,30 +33,8 @@ describe('providerRunService', () => {
   });
 
   it('builds slash task prompt for claude/cursor', () => {
-    expect(buildTaskPrompt('/feature-implement-implement', 'EPIC-1', '', 'claude', '/tmp'))
-      .toBe('/feature-implement-implement EPIC-1');
-  });
-
-  it('labels bug-resolution input as a bug report and persists it for native commands', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-bug-report-'));
-    roots.push(root);
-    expect(isBugResolutionCommand('/feature-implement-resolve-bugs')).toBe(true);
-    expect(isBugResolutionCommand('/cohesive-feature-resolve-bugs')).toBe(true);
-    expect(buildTaskPrompt(
-      '/feature-implement-resolve-bugs', 'EPIC-1', 'Current: crash', 'claude', root,
-    )).toContain('Bug report: "Current: crash"');
-
-    const file = persistBugReportInput(root, 'EPIC-1', 'Current: crash');
-    expect(file).toBe(path.join(root, 'docs', 'epics', 'EPIC-1', 'artifacts', 'BUG-REPORT.md'));
-    expect(fs.readFileSync(file!, 'utf8')).toContain('Current: crash');
-    expect(fs.readFileSync(file!, 'utf8')).toContain('## Round 1');
-
-    persistBugReportInput(root, 'EPIC-1', 'Empty cart still shows checkout');
-    const log = fs.readFileSync(file!, 'utf8');
-    expect(log).toContain('Current: crash');
-    expect(log).toContain('Empty cart still shows checkout');
-    expect(log).toContain('## Round 2');
-    expect(() => persistBugReportInput(root, '../../escape', 'bad')).toThrow(/Unsafe bug-report path/);
+    expect(buildTaskPrompt('/aidlc-workflow-full-implement', 'EPIC-1', '', 'claude', '/tmp'))
+      .toBe('/aidlc-workflow-full-implement EPIC-1');
   });
 
   it('stores multiple bug screenshots with unique names for the agent to read', () => {
@@ -83,7 +59,7 @@ describe('providerRunService', () => {
   });
 
   it('resolves canonical model from slash stem', () => {
-    const model = canonicalModelForSlash('/feature-implement-implement');
+    const model = canonicalModelForSlash('/aidlc-workflow-full-implement');
     expect(typeof model).toBe('string');
     expect(model!.length).toBeGreaterThan(0);
   });

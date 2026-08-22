@@ -18,7 +18,6 @@ export * from './project';
 export * from './workflows';
 export * from './application';
 export * from './migration';
-export * from './mission';
 export * from './runs/PipelineSnapshot';
 export * from './packs';
 export * from './validators';
@@ -70,8 +69,6 @@ export type {
   SidebarConfig,
   SidebarView,
   WorkspaceRefIssue,
-  CohesiveExecutionProfileConfig,
-  CohesiveDeliveryConfig,
 } from './schema/WorkspaceSchema';
 
 export {
@@ -104,7 +101,6 @@ export {
   mapStepStatusToEpic,
   epicsRoot,
   EpicScaffoldError,
-  MIN_PROJECT_CONTEXT_IDEA_CHARS,
 } from './runs/EpicScaffold';
 export type {
   EpicStatus,
@@ -122,50 +118,8 @@ export type {
   ScopeComplexity,
 } from './epics/PlanGenerator';
 
-export {
-  CHARTER_MD_FILES,
-  CHARTER_REL_DIR,
-  CHARTER_JSON_REL,
-  CONVENTIONS_REL,
-  DRIFT_REPORT_REL,
-  RULES_SYNC_TARGETS,
-  defaultCharterTemplatesDir,
-  sha256Text,
-  sha256File,
-  computeCharterMarkdownHash,
-  readCharterJson,
-  recordHumanCharterEdit,
-  seedCharterArtifacts,
-  buildCharterRulesBlock,
-  syncProjectRules,
-  parseCharterMarker,
-} from './epics/charterArtifacts';
-export type {
-  InvariantSeverity,
-  TechRuleKind,
-  CharterGoal,
-  CharterInvariant,
-  CharterTechRule,
-  DeliveryBudget,
-  ShipPolicy,
-  CharterDocument,
-  SeedCharterResult,
-  SyncProjectRulesResult,
-  RecordHumanCharterEditResult,
-} from './epics/charterArtifacts';
 
-export {
-  ALIGNMENT_FILE,
-  buildAlignmentSeedFile,
-  alignmentDescriptionFromSeed,
-  parseServesGoals,
-  alignmentPath,
-  alignmentExists,
-} from './epics/alignmentArtifacts';
-export type { AlignmentSeedInput } from './epics/alignmentArtifacts';
 
-export { LegacyDeliveryStateStore } from './migration/LegacyDeliveryStateStore';
-export type { LegacyDeliveryState } from './migration/LegacyDeliveryStateStore';
 export {
   PROVIDER_MANAGED_TASK_COMMAND,
   ensureProviderManagedTaskCommand,

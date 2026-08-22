@@ -18,9 +18,15 @@ Code transcript.
 
 ![aidlc demo](packages/extension/media/demo.gif)
 
+## ✨ What's New in v3.5
+
+- **🎯 AI-DLC only** — the extension now ships exactly one built-in workflow: **AIDLC Workflow** (`aidlc-workflow-full`). The Spec Kit and Project Workspace pipelines, their templates, agents, skills, validators, and the retired Cohesive Delivery compatibility layer are gone. The new Project/Tasks UI, theme, and icons stay.
+
+---
+
 ## ✨ What's New in v3.4
 
-- **🗂️ Project Workspace** — a new Project Overview keeps `AGENTS.md`, `PROJECT.md`, `STATUS.md`, and `DECISIONS.md` beside focused task workspaces. Every task can see what is already complete, while review and verification remain human-visible.
+- **🗂️ Project Overview** — the Project tab keeps `AGENTS.md`, `PROJECT.md`, `STATUS.md`, and `DECISIONS.md` beside focused task workspaces. Every task can see what is already complete, while review and verification remain human-visible.
 - **📊 Mermaid renders for every diagram type** — Sequence, state, and mindmap diagrams (and any newer mermaid type) now render as real diagrams in the review/preview, not a dark ASCII box. Common types stay zero-runtime SVG; the rest fall back to a lazily-loaded mermaid runtime.
 - **🖼️ Feedback & Preview render the Markdown natively** — the Feedback button and the new **Preview** action open the artifact in annotron itself (diagrams included); revision history is still logged per round.
 - **✍️ Inline text edit** — in Annotate mode, selecting plain text offers **Edit** beside Comment to retype/delete it straight into the `.md` (only when it maps to an exact spot in the source).
@@ -60,7 +66,6 @@ Code transcript.
 
 - **🎨 Prototype Phase** — Designers propose multiple UI options (HTML, Figma, lo-fi) before tech design. Users pick a preferred approach, which feeds into Design.
 - **🚪 Discovery Gate** — Human-in-the-loop questionnaire for open decisions. When a phase has unresolved questions, it opens a point-and-click form, confirms choices, and resumes.
-- **📋 Spec Kit Workflow** — Spec-driven development pipeline (GitHub Spec Kit): Specify → Clarify → Plan → Tasks → Analyze → Implement.
 - **🎯 Recipe System** — Pre-built recipes (bugfix, ui-feature, feature-parallel, large-feature, spike) with auto-classifier for task type.
 - **🔧 Configurable Git Behavior** — Per-step branch naming, push, auto-PR settings. Survives re-apply.
 

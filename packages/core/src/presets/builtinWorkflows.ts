@@ -293,7 +293,7 @@ export interface BuiltinWorkflow {
   description: string;
   /**
    * Optional user guide shipped with the extension (path relative to
-   * `extensionPath`, e.g. `media/guides/project-workspace.md`). Surfaced as
+   * `extensionPath`, e.g. `media/guides/aidlc-workflow.md`). Surfaced as
    * a "View guide" action on the Apply template confirmation.
    */
   guide?: string;
@@ -316,9 +316,9 @@ export interface BuiltinWorkflow {
     phases: PhaseDef[];
   }>;
   /**
-   * Whether phase artifact templates should be pre-seeded. Project Workspace
-   * disables this: creating empty gate outputs would make cross-pipeline
-   * existence checks pass before an agent has actually produced the context.
+   * Whether phase artifact templates should be pre-seeded. A workflow whose
+   * gates check artifact existence across pipelines should disable this:
+   * empty gate outputs would pass before an agent has produced anything.
    */
   seedArtifacts?: boolean;
   /**
@@ -371,298 +371,6 @@ const SDLC_RECIPES: RecipeDef[] = [
   },
 ];
 
-/**
- * Spec Kit workflow — the spec-driven-development flow from GitHub Spec Kit
- * (github/spec-kit) mapped onto AIDLC phases:
- *
- *     specify → clarify → plan → tasks → analyze → implement
- *
- * "Constitution" (project-level principles) is intentionally NOT a per-epic
- * phase — it belongs to the workspace SDLC standard / profile, matching Spec
- * Kit's own `.specify/memory/constitution.md` which is written once per repo.
- * The `analyze` phase is a consistency cross-check (spec ↔ plan ↔ tasks) and
- * uses `autoReview` so it can gate mechanically before implement.
- */
-const SPECKIT_PHASES: PhaseDef[] = [
-  {
-    id: 'specify', name: 'Specify', persona: 'analyst', skillFiles: ['specify'], model: 'claude-opus-5',
-    description: 'Turn a feature description into a structured, testable spec.',
-    inputs: 'Feature description, business context, Jira ticket, Figma designs',
-    outputs: 'SPEC.md — user scenarios, functional requirements, testable acceptance criteria',
-    artifact: 'SPEC.md',
-    humanReview: true, autoReview: false,
-    capabilities: ['jira', 'figma', 'core-business', 'web'],
-  },
-  {
-    id: 'clarify', name: 'Clarify', persona: 'analyst', skillFiles: ['clarify'], model: 'claude-opus-5',
-    description: 'Surface and resolve underspecified areas of the spec.',
-    inputs: 'SPEC.md, open questions',
-    outputs: 'SPEC.md updated with a Clarifications section (Q/A pairs resolved)',
-    artifact: 'SPEC.md',
-    humanReview: true, autoReview: false,
-    capabilities: ['core-business', 'web'],
-    dependsOn: ['specify'],
-  },
-  {
-    // persona/skill filenames are prefixed `speckit-` where they'd otherwise
-    // collide with the SDLC bundle's globals (developer/qa/tech-lead/implement).
-    // Global install keys files by source filename, so a bare `tech-lead.md`
-    // here would overwrite SDLC's when both workflows are installed.
-    id: 'plan', name: 'Plan', persona: 'speckit-tech-lead', skillFiles: ['plan'], model: 'claude-opus-5',
-    description: 'Derive the technical implementation plan from the spec.',
-    inputs: 'SPEC.md, existing code, dependency graph, constitution (workspace standard)',
-    outputs: 'PLAN.md — architecture, data model, contracts, tech choices honoring the constitution',
-    artifact: 'PLAN.md',
-    humanReview: true, autoReview: false,
-    capabilities: ['files', 'github', 'core-business'],
-    dependsOn: ['clarify'],
-  },
-  {
-    id: 'tasks', name: 'Tasks', persona: 'speckit-tech-lead', skillFiles: ['tasks'], model: 'claude-sonnet-5',
-    description: 'Break the plan into an ordered, dependency-aware task list.',
-    inputs: 'PLAN.md, SPEC.md acceptance criteria',
-    outputs: 'TASKS.md — numbered tasks with dependencies, each traceable to a requirement',
-    artifact: 'TASKS.md',
-    humanReview: true, autoReview: false,
-    capabilities: ['files'],
-    dependsOn: ['plan'],
-  },
-  {
-    id: 'analyze', name: 'Analyze', persona: 'speckit-qa', skillFiles: ['analyze'], model: 'claude-sonnet-5',
-    description: 'Cross-check spec ↔ plan ↔ tasks for consistency and coverage before build.',
-    inputs: 'SPEC.md, PLAN.md, TASKS.md',
-    outputs: 'ANALYSIS.md — coverage matrix, gaps, contradictions, go/no-go',
-    artifact: 'ANALYSIS.md',
-    humanReview: true, autoReview: true, autoReviewRunner: '.aidlc/validators/ci.mjs',
-    capabilities: ['files'],
-    dependsOn: ['tasks'],
-  },
-  {
-    id: 'implement', name: 'Implement', persona: 'speckit-developer', skillFiles: ['speckit-implement'], model: 'claude-sonnet-5',
-    description: 'Execute the task list on a feature branch.',
-    inputs: 'TASKS.md, PLAN.md, SPEC.md, project coding rules',
-    outputs: 'Code on feature branch, PR opened, tasks checked off',
-    artifact: 'feature/<EPIC>-<slug>',
-    humanReview: true, autoReview: true, autoReviewRunner: '.aidlc/validators/ci.mjs',
-    capabilities: ['files', 'github'],
-    dependsOn: ['analyze'],
-  },
-];
-
-/**
- * Recipes for the Spec Kit workflow, keyed by task type. Each lists a subset
- * of the Spec Kit phase ids in execution order.
- */
-const SPECKIT_RECIPES: RecipeDef[] = [
-  {
-    id: 'quick-spec',
-    description: 'Spec then build — skip formal clarify/analyze for small, well-understood work.',
-    steps: ['specify', 'plan', 'tasks', 'implement'],
-  },
-  {
-    id: 'full-spec-driven',
-    description: 'Full Spec Kit flow: specify → clarify → plan → tasks → analyze → implement.',
-    steps: ['specify', 'clarify', 'plan', 'tasks', 'analyze', 'implement'],
-  },
-  {
-    id: 'spec-only',
-    description: 'Produce a clarified spec and plan without implementing.',
-    steps: ['specify', 'clarify', 'plan'],
-  },
-];
-
-/**
- * Project Workspace has two durable layers:
- *
- *   project-context     establish-baseline (human) → publish-context (auto)
- *   feature-spike       package-mission (human)
- *   feature-implement   implement → resolve-bugs → ship
- *
- * Human is the bus. Spike does not depend_on implement. Completeness of
- * MISSION.md is the machine gate at Start implement. Parallelism belongs
- * between independent feature epics, not inside one epic's DAG.
- */
-const PROJECT_WORKSPACE_CONTEXT_PHASES: PhaseDef[] = [
-  {
-    id: 'establish-baseline', name: 'Establish Baseline', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-opus-5',
-    description:
-      'Interview or infer Intent, scan and model Reality, map complete architecture/feature/screen graphs, record drift, and review until CONTEXT-REVIEW is GO with ## Graph coverage. '
-      + 'Do not invent Goals the human did not confirm. Do not skip graphs because a prior GO exists.',
-    inputs: 'inputs.json idea (from Description) + repository evidence + seeded charter templates',
-    outputs: 'Charter, conventions, canonical context, visualization graphs, drift report, and GO review with ## Summary',
-    artifact: 'CONTEXT-REVIEW.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/establish-baseline.mjs',
-    produces: [
-      'docs/epics/{epic}/artifacts/CHARTER-DISCOVERY.md',
-      'docs/project/charter/NORTH-STAR.md',
-      'docs/project/charter/ARCHITECTURE-PRINCIPLES.md',
-      'docs/project/charter/TECH-POLICY.md',
-      'docs/project/charter/CHARTER.json',
-      'docs/project/conventions/CONVENTIONS.md',
-      'docs/project/context/PROJECT-SCAN.md',
-      'docs/project/context/PROJECT-CONTEXT.md',
-      'docs/project/context/ARCHITECTURE-MAP.md',
-      'docs/project/context/DOMAIN-MODEL.md',
-      'docs/project/context/SHARED-CONTRACTS.md',
-      'docs/project/context/ENGINEERING-RULES.md',
-      'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
-      'docs/project/context/visualization/PROJECT-ARCHITECTURE.mmd',
-      'docs/project/context/visualization/FEATURE-CATALOG.json',
-      'docs/project/context/visualization/FEATURE-CATALOG.mmd',
-      'docs/project/context/visualization/SCREEN-CATALOG.json',
-      'docs/project/context/visualization/SCREEN-CATALOG.mmd',
-      'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
-      'docs/project/conformance/DRIFT-REPORT.md',
-      'docs/project/context/CONTEXT-REVIEW.md',
-    ],
-    producesContains: ['## Discovery decisions', '## Summary', '## Graph coverage', '**Verdict:** GO'],
-    capabilities: ['files', 'github', 'ast-graph'],
-  },
-  {
-    id: 'publish-context', name: 'Publish Context', persona: 'project-context-agent',
-    skillFiles: ['project-context-workflow'], model: 'claude-sonnet-5',
-    description:
-      'Publish the versioned context manifest and project charter + conventions into CLAUDE.md, AGENTS.md, and .cursor/rules/aidlc-charter.mdc. No AIDLC Approve.',
-    inputs: 'Approved baseline review and canonical documents',
-    outputs: 'Versioned context manifest and aidlc:charter marked rule files',
-    artifact: 'CONTEXT-MANIFEST.json', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/project-context.mjs', dependsOn: ['establish-baseline'],
-    requires: [
-      'docs/project/context/CONTEXT-REVIEW.md',
-      'docs/project/charter/CHARTER.json',
-      'docs/project/conventions/CONVENTIONS.md',
-      'docs/project/context/visualization/PROJECT-ARCHITECTURE.json',
-      'docs/project/context/visualization/PROJECT-ARCHITECTURE.mmd',
-      'docs/project/context/visualization/FEATURE-CATALOG.json',
-      'docs/project/context/visualization/FEATURE-CATALOG.mmd',
-      'docs/project/context/visualization/SCREEN-CATALOG.json',
-      'docs/project/context/visualization/SCREEN-CATALOG.mmd',
-      'docs/project/context/visualization/STRUCTURAL-GRAPH-MANIFEST.json',
-    ],
-    produces: [
-      'docs/project/context/CONTEXT-MANIFEST.json',
-      'CLAUDE.md',
-      'AGENTS.md',
-      '.cursor/rules/aidlc-charter.mdc',
-    ],
-    producesContains: ['aidlc:charter start', 'aidlc:charter end'],
-    capabilities: ['files', 'github'],
-  },
-];
-
-const PROJECT_WORKSPACE_SPIKE_PHASES: PhaseDef[] = [
-  {
-    id: 'package-mission', name: 'Package Mission', persona: 'feature-spike-agent',
-    skillFiles: ['feature-spike-workflow'], model: 'claude-opus-5',
-    description:
-      'Produce one portable MISSION.md (AC, Tasks+files, UI spec, Flow mermaid) plus three complete briefing graphs (Flow, Surfaces, Impact) with discovery. '
-      + 'Does not implement. Spike does not depend_on implement.',
-    inputs: 'Feature request, charter, optional Jira/Figma, repository context',
-    outputs: 'MISSION.md pack plus Flow, Surfaces, and Impact graphs',
-    artifact: 'MISSION.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/mission-completeness.mjs',
-    produces: [
-      'docs/epics/{epic}/artifacts/MISSION.md',
-      'docs/epics/{epic}/artifacts/FEATURE-FLOW.json',
-      'docs/epics/{epic}/artifacts/FEATURE-FLOW.mmd',
-      'docs/epics/{epic}/artifacts/FEATURE-SURFACES.json',
-      'docs/epics/{epic}/artifacts/FEATURE-SURFACES.mmd',
-      'docs/epics/{epic}/artifacts/FEATURE-IMPACT.json',
-      'docs/epics/{epic}/artifacts/FEATURE-IMPACT.mmd',
-    ],
-    producesContains: [
-      '## Summary',
-      '## Problem / Goal',
-      '## In scope',
-      '## Out of scope',
-      '## Functional requirements',
-      '## Acceptance criteria',
-      '## Constraints',
-      '## Tasks',
-      '## UI spec',
-      '## Flow',
-      '## Definition of done',
-    ],
-    capabilities: ['files', 'github', 'core-business', 'web', 'jira', 'figma', 'ast-graph'],
-  },
-];
-
-const PROJECT_WORKSPACE_IMPLEMENT_PHASES: PhaseDef[] = [
-  {
-    id: 'implement', name: 'Implement Feature', persona: 'feature-implement-agent',
-    skillFiles: ['feature-implement-workflow'], model: 'claude-sonnet-5',
-    description:
-      'Implement the complete feature from MISSION.md only (plus charter and repo). Run focused tests, record as-built behavior, and refresh Flow/Surfaces graphs to the same completeness bar as spike. 100% means fidelity to the pack, not zero bugs.',
-    inputs: 'Complete MISSION.md, charter, and repository',
-    outputs: 'Feature implementation, tests, as-built summary, and refreshed briefing graphs',
-    artifact: 'IMPLEMENTATION-SUMMARY.md', humanReview: true, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/project-ci.mjs',
-    requires: [
-      'docs/epics/{epic}/artifacts/MISSION.md',
-      'docs/project/charter/CHARTER.json',
-    ],
-    produces: [
-      'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
-      'docs/epics/{epic}/artifacts/FEATURE-FLOW.json',
-      'docs/epics/{epic}/artifacts/FEATURE-FLOW.mmd',
-      'docs/epics/{epic}/artifacts/FEATURE-SURFACES.json',
-      'docs/epics/{epic}/artifacts/FEATURE-SURFACES.mmd',
-    ],
-    producesContains: ['## Acceptance criteria results'],
-    capabilities: ['files', 'github', 'core-business', 'web', 'ast-graph'],
-  },
-  {
-    id: 'resolve-bugs', name: 'Resolve Reported Bugs', persona: 'feature-implement-agent',
-    skillFiles: ['feature-implement-workflow'], model: 'claude-sonnet-5',
-    description:
-      'Collect one consolidated bug report from the user, fix code and tests, and iterate until the user approves. No auto-review. Pixel checks are human-on-device.',
-    inputs: 'User-supplied bug details, MISSION.md, and implementation evidence',
-    outputs: 'Verified bug fixes plus an approval-ready bug-fix log',
-    artifact: 'BUG-FIX-LOG.md', humanReview: true, autoReview: false, skippable: true,
-    dependsOn: ['implement'],
-    requires: [
-      'docs/epics/{epic}/artifacts/MISSION.md',
-      'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
-    ],
-    produces: ['docs/epics/{epic}/artifacts/BUG-FIX-LOG.md'],
-    producesContains: [
-      '## Reported Bugs',
-      '## Diagnosis and Owning Steps',
-      '## Fixes and Verification',
-      '## Documentation Sync Plan',
-      '**Status:** READY-FOR-APPROVAL',
-    ],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-  {
-    id: 'ship', name: 'Ship', persona: 'feature-implement-agent',
-    skillFiles: ['feature-implement-workflow'], model: 'claude-sonnet-5',
-    description:
-      'Open exactly one feature PR, wait for the human to merge on GitHub (no AIDLC Approve), then update Reality only. Never edit charter Intent or conventions.',
-    inputs: 'Approved bug-fix log (or implement if no bugs), verified feature branch',
-    outputs: 'PR link record and post-merge project update',
-    artifact: 'PR-LINK.md', humanReview: false, autoReview: true,
-    autoReviewRunner: '.aidlc/validators/ship.mjs', dependsOn: ['resolve-bugs'],
-    requires: [
-      'docs/epics/{epic}/artifacts/IMPLEMENTATION-SUMMARY.md',
-      'docs/epics/{epic}/artifacts/BUG-FIX-LOG.md',
-    ],
-    produces: [
-      'docs/epics/{epic}/artifacts/PR-LINK.md',
-      'docs/epics/{epic}/artifacts/PROJECT-UPDATE.md',
-    ],
-    producesContains: ['**Head:**', '**Base:**', '**Status:**', '## Project Knowledge Changes'],
-    capabilities: ['files', 'github', 'core-business', 'web'],
-  },
-];
-
-const PROJECT_WORKSPACE_PHASES: PhaseDef[] = [
-  ...PROJECT_WORKSPACE_CONTEXT_PHASES,
-  ...PROJECT_WORKSPACE_SPIKE_PHASES,
-  ...PROJECT_WORKSPACE_IMPLEMENT_PHASES,
-];
-
 export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
   {
     id: 'aidlc-workflow',
@@ -673,32 +381,6 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
       'Parallel SDLC pipeline ending at execute-test: Plan → (Design → Implement+UnitTest) ∥ (Test Plan → Generate Test Cases) → Execute Test+Report. PO / Tech Lead / Developer / QA. QA runs concurrently with engineering.',
     phases: PHASES,
     recipes: SDLC_RECIPES,
-  },
-  {
-    id: 'speckit-pipeline',
-    pipelineId: 'speckit-full',
-    name: 'Spec Kit',
-    templatesDir: 'speckit',
-    description:
-      'Spec-driven development (GitHub Spec Kit): Specify → Clarify → Plan → Tasks → Analyze → Implement. Constitution lives in the workspace SDLC standard. Analyst / Tech Lead / QA / Developer.',
-    phases: SPECKIT_PHASES,
-    recipes: SPECKIT_RECIPES,
-  },
-  {
-    id: 'project-workspace',
-    pipelineId: 'feature-implement',
-    name: 'Project Workspace',
-    templatesDir: 'project-workspace',
-    guide: 'media/guides/project-workspace.md',
-    description:
-      'Shared project context plus focused feature tasks. Each task keeps its own artifacts and execution state; project context, review, and integration remain visible to the human.',
-    phases: PROJECT_WORKSPACE_PHASES,
-    primaryPhases: PROJECT_WORKSPACE_IMPLEMENT_PHASES,
-    additionalPipelines: [
-      { id: 'project-context', name: 'Project Context', phases: PROJECT_WORKSPACE_CONTEXT_PHASES },
-      { id: 'feature-spike', name: 'Feature Spike', phases: PROJECT_WORKSPACE_SPIKE_PHASES },
-    ],
-    seedArtifacts: false,
   },
 ];
 
@@ -741,7 +423,7 @@ export function workflowSlug(workflow: BuiltinWorkflow): string {
  * Look up a built-in workflow by its preset id (e.g. `ios-native-pipeline`).
  */
 export function getBuiltinWorkflow(id: string): BuiltinWorkflow | undefined {
-  return BUILTIN_BY_ID.get(id === 'cohesive-delivery' ? 'project-workspace' : id);
+  return BUILTIN_BY_ID.get(id);
 }
 
 /**
@@ -755,7 +437,7 @@ export function getBuiltinWorkflowByPipelineId(pipelineId: string): BuiltinWorkf
 
 /**
  * Resolve a single phase inside a built-in pipeline (including companion
- * pipelines like `project-context` in the Project Workspace bundle).
+ * companion pipelines declared in `additionalPipelines`).
  */
 export function getBuiltinPhase(
   pipelineId: string,
@@ -827,39 +509,19 @@ export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
     '',
   ];
 
-  const defineCharterHelp = help.pipelineId === 'project-context' && help.phaseId === 'establish-baseline';
-  const resolveBugsHelp = help.pipelineId === 'feature-implement' && help.phaseId === 'resolve-bugs';
-  if (defineCharterHelp) {
-    lines.push(
-      '1. Click **Run with Claude** (or paste the command below).',
-      '2. Answer the agent **one question at a time** in the terminal (Mode A interview from the Start Epic **Project idea**).',
-      '3. Confirm Goals / non-goals / INV / tech policy; the agent writes `CHARTER-DISCOVERY.md`, models Reality, maps features, records drift, and reviews to GO.',
-      '4. Click **Mark step done**.',
-    );
-  } else if (resolveBugsHelp) {
-    lines.push(
-      '1. Click **Nhập bug & chạy agent**.',
-      '2. Enter current behavior, expected behavior, reproduction steps, and attach or paste screenshots (`Chèn ảnh…`, drag-drop, or ⌘V / Ctrl+V). Multiple images are kept for the agent to Read.',
-      '3. Let the agent fix code/tests and write `BUG-FIX-LOG.md`; it must not update upstream step Markdown yet.',
-      '4. Test the result, then click **Mark step done**. Each round is appended to this step\'s History and to `BUG-REPORT.md` — previously reported bugs stay in scope.',
-    );
-  } else {
-    lines.push(
-      '1. Click **Run with Claude** on the Epic card (or paste the command below into Claude).',
-      '2. Wait for the agent to finish and write the artifact(s).',
-      '3. Click **Mark step done**.',
-    );
-  }
+  lines.push(
+    '1. Click **Run with Claude** on the Epic card (or paste the command below into Claude).',
+    '2. Wait for the agent to finish and write the artifact(s).',
+    '3. Click **Mark step done**.',
+  );
 
-  let stepNum = defineCharterHelp || resolveBugsHelp ? 5 : 4;
+  let stepNum = 4;
   if (help.autoReview) {
     lines.push(`${stepNum}. Click **Run auto-review** and fix anything it rejects.`);
     stepNum += 1;
   }
   if (help.humanReview) {
-    lines.push(resolveBugsHelp
-      ? `${stepNum}. If satisfied, **Approve bản sửa** to unlock documentation sync; otherwise **Reject** with more bug information.`
-      : `${stepNum}. Read the artifact, then **Approve** (or **Reject** with feedback).`);
+    lines.push(`${stepNum}. Read the artifact, then **Approve** (or **Reject** with feedback).`);
   }
   lines.push(
     '',
@@ -867,7 +529,7 @@ export function renderBuiltinStepHelpMarkdown(help: BuiltinStepHelp): string {
     '',
     '- If Claude exits or fails while this step remains **Awaiting work**, click **Run again with Claude**. It reopens this exact slash command with the same run id.',
     '- If a review rejects this step, click **Run again with Claude** to create a new revision and relaunch with the reject feedback. Choose **Edit feedback first** when the feedback needs changing before the retry.',
-    '- In Project Workspace, parallelism means independent feature tasks may run at the same time. It does not mean creating worker tasks or setting an agent count inside this task; the provider owns any internal decomposition.',
+    '- Parallelism means independent epics may run at the same time. It does not mean creating worker tasks or setting an agent count inside this epic; the provider owns any internal decomposition.',
     '- After the provider completes, inspect the output and use **Mark step done** plus any review gates. Before handoff, update shared project status and decisions so the next task sees what changed.',
     '',
     '## Command',
@@ -977,10 +639,9 @@ export function pipelineCommandId(pipelineId: string, phaseId: string): string {
 /**
  * Which pipeline id owns a phase's slash command for a (possibly multi-
  * pipeline) built-in workflow. Primary phases use `workflow.pipelineId`;
- * companion pipeline phases use that companion's id. Without this,
- * The retired bundle stamped every phase as `/feature-implement-<phase>`
- * — including companion `establish-baseline` — so the Epic card showed
- * the wrong command and agents followed the wrong namespace.
+ * companion pipeline phases use that companion's id. Without this, every
+ * phase would be stamped with the primary pipeline's prefix, so the Epic
+ * card would show the wrong command and agents the wrong namespace.
  */
 export function commandPipelineIdForPhase(
   workflow: BuiltinWorkflow,
@@ -1146,10 +807,9 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
   }
   const skills: Array<Record<string, unknown>> = Array.from(skillEntries.values());
 
-  // Commands are namespaced by the pipeline that owns each phase — not the
-  // bundle's primary pipelineId — so Project Context gets
-  // `/project-context-scan-project` rather than the misleading
-  // `/cohesive-feature-scan-project`.
+  // Commands are namespaced by the pipeline that owns each phase, so a
+  // companion pipeline's step keeps its own prefix rather than borrowing the
+  // bundle's primary pipelineId.
   const slashCommands: Array<Record<string, unknown>> = workflowCommandPhases(workflow).map(
     ({ pipelineId, phase }) => ({
       name: `/${pipelineCommandId(pipelineId, phase.id)}`,
@@ -1681,8 +1341,8 @@ export function writeBuiltinAutoReviewValidators(
   };
 
   // Bundle-local runners share lib.mjs. Install only that helper plus runners
-  // referenced by active phases; retired worker validators must not reappear
-  // in a fresh independent-epic Cohesive workspace.
+  // referenced by active phases, so retired validators never reappear in a
+  // freshly created workspace.
   const helper = path.join(workflowValidatorDir, 'lib.mjs');
   if (fs.existsSync(helper)) {
     install(path.join(root, '.aidlc', 'validators', 'lib.mjs'), fs.readFileSync(helper, 'utf8'));

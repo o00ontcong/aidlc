@@ -158,35 +158,6 @@ export const FAILED_NODE_STYLE = {
 
 /* ── ship strip ──────────────────────────────────────────────────────────── */
 
-export interface ShipMilestone { label: string; dot: string; fg: string }
-
-/**
- * dc.html:1702 — four milestones. Driven by the real `epic.ship` payload
- * (EpicShipInfo: prUrl / status / head / base) rather than a fixed mock.
- */
-export function shipMilestones(epic: EpicSummary): ShipMilestone[] {
-  const ship = epic.ship;
-  const status = ship?.status;
-  const reached = {
-    commit: !!ship?.head,
-    pr: !!ship?.prUrl,
-    review: status === 'approved' || status === 'merged',
-    merge: status === 'merged',
-  };
-  // dc.html: done → dot g + fg TX; pending → dot gr + fg T3; in-flight → dot am.
-  const done = (on: boolean, inFlight = false) =>
-    on
-      ? { dot: 'var(--acc)', fg: 'var(--txt)' }
-      : inFlight
-        ? { dot: 'var(--warn)', fg: 'var(--txt)' }
-        : { dot: 'var(--track)', fg: 'var(--txt3)' };
-  return [
-    { label: 'Commit preview', ...done(reached.commit) },
-    { label: 'PR', ...done(reached.pr, reached.commit && !reached.pr) },
-    { label: 'Review', ...done(reached.review, reached.pr && !reached.review) },
-    { label: 'Merge', ...done(reached.merge, reached.review && !reached.merge) },
-  ];
-}
 
 /* ── epic config rows ────────────────────────────────────────────────────── */
 
@@ -200,7 +171,7 @@ export interface ConfigRowVM {
 }
 
 /**
- * dc.html:1629 — the cohesive-feature config table. Rows are built from real
+ * dc.html:1629 — the epic config table. Rows are built from real
  * fields where one exists; the two rows with no host field are marked mock
  * rather than filled with invented values.
  */
@@ -228,21 +199,12 @@ export function configRows(epic: EpicSummary): ConfigRowVM[] {
     mockId: 'epic.config.context',
   });
 
-  const branch = epic.inputs?.branch || epic.ship?.head || '';
+  const branch = epic.inputs?.branch || '';
   rows.push({
     k: 'branch',
     v: branch || '—',
     src: branch ? 'epic riêng' : 'chưa có',
     srcFg: branch ? A : T3,
-  });
-
-  rows.push({
-    k: 'PR',
-    v: epic.ship?.prUrl
-      ? `${epic.ship.prUrl}${epic.ship.status === 'merged' ? ' · merged' : ' · chưa merge'}`
-      : '—',
-    src: epic.ship?.prUrl ? 'epic riêng' : 'chưa có',
-    srcFg: epic.ship?.prUrl ? A : T3,
   });
 
   const contract = (epic.existingArtifacts ?? []).find((f) => /contract/i.test(f));

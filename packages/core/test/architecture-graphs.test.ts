@@ -1,27 +1,14 @@
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
-  PROJECT_BRIEFING_PATHS,
   architectureGraphFromJson,
   architectureOverviewMermaidFromJson,
   catalogFeaturesFromJson,
   catalogScreensFromJson,
-  ensureProjectBriefingFiles,
   featureCatalogMermaidFromJson,
-  readProjectContextBriefing,
   screenCatalogAreaMermaidsFromJson,
   screenCatalogMermaidFromJson,
-} from '../src/project/projectBriefingFiles';
-
-const roots: string[] = [];
-
-afterEach(() => {
-  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
-});
+} from '../src/project/architectureGraphs';
 
 function tmp(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-project-briefing-'));
@@ -341,140 +328,5 @@ describe('catalogScreensFromJson', () => {
     expect(catalogScreensFromJson({
       screens: [{ id: 'login', name: 'Login', tab: 'Auth', module: 'CoreAuth' }],
     })).toEqual([{ id: 'login', name: 'Login', area: 'Auth' }]);
-  });
-});
-
-describe('ensureProjectBriefingFiles', () => {
-  it('creates canonical .mmd next to JSON and never reads epic artifacts', () => {
-    const root = tmp();
-    const viz = path.join(root, 'docs', 'project', 'context', 'visualization');
-    const epicArtifacts = path.join(root, 'docs', 'epics', 'PROJECT-CONTEXT-001', 'artifacts');
-    fs.mkdirSync(viz, { recursive: true });
-    fs.mkdirSync(epicArtifacts, { recursive: true });
-    fs.writeFileSync(path.join(viz, 'PROJECT-ARCHITECTURE.json'), JSON.stringify({
-      schemaVersion: 1,
-      layers: [{ name: 'mobile' }, { name: 'backend' }],
-      edges: [{ source: 'mobile', target: 'backend' }],
-    }));
-    fs.writeFileSync(path.join(viz, 'FEATURE-CATALOG.json'), JSON.stringify({
-      schemaVersion: 1,
-      features: [{ id: 'signin', name: 'Sign in' }],
-    }));
-    fs.writeFileSync(path.join(viz, 'SCREEN-CATALOG.json'), JSON.stringify({
-      schemaVersion: 1,
-      screens: [
-        { id: 'login', name: 'Login', tab: 'Auth' },
-        { id: 'home', name: 'Home', tab: 'Main' },
-      ],
-    }));
-    fs.writeFileSync(path.join(epicArtifacts, 'FEATURE-FLOW.mmd'), 'flowchart LR\n  wrong --> path\n');
-
-    const created = ensureProjectBriefingFiles(root);
-    expect(created).toEqual(expect.arrayContaining([
-      PROJECT_BRIEFING_PATHS.architectureMmd,
-      PROJECT_BRIEFING_PATHS.catalogMmd,
-      PROJECT_BRIEFING_PATHS.screensMmd,
-      PROJECT_BRIEFING_PATHS.review,
-      PROJECT_BRIEFING_PATHS.codingAgentBrief,
-    ]));
-
-    const briefing = readProjectContextBriefing(root);
-    expect(briefing.flowMermaid).toContain('mobile');
-    expect(briefing.flowMermaid).not.toContain('wrong');
-    expect(briefing.impactMermaid).toContain('Sign in');
-    expect(briefing.screensMermaid).toContain('ui["UI"]');
-    expect(briefing.screensMermaid).toMatch(/n_area_Auth --> n_screen_login/);
-    expect(fs.existsSync(path.join(root, PROJECT_BRIEFING_PATHS.architectureMmd))).toBe(true);
-    expect(fs.existsSync(path.join(root, PROJECT_BRIEFING_PATHS.catalogMmd))).toBe(true);
-    expect(fs.existsSync(path.join(root, PROJECT_BRIEFING_PATHS.screensMmd))).toBe(true);
-    expect(fs.existsSync(path.join(root, PROJECT_BRIEFING_PATHS.codingAgentBrief))).toBe(true);
-  });
-
-  it('creates mermaid stubs at the canonical path when JSON is missing', () => {
-    const root = tmp();
-    const created = ensureProjectBriefingFiles(root);
-    expect(created).toEqual(expect.arrayContaining([
-      PROJECT_BRIEFING_PATHS.architectureMmd,
-      PROJECT_BRIEFING_PATHS.catalogMmd,
-      PROJECT_BRIEFING_PATHS.screensMmd,
-      PROJECT_BRIEFING_PATHS.codingAgentBrief,
-    ]));
-    expect(fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.architectureMmd), 'utf8'))
-      .toContain('not generated yet');
-    expect(fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.screensMmd), 'utf8'))
-      .toContain('Screen catalog not generated yet');
-  });
-
-  it('highlights key point in review summary and writes a separate coding-agent brief', () => {
-    const root = tmp();
-    const projectContextPath = path.join(root, PROJECT_BRIEFING_PATHS.projectContext);
-    fs.mkdirSync(path.dirname(projectContextPath), { recursive: true });
-    fs.writeFileSync(projectContextPath, [
-      '# Project Context',
-      '',
-      '## Overview',
-      '',
-      'Trading workspace for discretionary and paper strategies.',
-      '',
-      'Includes charting, journaling, and risk controls.',
-      '',
-      '## Engineering Rules',
-      '',
-      '- Keep transitions explicit.',
-      '',
-    ].join('\n'));
-
-    ensureProjectBriefingFiles(root);
-    const review = fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.review), 'utf8');
-    const brief = fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.codingAgentBrief), 'utf8');
-
-    expect(review).toContain('## Summary');
-    expect(review).toContain('**Key point:** Trading workspace for discretionary and paper strategies.');
-    expect(brief).toContain('# Coding Agent Brief');
-    expect(brief).toContain('## Project key point');
-    expect(brief).toContain('Trading workspace for discretionary and paper strategies.');
-    expect(brief).toContain('## Engineering rules (for implementation)');
-  });
-
-  it('rewrites a one-level catalog mermaid when JSON can form a tree', () => {
-    const root = tmp();
-    const viz = path.join(root, 'docs', 'project', 'context', 'visualization');
-    fs.mkdirSync(viz, { recursive: true });
-    fs.writeFileSync(
-      path.join(root, PROJECT_BRIEFING_PATHS.catalogMmd),
-      'flowchart TD\n  app["APP"]\n  app --> n_feature_vault["Vault"]\n',
-    );
-    fs.writeFileSync(path.join(viz, 'FEATURE-CATALOG.json'), JSON.stringify({
-      schemaVersion: 1,
-      features: [
-        { id: 'passwords', name: 'Passwords' },
-        { id: 'vault', name: 'Vault', parent: 'passwords' },
-      ],
-    }));
-    ensureProjectBriefingFiles(root);
-    const mermaid = fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.catalogMmd), 'utf8');
-    expect(mermaid).toMatch(/n_feature_passwords --> n_feature_vault/);
-  });
-
-  it('replaces a placeholder .mmd once JSON exists, but does not overwrite a real graph', () => {
-    const root = tmp();
-    const viz = path.join(root, 'docs', 'project', 'context', 'visualization');
-    fs.mkdirSync(viz, { recursive: true });
-    fs.writeFileSync(
-      path.join(root, PROJECT_BRIEFING_PATHS.architectureMmd),
-      'flowchart TD\n  pending["Project architecture not generated yet"]\n',
-    );
-    fs.writeFileSync(path.join(viz, 'PROJECT-ARCHITECTURE.json'), JSON.stringify({
-      layers: [{ name: 'web' }, { name: 'core' }],
-      edges: [{ source: 'web', target: 'core' }],
-    }));
-    ensureProjectBriefingFiles(root);
-    expect(fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.architectureMmd), 'utf8'))
-      .toContain('web');
-
-    const real = 'flowchart TD\n  kept["Agent wrote this"]\n';
-    fs.writeFileSync(path.join(root, PROJECT_BRIEFING_PATHS.architectureMmd), real);
-    ensureProjectBriefingFiles(root);
-    expect(fs.readFileSync(path.join(root, PROJECT_BRIEFING_PATHS.architectureMmd), 'utf8')).toBe(real);
   });
 });

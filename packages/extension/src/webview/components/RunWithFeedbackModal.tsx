@@ -15,12 +15,8 @@ interface Props {
   runId: string;
   slashCommand: string;
   /** Carried feedback from a prior reject — pre-fills the textarea so the
-   * user can keep, edit, or clear it. Ignored in bug-report mode (new round). */
+   * user can keep, edit, or clear it. */
   carriedFeedback?: string;
-  /** Dedicated bug-resolution copy and required report input. */
-  mode?: 'feedback' | 'bug-report';
-  /** Already-recorded `bug_report` history rounds for this step. */
-  previousBugCount?: number;
   onSubmit: (feedback: string) => void;
   onClose: () => void;
 }
@@ -28,21 +24,18 @@ interface Props {
 /**
  * Run with feedback. v3-styled; the load-from-file behaviour (append, not
  * overwrite), the prompt preview string, and the `onSubmit` contract (which
- * posts `runStepWithFeedback`) are all unchanged. Bug-report mode also lets
- * the user attach or paste multiple screenshots for the agent to read.
+ * posts `runStepWithFeedback`) are all unchanged. The user can also attach or
+ * paste multiple screenshots for the agent to read.
  */
 export function RunWithFeedbackModal({
   agent,
   runId,
   slashCommand,
   carriedFeedback,
-  mode = 'feedback',
-  previousBugCount = 0,
   onSubmit,
   onClose,
 }: Props) {
-  const isBugReport = mode === 'bug-report';
-  const [feedback, setFeedback] = useState(isBugReport ? '' : (carriedFeedback ?? ''));
+  const [feedback, setFeedback] = useState(carriedFeedback ?? '');
   const [images, setImages] = useState<BugImageResult[]>([]);
   const ref = useRef<HTMLTextAreaElement>(null);
   const [loading, setLoading] = useState(false);
@@ -141,7 +134,6 @@ export function RunWithFeedbackModal({
   }, []);
 
   useEffect(() => {
-    if (!isBugReport) { return; }
     const onPaste = (e: ClipboardEvent) => {
       const files = [...(e.clipboardData?.items ?? [])]
         .filter((item) => item.type.startsWith('image/'))
@@ -155,10 +147,9 @@ export function RunWithFeedbackModal({
     return () => window.removeEventListener('paste', onPaste);
     // remaining/runId are read at paste time via closure; re-bind when they change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isBugReport, remaining, runId]);
+  }, [remaining, runId]);
 
   const trimmed = feedback.trim();
-  const canSubmit = !isBugReport || trimmed.length > 0 || images.length > 0;
   const submit = () => {
     const screenshotMd = screenshotSection(images.map((img) => img.relativePath));
     const body = [
@@ -170,17 +161,17 @@ export function RunWithFeedbackModal({
   };
 
   const previewPrompt = trimmed || images.length > 0
-    ? `${slashCommand} ${runId} — ${isBugReport ? 'Bug report' : 'Update artifact per feedback'}: "${trimmed || 'See attached screenshots.'}"${images.length ? ` + ${images.length} ảnh` : ''}`
+    ? `${slashCommand} ${runId} — Update artifact per feedback: "${trimmed || 'See attached screenshots.'}"${images.length ? ` + ${images.length} ảnh` : ''}`
     : `${slashCommand} ${runId}`;
 
   return (
     <V3Modal
-      width={isBugReport ? 680 : 620}
+      width={660}
       paddingTop={90}
       onClose={onClose}
       header={
         <V3ModalHeader
-          title={isBugReport ? 'Nhập bug để agent xử lý' : 'Run with feedback'}
+          title="Run with feedback"
           sub={`${agent} · run ${runId}`}
           onClose={onClose}
         />
@@ -189,18 +180,16 @@ export function RunWithFeedbackModal({
         <V3ModalFooter cli={`${slashCommand} ${runId}`}>
           <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
           <Btn
-            label={isBugReport ? 'Sửa bug với agent' : 'Run in Claude'}
+            label="Run in Claude"
             variant="primary"
             onClick={submit}
-            disabled={isBugReport && !canSubmit}
-            title={isBugReport && !canSubmit ? 'Nhập thông tin bug hoặc chèn ít nhất một ảnh' : undefined}
             pad="9px 16px"
             fs={12.5}
           />
         </V3ModalFooter>
       }
     >
-      {!isBugReport && carriedFeedback && (
+      {carriedFeedback && (
         <V3Callout tone="warn" label="Carried feedback">
           <Mono>↳ {carriedFeedback}</Mono>
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--txt3)' }}>
@@ -209,25 +198,9 @@ export function RunWithFeedbackModal({
         </V3Callout>
       )}
 
-      {isBugReport && previousBugCount > 0 && (
-        <V3Callout tone="warn" label="Bug đã ghi trước đó">
-          History của step đang giữ {previousBugCount} round. Agent vẫn xử lý các bug cũ;
-          chỉ nhập round mới (hoặc bổ sung) vào ô bên dưới.
-        </V3Callout>
-      )}
-
-      {isBugReport && (
-        <V3Callout tone="warn" label="Approval là điểm chốt">
-          Agent sẽ tái hiện, sửa code/test và ghi kế hoạch cập nhật docs. Các file Markdown
-          của step liên quan chỉ được đồng bộ sau khi bạn kiểm tra kết quả và nhấn Approve.
-        </V3Callout>
-      )}
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <V3Label hint={isBugReport ? '(bắt buộc trừ khi đã chèn ảnh)' : '(tuỳ chọn)'}>
-            {isBugReport ? 'Thông tin bug' : 'Feedback cho agent'}
-          </V3Label>
+          <V3Label hint="(tuỳ chọn)">Feedback cho agent</V3Label>
           <div style={{ flex: 1 }} />
           <button
             type="button"
@@ -243,9 +216,7 @@ export function RunWithFeedbackModal({
           ref={ref}
           value={feedback}
           onChange={(e) => setFeedback(e.target.value)}
-          placeholder={isBugReport
-            ? 'Hiện tại: …\nMong muốn: …\nCách tái hiện: …\nDán screenshot (⌘V / Ctrl+V) hoặc nhấn Chèn ảnh…'
-            : 'ví dụ: thêm rate-limit policy theo PRD §4.2; trình bày dạng checklist'}
+          placeholder={'ví dụ: thêm rate-limit policy theo PRD §4.2; trình bày dạng checklist.\nDán screenshot (⌘V / Ctrl+V) hoặc nhấn Chèn ảnh…'}
           rows={5}
           style={{
             background: 'var(--panel)', border: '1px solid var(--bd)', borderRadius: 6,
@@ -265,8 +236,7 @@ export function RunWithFeedbackModal({
         )}
       </div>
 
-      {isBugReport && (
-        <div
+      <div
           onDragOver={(e) => {
             if ([...e.dataTransfer.types].includes('Files')) {
               e.preventDefault();
@@ -356,8 +326,7 @@ export function RunWithFeedbackModal({
               ))}
             </div>
           )}
-        </div>
-      )}
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <SectionLabel fs={10.5} tracking=".09em">Sẽ chạy trong Claude</SectionLabel>

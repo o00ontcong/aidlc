@@ -68,33 +68,6 @@ const SDLC_CORE: WorkflowPack = {
   },
 };
 
-const SPECKIT: WorkflowPack = {
-  ...SDLC_CORE, id: 'speckit', version: '1.0.0', description: 'Spec Kit mapping over the canonical five-stage timeline.',
-  actions: {
-    understand: [action('speckit-specify', 'understand', 'Specify and clarify requirement', [])],
-    plan: [action('speckit-plan', 'plan', 'Create technical plan', ['speckit-specify'])],
-    build: [action('speckit-tasks', 'build', 'Generate and implement tasks', ['speckit-plan'])],
-    verify: [action('speckit-analyze', 'verify', 'Analyze implementation against specification', ['speckit-tasks'], { validators: ['specification'] })],
-    ship: [action('ship', 'ship', 'Preview and ship approved changes', ['speckit-analyze'])],
-  },
-};
-
-const COHESIVE: WorkflowPack = {
-  ...SDLC_CORE, id: 'cohesive', version: '1.0.0', description: 'Parallel Build subruns with an explicit, never implicit, context refresh.',
-  actions: {
-    understand: [action('analyze-project', 'understand', 'Analyze project and requirement', [])],
-    plan: [action('design-plan', 'plan', 'Design execution plan', ['analyze-project'])],
-    build: [
-      action('refresh-project-context', 'build', 'Check whether an explicit Project Context refresh is needed', ['design-plan'], { mutation: false, modelTier: 'fast', prompt: 'Inspect the published Project Context status. Do not refresh it; if stale, return the explicit context refresh command as the required next action.' }),
-      action('implement-package-a', 'build', 'Implement work package A', ['refresh-project-context'], { subrun: true }),
-      action('implement-package-b', 'build', 'Implement work package B', ['refresh-project-context'], { subrun: true }),
-      action('integrate-packages', 'build', 'Integrate work packages', ['implement-package-a', 'implement-package-b']),
-    ],
-    verify: [action('verify', 'verify', 'Validate integrated work', ['integrate-packages'], { validators: ['feature-contract'] })],
-    ship: [action('ship', 'ship', 'Preview and ship approved changes', ['verify'])],
-  },
-};
-
 const REGULATED: WorkflowPack = {
   ...SDLC_CORE, id: 'regulated', version: '1.0.0', description: 'Five-stage workflow with traceability and evidence requirements.',
   capabilityRequirements: [{ capabilityId: 'artifact-annotation', optional: false, reason: 'Regulated work requires traceable review evidence.' }],
@@ -113,7 +86,7 @@ const REGULATED: WorkflowPack = {
   },
 };
 
-const BUILTIN_PACKS: readonly WorkflowPack[] = Object.freeze([SDLC_CORE, SPECKIT, COHESIVE, REGULATED]);
+const BUILTIN_PACKS: readonly WorkflowPack[] = Object.freeze([SDLC_CORE, REGULATED]);
 
 export function listBuiltinWorkflowPacks(): readonly WorkflowPack[] { return BUILTIN_PACKS; }
 

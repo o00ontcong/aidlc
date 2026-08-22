@@ -47,26 +47,8 @@ import { RerunModal } from './RerunModal';
 import { RunWithFeedbackModal } from './RunWithFeedbackModal';
 import { RequestUpdateModal } from './RequestUpdateModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
-import { AlignmentStrip } from './AlignmentStrip';
 import { DiffPane } from './DiffPane';
-import { ShipStrip } from './ShipStrip';
 import { postMessage } from '@/lib/bridge';
-
-function isFeaturePipeline(pipeline: string | null): boolean {
-  if (!pipeline) return false;
-  return pipeline === 'cohesive-feature' || pipeline.startsWith('cohesive-feature')
-    || pipeline === 'feature-spike' || pipeline.startsWith('feature-spike')
-    || pipeline === 'feature-implement' || pipeline.startsWith('feature-implement');
-}
-
-function isPackagePipeline(pipeline: string | null): boolean {
-  if (!pipeline) return false;
-  return pipeline === 'cohesive-work-package' || pipeline.includes('work-package');
-}
-
-function isBugResolutionStep(step: EpicStepDetailFull | null): boolean {
-  return (step?.stepName ?? step?.agent ?? '').trim().toLowerCase() === 'resolve-bugs';
-}
 
 function isCodeHumanReviewStep(step: EpicStepDetailFull | null): boolean {
   if (!step?.stepHasHumanReview) return false;
@@ -264,21 +246,6 @@ export function EpicCard({
           </button>
         </div>
       </div>
-
-      {!isPackagePipeline(epic.pipeline) && (
-        <>
-          <AlignmentStrip alignment={epic.alignment} />
-          <ShipStrip ship={epic.ship} isFeatureEpic={isFeaturePipeline(epic.pipeline)} />
-        </>
-      )}
-
-      {expanded && focused && isCodeHumanReviewStep(focused) && (
-        <DiffPane
-          diffText={epic.reviewDiff}
-          diffIgnore={diffIgnore}
-          stepLabel={focused.stepName ?? focused.agent}
-        />
-      )}
 
       {expanded && (
         <div className="space-y-4 border-t border-border px-5 py-4">
@@ -1295,15 +1262,12 @@ function RunGate({
           <>
             {slashCommand && (() => {
               const hasFeedback = !!focused.feedback;
-              const isBugResolution = isBugResolutionStep(focused);
               const runDisabled = isRunStepDisabled(providerConfig);
-              const runLabel = isBugResolution
-                ? 'Nhập bug & chạy agent'
-                : hasFeedback
-                  ? runStepButtonLabel(providerConfig, 'feedback')
-                  : hasPreviousAttempt
-                    ? runStepButtonLabel(providerConfig, 'again')
-                    : runStepButtonLabel(providerConfig, 'default');
+              const runLabel = hasFeedback
+                ? runStepButtonLabel(providerConfig, 'feedback')
+                : hasPreviousAttempt
+                  ? runStepButtonLabel(providerConfig, 'again')
+                  : runStepButtonLabel(providerConfig, 'default');
               return (
                 <GateButton
                   variant="approve"
@@ -1311,7 +1275,7 @@ function RunGate({
                   title={runDisabled ? runStepDisabledHint() : undefined}
                   onClick={() => {
                     if (runDisabled) { return; }
-                    if (isBugResolution || hasFeedback) {
+                    if (hasFeedback) {
                       setRunOpen(true);
                     } else {
                       postMessage({
@@ -1350,7 +1314,7 @@ function RunGate({
               variant="approve"
               onClick={() => postMessage({ type: 'approveStep', runId: epic.runId!, stepIdx: focusedIdx })}
             >
-              <Check className="h-3 w-3" /> {isBugResolutionStep(focused) ? 'Approve bản sửa' : 'Approve'}
+              <Check className="h-3 w-3" /> Approve
             </GateButton>
             <GateButton
               variant="reject"
@@ -1408,8 +1372,6 @@ function RunGate({
           runId={epic.runId}
           slashCommand={slashCommand}
           carriedFeedback={focused.feedback}
-          mode={isBugResolutionStep(focused) ? 'bug-report' : 'feedback'}
-          previousBugCount={(focused.history ?? []).filter((e) => e.kind === 'bug_report').length}
           onSubmit={(feedback) =>
             postMessage({
               type: 'runStepWithFeedback',

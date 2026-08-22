@@ -23,11 +23,10 @@ import { GateModal } from './GateModal';
 import { FlowCanvas } from './FlowCanvas';
 import { DEFAULT_LOOP, type FlowLoop } from './flow-layout';
 import {
-  BADGE, ROW_DOT, configRows, epicTokenLine, flowNodes, historyRows, shipMilestones,
+  BADGE, ROW_DOT, configRows, epicTokenLine, flowNodes, historyRows,
   stepDetailRows, stepRows,
 } from './adapt';
-import { isBugResolutionStep, isCodeHumanReviewStep, isBriefingPipeline, isFeaturePipeline, isPackagePipeline, runStatusUi } from './epic-logic';
-import { briefingGateCopy, isFeatureSpikePipeline, isImplementStartBlocked, pipelineChipLabel } from './three-pipeline';
+import { isCodeHumanReviewStep, runStatusUi } from './epic-logic';
 import { humanInterventionTooltip } from './human-intervention';
 import { mock } from './mock';
 import {
@@ -38,13 +37,10 @@ import {
 const GAP = 14;
 
 export function EpicDetail({
-  epic, state, onOpenCharter, onChoosePack, onStartImplementFromSpike,
+  epic, state,
 }: {
   epic: EpicSummary;
   state: WorkspaceState;
-  onOpenCharter: () => void;
-  onChoosePack?: () => void;
-  onStartImplementFromSpike?: (epic: EpicSummary) => void;
 }) {
   const [focusedIdx, setFocusedIdx] = useState(epic.currentStep ?? 0);
   useEffect(() => { setFocusedIdx(epic.currentStep ?? 0); }, [epic.id, epic.currentStep]);
@@ -53,8 +49,6 @@ export function EpicDetail({
   const focused: EpicStepDetailFull | null = steps[focusedIdx] ?? steps[0] ?? null;
   const badge = BADGE[epic.status];
   const tokenLine = epicTokenLine(epic);
-  const isPackage = isPackagePipeline(epic.pipeline);
-  const briefing = isBriefingPipeline(epic.pipeline);
 
   return (
     <div
@@ -63,10 +57,7 @@ export function EpicDetail({
         display: 'flex', flexDirection: 'column', gap: GAP,
       }}
     >
-      {/* ① charter alignment strip */}
-      <AlignmentStripV3 epic={epic} onOpenCharter={onOpenCharter} />
-
-      {/* ② header */}
+      {/* ① header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: GAP, flex: 'none' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -80,9 +71,7 @@ export function EpicDetail({
               {epic.title}
             </div>
             <StatusBadgeV3 icon={badge.icon} label={badge.label} bg={badge.bg} fg={badge.fg} />
-            {pipelineChipLabel(epic.pipeline) && (
-              <Chip label={pipelineChipLabel(epic.pipeline)!} mono />
-            )}
+            {epic.pipeline && <Chip label={epic.pipeline} mono />}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
             <ProgressBar pct={epic.progress} height={6} />
@@ -108,76 +97,13 @@ export function EpicDetail({
         </div>
       </div>
 
-      {/* User-entered brief and project alignment captured at creation. */}
-      {!briefing && <EpicRequestCard epic={epic} />}
+      {/* User-entered brief captured at creation. */}
+      <EpicRequestCard epic={epic} />
 
       <EpicVisualsCard epic={epic} />
 
-      {briefing ? (
-        <>
-          {isFeatureSpikePipeline(epic.pipeline) && (
-            <StartImplementFromSpikeCard
-              epic={epic}
-              onStart={() => onStartImplementFromSpike?.(epic)}
-            />
-          )}
-          {isImplementStartBlocked(epic) ? (
-            <PackBlockedBanner onChoosePack={onChoosePack} />
-          ) : focused && (
-            <GateBanner
-              epic={epic}
-              focused={focused}
-              focusedIdx={focusedIdx}
-              providerConfig={state.providerConfig}
-            />
-          )}
-          {focused && isCodeHumanReviewStep(focused) && epic.reviewDiff && (
-            <Card style={{ overflow: 'hidden' }}>
-              <DiffPane
-                diffText={epic.reviewDiff}
-                diffIgnore={state.diffIgnore}
-                stepLabel={focused.stepName ?? focused.agent}
-              />
-            </Card>
-          )}
-          {steps.length > 0 && (
-            <AgentTimeline
-              steps={steps}
-              focusedIdx={focusedIdx}
-              onFocus={setFocusedIdx}
-            >
-              <EpicConfigCard epic={epic} />
-              <StepListCard
-                epic={epic}
-                focusedIdx={focusedIdx}
-                onFocus={setFocusedIdx}
-                providerConfig={state.providerConfig}
-                packBlocked={isImplementStartBlocked(epic)}
-                onChoosePack={onChoosePack}
-              />
-              {focused && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: GAP, flex: 'none' }}>
-                  <StepDetailCard
-                    epic={epic}
-                    step={focused}
-                    agentMeta={state.agentMeta}
-                    providerConfig={state.providerConfig}
-                  />
-                  <HistoryCard step={focused} />
-                </div>
-              )}
-            </AgentTimeline>
-          )}
-          {isFeaturePipeline(epic.pipeline) && <ShipStripV3 epic={epic} />}
-          <ActionBar epic={epic} />
-        </>
-      ) : (
-        <>
-      {/* ③ project context */}
-      <ProjectContextCard context={state.projectContext} />
-
       {/* ④ parallel epics */}
-      {!isPackage && <ParallelEpicsCard epics={state.epics} currentId={epic.id} />}
+      <ParallelEpicsCard epics={state.epics} currentId={epic.id} />
 
       {/* ⑤ flow */}
       {steps.length > 0 && (
@@ -211,17 +137,6 @@ export function EpicDetail({
         />
       )}
 
-      {/* diff review pane — existing capability, kept for code human-review steps */}
-      {focused && isCodeHumanReviewStep(focused) && epic.reviewDiff && (
-        <Card style={{ overflow: 'hidden' }}>
-          <DiffPane
-            diffText={epic.reviewDiff}
-            diffIgnore={state.diffIgnore}
-            stepLabel={focused.stepName ?? focused.agent}
-          />
-        </Card>
-      )}
-
       {/* ⑨ step detail + history */}
       {focused && (
         <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: GAP, flex: 'none' }}>
@@ -235,51 +150,9 @@ export function EpicDetail({
         </div>
       )}
 
-      {/* ⑩ ship strip */}
-      {isFeaturePipeline(epic.pipeline) && <ShipStripV3 epic={epic} />}
-
       {/* ⑪ action bar */}
       <ActionBar epic={epic} />
-        </>
-      )}
     </div>
-  );
-}
-
-function StartImplementFromSpikeCard({ epic, onStart }: { epic: EpicSummary; onStart: () => void }) {
-  const hasMission = (epic.existingArtifacts ?? []).includes('MISSION.md');
-  const ready = epic.status === 'done' && hasMission;
-  const reason = !hasMission
-    ? 'Spike chưa tạo MISSION.md.'
-    : epic.status !== 'done'
-      ? 'Hoàn tất và approve package-mission trước khi bắt đầu implement.'
-      : '';
-  return (
-    <Card
-      style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
-        borderColor: ready ? 'var(--acc-bd)' : 'var(--warn-bd)',
-        background: ready ? 'var(--acc-bg)' : 'var(--warn-bg)',
-      }}
-    >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 700 }}>Start implement</div>
-        <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 3, lineHeight: 1.45 }}>
-          {ready
-            ? 'Agent sẽ phân tích MISSION.md, tạo một hoặc nhiều epic feature-implement với pack riêng; chưa chạy code.'
-            : reason}
-        </div>
-      </div>
-      <Btn
-        label="Start implement"
-        variant="primary"
-        pad="8px 13px"
-        fs={12}
-        disabled={!ready}
-        title={ready ? 'Phân rã spike thành các epic feature-implement.' : reason}
-        onClick={onStart}
-      />
-    </Card>
   );
 }
 
@@ -423,87 +296,6 @@ function RequestField({ label, value }: { label: string; value: string }) {
   );
 }
 
-/* ── ① dc.html:662-666 ──────────────────────────────────────────────────── */
-
-function AlignmentStripV3({ epic, onOpenCharter }: { epic: EpicSummary; onOpenCharter: () => void }) {
-  const a = epic.alignment;
-  if (!a || (!a.goals.length && !a.status)) { return null; }
-  // Same three states AlignmentStrip.tsx renders today.
-  const variance = a.status === 'variance' || a.status === 'stale';
-  const tone = a.status === 'stale' ? 'err' : a.status === 'variance' ? 'warn' : 'acc';
-  const bd = tone === 'err' ? 'var(--err-bd)' : tone === 'warn' ? 'var(--warn-bd)' : 'var(--acc-bd)';
-  const bg = tone === 'err' ? 'var(--err-bg)' : tone === 'warn' ? 'var(--warn-bg)' : 'var(--acc-bg)';
-  const fg = tone === 'err' ? 'var(--err)' : tone === 'warn' ? 'var(--warn)' : 'var(--acc-txt)';
-  return (
-    <div
-      style={{
-        flex: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
-        borderRadius: 7, border: `1px solid ${bd}`, background: bg,
-      }}
-    >
-      <div style={{ color: fg, fontSize: 12, flex: 'none' }}>{variance ? '▲' : '✓'}</div>
-      <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--txt)', lineHeight: 1.5 }}>
-        {variance ? 'Charter alignment: epic mở rộng ngoài phạm vi ' : 'Charter alignment: epic khớp '}
-        {a.goals.map((g, i) => (
-          <span key={g}>
-            {i > 0 && ' · '}
-            <Mono>{g}</Mono>
-          </span>
-        ))}
-        {variance ? ' — chỉ được thu hẹp từ charter.' : '.'}
-      </div>
-      <div
-        onClick={onOpenCharter}
-        style={{ flex: 'none', whiteSpace: 'nowrap', cursor: 'pointer', fontSize: 11.5, color: fg, fontWeight: 600 }}
-      >
-        {variance ? 'Xem xung đột' : 'Xem charter'}
-      </div>
-    </div>
-  );
-}
-
-/* ── ③ dc.html:703-722 ──────────────────────────────────────────────────── */
-
-function ProjectContextCard({ context }: { context: WorkspaceState['projectContext'] }) {
-  const published = !!context;
-  const revision = context ? `r${context.revision}` : 'chưa publish';
-  const phaseProgress = context?.completedSteps !== undefined && context?.totalSteps !== undefined
-    ? `${context.completedSteps}/${context.totalSteps} phase hoàn tất`
-    : undefined;
-  const source = context?.sourceCommit ? context.sourceCommit.slice(0, 8) : undefined;
-  return (
-    <Card>
-      <CardHeader pad="10px 14px">
-        <CardTitle>Project Context</CardTitle>
-        <Chip label="project-context" mono />
-        <Chip label={revision} radius={999} bg={published ? 'var(--acc-bg)' : 'var(--warn-bg)'} fg={published ? 'var(--acc-txt)' : 'var(--warn)'} weight={600} />
-        <Spacer />
-        <CardNote>{source ? `commit ${source}` : 'baseline chung — mỗi feature epic capture snapshot để chạy độc lập'}</CardNote>
-      </CardHeader>
-      <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>
-          {context
-            ? `${context.artifacts.length} canonical artifact${context.artifacts.length === 1 ? '' : 's'} đã publish${phaseProgress ? ` · ${phaseProgress}` : ''}.`
-            : 'Chưa publish Project Context. Chạy project-context trước khi bắt đầu feature epic.'}
-        </div>
-        <Spacer />
-        <Btn
-          label="Mở context"
-          disabled={!context}
-          title={context ? 'Mở CONTEXT-MANIFEST.json' : 'Chưa có context manifest'}
-          onClick={context ? () => postMessage({ type: 'openPath', path: context.manifestPath }) : undefined}
-        />
-        <Btn
-          label="Refresh context"
-          variant="warn"
-          title="Đọc lại context manifest từ disk (không chạy lại pipeline)"
-          onClick={() => postMessage({ type: 'refreshProjectContextView' })}
-        />
-      </div>
-    </Card>
-  );
-}
-
 /* ── ④ dc.html:724-749 ──────────────────────────────────────────────────── */
 
 function ParallelEpicsCard({ epics, currentId }: { epics: EpicSummary[]; currentId: string }) {
@@ -518,8 +310,8 @@ function ParallelEpicsCard({ epics, currentId }: { epics: EpicSummary[]; current
       </CardHeader>
       {siblings.map((e) => {
         const dot = ROW_DOT[e.status];
-        const branch = e.inputs?.branch || e.ship?.head || '—';
-        const pr = e.ship?.prUrl ? prNumber(e.ship.prUrl) : '—';
+        const branch = e.inputs?.branch || '—';
+        const pr = '—';
         return (
           <div
             key={e.id}
@@ -755,8 +547,6 @@ function GateBanner({
   const runId = epic.runId;
   const stepName = focused.stepName ?? focused.agent;
   const slashCommand = focused.slashCommand;
-  const isBugResolution = isBugResolutionStep(focused);
-  const gate = briefingGateCopy(stepName, epic);
 
   return (
     <div
@@ -785,7 +575,7 @@ function GateBanner({
           border: '1px solid var(--bd)', borderRadius: 6, padding: '11px 12px',
         }}
       >
-        {gate.body}
+        {`Approve chốt ${stepName} và mở step kế tiếp. Reject gửi step về kèm lý do để agent làm lại.`}
         {focused.autoReviewVerdict && (
           <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--txt3)' }}>
             Auto-review: <Mono>{focused.autoReviewVerdict.decision}</Mono>
@@ -796,7 +586,7 @@ function GateBanner({
 
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
         <Btn
-          label={gate.approveLabel}
+          label="Approve"
           variant="primary"
           pad="8px 14px"
           fs={12.5}
@@ -818,23 +608,13 @@ function GateBanner({
           title="Mở form feedback rồi rerun đúng step này (không Approve). Dùng khi artifact sai nhưng chưa muốn reject về step trước."
           onClick={() => setRerunOpen(true)}
         />
-        {!isBugResolution && (
-          <Btn
-            label="Chạy auto-review"
-            pad="8px 13px"
-            fs={12.5}
-            title="Chạy validator máy (file tồn tại, marker, build). Không thay Approve của bạn — chỉ báo pass/reject kỹ thuật."
-            onClick={() => postMessage({ type: 'runAutoReview', runId, stepIdx: focusedIdx })}
-          />
-        )}
-        {slashCommand && isBugResolution && (
-          <Btn
-            label="Nhập bug & chạy agent"
-            pad="8px 13px"
-            fs={12.5}
-            onClick={() => setRunOpen(true)}
-          />
-        )}
+        <Btn
+          label="Chạy auto-review"
+          pad="8px 13px"
+          fs={12.5}
+          title="Chạy validator máy (file tồn tại, marker, build). Không thay Approve của bạn — chỉ báo pass/reject kỹ thuật."
+          onClick={() => postMessage({ type: 'runAutoReview', runId, stepIdx: focusedIdx })}
+        />
       </div>
 
       {gateOpen && (
@@ -844,9 +624,7 @@ function GateBanner({
           stepName={stepName}
           gateName={stepName}
           consequence={{
-            headline: isBugResolution
-              ? `Chốt bản sửa của ${epic.id} và mở ship.`
-              : `Approve step ${stepName} của ${epic.id}.`,
+            headline: `Approve step ${stepName} của ${epic.id}.`,
             scope: `${epic.stepDetails.filter((s) => s.status === 'done').length}/${epic.stepDetails.length} step đã xong.`,
             isMock: true,
           }}
@@ -870,8 +648,6 @@ function GateBanner({
           runId={runId}
           slashCommand={slashCommand}
           carriedFeedback={focused.feedback}
-          mode={isBugResolution ? 'bug-report' : 'feedback'}
-          previousBugCount={(focused.history ?? []).filter((e) => e.kind === 'bug_report').length}
           onSubmit={(feedback) =>
             postMessage({ type: 'runStepWithFeedback', runId, slashCommand, feedback })
           }
@@ -884,51 +660,13 @@ function GateBanner({
 
 /* ── ⑧ dc.html:872-904 ──────────────────────────────────────────────────── */
 
-function PackBlockedBanner({ onChoosePack }: { onChoosePack?: () => void }) {
-  return (
-    <div
-      style={{
-        flex: 'none', border: '2px solid var(--warn-bd)', background: 'var(--warn-bg)',
-        borderRadius: 8, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 11,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-        <div style={{ fontSize: 14, flex: 'none' }}>⚠</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 700 }}>
-            implement · <Mono>awaiting_work</Mono>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt2)', marginTop: 4, lineHeight: 1.5 }}>
-            Pack chưa đủ — không Start. Jira một dòng không được Start. Dán MISSION.md đủ heading hoặc copy từ spike.
-          </div>
-        </div>
-        <StatusBadgeV3 icon="●" label="blocked" bg="var(--err-bg)" fg="var(--err)" />
-      </div>
-      <div>
-        <Btn
-          label="Chọn nguồn pack"
-          variant="primary"
-          pad="8px 14px"
-          fs={12.5}
-          title="Mở modal chọn spike / dán MISSION / Jira. Start disabled nếu completeness fail."
-          onClick={onChoosePack}
-        />
-      </div>
-    </div>
-  );
-}
-
-/* ── ⑧ dc.html:872-904 ──────────────────────────────────────────────────── */
-
 function StepListCard({
-  epic, focusedIdx, onFocus, providerConfig, packBlocked, onChoosePack,
+  epic, focusedIdx, onFocus, providerConfig,
 }: {
   epic: EpicSummary;
   focusedIdx: number;
   onFocus: (idx: number) => void;
   providerConfig?: ProviderConfig;
-  packBlocked?: boolean;
-  onChoosePack?: () => void;
 }) {
   const rows = useMemo(() => stepRows(epic), [epic]);
   const runAgainHint = runStepButtonLabel(providerConfig, 'again');
@@ -983,8 +721,6 @@ function StepListCard({
                 step={step}
                 stepIdx={r.idx}
                 providerConfig={providerConfig}
-                packBlocked={packBlocked}
-                onChoosePack={onChoosePack}
               />
             </div>
             {r.error && (
@@ -1004,8 +740,6 @@ function StepListCard({
         epic={epic}
         focusedIdx={focusedIdx}
         providerConfig={providerConfig}
-        packBlocked={packBlocked}
-        onChoosePack={onChoosePack}
       />
     </Card>
   );
@@ -1016,14 +750,12 @@ function StepListCard({
  * conditions, same message types, same payloads.
  */
 function StepActions({
-  epic, step, stepIdx, providerConfig, packBlocked, onChoosePack,
+  epic, step, stepIdx, providerConfig,
 }: {
   epic: EpicSummary;
   step: EpicStepDetailFull;
   stepIdx: number;
   providerConfig?: ProviderConfig;
-  packBlocked?: boolean;
-  onChoosePack?: () => void;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
@@ -1038,7 +770,6 @@ function StepActions({
   const slashCommand = step.slashCommand;
   const hasPreviousAttempt = (step.tokenUsage?.calls ?? 0) > 0 || (step.history?.length ?? 0) > 0;
   const hasFeedback = !!step.feedback;
-  const isBugResolution = isBugResolutionStep(step);
   const runDisabled = isRunStepDisabled(providerConfig);
   const runHint = runDisabled ? runStepDisabledHint() : undefined;
 
@@ -1048,20 +779,11 @@ function StepActions({
     <div style={{ display: 'flex', gap: 5, flex: 'none' }} onClick={(e) => e.stopPropagation()}>
       {status === 'awaiting_work' && (
         <>
-          {packBlocked ? (
-            <StepBtn
-              kind="primary"
-              label="Chọn nguồn pack"
-              title="Pack chưa đủ heading — không Run implement. Mở modal chọn spike / dán MISSION / Jira."
-              onClick={stop(() => onChoosePack?.())}
-            />
-          ) : slashCommand && (
+          {slashCommand && (
             <StepBtn
               kind="primary"
               label={
-                isBugResolution
-                  ? 'Nhập bug & chạy agent'
-                  : hasFeedback
+                hasFeedback
                   ? runStepButtonLabel(providerConfig, 'feedback')
                   : hasPreviousAttempt
                     ? runStepButtonLabel(providerConfig, 'again')
@@ -1071,22 +793,20 @@ function StepActions({
               disabled={runDisabled}
               onClick={stop(() => {
                 if (runDisabled) { return; }
-                if (isBugResolution || hasFeedback) { setRunOpen(true); return; }
+                if (hasFeedback) { setRunOpen(true); return; }
                 postMessage({ type: 'runStepWithFeedback', runId, slashCommand, feedback: '' });
               })}
             />
           )}
-          {!packBlocked && (
+          <StepBtn
+            label="Đánh dấu step xong"
+            title="Bỏ qua agent — ghi step này là done trên disk. Không chạy code, không tạo artifact."
+            onClick={stop(() => postMessage({ type: 'markStepDone', runId, stepIdx }))}
+          />
+          {step.stepSkippable && (
             <StepBtn
-              label="Đánh dấu step xong"
-              title="Bỏ qua agent — ghi step này là done trên disk. Không chạy code, không tạo artifact."
-              onClick={stop(() => postMessage({ type: 'markStepDone', runId, stepIdx }))}
-            />
-          )}
-          {!packBlocked && step.stepSkippable && (
-            <StepBtn
-              label="Không có bug — bỏ qua"
-              title="Bỏ qua toàn bộ step này, không tạo artifact. Dùng khi không có bug nào cần sửa."
+              label="Bỏ qua step này"
+              title="Bỏ qua toàn bộ step này, không tạo artifact. Dùng khi step không có việc cần làm."
               onClick={stop(() => postMessage({ type: 'skipStep', runId, stepIdx }))}
             />
           )}
@@ -1104,7 +824,7 @@ function StepActions({
         <>
           <StepBtn
             kind="primary"
-            label={isBugResolution ? 'Approve bản sửa' : 'Approve'}
+            label="Approve"
             onClick={stop(() => postMessage({ type: 'approveStep', runId, stepIdx }))}
           />
           <StepBtn kind="danger" label="Reject" onClick={stop(() => setRejectOpen(true))} />
@@ -1161,8 +881,6 @@ function StepActions({
           runId={runId}
           slashCommand={slashCommand}
           carriedFeedback={step.feedback}
-          mode={isBugResolution ? 'bug-report' : 'feedback'}
-          previousBugCount={(step.history ?? []).filter((e) => e.kind === 'bug_report').length}
           onSubmit={(feedback) => postMessage({ type: 'runStepWithFeedback', runId, slashCommand, feedback })}
           onClose={() => setRunOpen(false)}
         />
@@ -1207,41 +925,27 @@ function StepBtn({
 
 /* dc.html:897-903 */
 function StepListFooter({
-  epic, focusedIdx, providerConfig, packBlocked, onChoosePack,
+  epic, focusedIdx, providerConfig,
 }: {
   epic: EpicSummary;
   focusedIdx: number;
   providerConfig?: ProviderConfig;
-  packBlocked?: boolean;
-  onChoosePack?: () => void;
 }) {
-  const [bugRunOpen, setBugRunOpen] = useState(false);
   const step = epic.stepDetails[focusedIdx];
   const canRerun = !!epic.runId && !!step?.slashCommand;
-  const isBugResolution = isBugResolutionStep(step ?? null);
   const canStart = !epic.runId && !!epic.pipeline;
   const runDisabled = isRunStepDisabled(providerConfig);
   const runHint = runDisabled ? runStepDisabledHint() : undefined;
   return (
     <div style={{ padding: '10px 14px', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-      {packBlocked && (
+      {canRerun && (
         <Btn
-          label="Chọn nguồn pack"
-          variant="primary"
-          pad="6px 11px"
-          title="Pack chưa đủ — mở modal spike / dán MISSION / Jira."
-          onClick={onChoosePack}
-        />
-      )}
-      {canRerun && !packBlocked && (
-        <Btn
-          label={isBugResolution ? 'Nhập bug & chạy agent' : runStepButtonLabel(providerConfig, 'again')}
+          label={runStepButtonLabel(providerConfig, 'again')}
           pad="6px 11px"
           title={runHint}
           disabled={runDisabled}
           onClick={() => {
             if (runDisabled) { return; }
-            if (isBugResolution) { setBugRunOpen(true); return; }
             postMessage({
               type: 'runStepWithFeedback',
               runId: epic.runId!,
@@ -1251,7 +955,7 @@ function StepListFooter({
           }}
         />
       )}
-      {canStart && !packBlocked && (
+      {canStart && (
         <Btn
           label="Start pipeline run"
           variant="primary"
@@ -1283,23 +987,6 @@ function StepListFooter({
       )}
       <Spacer />
       <Mono style={{ fontSize: 11, color: 'var(--txt3)' }}>resume từ checkpoint · giữ phase đã approve</Mono>
-      {bugRunOpen && epic.runId && step?.slashCommand && (
-        <RunWithFeedbackModal
-          agent={step.agent}
-          runId={epic.runId}
-          slashCommand={step.slashCommand}
-          carriedFeedback={step.feedback}
-          mode="bug-report"
-          previousBugCount={(step.history ?? []).filter((e) => e.kind === 'bug_report').length}
-          onSubmit={(feedback) => postMessage({
-            type: 'runStepWithFeedback',
-            runId: epic.runId!,
-            slashCommand: step.slashCommand!,
-            feedback,
-          })}
-          onClose={() => setBugRunOpen(false)}
-        />
-      )}
     </div>
   );
 }
@@ -1460,43 +1147,6 @@ function HistoryCard({ step }: { step: EpicStepDetailFull }) {
   );
 }
 
-/* ── ⑩ dc.html:940-952 ─────────────────────────────────────────────────── */
-
-function ShipStripV3({ epic }: { epic: EpicSummary }) {
-  const milestones = shipMilestones(epic);
-  if (!epic.ship?.prUrl && !epic.ship?.status && !epic.ship?.head) { return null; }
-  return (
-    <div
-      style={{
-        flex: 'none', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px',
-        borderRadius: 8, border: '1px solid var(--bd)', background: 'var(--panel)',
-      }}
-    >
-      <SectionLabel fs={10.5} tracking=".09em">Ship</SectionLabel>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
-        {milestones.map((s, i) => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.dot }} />
-            <div style={{ fontSize: 11.5, color: s.fg }}>{s.label}</div>
-            {i < milestones.length - 1 && <div style={{ width: 18, height: 1, background: 'var(--bd)' }} />}
-          </div>
-        ))}
-      </div>
-      {epic.ship?.prUrl && (
-        <a
-          href={epic.ship.prUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="v3-mono"
-          style={{ fontSize: 11.5, color: 'var(--acc-txt)', textDecoration: 'none', flex: 'none' }}
-        >
-          {epic.ship.head && epic.ship.base ? `${epic.ship.head} → ${epic.ship.base}` : 'Open PR'}
-        </a>
-      )}
-    </div>
-  );
-}
-
 /* ── ⑪ dc.html:954-958 ─────────────────────────────────────────────────── */
 
 function ActionBar({ epic }: { epic: EpicSummary }) {
@@ -1541,7 +1191,7 @@ function ActionBar({ epic }: { epic: EpicSummary }) {
           label="Mở inputs.json"
           pad="8px 13px"
           fs={12}
-          title="File brief lúc tạo epic (Jira, Figma, scope). Không phải MISSION.md."
+          title="File brief lúc tạo epic (Jira, Figma, scope)."
           onClick={() => postMessage({ type: 'openInputsJson', epicDir: epic.epicDir })}
         />
       )}

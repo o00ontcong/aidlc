@@ -24,13 +24,6 @@ import { startRun } from './PipelineRunner';
 import { RunStateStore } from './RunStateStore';
 import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
-import { seedCharterArtifacts } from '../epics/charterArtifacts';
-import {
-  alignmentDescriptionFromSeed,
-  buildAlignmentSeedFile,
-  type AlignmentSeedInput,
-} from '../epics/alignmentArtifacts';
-import { syncFlowMermaidFromMission } from '../mission/assertImplementPackReady';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
@@ -133,8 +126,6 @@ export function mirrorRunStateToEpic(
   fs.writeFileSync(stateFile, JSON.stringify(next, null, 2) + '\n', 'utf8');
 }
 
-/** Minimum length for project-context Start Epic Description (`idea`). */
-export const MIN_PROJECT_CONTEXT_IDEA_CHARS = 20;
 
 export interface ScaffoldEpicArgs {
   workspaceRoot: string;
@@ -158,12 +149,6 @@ export interface ScaffoldEpicArgs {
    */
   aidlcDir?: string;
   /**
-   * Root of Project Workspace charter templates (`…/templates/project-workspace/artifacts`).
-   * The VS Code extension must pass its own copy — esbuild sets `__dirname`
-   * to the extension `out/` folder, not `@aidlc/core`.
-   */
-  charterTemplatesRoot?: string;
-  /**
    * aidlc-autopilot (experimental / "coming soon"): when true, collect epic
    * context and generate a recommended plan (`context.json` +
    * `autopilot-plan.{json,md}`) at scaffold time. Defaults to **false** so the
@@ -176,13 +161,6 @@ export interface ScaffoldEpicArgs {
    * sessions and must honor every configured human gate.
    */
   runMode?: 'guided' | 'autonomous';
-  /**
-   * Charter alignment seed for feature pipelines: writes `ALIGNMENT.md`
-   * (serves G-x + feature-only narrower constraints).
-   */
-  alignmentSeed?: Omit<AlignmentSeedInput, 'epicId'>;
-  /** Portable pack written to artifacts/MISSION.md (Start implement / paste / Jira). */
-  missionMarkdown?: string;
 }
 
 export interface ScaffoldEpicResult {
@@ -235,48 +213,9 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
       }
     }
 
-    // Project-context bootstrap: seed Intent + Conventions once under docs/project/.
-    // Description is the human's project idea — establish-baseline interviews from it.
-    if (target.id === 'project-context') {
-      const idea = description.trim();
-      if (idea.length < MIN_PROJECT_CONTEXT_IDEA_CHARS) {
-        throw new EpicScaffoldError(
-          `project-context requires a Description (project idea) of at least `
-          + `${MIN_PROJECT_CONTEXT_IDEA_CHARS} characters — AI will interview you `
-          + `in establish-baseline to finalize Goals, principles, and tech policy.`,
-        );
-      }
-      seedCharterArtifacts(workspaceRoot, {
-        templatesRoot: args.charterTemplatesRoot,
-      });
-    }
   }
 
-  // Charter alignment seed (feature-spike / feature-implement): human-selected
-  // Goals + scope before agents run.
-  if (args.alignmentSeed) {
-    const body = buildAlignmentSeedFile({ epicId, ...args.alignmentSeed });
-    fs.writeFileSync(
-      path.join(artifactsDir, 'ALIGNMENT.md'),
-      body.endsWith('\n') ? body : `${body}\n`,
-      'utf8',
-    );
-  }
-
-  const missionMarkdown = args.missionMarkdown?.trim()
-    || (typeof inputs.mission === 'string' ? inputs.mission.trim() : '');
-  if (missionMarkdown) {
-    fs.writeFileSync(
-      path.join(artifactsDir, 'MISSION.md'),
-      missionMarkdown.endsWith('\n') ? missionMarkdown : `${missionMarkdown}\n`,
-      'utf8',
-    );
-    syncFlowMermaidFromMission(artifactsDir);
-  }
-
-  const resolvedDescription = args.alignmentSeed
-    ? (description.trim() || alignmentDescriptionFromSeed({ epicId, ...args.alignmentSeed }))
-    : description;
+  const resolvedDescription = description;
 
   const initialState = {
     id: epicId,
@@ -304,13 +243,6 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const persistedInputs: Record<string, unknown> = { ...inputs };
   if (extraProjects && extraProjects.length > 0) {
     persistedInputs.extra_projects = extraProjects;
-  }
-  // Always mirror Description → idea for project-context (define-charter seed).
-  if (target.kind === 'pipeline' && target.id === 'project-context') {
-    const idea = (typeof persistedInputs.idea === 'string' && persistedInputs.idea.trim())
-      ? String(persistedInputs.idea).trim()
-      : description.trim();
-    persistedInputs.idea = idea;
   }
   fs.writeFileSync(
     path.join(epicDir, 'inputs.json'),

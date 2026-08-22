@@ -87,9 +87,7 @@ export const NODE_STYLE: Record<FlowKind, { icon: string; border: string; bg: st
   todo:   { icon: '○',  border: '1.5px dashed var(--bd)',    bg: 'var(--panel)',   iconColor: 'var(--txt3)',    metaColor: 'var(--txt3)' },
 };
 
-/** Loop mặc định theo pipeline (v3): redraw-design 3→1, cohesive-feature 8→6. */
+/** Loop mặc định theo pipeline (v3), ví dụ redraw-design 3→1. */
 export const DEFAULT_LOOP: Record<string, FlowLoop> = {
-  'redraw-design':    { from: 3, to: 1, label: 'reject + feedback → design-recreator' },
-  'cohesive-feature': { from: 8, to: 6, label: 'cohesion-review reject → Run again with Claude → implement' },
-  'feature-implement': { from: 1, to: 1, label: 'resolve-bugs reject → same step with more bugs' },
+  'redraw-design': { from: 3, to: 1, label: 'reject + feedback → design-recreator' },
 };

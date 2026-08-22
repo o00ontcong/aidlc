@@ -62,27 +62,6 @@ export function ProjectOverview({ state, onOpenTask, onNewTask }: ProjectOvervie
         </div>
       </section>
 
-      {state.legacyCohesive?.present && (
-        <section className="flex flex-col gap-3 rounded-xl border border-warning/40 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <div>
-              <div className="text-xs font-semibold text-foreground">Legacy workspace elements detected</div>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                Retired pipelines, agents, skills, recipes, and global files are already hidden. Remove them from disk to prevent them from returning.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'removeLegacyCohesiveElements' })}
-            className="shrink-0 rounded-md border border-warning/50 bg-background px-3 py-2 text-[11px] font-semibold text-warning hover:bg-warning/10"
-          >
-            Remove legacy elements
-          </button>
-        </section>
-      )}
-
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Total tasks" value={state.epics.length} icon={<ListTodo className="h-4 w-4" />} />
         <Stat label="In progress" value={counts.inProgress} tone="primary" icon={<Circle className="h-4 w-4 fill-current" />} />

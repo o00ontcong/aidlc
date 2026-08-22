@@ -65,7 +65,7 @@ const cursorAdapter: CommandProviderAdapter = {
   renderCommandFile(spec) {
     // Cursor Agent treats `/name` as a Skill. YAML frontmatter + a sibling
     // `.cursor/skills/<name>/SKILL.md` (written by syncPipelineCommands) is
-    // what makes `/project-context-establish-baseline` available — a heading
+    // what makes `/aidlc-workflow-full-plan` available — a heading
     // in `.cursor/commands/` is not enough.
     return `---
 name: ${spec.commandName}

@@ -1,2 +1,2 @@
 export * from './ProjectIntelligenceService';
-export * from './projectBriefingFiles';
+export * from './architectureGraphs';

@@ -137,7 +137,7 @@ Dành cho project yêu cầu audit/compliance:
 - Bổ sung evidence, traceability và mandatory gates bên trong stage.
 - Không biến mỗi tài liệu compliance thành một step riêng.
 
-### 3.2 Mapping từ Cohesive Delivery cũ
+### 3.2 Mapping từ pipeline giao hàng cũ
 
 | Luồng cũ | Luồng mới |
 |---|---|
@@ -535,8 +535,6 @@ AST graph và annotation được bundle mặc định nhưng xuất hiện tron
 ### Workflow packs
 
 - `sdlc-core`: năm stage chuẩn.
-- `speckit`: action/template theo Spec Kit.
-- `cohesive`: parallel package, explicit project-context refresh và integration policy.
 - `regulated`: traceability/compliance evidence.
 
 ### Bundled capability modules

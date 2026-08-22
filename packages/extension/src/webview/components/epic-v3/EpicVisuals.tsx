@@ -4,22 +4,30 @@ import mermaid from 'mermaid';
 import type { EpicSummary, EpicVisualizations, ScreenAreaDiagram } from '@/lib/types';
 import { usePanelFullscreen } from '@/hooks/usePanelFullscreen';
 import { useSvgDiagramViewport } from '@/hooks/useSvgDiagramViewport';
-import { briefingGraphTabs, briefingSummary, isBriefingPipeline, isProjectContextPipeline, primaryFlowMermaid } from './epic-logic';
 import { Card, CardHeader, CardNote, CardTitle, Spacer } from './primitives';
 
 export function EpicVisualsCard({ epic }: { epic: EpicSummary }) {
   const graphs = epic.visualizations;
   const hasAny = Boolean(graphs?.impactMermaid || graphs?.surfacesMermaid || graphs?.flowMermaid || graphs?.screensMermaid);
-  const briefing = isBriefingPipeline(epic.pipeline);
-  if (!hasAny && !briefing) return null;
-  if (briefing) return <BriefingVisuals epic={epic} empty={!hasAny} />;
-  return <TabbedVisuals graphs={graphs} empty={!hasAny} />;
+  if (!hasAny) return null;
+  return <TabbedVisuals graphs={graphs} empty={false} />;
 }
 
 type GraphTab = { id: string; label: string; src: string; title: string };
 
-function graphTabs(graphs: EpicVisualizations | undefined, isContext: boolean, always = false): GraphTab[] {
-  return briefingGraphTabs(graphs, isContext ? 'project-context' : 'feature-spike', always);
+/** Graph tabs for an epic's checked-in diagrams — flow, surfaces, feature tree. */
+function graphTabs(graphs: EpicVisualizations | undefined, always = false): GraphTab[] {
+  const tabs: GraphTab[] = [];
+  if (always || graphs?.flowMermaid) {
+    tabs.push({ id: 'flow', label: 'Luồng', src: graphs?.flowMermaid ?? '', title: 'Luồng feature (đề xuất / as-built)' });
+  }
+  if (always || graphs?.surfacesMermaid) {
+    tabs.push({ id: 'surfaces', label: 'Surfaces', src: graphs?.surfacesMermaid ?? '', title: 'Màn hình / API epic này chạm tới' });
+  }
+  if (always || graphs?.impactMermaid) {
+    tabs.push({ id: 'impact', label: 'Cây feature', src: graphs?.impactMermaid ?? '', title: 'Feature thêm / sửa / xoá' });
+  }
+  return tabs;
 }
 
 function GraphTabBar({
@@ -66,116 +74,13 @@ function GraphTabBar({
   );
 }
 
-function BriefingVisuals({ epic, empty }: { epic: EpicSummary; empty: boolean }) {
-  const isContext = isProjectContextPipeline(epic.pipeline);
-  const tabs = useMemo(
-    () => briefingGraphTabs(epic.visualizations, epic.pipeline, !empty),
-    [epic.visualizations, epic.pipeline, empty],
-  );
-  const preferred = primaryFlowMermaid(epic.visualizations, epic.pipeline);
-  const defaultId = tabs.find((tab) => tab.src === preferred)?.id ?? tabs[0]?.id ?? 'flow';
-  const [tabId, setTabId] = useState(defaultId);
-  useEffect(() => {
-    if (!tabs.some((tab) => tab.id === tabId)) setTabId(defaultId);
-  }, [defaultId, tabId, tabs]);
-  const active = tabs.find((tab) => tab.id === tabId) ?? tabs[0];
-  const screenAreas = epic.visualizations?.screenAreas ?? [];
-  const [screenAreaId, setScreenAreaId] = useState('map');
-  useEffect(() => {
-    if (tabId !== 'screens') setScreenAreaId('map');
-  }, [tabId]);
-  const screenSource = screenAreaId === 'map'
-    ? active?.src
-    : (screenAreas.find((area) => area.id === screenAreaId)?.mermaid ?? active?.src);
-
-  return (
-    <Card style={{ overflow: 'hidden' }}>
-      <CardHeader wrap>
-        <CardTitle>{isContext ? 'Baseline repo' : 'Epic này sẽ làm gì'}</CardTitle>
-        <CardNote>
-          {isContext
-            ? 'SUMMARY từ CONTEXT-REVIEW.md. Ba graph: Kiến trúc + Cây code (FEATURE-CATALOG) + Cây màn hình (SCREEN-CATALOG). Surfaces thuộc feature-spike, không phải baseline repo.'
-            : 'SUMMARY + AC từ MISSION.md. Ba graph: Luồng / Surfaces / Cây feature — không SPEC/PLAN/CONTRACT.'}
-        </CardNote>
-        <Spacer />
-        <GraphTabBar tabs={tabs} activeId={active?.id ?? defaultId} onSelect={setTabId} />
-      </CardHeader>
-      {!isContext && empty && (
-        <div
-          style={{
-            margin: '0 14px 10px', padding: '8px 10px', borderRadius: 6,
-            border: '1px solid var(--warn-bd)', background: 'var(--warn-bg)',
-            color: 'var(--warn)', fontSize: 12, lineHeight: 1.5,
-          }}
-        >
-          {epic.epicsDirMismatch
-            ? 'Tìm thấy artifact ở docs/epics/ (gốc mặc định) thay vì thư mục epics-directory đang cấu hình cho epic này — epics-directory setting có thể đang lệch với nơi pipeline đã ghi, không phải mission thiếu nội dung.'
-            : 'Pack chưa đủ — thiếu Summary, AC (testable), Flow mermaid, In/Out. Graph Surfaces/Impact do spike ghi.'}
-        </div>
-      )}
-      {isContext && empty && (
-        <div
-          style={{
-            margin: '0 14px 10px', padding: '8px 10px', borderRadius: 6,
-            border: '1px solid var(--warn-bd)', background: 'var(--warn-bg)',
-            color: 'var(--warn)', fontSize: 12, lineHeight: 1.5,
-          }}
-        >
-          Chưa đọc được graph tại `docs/project/context/visualization/` (`PROJECT-ARCHITECTURE`, `FEATURE-CATALOG`, `SCREEN-CATALOG`). Pipeline phải ghi đúng folder đó (cạnh file .json). Reload AIDLC Workspace — extension sẽ tạo file tại đúng path nếu chưa có.
-        </div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <pre
-          style={{
-            margin: 0, padding: 14, maxHeight: 220, overflow: 'auto',
-            borderBottom: '1px solid var(--bd)',
-            fontSize: 12, lineHeight: 1.55, color: 'var(--txt)', whiteSpace: 'pre-wrap',
-            fontFamily: 'inherit',
-          }}
-        >
-          {briefingSummary(epic)}
-        </pre>
-        <div style={{ minHeight: 280, overflow: 'hidden' }}>
-          {empty || !active ? (
-            <p style={{ margin: 0, padding: '12px 14px', fontSize: 12, color: 'var(--txt3)' }}>
-              Chưa có graph.
-            </p>
-          ) : (
-            <>
-              {active.id === 'impact' && !isContext && <ImpactLegend />}
-              {active.id === 'screens' && screenAreas.length > 0 && (
-                <ScreenAreaBar
-                  areas={screenAreas}
-                  activeId={screenAreaId}
-                  onSelect={setScreenAreaId}
-                />
-              )}
-              <EpicMermaid
-                source={active.id === 'screens' ? screenSource : active.src}
-                empty="Graph này chưa có Mermaid."
-                curve={active.id === 'screens' ? 'linear' : 'basis'}
-                onNodeActivate={active.id === 'screens' && screenAreaId === 'map'
-                  ? (label) => {
-                    const id = screenAreaFromLabel(label, screenAreas);
-                    if (id) setScreenAreaId(id);
-                  }
-                  : undefined}
-              />
-            </>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
-}
-
 function TabbedVisuals({
   graphs, empty,
 }: {
   graphs?: EpicVisualizations;
   empty: boolean;
 }) {
-  const tabs = useMemo(() => graphTabs(graphs, false), [graphs]);
+  const tabs = useMemo(() => graphTabs(graphs), [graphs]);
   const [tabId, setTabId] = useState(tabs[0]?.id ?? 'impact');
   useEffect(() => {
     if (!tabs.some((tab) => tab.id === tabId)) setTabId(tabs[0]?.id ?? 'impact');
@@ -186,7 +91,7 @@ function TabbedVisuals({
     <Card style={{ overflow: 'hidden' }}>
       <CardHeader wrap>
         <CardTitle>Epic này sẽ làm gì</CardTitle>
-        <CardNote>Luồng / Surfaces / Cây feature. Agent code theo MISSION.md (AC không copy vào graph).</CardNote>
+        <CardNote>Luồng / Surfaces / Cây feature — đọc từ các file graph có sẵn trong artifacts của epic.</CardNote>
         {!empty && <GraphTabBar tabs={tabs} activeId={active?.id ?? 'impact'} onSelect={setTabId} />}
       </CardHeader>
       {empty || !active

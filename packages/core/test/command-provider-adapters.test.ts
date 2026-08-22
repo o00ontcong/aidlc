@@ -16,11 +16,11 @@ import {
 
 describe('CommandProviderAdapter', () => {
   it('renders provider-specific command formats from the same StepCommandSpec', () => {
-    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'project-workspace')!;
+    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'aidlc-workflow')!;
     const preset = loadBuiltinPreset(builtinTemplatesRoot(), workflow);
     const phase = workflowCommandPhases(workflow).find((p) => p.phase.id === 'implement')!.phase;
     const skillBody = preset.skillContents.implement;
-    const commandName = pipelineCommandId('feature-implement', 'implement');
+    const commandName = pipelineCommandId(workflow.pipelineId, 'implement');
     const spec = buildStepCommandSpec(phase, skillBody, 'docs/epics', commandName);
 
     const claude = getCommandProviderAdapter('claude').renderCommandFile(spec, 'claude-opus-5');
@@ -32,9 +32,9 @@ describe('CommandProviderAdapter', () => {
     expect(claude).toContain('model: claude-opus-5');
     expect(cursor).toMatch(/^---\n/);
     expect(cursor).toContain(`name: ${commandName}`);
-    expect(cursor).not.toContain('model:');
+    expect(cursor.split('---')[1]).not.toContain('model:');
     expect(codex).toContain('disable-model-invocation: true');
-    expect(codex).toContain('name: aidlc-feature-implement-implement');
+    expect(codex).toContain('name: aidlc-aidlc-workflow-full-implement');
     expect(claude).toContain('## Task');
     expect(cursor).toContain('## Task');
     expect(codex).toContain('## Task');
@@ -54,27 +54,17 @@ describe('CommandProviderAdapter', () => {
     expect(store.mapModel('claude-opus-5', 'opencode')).toBe('silvertiger/glm-5.3');
   });
 
-  // The 'implement' phase declares an explicit `produces:` (IMPLEMENTATION-
-  // SUMMARY.md etc, baked with the conventional `docs/epics` prefix in
-  // presets/builtinWorkflows.ts). Passing a non-default epicRoot must still
-  // rewrite that prefix in the "## Task" instructions the runner composes —
-  // otherwise the agent is told to write under `docs/epics` regardless of
-  // the workspace's active epics directory, which is exactly what caused a
-  // real-world SPIKE run to write its artifacts to the wrong place after the
-  // project's state.root was changed to `.aidlc/epics`.
-  //
-  // (The skill body's own prose — the part authored in
-  // templates/project-workspace/skills/*.md — still hardcodes `docs/epics` and is not
-  // fixed by this: that's a separate, much larger change since those files
-  // are shared globally across every project on the machine and have no
-  // per-workspace substitution today.)
-  it('rewrites the baked docs/epics prefix in produces-driven Task instructions to the active epicRoot', () => {
-    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'project-workspace')!;
+  // Artifact paths are baked with the conventional `docs/epics` prefix in
+  // presets/builtinWorkflows.ts. Passing a non-default epicRoot must rewrite
+  // that prefix in the "## Task" instructions the runner composes — otherwise
+  // the agent writes under `docs/epics` regardless of the workspace's active
+  // epics directory.
+  it('rewrites the baked docs/epics prefix in Task instructions to the active epicRoot', () => {
+    const workflow = BUILTIN_WORKFLOWS.find((w) => w.id === 'aidlc-workflow')!;
     const preset = loadBuiltinPreset(builtinTemplatesRoot(), workflow);
-    const phase = workflowCommandPhases(workflow).find((p) => p.phase.id === 'implement')!.phase;
-    expect(phase.produces?.length).toBeGreaterThan(0);
-    const skillBody = preset.skillContents.implement;
-    const commandName = pipelineCommandId('feature-implement', 'implement');
+    const phase = workflowCommandPhases(workflow).find((p) => p.phase.id === 'plan')!.phase;
+    const skillBody = preset.skillContents.plan;
+    const commandName = pipelineCommandId(workflow.pipelineId, 'plan');
     const spec = buildStepCommandSpec(phase, skillBody, '.aidlc/epics', commandName);
     const taskSection = spec.body.slice(spec.body.indexOf('## Task'));
 

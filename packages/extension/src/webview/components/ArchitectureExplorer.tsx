@@ -15,7 +15,7 @@ const copy = {
     title: 'Architecture', intro: 'Read the project from its overall shape to a code feature tree, a screen tree, then a feature flow.',
     overview: '1. Overview', features: '2. Code tree', screens: '3. Screen tree', flow: '4. Feature Flow', selectFeature: 'Choose a feature to view its code flow.',
     screenMap: 'Map', screenSliceHint: 'Open one area at a time. Map shows how areas connect; a tab shows the screens and buttons inside it.',
-    generateProject: 'Generate Overview + Trees', generateFlow: 'Generate Feature Flow…', noDiagram: 'No diagram is available for this feature yet.',
+    noDiagram: 'No diagram is available for this feature yet.',
     codeFlow: 'Code flow', surfaces: 'Surfaces',
     visualOverview: 'Visual overview', technicalOverview: 'Technical overview', renderVisual: 'Render verified overview',
     zoomOut: 'Zoom out', zoomIn: 'Zoom in', resetZoom: 'Reset zoom', panHint: 'Drag to pan · Ctrl + scroll to zoom',
@@ -26,7 +26,7 @@ const copy = {
     title: 'Kiến trúc', intro: 'Đọc dự án từ hình dạng tổng thể, cây feature theo code, cây theo màn hình, rồi luồng mã nguồn.',
     overview: '1. Tổng quan', features: '2. Cây code', screens: '3. Cây màn hình', flow: '4. Luồng tính năng', selectFeature: 'Chọn một tính năng để xem luồng mã nguồn.',
     screenMap: 'Bản đồ', screenSliceHint: 'Xem từng khu vực. Bản đồ là nối giữa các khu; chọn tab để thấy màn hình và nút bên trong.',
-    generateProject: 'Tạo Tổng quan + Cây', generateFlow: 'Tạo Luồng tính năng…', noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
+    noDiagram: 'Tính năng này chưa có sơ đồ luồng.',
     codeFlow: 'Luồng mã', surfaces: 'Surfaces',
     visualOverview: 'Tổng quan trực quan', technicalOverview: 'Tổng quan kỹ thuật', renderVisual: 'Tạo tổng quan đã kiểm chứng',
     zoomOut: 'Thu nhỏ', zoomIn: 'Phóng to', resetZoom: 'Đặt lại tỷ lệ', panHint: 'Giữ chuột để kéo · Ctrl + lăn chuột để zoom',
@@ -247,7 +247,7 @@ export function ArchitectureExplorer({ architecture, epics, language }: {
   }, [architecture, epics, flow?.mermaid, flow?.surfacesMermaid, flowKind, level, screenAreaId, screenAreas, text]);
 
   if (!architecture.available) {
-    return <div className="rounded-md border border-dashed border-border bg-card p-6"><h1 className="text-lg font-semibold text-foreground">{text.title}</h1><p className="mt-2 text-sm text-muted-foreground">{architecture.message}</p><DiagramActions text={text} /></div>;
+    return <div className="rounded-md border border-dashed border-border bg-card p-6"><h1 className="text-lg font-semibold text-foreground">{text.title}</h1><p className="mt-2 text-sm text-muted-foreground">{architecture.message}</p></div>;
   }
 
   return <div className="space-y-4">
@@ -337,9 +337,7 @@ function FullscreenButton({ active, enterLabel, exitLabel, onClick }: {
 
 function DiagramActions({ compact = false, text, canRender = false }: { compact?: boolean; text: typeof copy.en | typeof copy.vi; canRender?: boolean }) {
   return <div className={`flex flex-wrap gap-2 ${compact ? '' : 'mt-4'}`}>
-    <button type="button" onClick={() => postMessage({ type: 'generateArchitectureProjectMap' })} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90">{text.generateProject}</button>
     {canRender && <button type="button" onClick={() => postMessage({ type: 'renderArchifyOverview' })} className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent">{text.renderVisual}</button>}
-    <button type="button" onClick={() => postMessage({ type: 'generateArchitectureFeatureFlow' })} className="rounded-md border border-border px-3 py-1.5 text-xs text-foreground hover:bg-accent">{text.generateFlow}</button>
   </div>;
 }
 

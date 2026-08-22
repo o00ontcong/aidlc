@@ -196,7 +196,7 @@ export async function applyPresetCommand(
   // by `globalDefaultsInstaller`. Nothing is pre-installed at activation —
   // ask before dropping ~18 files into the user's global Claude folder so
   // they understand what's happening. Overwrite re-installs so skill bodies
-  // (e.g. define-charter Mode A) refresh even when already present.
+  // refresh even when already present.
   const builtinWorkflow = getBuiltinWorkflow(preset.id);
   if (builtinWorkflow) {
     const already = isWorkflowGloballyInstalled(extensionPath, builtinWorkflow.id);
@@ -231,7 +231,7 @@ export async function applyPresetCommand(
   // Apply path:
   //  - No yaml yet → fresh write of the preset.
   //  - Yaml exists + overwrite (sidebar "Overwrite & apply") → replace matching
-  //    builtin pipelines/agents from the preset (fixes stale project-context).
+  //    builtin pipelines/agents from the preset (fixes stale definitions).
   //  - Yaml exists + soft apply → merge-append only; never clobber user edits.
   let result: { written: string[]; skipped: string[] };
   let mergeReport: MergeReport | undefined;
@@ -374,11 +374,9 @@ export async function savePresetInlineCommand(
  *   1. command files under each enabled provider's commands directory
  *   2. matching `slash_commands` entries in workspace.yaml
  *
- * Fixes installs that predated companion-pipeline command namespacing
- * (everything was stamped `/cohesive-feature-<phase>`, including
- * `scan-project` / `publish-context` / work-package phases). Without this,
- * the Epic card shows `/project-context-publish-context` but Claude reports
- * "Unknown command".
+ * Fixes installs that predated companion-pipeline command namespacing, where
+ * every phase was stamped with the primary pipeline's prefix — the Epic card
+ * then shows one command while Claude reports "Unknown command".
  *
  * Safe to call on every Run — only writes missing files and
  * appends/renames slash_commands entries; never clobbers hand-edited bodies.
@@ -428,7 +426,7 @@ export function syncBuiltinPipelineCommands(
       if (byName.has(expected.name)) { continue; }
 
       // Legacy mis-prefix: companion phases were registered under the primary
-      // pipeline id (e.g. /cohesive-feature-publish-context). Rename in place.
+      // pipeline id. Rename in place.
       const legacyName = `/${workflow.pipelineId}-${phaseId}`;
       const legacyIdx = byName.get(legacyName);
       if (
@@ -471,7 +469,6 @@ interface MergeReport {
   addedSlashCommands: string[];
   upgradedPipelines: string[];
   upgradedAgents: string[];
-  addedExecutionProfiles: string[];
 }
 
 /**
@@ -485,8 +482,8 @@ interface MergeReport {
  *    workspace. Existing pipelines with the same id are left alone so the
  *    user's tweaks survive — unless `overwritePipelines` is true (sidebar
  *    "Overwrite & apply"), in which case matching pipeline/agent ids are
- *    replaced with the preset versions (needed to upgrade stale
- *    `project-context` 4-step → 7-step).
+ *    replaced with the preset versions (needed to upgrade a stale
+ *    pipeline definition).
  *  - When nothing changed (preset already fully merged), `changed: false`
  *    — caller surfaces that to the user instead of "applied".
  */
@@ -504,7 +501,6 @@ export function mergePresetIntoYaml(
     addedSlashCommands: [],
     upgradedPipelines: [],
     upgradedAgents: [],
-    addedExecutionProfiles: [],
   };
   const overwrite = opts.overwritePipelines === true;
 
@@ -553,34 +549,13 @@ export function mergePresetIntoYaml(
     }
   }
 
-  const presetCohesive = preset.workspace.cohesive_delivery as Record<string, unknown> | undefined;
-  const presetProfiles = presetCohesive?.execution_profiles as Record<string, unknown> | undefined;
-  if (presetProfiles) {
-    const currentCohesive = doc.cohesive_delivery && typeof doc.cohesive_delivery === 'object'
-      ? doc.cohesive_delivery as Record<string, unknown>
-      : {};
-    const currentProfiles = currentCohesive.execution_profiles
-      && typeof currentCohesive.execution_profiles === 'object'
-      ? currentCohesive.execution_profiles as Record<string, unknown>
-      : {};
-    for (const [id, profile] of Object.entries(presetProfiles)) {
-      if (!(id in currentProfiles)) {
-        currentProfiles[id] = profile;
-        report.addedExecutionProfiles.push(id);
-      }
-    }
-    currentCohesive.execution_profiles = currentProfiles;
-    doc.cohesive_delivery = currentCohesive;
-  }
-
   report.changed =
     report.addedAgents.length > 0 ||
     report.addedSkills.length > 0 ||
     report.addedPipelines.length > 0 ||
     report.addedSlashCommands.length > 0 ||
     report.upgradedPipelines.length > 0 ||
-    report.upgradedAgents.length > 0 ||
-    report.addedExecutionProfiles.length > 0;
+    report.upgradedAgents.length > 0;
 
   if (report.changed) {
     writeYaml(root, doc);

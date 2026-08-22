@@ -187,9 +187,6 @@ import {
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
-  assertImplementPackReady,
-  syncFlowMermaidFromMission,
-  section as markdownSection,
   architectureGraphFromJson,
   catalogFeaturesFromJson,
   catalogScreensFromJson,
@@ -214,19 +211,11 @@ import {
 } from './builtinPresets';
 import { resolveTechStackForRoot } from './techStackResolver';
 import { artifactLookupKeys } from './techStackDetector';
-import { readProjectContextBriefing, isProjectContextPipeline } from './projectBriefingVisuals';
 import {
   initializeProjectWorkspace,
   readProjectWorkspace,
   type ProjectWorkspaceSummary,
 } from './projectWorkspace';
-import {
-  archiveLegacyCohesiveAssets,
-  isLegacyCohesiveAssetId,
-  stripLegacyCohesiveEntries,
-  summarizeLegacyCohesive,
-  type LegacyCohesiveSummary,
-} from './legacyWorkspaceCleanup';
 import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
 import { PresetStore } from './presetStore';
 import {
@@ -258,7 +247,6 @@ import {
 } from './epicsList';
 import { themeManager } from './themeManager';
 import { workspaceUiPrefs, type EpicsViewPrefs } from './workspaceUiPrefs';
-import { readCharterSnapshot, readDiffIgnore } from './charterUi';
 import {
   rejectStepInlineCommand,
   rerunStepInlineCommand,
@@ -387,7 +375,7 @@ interface EpicStepDetailFull {
   /** Host-computed: true when `artifact` exists on disk right now. */
   artifactExists?: boolean;
   status: 'pending' | 'in_progress' | 'done' | 'failed';
-  /** Added by migration from an older Cohesive pipeline. */
+  /** Added by migration onto a newer definition of the same pipeline. */
   isNew?: boolean;
   runStatus: StepStatus | null;
   isCurrentRunStep: boolean;
@@ -460,7 +448,6 @@ interface EpicSummaryUi {
   ship?: { prUrl?: string; status?: 'open' | 'approved' | 'merged'; head?: string; base?: string };
   reviewDiff?: string;
   visualizations?: EpicVisualizationsUi;
-  missionBriefing?: { summary: string; acceptanceCriteria: string };
   /** True when this epic's artifacts sit at the default `docs/epics/` path
    * instead of the workspace's active epics directory — a config-drift
    * signal, not evidence the mission pack is actually incomplete. */
@@ -490,13 +477,11 @@ interface WorkspaceState {
   workspaceName: string;
   configExists: boolean;
   projectWorkspace?: ProjectWorkspaceSummary;
-  legacyCohesive?: LegacyCohesiveSummary;
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
   recipes: RecipeSummary[];
   epics: EpicSummaryUi[];
-  projectContext?: ProjectContextSummaryUi;
   agentMeta: Record<string, AgentMeta>;
   slashCommandsByAgent: Record<string, string>;
   agentsCount: number;
@@ -523,8 +508,6 @@ interface WorkspaceState {
   epicsDir: string;
   /** Persisted Epics-list UI prefs (follow/search/filter) from workspaceState. */
   epicsViewUi?: EpicsViewPrefs;
-  charter?: ReturnType<typeof readCharterSnapshot>;
-  diffIgnore?: string[];
   architecture: ArchitectureExplorerStateUi;
   displayLanguage: 'en' | 'vi';
   /** Active agent CLI provider — mirrored from sidebar config. */
@@ -561,15 +544,6 @@ interface ArchitectureExplorerStateUi {
   archifyOverviewSvgBase64?: string;
 }
 
-interface ProjectContextSummaryUi {
-  revision: number;
-  generatedAt?: string;
-  sourceCommit?: string;
-  manifestPath: string;
-  artifacts: string[];
-  completedSteps?: number;
-  totalSteps?: number;
-}
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
   id: t.id,
@@ -632,8 +606,6 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
       epicsViewUi: workspaceUiPrefs.get().epicsView,
-      charter: { present: false, goals: [], invariants: [], techRules: [] },
-      diffIgnore: [],
       architecture: emptyArchitectureExplorer('Open a project to view its architecture.'),
       displayLanguage: resolveDisplayLanguage(),
       providerConfig,
@@ -643,9 +615,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const root = folder.uri.fsPath;
   const doc = readYaml(root);
   const projectWorkspace = readProjectWorkspace(root);
-  const legacyCohesive = summarizeLegacyCohesive(doc);
   const discovered = discoverAssets(root);
-  const projectContext = readProjectContextSummary(root, doc);
   const architecture = readArchitectureExplorer(root);
 
   // agent display metadata + slash commands — only AIDLC agents have these
@@ -705,12 +675,10 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       workspaceName: folder.name,
       configExists: false,
       projectWorkspace,
-      legacyCohesive,
       agents, skills,
       pipelines: builtinPipelines,
       recipes: getBuiltinRecipeSummaries(),
       epics,
-      projectContext,
       agentMeta, slashCommandsByAgent,
       agentsCount: agents.length,
       skillsCount: skills.length,
@@ -726,8 +694,6 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
       epicsViewUi: workspaceUiPrefs.get().epicsView,
-      charter: readCharterSnapshot(root),
-      diffIgnore: readDiffIgnore(root),
       architecture,
       displayLanguage: resolveDisplayLanguage(),
       providerConfig,
@@ -737,7 +703,6 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const agents = mergeAgents(doc, root, discovered.agents);
   const skills = mergeSkills(doc, root, discovered.skills);
   const pipelines: PipelineSummary[] = doc.pipelines
-    .filter((p) => !isLegacyCohesiveAssetId(String(p.id)))
     .map((p) => ({
     id: String(p.id),
     on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
@@ -767,7 +732,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   // the modal can show step count + capability prompts without re-deriving.
   const recipes: RecipeSummary[] = (Array.isArray(doc.recipes) ? doc.recipes : [])
     .map((r) => buildRecipeSummary(r as Partial<RecipeConfig>, doc.pipelines as PipelineConfig[]))
-    .filter((r): r is RecipeSummary => r !== null && !isLegacyCohesiveAssetId(r.from));
+    .filter((r): r is RecipeSummary => r !== null);
   rlog(`[state] ${folder.name}: recipes=${recipes.length} (raw=${Array.isArray(doc.recipes) ? doc.recipes.length : 0}), pipelines=${pipelines.length}`);
 
   const epicRoot = readEpicRoot(doc);
@@ -778,9 +743,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     workspaceName: folder.name,
     configExists: true,
     projectWorkspace,
-    legacyCohesive,
     agents, skills, pipelines, recipes, epics,
-    projectContext,
     agentMeta, slashCommandsByAgent,
     agentsCount: agents.length,
     skillsCount: skills.length,
@@ -799,8 +762,6 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
     epicsDir: epicRoot,
     epicsViewUi: workspaceUiPrefs.get().epicsView,
-    charter: readCharterSnapshot(root),
-    diffIgnore: readDiffIgnore(root),
     architecture,
     displayLanguage: resolveDisplayLanguage(),
     providerConfig,
@@ -831,7 +792,7 @@ function readArchitectureExplorer(workspaceRoot: string): ArchitectureExplorerSt
     ?? (fs.existsSync(screensMmdPath) ? fs.readFileSync(screensMmdPath, 'utf8').trim() : undefined);
   const screenAreas = screenCatalogAreaMermaidsFromJson(screenCatalog);
   if (graph.nodes.length < 2 && features.length === 0 && screens.length === 0) {
-    return emptyArchitectureExplorer('Architecture diagrams are generated by the Map Features step. Existing project and Epic data remain unchanged.');
+    return emptyArchitectureExplorer('No architecture diagrams found under docs/project/context/visualization/. Existing project and Epic data remain unchanged.');
   }
   const structuralGraph = architectureGraphFromJson(structural);
   const featureFlows: Record<string, ArchitectureFeatureFlowUi> = {};
@@ -884,39 +845,6 @@ function jsonObjects(value: unknown): Record<string, unknown>[] {
 }
 
 /** Read the manifest as the single durable identity of published Project Context. */
-function readProjectContextSummary(
-  workspaceRoot: string,
-  doc: YamlDocument | null,
-): ProjectContextSummaryUi | undefined {
-  const manifestPath = path.join(workspaceRoot, 'docs', 'project', 'context', 'CONTEXT-MANIFEST.json');
-  if (!fs.existsSync(manifestPath)) { return undefined; }
-  try {
-    const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
-    const revision = raw.revision;
-    if (!Number.isInteger(revision) || (revision as number) < 1) { return undefined; }
-    const artifactMap = raw.artifacts;
-    const artifacts = artifactMap && typeof artifactMap === 'object' && !Array.isArray(artifactMap)
-      ? Object.keys(artifactMap as Record<string, unknown>).sort()
-      : [];
-    const run = RunStateStore.load(workspaceRoot, 'PROJECT-CONTEXT');
-    const pipeline = doc?.pipelines.find((item) => item.id === 'project-context');
-    const totalSteps = pipeline && Array.isArray(pipeline.steps) ? pipeline.steps.length : undefined;
-    const completedSteps = run?.steps.filter((step) =>
-      ['approved', 'completed', 'done'].includes(String(step.status).toLowerCase()),
-    ).length;
-    return {
-      revision: revision as number,
-      generatedAt: typeof raw.generatedAt === 'string' ? raw.generatedAt : undefined,
-      sourceCommit: typeof raw.sourceCommit === 'string' ? raw.sourceCommit : undefined,
-      manifestPath,
-      artifacts,
-      completedSteps,
-      totalSteps,
-    };
-  } catch {
-    return undefined;
-  }
-}
 
 function scanRequirementRuns(root: string): RequirementRunSummary[] {
   const dir = path.join(root, 'docs', 'task-breakdowns');
@@ -1081,25 +1009,16 @@ function toEpicSummaryUi(e: CoreEpicSummary, workspaceRoot?: string): EpicSummar
   const done = e.stepDetails.filter((s) => s.status === 'done').length;
   const progress = Math.round((done / total) * 100);
   const epicDir = e.epicDir;
-  const projectBriefing = workspaceRoot && isProjectContextPipeline(e.pipeline)
-    ? readProjectContextBriefing(workspaceRoot)
-    : undefined;
-  const isContextPipeline = isProjectContextPipeline(e.pipeline);
   const artifactDirs = artifactSearchDirs(workspaceRoot, epicDir, e.id);
-  const visualizations = isContextPipeline
-    ? projectContextVisualizations(workspaceRoot ?? '', projectBriefing)
-    : readEpicVisualizations(artifactDirs);
-  const missionBriefing = projectBriefing?.summary
-    ? { summary: projectBriefing.summary, acceptanceCriteria: '' }
-    : readMissionBriefing(artifactDirs);
+  const visualizations = readEpicVisualizations(artifactDirs);
   // Built-in pipeline steps write under the workspace's *active* epics
   // directory now (see resolveArtifactPath/rewriteEpicsRootPrefix) — but an
   // epic whose artifacts were produced before this fix, or whose workspace
   // still runs a pipeline that bakes `docs/epics` into its own skill prose,
   // can have its actual content sitting at the conventional default while
   // `epicDir` (this project's active directory) is empty. Detect that split
-  // so the UI can say "wrong root", not "mission incomplete".
-  const epicsDirMismatch = !isContextPipeline && !visualizations && !missionBriefing && workspaceRoot
+  // so the UI can say "wrong root", not "no artifacts".
+  const epicsDirMismatch = !visualizations && workspaceRoot
     ? hasArtifactsAtDefaultEpicsDir(workspaceRoot, epicDir, e.id)
     : false;
   return {
@@ -1161,11 +1080,7 @@ function toEpicSummaryUi(e: CoreEpicSummary, workspaceRoot?: string): EpicSummar
     tokenUsage: e.tokenUsage
       ? { total: e.tokenUsage.total, hasOverlap: e.tokenUsage.hasOverlap }
       : undefined,
-    alignment: e.alignment,
-    ship: e.ship,
-    reviewDiff: e.reviewDiff,
     visualizations,
-    missionBriefing,
     epicsDirMismatch,
   };
 }
@@ -1208,36 +1123,6 @@ function artifactSearchDirs(workspaceRoot: string | undefined, epicDir: string, 
   return path.resolve(primary) === fallback ? [primary] : [primary, fallback];
 }
 
-function projectContextVisualizations(
-  workspaceRoot: string,
-  project?: { flowMermaid?: string; impactMermaid?: string; screensMermaid?: string },
-): EpicVisualizationsUi | undefined {
-  if (!project?.flowMermaid && !project?.impactMermaid && !project?.screensMermaid) return undefined;
-  const screenCatalog = readJsonObject(path.join(
-    workspaceRoot, 'docs', 'project', 'context', 'visualization', 'SCREEN-CATALOG.json',
-  ));
-  const screenAreas = screenCatalogAreaMermaidsFromJson(screenCatalog);
-  return {
-    flowMermaid: project.flowMermaid,
-    impactMermaid: project.impactMermaid,
-    screensMermaid: project.screensMermaid,
-    ...(screenAreas.length ? { screenAreas } : {}),
-  };
-}
-
-function readMissionBriefing(artifactDirs: string[]): { summary: string; acceptanceCriteria: string } | undefined {
-  for (const dir of artifactDirs) {
-    const mission = readOptionalText(path.join(dir, 'MISSION.md'));
-    if (!mission) continue;
-    const summary = markdownSection(mission, 'Summary') ?? '';
-    const acceptanceCriteria = markdownSection(mission, 'Acceptance criteria') ?? '';
-    if (summary.trim() || acceptanceCriteria.trim()) {
-      return { summary: summary.trim(), acceptanceCriteria: acceptanceCriteria.trim() };
-    }
-  }
-  return undefined;
-}
-
 function readOptionalText(file: string): string | undefined {
   try {
     if (!fs.existsSync(file)) return undefined;
@@ -1251,7 +1136,6 @@ function readOptionalText(file: string): string | undefined {
 function readEpicVisualizations(artifactDirs: string[]): EpicVisualizationsUi | undefined {
   const changes = new Set(['add', 'modify', 'delete', 'unchanged']);
   for (const artifacts of artifactDirs) {
-    syncFlowMermaidFromMission(artifacts);
     const impact = readJsonObject(path.join(artifacts, 'FEATURE-IMPACT.json'));
     const impactFeatures = Array.isArray(impact?.features)
       ? impact.features.flatMap((item) => {
@@ -1408,7 +1292,7 @@ function mergeAgents(doc: YamlDocument | null, root: string, discovered: Discove
     }
   }
 
-  return Array.from(byId.values()).filter((agent) => !isLegacyCohesiveAssetId(agent.id));
+  return Array.from(byId.values());
 }
 
 /**
@@ -1601,7 +1485,7 @@ function mergeSkills(
     }
   }
 
-  return Array.from(byId.values()).filter((skill) => !isLegacyCohesiveAssetId(skill.id));
+  return Array.from(byId.values());
 }
 
 // ── Singleton panel ───────────────────────────────────────────────────────
@@ -1843,19 +1727,6 @@ export class WorkspaceWebview {
       artifactsWatcher.onDidDelete(refresh, null, this.disposables);
       this.disposables.push(artifactsWatcher);
 
-      // Canonical project-context outputs live outside epic artifacts/
-      // (docs/project/context/). Watch them so the Artifact chip flips
-      // from "not produced yet" as soon as the agent writes the file.
-      const projectContextPattern = new vscode.RelativePattern(
-        vscode.Uri.file(root),
-        'docs/project/context/**',
-      );
-      const projectContextWatcher = vscode.workspace.createFileSystemWatcher(projectContextPattern);
-      projectContextWatcher.onDidChange(refresh, null, this.disposables);
-      projectContextWatcher.onDidCreate(refresh, null, this.disposables);
-      projectContextWatcher.onDidDelete(refresh, null, this.disposables);
-      this.disposables.push(projectContextWatcher);
-
       const breakdownPattern = new vscode.RelativePattern(
         vscode.Uri.file(root),
         'docs/task-breakdowns/**',
@@ -1950,7 +1821,7 @@ export class WorkspaceWebview {
     // /annotate-artifact only understands <epicDir>/artifacts/<file> — epicDir
     // already resolved against the workspace's active epics directory (see
     // epicsRoot()), so this is directory-agnostic, not a `docs/epics` hardcode.
-    // For produces: outside that folder (project-context), open the file for
+    // For produces: outside that folder, open the file for
     // manual edit instead of launching a loop that would look in the wrong place.
     if (resolved && path.resolve(resolved) !== path.resolve(conventional)) {
       void vscode.workspace.openTextDocument(resolved).then((doc) => {
@@ -2130,35 +2001,6 @@ export class WorkspaceWebview {
         } else {
           void vscode.window.showInformationMessage(
             `AIDLC Workspace: created ${created.length} shared context file${created.length === 1 ? '' : 's'}. Existing files were preserved.`,
-          );
-        }
-        return;
-      }
-
-      case 'removeLegacyCohesiveElements': {
-        const root = this.getRootOrWarn();
-        if (!root) { return; }
-        const doc = readYaml(root);
-        if (!doc) {
-          void vscode.window.showInformationMessage('AIDLC Workspace: no workspace.yaml to clean.');
-          return;
-        }
-        const summary = summarizeLegacyCohesive(doc);
-        const archive = archiveLegacyCohesiveAssets(root);
-        if (summary.present) {
-          stripLegacyCohesiveEntries(doc as unknown as Record<string, unknown>);
-          writeYaml(root, doc);
-        }
-        this.refresh();
-        const removedCount = summary.agents + summary.skills + summary.pipelines
-          + summary.commands + summary.recipes + archive.archivedPaths.length
-          + (summary.executionProfile ? 1 : 0);
-        if (removedCount === 0) {
-          void vscode.window.showInformationMessage('AIDLC Workspace: no legacy Cohesive elements remain.');
-        } else {
-          const detail = archive.backupDir ? ` Backup: ${archive.backupDir}` : '';
-          void vscode.window.showInformationMessage(
-            `AIDLC Workspace: removed ${removedCount} legacy element${removedCount === 1 ? '' : 's'}.${detail}`,
           );
         }
         return;
@@ -2418,30 +2260,6 @@ export class WorkspaceWebview {
         await vscode.window.showTextDocument(doc, { preview: false });
         return;
       }
-      case 'refreshProjectContextView': {
-        // Re-read the durable manifest and its run state. This intentionally
-        // refreshes presentation only; re-running project-context is a
-        // separate, explicit delivery action.
-        this.refresh();
-        return;
-      }
-      case 'generateArchitectureProjectMap': {
-        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!root) { return; }
-        const workspaceDoc = readYaml(root);
-        const contextState = path.join(epicsRoot(root, workspaceDoc), 'PROJECT-CONTEXT', 'state.json');
-        const contextManifest = path.join(root, 'docs', 'project', 'context', 'CONTEXT-MANIFEST.json');
-        const hasProjectContext = fs.existsSync(contextState)
-          || fs.existsSync(contextManifest)
-          || Boolean(RunStateStore.load(root, 'PROJECT-CONTEXT'));
-        if (!hasProjectContext) {
-          void vscode.window.showWarningMessage('AIDLC: Project Context is required before generating an architecture map.');
-          return;
-        }
-        runSlashCommandInProvider('/project-context-map-features PROJECT-CONTEXT', root, this.extensionUri.fsPath);
-        void vscode.window.showInformationMessage('AIDLC started Map Features with the selected provider. The Architecture tab refreshes when the diagram artifacts are written.');
-        return;
-      }
       case 'renderArchifyOverview': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         if (!root) { return; }
@@ -2462,25 +2280,6 @@ export class WorkspaceWebview {
         }
         void vscode.window.showInformationMessage('AIDLC: Verified visual architecture overview created.');
         this.refresh();
-        return;
-      }
-      case 'generateArchitectureFeatureFlow': {
-        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!root) { return; }
-        const epics = listEpics(root, readYaml(root)).filter((epic) => epic.id !== 'PROJECT-CONTEXT');
-        if (!epics.length) {
-          void vscode.window.showWarningMessage('AIDLC: Create a feature Epic before generating a feature flow.');
-          return;
-        }
-        const picked = await vscode.window.showQuickPick(epics.map((epic) => ({
-          label: epic.title || epic.id,
-          description: epic.id,
-          detail: epic.description || 'Generate this feature\'s human-scale code flow.',
-          epicId: epic.id,
-        })), { placeHolder: 'Choose the feature whose flow you want to generate.' });
-        if (!picked) { return; }
-        runSlashCommandInProvider(`/feature-spike-package-mission ${picked.epicId}`, root, this.extensionUri.fsPath);
-        void vscode.window.showInformationMessage(`AIDLC started packaging MISSION.md (including Flow) for ${picked.epicId}.`);
         return;
       }
       case 'openPath': {
@@ -2538,7 +2337,7 @@ export class WorkspaceWebview {
       case 'revealArtifacts': {
         const epicDir = String(msg.epicDir ?? '');
         if (!epicDir) { return; }
-        // Prefer an existing produced file's parent (covers project-context
+        // Prefer an existing produced file's parent (covers outputs
         // under docs/project/context/); else the conventional artifacts/.
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         let revealDir = path.join(epicDir, 'artifacts');
@@ -2937,17 +2736,7 @@ export class WorkspaceWebview {
         const epicId = String(msg.epicId ?? '').trim();
         const pipelineId = String(msg.pipelineId ?? '').trim();
         if (!epicId || !pipelineId) { return; }
-        await this.startPipelineRunForEpic(
-          epicId,
-          pipelineId,
-          typeof msg.missionMd === 'string' ? msg.missionMd : undefined,
-        );
-        return;
-      }
-      case 'startImplementFromSpike': {
-        const epicId = String(msg.epicId ?? '').trim();
-        if (!epicId) { return; }
-        this.startImplementFromSpike(epicId);
+        await this.startPipelineRunForEpic(epicId, pipelineId);
         return;
       }
       case 'refreshEpics':
@@ -3688,9 +3477,8 @@ export class WorkspaceWebview {
     // artifacts/ folder gets a structured starting point on the very first run.
     this.ensureWorkflowTemplates(root);
 
-    // Backfill companion-pipeline slash commands + command files (e.g.
-    // /project-context-publish-context) when the workspace still has the
-    // legacy /cohesive-feature-<phase> names for those phases.
+    // Backfill companion-pipeline slash commands + command files when the
+    // workspace still carries a phase under the primary pipeline's prefix.
     syncBuiltinPipelineCommands(root, this.extensionUri.fsPath);
   }
 
@@ -3714,9 +3502,8 @@ export class WorkspaceWebview {
     const doc = readYaml(root);
     if (!doc) { return; }
 
-    // Keep companion slash commands + command files in sync (project-context /
-    // cohesive-work-package). Cheap + idempotent — fixes "Unknown command"
-    // after the UI started showing /project-context-* names.
+    // Keep companion slash commands + command files in sync. Cheap and
+    // idempotent — fixes "Unknown command" after a command rename.
     syncBuiltinPipelineCommands(root, this.extensionUri.fsPath);
     // Resolve the project's tech stack once: `stacks` drives `{{#if}}` block
     // rendering (secondary stacks survive), `lookupKeys` picks the most
@@ -4144,28 +3931,6 @@ export class WorkspaceWebview {
         inputs,
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
-        // Cohesive features carry their user-entered charter goals, scope and
-        // narrower constraints in the durable alignment artifact. Keeping this
-        // separate from generic inputs lets the pipeline validate and surface
-        // the request before any agent starts work.
-        alignmentSeed: targetKind === 'pipeline' && (
-          targetId === 'feature-implement'
-          || targetId === 'feature-spike'
-          || targetId === 'cohesive-feature'
-        )
-          ? {
-              servesGoals: selectedGoals,
-              scope: whatScope,
-              featureConstraints,
-            }
-          : undefined,
-        missionMarkdown: String(draft.missionMd ?? inputs.mission ?? ''),
-        charterTemplatesRoot: path.join(
-          this.extensionUri.fsPath,
-          'templates',
-          'cohesive',
-          'artifacts',
-        ),
         // aidlc-autopilot is experimental / "coming soon": off unless the user
         // opts in via the `aidlc.autopilot.enabled` setting.
         enableAutopilot: vscode.workspace
@@ -5275,7 +5040,6 @@ export class WorkspaceWebview {
   private async startPipelineRunForEpic(
     epicId: string,
     pipelineId: string,
-    missionMd?: string,
   ): Promise<void> {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { return; }
@@ -5291,26 +5055,6 @@ export class WorkspaceWebview {
     }
     const existing = RunStateStore.load(root, epicId);
     const epic = listEpics(root, doc).find((x) => x.id === epicId);
-    if (missionMd?.trim() && epic) {
-      const dest = path.join(epic.epicDir, 'artifacts', 'MISSION.md');
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(
-        dest,
-        missionMd.endsWith('\n') ? missionMd : `${missionMd}\n`,
-        'utf8',
-      );
-      syncFlowMermaidFromMission(path.dirname(dest));
-    }
-    if (pipelineId === 'feature-implement' && epic) {
-      try {
-        assertImplementPackReady(path.join(epic.epicDir, 'artifacts'));
-      } catch (err) {
-        void vscode.window.showWarningMessage(
-          `AIDLC: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return;
-      }
-    }
     if (existing) {
       void vscode.window.showInformationMessage(
         `Run "${epicId}" already exists (status: ${existing.status}).`,
@@ -5345,52 +5089,6 @@ export class WorkspaceWebview {
         `Failed to start pipeline run: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-  }
-
-  /**
-   * Hand a completed feature spike to the selected provider for decomposition.
-   * The provider creates one cohesive feature-implement epic for an atomic
-   * mission, or several when the MISSION.md exposes independent boundaries.
-   */
-  private startImplementFromSpike(spikeId: string): void {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!root) { return; }
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(spikeId)) {
-      void vscode.window.showWarningMessage('AIDLC: invalid feature-spike id.');
-      return;
-    }
-    const doc = readYaml(root);
-    if (!doc) {
-      void vscode.window.showWarningMessage('AIDLC: no workspace.yaml found.');
-      return;
-    }
-    const spike = listEpics(root, doc).find((epic) => epic.id === spikeId);
-    if (!spike || !spike.pipeline
-      || (spike.pipeline !== 'feature-spike' && !spike.pipeline.startsWith('feature-spike'))) {
-      void vscode.window.showWarningMessage(`AIDLC: "${spikeId}" is not a feature-spike epic.`);
-      return;
-    }
-    if (spike.status !== 'done') {
-      void vscode.window.showWarningMessage('AIDLC: approve and complete package-mission before Start implement.');
-      return;
-    }
-    try {
-      assertImplementPackReady(path.join(spike.epicDir, 'artifacts'));
-    } catch (err) {
-      void vscode.window.showWarningMessage(
-        `AIDLC: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return;
-    }
-
-    runSlashCommandWithProvider(
-      `/start-implement-from-spike ${spikeId}`,
-      root,
-      this.extensionUri.fsPath,
-    );
-    void vscode.window.showInformationMessage(
-      `AIDLC: the selected agent is analyzing ${spikeId} and will scaffold the implementation epic(s).`,
-    );
   }
 
   // ── HTML shell ──────────────────────────────────────────────────────────

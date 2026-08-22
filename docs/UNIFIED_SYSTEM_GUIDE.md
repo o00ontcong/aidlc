@@ -42,7 +42,7 @@ Use this when you already know the workflow pack. Run setup, explicitly publish 
 
 ### Opinionated SDLC pack
 
-Use `sdlc-core` for the normal five-stage flow, `speckit` for specification-first work, `cohesive` for Build subruns, and `regulated` for traceability. Quick work shows Understand → Build → Verify. All other profiles show no more than Understand → Plan → Build → Verify → Ship.
+Use `sdlc-core` for the normal five-stage flow and `regulated` when traceability evidence is required. Quick work shows Understand → Build → Verify. All other profiles show no more than Understand → Plan → Build → Verify → Ship.
 
 ### Automate an existing project
 
