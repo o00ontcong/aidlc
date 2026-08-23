@@ -1,0 +1,92 @@
+<!-- Confluence storage-format body of STT/Sub-task (page 19791882), as
+     `GET /wiki/api/v2/pages/19791882?body-format=storage` returns it.
+     Content transcribed from the real page; markup is the standard storage
+     representation Confluence emits for headings, lists and code macros. -->
+<p>Sub-tasks are used to <strong>break down a task or story</strong> into smaller, individually assignable units of work.</p>
+<hr />
+<h1>🔹 1. <strong>Sub-task Title</strong></h1>
+<ul>
+  <li>
+    <p>Prefix with the domain:</p>
+    <ul>
+      <li><p>Documentation</p></li>
+      <li><p>Frontend</p></li>
+      <li><p>Backend</p></li>
+      <li><p>Infra</p></li>
+      <li><p>Code review</p></li>
+      <li><p>Testing</p></li>
+    </ul>
+  </li>
+</ul>
+<p><strong>Example:</strong></p>
+<p><code>[Backend] Create DB migration script for password reset tokens</code></p>
+<hr />
+<h1>🔹 2. <strong>Sub-task Description</strong></h1>
+<ul>
+  <li><p>Include specific instructions, technical considerations, or edge cases.</p></li>
+</ul>
+<p><strong>Example:</strong></p>
+<blockquote>
+  <p>Create a migration script to add a new <code>password_reset_tokens</code> table. The table should include a token string, user ID foreign key, created_at, and expires_at fields.</p>
+</blockquote>
+<hr />
+<h1>🔹 3. <strong>Completion Criteria</strong></h1>
+<ul>
+  <li><p>Clear, binary conditions for completion.</p></li>
+</ul>
+<p><strong>Example:</strong></p>
+<ul>
+  <li><p>Migration script created and committed</p></li>
+  <li><p>Script tested locally with rollback</p></li>
+  <li><p>Reviewed by another backend developer</p></li>
+</ul>
+<hr />
+<h1>🔹 4. <strong>Assignee</strong></h1>
+<ul>
+  <li><p>Who will execute this exact piece of work?</p></li>
+</ul>
+<hr />
+<h1>🔹 5. <strong>Checklist (Optional)</strong></h1>
+<p>Useful if the sub-task involves multiple small steps.</p>
+<hr />
+<h3>✅ Sub-task Template (Copy-Paste Friendly)</h3>
+<ac:structured-macro ac:name="code" ac:schema-version="1" ac:macro-id="b7f1">
+  <ac:parameter ac:name="language">none</ac:parameter>
+  <ac:plain-text-body><![CDATA[### 🔧 Description
+[Specific technical instructions or notes.]
+
+---
+
+### ✅ Completion Criteria
+- [Condition 1]
+- [Condition 2]
+
+---
+
+### 📋 Checklist
+- [ ] Step 1
+- [ ] Step 2
+- [ ] Step 3
+
+---
+
+### 🔗 Parent Task
+- [JIRA-456]
+
+---
+
+### 🏷️ Labels
+`backend`, `db-migration`
+]]></ac:plain-text-body>
+</ac:structured-macro>
+<hr />
+<h2>🧠 Comparison: Task vs. Sub-task</h2>
+<table>
+  <tbody>
+    <tr><th><p>Element</p></th><th><p>Task</p></th><th><p>Sub-task</p></th></tr>
+    <tr><td><p><strong>Purpose</strong></p></td><td><p>Independent unit of work</p></td><td><p>Part of a task/story</p></td></tr>
+    <tr><td><p><strong>Scope</strong></p></td><td><p>Medium to large</p></td><td><p>Narrow and atomic</p></td></tr>
+    <tr><td><p><strong>Assignable?</strong></p></td><td><p>Yes</p></td><td><p>Yes</p></td></tr>
+    <tr><td><p><strong>Can stand alone?</strong></p></td><td><p>Yes</p></td><td><p>No (must be attached to a parent)</p></td></tr>
+  </tbody>
+</table>

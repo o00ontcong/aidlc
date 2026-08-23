@@ -487,10 +487,15 @@ export const STATE: WorkspaceState = {
   diffIgnore: ['*.lock'],
   architecture: {
     available: true,
-    layers: [
-      { id: 'presentation', label: 'Presentation' },
-      { id: 'domain', label: 'Domain' },
-      { id: 'data', label: 'Data' },
+    revision: '3',
+    generatedAt: '2026-08-16T03:00:00Z',
+    freshness: 'fresh',
+    sourcePaths: ['docs/project/architecture/ARCHITECTURE-STUDIO.json'],
+    warnings: [],
+    nodes: [
+      { id: 'presentation', label: 'Presentation', layer: 'App shell', role: 'focal', summary: 'SwiftUI application surfaces.' },
+      { id: 'domain', label: 'Domain', layer: 'Business logic', role: 'backend', summary: 'Feature and use-case orchestration.' },
+      { id: 'data', label: 'Data', layer: 'Persistence', role: 'store', summary: 'Local and remote data adapters.' },
     ],
     edges: [{ source: 'presentation', target: 'domain' }, { source: 'domain', target: 'data' }],
     features: [
@@ -501,6 +506,7 @@ export const STATE: WorkspaceState = {
       { id: 'login', name: 'Login', area: 'Auth' },
       { id: 'home', name: 'Home', area: 'Main' },
     ],
+    screenEdges: [{ source: 'login', target: 'home', label: 'sign in' }],
     structuralNodes: [],
     structuralEdges: [],
     featureFlows: {},

@@ -1,38 +1,56 @@
 import { useEffect, useRef, useState } from 'react';
 import { FolderOpen, Plus, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { WorkspaceState, WorkspaceView } from '@/lib/types';
+import type { SprintState, WorkspaceState, WorkspaceView } from '@/lib/types';
 import { BuilderView } from './BuilderView';
 import { EpicsView } from './EpicsView';
 import { ThemeToggle } from './ThemeToggle';
-import { StartEpicModal } from './StartEpicModal';
+import { StartEpicModal, type StartEpicPrefill } from './StartEpicModal';
 import { AnalyzeView } from './AnalyzeView';
 import { TestAgentView } from './TestAgentView';
-import { ArchitectureExplorer } from './ArchitectureExplorer';
+import { ArchitectureStudio } from './architecture/ArchitectureStudio';
 import { ProjectOverview } from './ProjectOverview';
+import { SprintView } from './SprintView';
 import { onHostMessage, postMessage } from '@/lib/bridge';
+
+const VIEWS: WorkspaceView[] = [
+  'project', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
+];
 
 export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   const initial = state?.initialView ?? 'project';
   const [view, setView] = useState<WorkspaceView>(initial);
   const [startEpicOpen, setStartEpicOpen] = useState(false);
+  const [epicPrefill, setEpicPrefill] = useState<StartEpicPrefill | undefined>();
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
   const seededView = useRef(Boolean(state?.initialView));
+  // Sprint data arrives on its own channel: the host fetches it asynchronously,
+  // so it cannot ride along in the synchronous `state` push. The snapshot in
+  // `state.sprint` (read from cache) seeds the first paint.
+  const [sprint, setSprint] = useState<SprintState | undefined>(state?.sprint);
 
   // Host can switch the view at runtime via openBuilder/openEpicsList.
   useEffect(() => {
     return onHostMessage((msg) => {
       if (msg.type === 'setView') {
-        const next = msg.view;
-        if (next === 'project' || next === 'builder' || next === 'architecture' || next === 'epics' || next === 'analyze' || next === 'tests') {
+        const next = msg.view as WorkspaceView;
+        if (VIEWS.includes(next)) {
           setView(next);
           seededView.current = true;
         }
       }
+      if (msg.type === 'sprintState') {
+        setSprint(msg.state as SprintState);
+      }
       if (msg.type === 'openStartEpicModal') {
         setView('epics');
         seededView.current = true;
+        setEpicPrefill(msg.prefill as StartEpicPrefill | undefined);
         setStartEpicOpen(true);
+      }
+      if (msg.type === 'selectEpic') {
+        const epicId = String(msg.epicId ?? '');
+        if (epicId) { setSelectedTaskId(epicId); }
       }
     });
   }, []);
@@ -63,6 +81,14 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
     return (
       <div className="flex h-full flex-col">
         <TopBar view={view} onView={onView} workspaceName={state.workspaceName} />
+        {view === 'sprint' ? (
+          // Jira needs credentials, not a workspace folder — so the Sprint tab
+          // stays usable here. Starting a task from a ticket then surfaces the
+          // "open a folder" requirement through StartEpicModal.
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <SprintView state={sprint} />
+          </main>
+        ) : (
         <div className="p-6">
           {view === 'epics' ? (
             <NoProjectEpicsView />
@@ -90,6 +116,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
             </div>
           )}
         </div>
+        )}
         {startEpicOpen && (
           <StartEpicModal
             pipelines={state.pipelines}
@@ -101,8 +128,9 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
             isFirstEpic={state.epics.length === 0}
             workspaceName={state.workspaceName}
             hasFolder={state.hasFolder}
+            prefill={epicPrefill}
             onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
-            onClose={() => setStartEpicOpen(false)}
+            onClose={() => { setStartEpicOpen(false); setEpicPrefill(undefined); }}
           />
         )}
       </div>
@@ -122,6 +150,14 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
               onView('epics');
             }}
           />
+        </main>
+      ) : view === 'sprint' ? (
+        // Reading a sprint needs no workspace.yaml — it only needs Jira
+        // credentials. So this branch sits above the configExists gate; creating
+        // a task from a ticket still goes through StartEpicModal, which handles
+        // the no-workspace case itself.
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <SprintView state={sprint} />
         </main>
       ) : !state.configExists ? (
         <main className="flex-1 overflow-y-auto p-6">
@@ -150,11 +186,11 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
         </main>
       ) : (
         <main className="flex-1 overflow-y-auto">
-          <div className="p-6">
+          <div className={view === 'architecture' ? 'h-full p-3' : 'p-6'}>
             {view === 'builder' ? (
               <BuilderView state={state} />
             ) : view === 'architecture' ? (
-              <ArchitectureExplorer architecture={state.architecture} epics={state.epics} language={state.displayLanguage} />
+              <ArchitectureStudio architecture={state.architecture} language={state.displayLanguage} />
             ) : view === 'analyze' ? (
               <AnalyzeView state={state} />
             ) : (
@@ -174,11 +210,12 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
           isFirstEpic={state.epics.length === 0}
           workspaceName={state.workspaceName}
           hasFolder={state.hasFolder}
+          prefill={epicPrefill}
           onSubmit={(draft) => {
             setStartEpicOpen(false);
             postMessage({ type: 'startEpicInline', draft });
           }}
-          onClose={() => setStartEpicOpen(false)}
+          onClose={() => { setStartEpicOpen(false); setEpicPrefill(undefined); }}
         />
       )}
     </div>
@@ -201,6 +238,9 @@ function TopBar({
       </PillButton>
       <PillButton active={view === 'epics'} onClick={() => onView('epics')}>
         Tasks
+      </PillButton>
+      <PillButton active={view === 'sprint'} onClick={() => onView('sprint')}>
+        Sprint
       </PillButton>
       <PillButton active={view === 'builder'} onClick={() => onView('builder')}>
         Builder

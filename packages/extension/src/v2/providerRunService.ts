@@ -91,22 +91,27 @@ function syncExtensionCommandsForProvider(
       commandName: 'annotate-artifact',
       sourceName: 'annotate-artifact.skill.md',
       description: 'Review an epic Markdown artifact interactively in annotron.',
+      usesEpicRoot: true,
+    },
+    {
+      commandName: 'architecture-studio-generate',
+      sourceName: 'architecture-studio-generate.skill.md',
+      description: 'Analyze source code and generate the standalone Architecture Studio manifest.',
+      usesEpicRoot: false,
     },
   ];
-  // These commands' bodies hardcode `docs/epics/<epic>/...` prose (see
-  // assets/*.skill.md) rather than a `{epic}`-style template, so — unlike the
-  // built-in pipeline phase commands — the substitution has to happen here,
-  // against this project's *active* epics directory, before the file is
-  // written. Written once per project (destination check above), so a project
-  // that switches directories after these already exist needs them removed
-  // and regenerated to pick up the new root.
+  // Epic-aware extension commands need their prose rewritten to the active
+  // Epic root. Standalone commands (Architecture Studio) deliberately skip
+  // that substitution so they remain isolated from Epic configuration.
   const epicsDir = readEpicsDirFromYaml(root);
   for (const command of commands) {
     const source = path.join(extensionPath, 'assets', command.sourceName);
     const destination = adapter.commandFilePath(root, command.commandName);
     if (!fs.existsSync(source) || fs.existsSync(destination)) { continue; }
     const rawBody = fs.readFileSync(source, 'utf8').replace(/^---[\s\S]*?---\n?/, '');
-    const body = epicsDir === DEFAULT_EPICS_DIR ? rawBody : rawBody.replaceAll(DEFAULT_EPICS_DIR, epicsDir);
+    const body = !command.usesEpicRoot || epicsDir === DEFAULT_EPICS_DIR
+      ? rawBody
+      : rawBody.replaceAll(DEFAULT_EPICS_DIR, epicsDir);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.writeFileSync(destination, adapter.renderCommandFile({
       commandName: command.commandName,

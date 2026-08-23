@@ -53,6 +53,7 @@ import type { PipelineConfig, RunState } from '@aidlc/core';
 
 import { readYaml } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
+import { jiraStatusSync } from './jiraStatusSync';
 
 /**
  * Save the runtime RunState file AND mirror its display fields + per-step
@@ -63,13 +64,18 @@ import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
  */
 function saveRun(workspaceRoot: string, next: RunState): void {
   RunStateStore.save(workspaceRoot, next);
+  const doc = readYaml(workspaceRoot);
   try {
-    mirrorRunStateToEpic(workspaceRoot, next, readYaml(workspaceRoot));
+    mirrorRunStateToEpic(workspaceRoot, next, doc);
   } catch (err) {
     void vscode.window.showWarningMessage(
       `AIDLC: failed to mirror run state into epic state.json — ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+  // Every run-state change in the extension passes through here, so this is the
+  // one place Jira write-back needs to hook. Fire-and-forget by design: it is
+  // off by default, and a Jira problem must never fail the run.
+  jiraStatusSync.onRunStateSaved(workspaceRoot, next, doc);
 }
 
 function stepIdxMatchingSlash(state: RunState, slash: string, pipeline?: PipelineConfig): number {

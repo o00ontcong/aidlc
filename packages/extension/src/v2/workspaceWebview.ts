@@ -187,12 +187,12 @@ import {
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
-  architectureGraphFromJson,
-  catalogFeaturesFromJson,
-  catalogScreensFromJson,
-  screenCatalogAreaMermaidsFromJson,
-  screenCatalogMermaidFromJson,
 } from '@aidlc/core';
+import { jiraCredentials, verifyAndStoreJiraCredentials } from './jiraCredentials';
+import { jiraSprintService } from './jiraSprintService';
+import { jiraSubtaskService } from './jiraSubtaskService';
+import { issueBrowseUrl } from './jiraSubtaskLogic';
+import { buildTicketBrief, type EpicLinkSource, type SprintState } from './jiraSprintLogic';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
   loadBuiltinPreset,
@@ -264,7 +264,12 @@ import {
   markdownOutputLanguageInstruction,
   resolveAidlcLanguage,
 } from './outputLanguage';
-import { buildArchifySvgPreview, renderArchifyOverview } from './archifyOverview';
+import {
+  ARCHITECTURE_STUDIO_RELATIVE_PATH,
+  emptyArchitectureStudio,
+  readArchitectureStudio,
+  type ArchitectureStudioStateUi,
+} from './architectureStudioState';
 
 // ── Shared helper: open/reuse the agent terminal and send a slash command ───
 
@@ -274,7 +279,8 @@ function runSlashCommandInProvider(slash: string, root: string, extensionPath: s
 
 // ── Webview-side type shapes (must mirror src/webview/lib/types.ts) ───────
 
-type WorkspaceView = 'project' | 'builder' | 'architecture' | 'epics' | 'analyze' | 'tests';
+type WorkspaceView =
+  | 'project' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
 
 interface AgentSummary {
   id: string;
@@ -421,6 +427,22 @@ interface EpicTokenUsage {
   hasOverlap: boolean;
 }
 
+/** Epic-local delivery annotations remain separate from Architecture Studio's
+ * curated project model. They are consumed by the Epics visual panels. */
+interface EpicFeatureImpactUi {
+  id: string;
+  name: string;
+  change: 'add' | 'modify' | 'delete' | 'unchanged';
+  summary?: string;
+}
+
+interface EpicVisualizationsUi {
+  impactMermaid?: string;
+  surfacesMermaid?: string;
+  flowMermaid?: string;
+  impactFeatures?: EpicFeatureImpactUi[];
+}
+
 interface EpicSummaryUi {
   id: string;
   title: string;
@@ -508,42 +530,17 @@ interface WorkspaceState {
   epicsDir: string;
   /** Persisted Epics-list UI prefs (follow/search/filter) from workspaceState. */
   epicsViewUi?: EpicsViewPrefs;
-  architecture: ArchitectureExplorerStateUi;
+  architecture: ArchitectureStudioStateUi;
   displayLanguage: 'en' | 'vi';
   /** Active agent CLI provider — mirrored from sidebar config. */
   providerConfig?: ProviderConfigUi;
+  /**
+   * Cached Jira sprint snapshot, so the Sprint tab paints on first open. Live
+   * data arrives separately as `sprintState` messages — a network fetch cannot
+   * ride along in this synchronous build.
+   */
+  sprint?: SprintState;
 }
-
-interface ArchitectureNodeUi { id: string; label: string; kind?: string; layer?: string; file?: string; symbol?: string; role?: string; }
-interface ArchitectureEdgeUi { source: string; target: string; label?: string; confidence?: string; }
-interface ArchitectureFeatureUi {
-  id: string; name: string; summary?: string; confidence?: string; evidence?: string[];
-  parent?: string; area?: string; module?: string; children?: string[];
-  entrypoints?: Array<{ label: string; file: string; symbol?: string }>; layers?: string[];
-}
-interface ArchitectureFeatureFlowUi {
-  featureId: string; title?: string; nodes: ArchitectureNodeUi[]; edges: ArchitectureEdgeUi[];
-  mermaid?: string; surfacesMermaid?: string;
-}
-interface EpicFeatureImpactUi { id: string; name: string; change: 'add' | 'modify' | 'delete' | 'unchanged'; summary?: string; }
-interface EpicVisualizationsUi {
-  impactMermaid?: string; surfacesMermaid?: string; flowMermaid?: string;
-  screensMermaid?: string;
-  screenAreas?: Array<{ id: string; name: string; count: number; mermaid: string }>;
-  impactFeatures?: EpicFeatureImpactUi[];
-}
-interface ArchitectureExplorerStateUi {
-  available: boolean; message?: string; layers: ArchitectureNodeUi[]; edges: ArchitectureEdgeUi[];
-  features: ArchitectureFeatureUi[]; screens: ArchitectureFeatureUi[];
-  structuralNodes: ArchitectureNodeUi[]; structuralEdges: ArchitectureEdgeUi[];
-  featureFlows: Record<string, ArchitectureFeatureFlowUi>;
-  screensMermaid?: string;
-  screenAreas?: Array<{ id: string; name: string; count: number; mermaid: string }>;
-  /** Host-only absolute path; encoded for the sandboxed webview per refresh. */
-  archifyOverviewPath?: string;
-  archifyOverviewSvgBase64?: string;
-}
-
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
   id: t.id,
@@ -606,7 +603,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
       epicsViewUi: workspaceUiPrefs.get().epicsView,
-      architecture: emptyArchitectureExplorer('Open a project to view its architecture.'),
+      architecture: emptyArchitectureStudio('Open a project to view its architecture.'),
       displayLanguage: resolveDisplayLanguage(),
       providerConfig,
     };
@@ -616,7 +613,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const doc = readYaml(root);
   const projectWorkspace = readProjectWorkspace(root);
   const discovered = discoverAssets(root);
-  const architecture = readArchitectureExplorer(root);
+  const architecture = readArchitectureStudio(root);
 
   // agent display metadata + slash commands — only AIDLC agents have these
   // since they're declared in workspace.yaml.
@@ -771,66 +768,6 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
 function resolveDisplayLanguage(): 'en' | 'vi' {
   const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
   return resolveAidlcLanguage(configured, vscode.env.language);
-}
-
-function emptyArchitectureExplorer(message: string): ArchitectureExplorerStateUi {
-  return { available: false, message, layers: [], edges: [], features: [], screens: [], structuralNodes: [], structuralEdges: [], featureFlows: {} };
-}
-
-/** Expose only curated JSON diagram artifacts; never send the raw AST database to the webview. */
-function readArchitectureExplorer(workspaceRoot: string): ArchitectureExplorerStateUi {
-  const dir = path.join(workspaceRoot, 'docs', 'project', 'context', 'visualization');
-  const project = readJsonObject(path.join(dir, 'PROJECT-ARCHITECTURE.json'));
-  const catalog = readJsonObject(path.join(dir, 'FEATURE-CATALOG.json'));
-  const screenCatalog = readJsonObject(path.join(dir, 'SCREEN-CATALOG.json'));
-  const structural = readJsonObject(path.join(dir, 'STRUCTURAL-GRAPH-MANIFEST.json'));
-  const graph = architectureGraphFromJson(project);
-  const features = catalogFeaturesFromJson(catalog) as ArchitectureFeatureUi[];
-  const screens = catalogScreensFromJson(screenCatalog) as ArchitectureFeatureUi[];
-  const screensMmdPath = path.join(dir, 'SCREEN-CATALOG.mmd');
-  const screensMermaid = screenCatalogMermaidFromJson(screenCatalog)
-    ?? (fs.existsSync(screensMmdPath) ? fs.readFileSync(screensMmdPath, 'utf8').trim() : undefined);
-  const screenAreas = screenCatalogAreaMermaidsFromJson(screenCatalog);
-  if (graph.nodes.length < 2 && features.length === 0 && screens.length === 0) {
-    return emptyArchitectureExplorer('No architecture diagrams found under docs/project/context/visualization/. Existing project and Epic data remain unchanged.');
-  }
-  const structuralGraph = architectureGraphFromJson(structural);
-  const featureFlows: Record<string, ArchitectureFeatureFlowUi> = {};
-  const epicsDir = path.join(workspaceRoot, 'docs', 'epics');
-  if (fs.existsSync(epicsDir)) {
-    for (const entry of fs.readdirSync(epicsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const artifactsDir = path.join(epicsDir, entry.name, 'artifacts');
-      const flow = readJsonObject(path.join(artifactsDir, 'FEATURE-FLOW.json'));
-      if (!flow || typeof flow.featureId !== 'string') continue;
-      const mermaidFile = path.join(artifactsDir, 'FEATURE-FLOW.mmd');
-      const surfacesFile = path.join(artifactsDir, 'FEATURE-SURFACES.mmd');
-      const flowGraph = architectureGraphFromJson(flow);
-      featureFlows[flow.featureId] = {
-        featureId: flow.featureId,
-        title: typeof flow.title === 'string' ? flow.title : undefined,
-        nodes: flowGraph.nodes,
-        edges: flowGraph.edges,
-        mermaid: fs.existsSync(mermaidFile) ? fs.readFileSync(mermaidFile, 'utf8') : undefined,
-        surfacesMermaid: fs.existsSync(surfacesFile) ? fs.readFileSync(surfacesFile, 'utf8') : undefined,
-      };
-    }
-  }
-  return {
-    available: true,
-    layers: graph.nodes,
-    edges: graph.edges,
-    features,
-    screens,
-    screensMermaid,
-    screenAreas,
-    structuralNodes: structuralGraph.nodes,
-    structuralEdges: structuralGraph.edges,
-    featureFlows,
-    ...(fs.existsSync(path.join(dir, 'ARCHIFY-OVERVIEW.html'))
-      ? { archifyOverviewPath: path.join(dir, 'ARCHIFY-OVERVIEW.html') }
-      : {}),
-  };
 }
 
 function readJsonObject(file: string): Record<string, unknown> | undefined {
@@ -1645,14 +1582,27 @@ export class WorkspaceWebview {
     WorkspaceWebview.current?.refresh();
   }
 
+  /** Epics as of the last state build, for the Jira ticket → task linkage. */
+  private lastEpicLinks: EpicLinkSource[] = [];
+
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly extensionUri: vscode.Uri,
     initialView: WorkspaceView,
   ) {
     this.currentView = initialView;
-    // Restored panels do not retain the dynamic workspace resource root. Set
-    // it here as well so generated Archify HTML can load after a window reload.
+    // The sprint service outlives this panel (it is a module singleton holding
+    // the ExtensionContext), so it takes the panel's post/epics hooks while the
+    // panel is alive and drops them on dispose.
+    jiraSprintService.attach({
+      post: (message) => { void this.panel.webview.postMessage(message); },
+      epics: () => this.lastEpicLinks,
+    });
+    jiraSubtaskService.attach({
+      post: (message) => { void this.panel.webview.postMessage(message); },
+    });
+    // Restored panels do not retain the dynamic workspace resource root. Keep
+    // it available for local workspace documents and explicit SVG exports.
     this.panel.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -1699,6 +1649,18 @@ export class WorkspaceWebview {
       projectDocsWatcher.onDidCreate(refresh, null, this.disposables);
       projectDocsWatcher.onDidDelete(refresh, null, this.disposables);
       this.disposables.push(projectDocsWatcher);
+
+      // Architecture Studio owns one standalone, agent-generated manifest.
+      // It deliberately does not watch or consume Epic artifacts.
+      const architectureArtifactsPattern = new vscode.RelativePattern(
+        vscode.Uri.file(root),
+        'docs/project/architecture/ARCHITECTURE-STUDIO.json',
+      );
+      const architectureArtifactsWatcher = vscode.workspace.createFileSystemWatcher(architectureArtifactsPattern);
+      architectureArtifactsWatcher.onDidChange(refresh, null, this.disposables);
+      architectureArtifactsWatcher.onDidCreate(refresh, null, this.disposables);
+      architectureArtifactsWatcher.onDidDelete(refresh, null, this.disposables);
+      this.disposables.push(architectureArtifactsWatcher);
 
       const statePattern = new vscode.RelativePattern(vscode.Uri.file(root), '**/state.json');
       const stateWatcher = vscode.workspace.createFileSystemWatcher(statePattern);
@@ -1783,19 +1745,23 @@ export class WorkspaceWebview {
     this.lastBundleMtime = this.bundleMtime();
   }
 
-  /** Extract a script-free preview so VS Code's webview CSP cannot blank it. */
+  /** Build the curated, script-free state consumed by the React webview. */
   private buildWebviewState(): WorkspaceState {
     const state = buildState(this.currentView);
-    const overviewPath = state.architecture.archifyOverviewPath;
-    if (overviewPath && fs.existsSync(overviewPath)) {
-      try {
-        const size = fs.statSync(overviewPath).size;
-        if (size <= 5 * 1024 * 1024) {
-          const preview = buildArchifySvgPreview(fs.readFileSync(overviewPath, 'utf8'));
-          if (preview) state.architecture.archifyOverviewSvgBase64 = Buffer.from(preview).toString('base64');
-        }
-      } catch { /* Technical Overview remains available as the fallback. */ }
-    }
+    // Sprint data is fetched asynchronously, so only the cached snapshot can
+    // ride along here; `jiraSprintService` posts `sprintState` once the network
+    // call lands. Seeding it means the Sprint tab paints instead of flashing an
+    // empty state on every panel open.
+    state.sprint = jiraSprintService.snapshot();
+    // Remember the epics so the ticket → task linkage does not have to rebuild
+    // the whole workspace state (a filesystem scan) on every sprint refresh.
+    this.lastEpicLinks = state.epics.map((epic) => ({
+      id: epic.id,
+      inputs: epic.inputs ?? {},
+      status: epic.status,
+      currentStep: epic.currentStep,
+      stepCount: epic.stepDetails.length,
+    }));
     return state;
   }
 
@@ -1807,6 +1773,8 @@ export class WorkspaceWebview {
 
   private dispose(): void {
     WorkspaceWebview.current = undefined;
+    jiraSprintService.detach();
+    jiraSubtaskService.detach();
     while (this.disposables.length) {
       const d = this.disposables.pop();
       if (d) { d.dispose(); }
@@ -1974,6 +1942,53 @@ export class WorkspaceWebview {
         this.refresh();
         return;
 
+      case 'refreshArchitectureStudio':
+        this.refresh();
+        return;
+
+      case 'generateArchitectureStudio': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        try {
+          runSlashCommandInProvider('/architecture-studio-generate', root, this.extensionUri.fsPath);
+          void this.panel.webview.postMessage({
+            type: 'architectureGenerationStarted',
+            path: ARCHITECTURE_STUDIO_RELATIVE_PATH,
+          });
+          void vscode.window.showInformationMessage(
+            `Architecture Agent started. It will write ${ARCHITECTURE_STUDIO_RELATIVE_PATH}.`,
+          );
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          void this.panel.webview.postMessage({ type: 'architectureGenerationFailed', message: detail });
+          void vscode.window.showErrorMessage(`Could not start Architecture Agent: ${detail}`);
+        }
+        return;
+      }
+
+      case 'exportArchitectureSnapshot': {
+        const root = this.getRootOrWarn();
+        const format = msg.format === 'svg' || msg.format === 'html' ? msg.format : undefined;
+        const content = typeof msg.content === 'string' ? msg.content : '';
+        const baseName = typeof msg.suggestedName === 'string'
+          ? msg.suggestedName.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
+          : 'architecture';
+        if (!root || !format || !content || content.length > 4_000_000 || /<script\b/i.test(content)) {
+          void vscode.window.showWarningMessage('AIDLC: architecture export was rejected because its payload is invalid.');
+          return;
+        }
+        const target = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(path.join(root, 'docs', 'project', 'context', 'visualization', `${baseName || 'architecture'}.${format}`)),
+          filters: format === 'svg' ? { 'SVG image': ['svg'] } : { 'HTML document': ['html'] },
+          saveLabel: 'Export architecture',
+        });
+        if (!target) { return; }
+        fs.mkdirSync(path.dirname(target.fsPath), { recursive: true });
+        fs.writeFileSync(target.fsPath, content, 'utf8');
+        void vscode.window.showInformationMessage(`AIDLC: exported Architecture Studio as ${path.basename(target.fsPath)}.`);
+        return;
+      }
+
       case 'setTheme': {
         const mode = String(msg.mode ?? '');
         if (mode === 'auto' || mode === 'light' || mode === 'dark') {
@@ -2011,6 +2026,130 @@ export class WorkspaceWebview {
         if (!raw || typeof raw !== 'object') { return; }
         const patch = raw as EpicsViewPrefs;
         void workspaceUiPrefs.patchEpicsView(patch);
+        return;
+      }
+
+      // ── Jira Sprint tab ───────────────────────────────────────────────────
+      case 'sprintRefresh':
+        await jiraSprintService.refresh({ force: msg.force === true });
+        return;
+
+      case 'sprintSetScope':
+        await jiraSprintService.setScope(msg.scope === 'team' ? 'team' : 'mine');
+        return;
+
+      case 'sprintSelectSprint':
+        await jiraSprintService.selectSprint(Number(msg.sprintId) || 0);
+        return;
+
+      case 'sprintSelectBoard':
+        await jiraSprintService.selectBoard(Number(msg.boardId) || 0);
+        return;
+
+      case 'sprintConnectSubmit': {
+        // The token arrives from the connect dialog, goes straight to
+        // SecretStorage via verifyAndStoreJiraCredentials, and is never echoed
+        // back, logged, or written into any state we push to the webview.
+        const result = await verifyAndStoreJiraCredentials({
+          site: String(msg.site ?? ''),
+          email: String(msg.email ?? ''),
+          apiToken: String(msg.token ?? ''),
+        });
+        void this.panel.webview.postMessage({ type: 'sprintConnectResult', ...result });
+        if (result.ok) { await jiraSprintService.refresh({ force: true }); }
+        return;
+      }
+
+      case 'sprintOpenSettings':
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'aidlc.jira');
+        return;
+
+      case 'sprintSetTransitionConfig': {
+        // Written at Workspace scope: which statuses a board uses is a property
+        // of this project, not of the user's machine.
+        const config = vscode.workspace.getConfiguration('aidlc.jira');
+        const target = vscode.ConfigurationTarget.Workspace;
+        if (typeof msg.enabled === 'boolean') {
+          await config.update('transitions.enabled', msg.enabled, target);
+        }
+        if (typeof msg.confirm === 'boolean') {
+          await config.update('transitions.confirm', msg.confirm, target);
+        }
+        const mapping = msg.mapping as Record<string, unknown> | undefined;
+        if (mapping && typeof mapping === 'object') {
+          const keys: Array<[string, string]> = [
+            ['taskCreated', 'transitions.onTaskCreated'],
+            ['review', 'transitions.onReview'],
+            ['runCompleted', 'transitions.onRunCompleted'],
+            ['runFailed', 'transitions.onRunFailed'],
+          ];
+          for (const [field, setting] of keys) {
+            if (typeof mapping[field] === 'string') {
+              await config.update(setting, String(mapping[field]), target);
+            }
+          }
+        }
+        // The config watcher in extension.ts refreshes the sprint state, which
+        // is what carries the new mapping back to the panel.
+        return;
+      }
+
+      case 'sprintOpenLinkedTask': {
+        const epicId = String(msg.epicId ?? '').trim();
+        if (!epicId) { return; }
+        this.setView('epics');
+        void this.panel.webview.postMessage({ type: 'selectEpic', epicId });
+        return;
+      }
+
+      case 'sprintPlanSubtasks':
+        await jiraSubtaskService.planAndPost(String(msg.key ?? ''));
+        return;
+
+      case 'sprintCreateSubtasks': {
+        const domains = Array.isArray(msg.domains) ? msg.domains.map(String) : [];
+        await jiraSubtaskService.createAndPost(String(msg.key ?? ''), domains);
+        return;
+      }
+
+      case 'sprintSetSubtasksEnabled':
+        await vscode.workspace.getConfiguration('aidlc.jira')
+          .update('subtasks.enabled', msg.enabled === true, vscode.ConfigurationTarget.Workspace);
+        return;
+
+      case 'sprintImportTemplate':
+        await vscode.commands.executeCommand('aidlc.importJiraSubtaskTemplate');
+        return;
+
+      case 'sprintOpenIssue': {
+        // The panel sends a bare issue key — it does not know the Jira site.
+        const url = issueBrowseUrl(jiraCredentials.settings().site, String(msg.key ?? ''));
+        if (url) { await vscode.env.openExternal(vscode.Uri.parse(url)); }
+        return;
+      }
+
+      case 'sprintStartTask': {
+        // Prefill only — the user still confirms in the Start-Task modal. A
+        // ticket that turns into a task without a visible confirmation step is
+        // how you end up with tasks nobody meant to create.
+        const key = String(msg.key ?? '').trim();
+        const ticket = key ? jiraSprintService.cachedTicket(key) : null;
+        if (!ticket) {
+          void vscode.window.showWarningMessage(
+            `Không tìm thấy ticket ${key || '(rỗng)'} trong bản sprint đang có. Bấm Refresh rồi thử lại.`,
+          );
+          return;
+        }
+        this.setView('epics');
+        void this.panel.webview.postMessage({
+          type: 'openStartEpicModal',
+          prefill: {
+            epicId: ticket.key,
+            title: ticket.summary,
+            description: buildTicketBrief(ticket),
+            inputs: { jira: ticket.key },
+          },
+        });
         return;
       }
 
@@ -2260,28 +2399,6 @@ export class WorkspaceWebview {
         await vscode.window.showTextDocument(doc, { preview: false });
         return;
       }
-      case 'renderArchifyOverview': {
-        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!root) { return; }
-        const architecture = readArchitectureExplorer(root);
-        if (!architecture.available) {
-          void vscode.window.showWarningMessage('AIDLC: Generate the architecture map before rendering its visual overview.');
-          return;
-        }
-        const result = await renderArchifyOverview({
-          workspaceRoot: root,
-          extensionPath: this.extensionUri.fsPath,
-          layers: architecture.layers,
-          edges: architecture.edges,
-        });
-        if (!result.ok) {
-          void vscode.window.showErrorMessage(`AIDLC: Archify overview could not be rendered. ${result.message ?? ''}`.trim());
-          return;
-        }
-        void vscode.window.showInformationMessage('AIDLC: Verified visual architecture overview created.');
-        this.refresh();
-        return;
-      }
       case 'openPath': {
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const targetPathArg = String(msg.path ?? '');
@@ -2289,6 +2406,11 @@ export class WorkspaceWebview {
         const abs = path.isAbsolute(targetPathArg)
           ? targetPathArg
           : path.resolve(root, targetPathArg);
+        const relative = path.relative(root, abs);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+          void vscode.window.showWarningMessage('AIDLC: source path must be inside the open workspace.');
+          return;
+        }
         if (!fs.existsSync(abs)) {
           void vscode.window.showWarningMessage(`Path not found: ${targetPathArg}`);
           return;

@@ -22,6 +22,7 @@ export * from './runs/PipelineSnapshot';
 export * from './packs';
 export * from './validators';
 export * from './release';
+export * from './integrations';
 export {
   EpicSchema as UnifiedEpicSchema,
   EpicProfileSchema,

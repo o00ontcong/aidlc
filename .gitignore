@@ -17,6 +17,11 @@ packages/*/bin/
 # redesign guide as the single explicitly tracked documentation exception.
 /docs/*
 !/docs/UNIFIED_SYSTEM_GUIDE.md
+# Hand-written design docs, same exception as the guide above — everything else
+# under docs/ is generated epic output.
+!/docs/JIRA-SPRINT-PLAN.md
+!/docs/wireframes/
+!/docs/wireframes/**
 .aidlc/
 
 # editor

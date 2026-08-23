@@ -23,6 +23,16 @@ import { SidebarWebviewProvider } from './v2/sidebarWebview';
 import { WorkspaceWebview } from './v2/workspaceWebview';
 import { themeManager } from './v2/themeManager';
 import { workspaceUiPrefs } from './v2/workspaceUiPrefs';
+import {
+  connectJiraCommand,
+  disconnectJiraCommand,
+  jiraCredentials,
+  testJiraConnectionCommand,
+} from './v2/jiraCredentials';
+import { jiraSprintService } from './v2/jiraSprintService';
+import { jiraStatusSync } from './v2/jiraStatusSync';
+import { jiraSubtaskService } from './v2/jiraSubtaskService';
+import { importJiraSubtaskTemplateCommand } from './v2/jiraTemplateImport';
 import { registerTokenMonitor } from './v2/tokenMonitor';
 import { registerAidlcMonitor } from './v2/aidlcMonitor';
 import { registerAstGraph } from './v2/astGraph';
@@ -89,6 +99,56 @@ export function activate(context: vscode.ExtensionContext): void {
   // so reload/reveal reuses the same panel instead of spawning duplicates.
   workspaceUiPrefs.init(context);
   WorkspaceWebview.registerSerializer(context);
+
+  // Jira: credentials in SecretStorage, sprint data cached in workspaceState.
+  // Both are module singletons for the same reason workspaceUiPrefs is — the
+  // webview panel is constructed with only an extensionUri.
+  jiraCredentials.init(context);
+  jiraSprintService.init(context, output);
+  jiraStatusSync.init(output);
+  jiraSubtaskService.init(context.extensionPath, output);
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aidlc.connectJira', () => connectJiraCommand()),
+    vscode.commands.registerCommand('aidlc.disconnectJira', async () => {
+      await disconnectJiraCommand();
+      // Cached tickets outlive the token otherwise, which reads as still-connected.
+      await jiraSprintService.clearCache();
+    }),
+    vscode.commands.registerCommand('aidlc.testJiraConnection', () => testJiraConnectionCommand(output)),
+    vscode.commands.registerCommand('aidlc.refreshSprint', () => jiraSprintService.refresh({ force: true })),
+    vscode.commands.registerCommand('aidlc.openSprintView', () => {
+      WorkspaceWebview.show(context.extensionUri, 'sprint');
+    }),
+    vscode.commands.registerCommand(
+      'aidlc.importJiraSubtaskTemplate',
+      () => importJiraSubtaskTemplateCommand(output),
+    ),
+    vscode.commands.registerCommand('aidlc.openJiraSubtaskTemplate', async () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) {
+        void vscode.window.showWarningMessage('AIDLC: mở project trước.');
+        return;
+      }
+      try {
+        // Loading seeds the file from the shipped default when it is absent, so
+        // "open the template" works before anyone has created one.
+        jiraSubtaskService.loadTemplate(root);
+        const doc = await vscode.workspace.openTextDocument(jiraSubtaskService.templatePath(root));
+        await vscode.window.showTextDocument(doc);
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Không mở được mẫu subtask: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }),
+    // A token added or revoked elsewhere (another window, the command palette)
+    // should not leave this panel showing a stale connection state.
+    jiraCredentials.onDidChangeToken(() => { void jiraSprintService.refresh({ force: true }); }),
+  );
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+    if (!event.affectsConfiguration('aidlc.jira')) { return; }
+    void jiraSprintService.refresh({ force: true });
+  }));
 
   // Epics-directory setting: sync VS Code setting ↔ workspace.yaml state.root.
   // On activation, read YAML → update setting. On setting change, write YAML.

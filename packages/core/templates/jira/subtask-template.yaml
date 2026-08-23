@@ -1,0 +1,142 @@
+# Mẫu subtask Jira — bản mặc định ship kèm extension.
+#
+# Được scaffold vào project của người dùng tại `.aidlc/jira-subtask-template.yaml`
+# (cạnh workspace.yaml) và NÊN được commit: nó là quy ước của team, cần review được
+# và cần đổi được mà không phải build lại extension.
+#
+# Nội dung dưới đây phiên bản hoá từ trang Confluence STT/Sub-task. Trang đó là văn bản
+# cho người đọc; file này là bản máy đọc được của cùng quy ước đó. Khi trang đổi, chạy
+# `AIDLC: Import Jira Subtask Template` để sinh lại bản nháp rồi tự review diff.
+
+version: 1
+
+source:
+  confluence: https://silvertiger.atlassian.net/wiki/spaces/STT/pages/19791882/Sub-task
+  importedAt: '2026-08-22'
+  # sha256 nội dung trang lúc import — dùng để cảnh báo khi Confluence đã đổi mà file này chưa.
+  contentHash: ''
+
+# ── 1. Tiêu đề ────────────────────────────────────────────────────────────────
+# Trang quy định: "Prefix with the domain". Taxonomy lấy nguyên, không thêm bớt.
+title:
+  format: '[{{domain}}] {{what}}'
+  domains:
+    - Documentation
+    - Frontend
+    - Backend
+    - Infra
+    - Code review
+    - Testing
+  # Ví dụ trong trang, giữ lại làm test fixture:
+  #   [Backend] Create DB migration script for password reset tokens
+  maxLength: 255
+
+# ── 2-5. Thân subtask ─────────────────────────────────────────────────────────
+# Bám đúng khối "Sub-task Template (Copy-Paste Friendly)" ở cuối trang, theo thứ tự.
+# `kind` quyết định node ADF được sinh ra, nên checklist ra checkbox thật trên Jira
+# thay vì mấy dòng text có dấu ngoặc.
+body:
+  # '---' giữa các mục trong template → ADF `rule`
+  separator: rule
+  sections:
+    - key: description
+      heading: '🔧 Description'
+      kind: prose
+      required: true
+      # Nguồn khi AIDLC tự điền, theo thứ tự ưu tiên; hết nguồn thì để người dùng gõ.
+      from: [ticket.description, task.description]
+
+    - key: completionCriteria
+      heading: '✅ Completion Criteria'
+      kind: bulletList
+      required: true
+      # Trang yêu cầu "clear, binary conditions" — nên lấy AC của ticket trước,
+      # sau đó là produces_contains của các step tương ứng.
+      from: [ticket.acceptanceCriteria, steps.producesContains]
+
+    - key: checklist
+      heading: '📋 Checklist'
+      kind: taskList
+      required: false
+      from: [steps.names]
+
+    - key: parentTask
+      heading: '🔗 Parent Task'
+      kind: bulletList
+      autofill: ['{{parent.key}}']
+
+    - key: labels
+      heading: '🏷️ Labels'
+      kind: inlineCode
+      autofill: ['{{labels}}']
+
+# ── Trường Jira ───────────────────────────────────────────────────────────────
+fields:
+  # 'auto' = resolve từ createmeta, lấy issue type có subtask === true.
+  # Tên khác nhau theo site: Sub-task / Subtask / Sub-Task — không hardcode.
+  issueTypeName: auto
+  # Mục 4 của trang: "Who will execute this exact piece of work?"
+  assignee: currentUser
+  labels: [aidlc]
+  inheritParentLabels: true
+
+# ── Đề xuất subtask nào ───────────────────────────────────────────────────────
+# Theo domain, không theo từng step — taxonomy của trang là theo domain, và một
+# subtask cho mỗi step trong 7 step sẽ ra một ticket đầy rác.
+# Người dùng vẫn tick chọn lần cuối trong panel preview.
+#
+# Cách đọc `when`:
+#     match = có nhãn nào trong ticketLabelsAny  ||  (orNoneOf khác rỗng && không có nhãn nào trong orNoneOf)
+# `orNoneOf` là nhánh OR dự phòng ("…hoặc khi ticket không có nhãn nào trong đây"),
+# không phải điều kiện loại trừ. Nhờ vậy Backend là mặc định cho ticket không nhãn,
+# nhưng vẫn đứng ngoài khi ticket thuần frontend. Bỏ `when` = luôn đề xuất.
+plan:
+  - domain: Documentation
+    what: '{{task.title}} — spec & tech design'
+    fromSteps: [plan, design]
+    default: true
+
+  - domain: Frontend
+    what: '{{task.title}}'
+    fromSteps: [prototype, implement]
+    when: { ticketLabelsAny: [frontend, ui, web, ios, mobile] }
+    default: true
+
+  - domain: Backend
+    what: '{{task.title}}'
+    fromSteps: [implement]
+    when: { ticketLabelsAny: [backend, api, db, service], orNoneOf: [frontend, ui, web] }
+    default: true
+
+  - domain: Infra
+    what: '{{task.title}}'
+    fromSteps: [implement]
+    when: { ticketLabelsAny: [infra, ci, cd, deploy, docker, terraform] }
+    default: false
+
+  - domain: Testing
+    what: '{{task.title}} — test plan & execution'
+    fromSteps: [test-plan, generate-test-cases, execute-test]
+    default: true
+
+  - domain: Code review
+    what: '{{task.title}}'
+    fromSteps: [reviewGates]
+    default: true
+
+# ── Placeholder được phép ─────────────────────────────────────────────────────
+# Allowlist chặt: template là file trong repo, nhưng nội dung ticket/Confluence là
+# dữ liệu từ ngoài. Placeholder nào không có trong danh sách này thì để nguyên văn,
+# không resolve, không eval.
+placeholders:
+  - domain
+  - what
+  - labels
+  - parent.key
+  - parent.summary
+  - ticket.key
+  - ticket.summary
+  - task.id
+  - task.title
+  - step.name
+  - step.agent

@@ -115,11 +115,46 @@ export interface ArchitectureGraphNode {
   id: string;
   label: string;
   kind?: string;
+  layer?: string;
+  file?: string;
+  symbol?: string;
+  role?: string;
+  summary?: string;
+  confidence?: string;
+  evidence?: string[];
 }
 
 export interface ArchitectureGraphEdge {
+  id?: string;
   source: string;
   target: string;
+  label?: string;
+  protocol?: string;
+  role?: string;
+  confidence?: string;
+  evidence?: string[];
+}
+
+function scalarText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function firstScalar(raw: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = scalarText(raw[key]);
+    if (value) return value;
+  }
+  return '';
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const text = scalarText(item);
+    return text ? [text] : [];
+  });
 }
 
 /** Normalize architecture JSON (`layers`/`nodes`, `source`/`from`, `target`/`to`). */
@@ -135,13 +170,45 @@ export function architectureGraphFromJson(doc: Record<string, unknown> | undefin
     const node = nodeIdentity(raw);
     if (!node || seen.has(node.id)) continue;
     seen.add(node.id);
-    const kind = typeof raw.kind === 'string' && raw.kind.trim() ? raw.kind.trim() : undefined;
-    nodes.push(kind ? { ...node, kind } : node);
+    const kind = firstScalar(raw, ['kind', 'type']) || undefined;
+    const layer = firstScalar(raw, ['layer', 'tier', 'zone']) || undefined;
+    const file = firstScalar(raw, ['file', 'path', 'filePath']) || undefined;
+    const symbol = firstScalar(raw, ['symbol', 'symbolName']) || undefined;
+    const role = firstScalar(raw, ['role', 'category']) || undefined;
+    const summary = firstScalar(raw, ['summary', 'responsibility', 'description', 'notes']) || undefined;
+    const confidence = firstScalar(raw, ['confidence']) || undefined;
+    const evidence = stringList(raw.evidence);
+    nodes.push({
+      ...node,
+      ...(kind ? { kind } : {}),
+      ...(layer ? { layer } : {}),
+      ...(file ? { file } : {}),
+      ...(symbol ? { symbol } : {}),
+      ...(role ? { role } : {}),
+      ...(summary ? { summary } : {}),
+      ...(confidence ? { confidence } : {}),
+      ...(evidence.length ? { evidence } : {}),
+    });
   }
   const edges: ArchitectureGraphEdge[] = [];
   for (const raw of objects(doc.edges)) {
     const edge = edgeEndpoints(raw);
-    if (edge) edges.push(edge);
+    if (!edge) continue;
+    const id = firstScalar(raw, ['id']) || undefined;
+    const label = firstScalar(raw, ['label', 'name', 'trigger', 'action']) || undefined;
+    const protocol = firstScalar(raw, ['protocol', 'transport']) || undefined;
+    const role = firstScalar(raw, ['role', 'kind', 'type']) || undefined;
+    const confidence = firstScalar(raw, ['confidence']) || undefined;
+    const evidence = stringList(raw.evidence);
+    edges.push({
+      ...edge,
+      ...(id ? { id } : {}),
+      ...(label ? { label } : {}),
+      ...(protocol ? { protocol } : {}),
+      ...(role ? { role } : {}),
+      ...(confidence ? { confidence } : {}),
+      ...(evidence.length ? { evidence } : {}),
+    });
   }
   return { nodes, edges };
 }
@@ -149,11 +216,16 @@ export function architectureGraphFromJson(doc: Record<string, unknown> | undefin
 export interface CatalogFeatureNode {
   id: string;
   name: string;
+  kind?: string;
   parent?: string;
   area?: string;
   module?: string;
   children?: string[];
   summary?: string;
+  confidence?: string;
+  evidence?: string[];
+  entrypoints?: Array<{ label: string; file: string; symbol?: string }>;
+  layers?: string[];
 }
 
 function catalogRowsFromList(
@@ -173,14 +245,29 @@ function catalogRowsFromList(
     const moduleName = includeModule ? (fieldString(raw, ['module']) || undefined) : undefined;
     const children = childIds(raw.children);
     const summary = fieldString(raw, ['summary', 'notes', 'responsibility']) || undefined;
+    const kind = fieldString(raw, ['kind', 'type']) || undefined;
+    const confidence = firstScalar(raw, ['confidence']) || undefined;
+    const evidence = stringList(raw.evidence);
+    const layers = stringList(raw.layers);
+    const entrypoints = objects(raw.entrypoints).flatMap((entry) => {
+      const label = fieldString(entry, ['label', 'name', 'symbol', 'file']);
+      const file = fieldString(entry, ['file', 'path', 'filePath']);
+      const symbol = fieldString(entry, ['symbol', 'symbolName']) || undefined;
+      return label && file ? [{ label, file, ...(symbol ? { symbol } : {}) }] : [];
+    });
     rows.push({
       id: node.id,
       name,
+      ...(kind ? { kind } : {}),
       ...(parent ? { parent } : {}),
       ...(area ? { area } : {}),
       ...(moduleName ? { module: moduleName } : {}),
       ...(children.length ? { children } : {}),
       ...(summary ? { summary } : {}),
+      ...(confidence ? { confidence } : {}),
+      ...(evidence.length ? { evidence } : {}),
+      ...(entrypoints.length ? { entrypoints } : {}),
+      ...(layers.length ? { layers } : {}),
     });
   }
   return rows;

@@ -29,7 +29,7 @@ describe('architectureGraphFromJson', () => {
       { id: 'CoreAuth', label: 'CoreAuth', kind: 'spm-package' },
       { id: 'OtenPass', label: 'OtenPass', kind: 'app-target' },
     ]);
-    expect(graph.edges).toEqual([{ source: 'OtenPass', target: 'CoreAuth' }]);
+    expect(graph.edges).toEqual([{ source: 'OtenPass', target: 'CoreAuth', role: 'depends-on' }]);
   });
 });
 

@@ -7,7 +7,8 @@
 
 import * as vscode from 'vscode';
 
-export type WorkspaceUiView = 'project' | 'builder' | 'architecture' | 'epics' | 'analyze' | 'tests';
+export type WorkspaceUiView =
+  | 'project' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
 
 export interface EpicsViewPrefs {
   filter?: 'all' | 'in_progress' | 'pending' | 'done' | 'failed';

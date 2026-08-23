@@ -44,6 +44,18 @@ export interface StartEpicDraft {
   extraProjects?: ExtraProject[];
 }
 
+/**
+ * Values the host can seed the form with — currently from the Sprint tab, where
+ * a Jira ticket supplies the id, title, brief and the `jira` capability input.
+ * Every field stays editable: prefill is a starting point, not a decision.
+ */
+export interface StartEpicPrefill {
+  epicId?: string;
+  title?: string;
+  description?: string;
+  inputs?: Record<string, string>;
+}
+
 interface Props {
   pipelines: PipelineSummary[];
   recipes: RecipeSummary[];
@@ -55,6 +67,7 @@ interface Props {
   workspaceName: string;
   /** When false (no folder open), the user must add at least one project. */
   hasFolder?: boolean;
+  prefill?: StartEpicPrefill;
   onSubmit: (draft: StartEpicDraft) => void;
   onClose: () => void;
 }
@@ -87,6 +100,7 @@ export function StartEpicModal({
   isFirstEpic,
   workspaceName,
   hasFolder = true,
+  prefill,
   onSubmit,
   onClose,
 }: Props) {
@@ -99,10 +113,13 @@ export function StartEpicModal({
   );
   // Start empty (nextEpicId is shown only as a placeholder). A pre-filled
   // "EPIC-100" looks like a Jira key and would trigger auto-analysis on open.
-  const [epicId, setEpicId] = useState('');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [inputs, setInputs] = useState<Record<string, string>>({});
+  // A real prefill from the Sprint tab is different: the key IS a Jira key, and
+  // the description is already the ticket's own text, so there is nothing to
+  // auto-fetch.
+  const [epicId, setEpicId] = useState(prefill?.epicId ?? '');
+  const [title, setTitle] = useState(prefill?.title ?? '');
+  const [description, setDescription] = useState(prefill?.description ?? '');
+  const [inputs, setInputs] = useState<Record<string, string>>(prefill?.inputs ?? {});
   const idInputRef = useRef<HTMLInputElement>(null);
   // Extra projects (GH-67)
   const [extraProjects, setExtraProjects] = useState<ExtraProject[]>([]);
@@ -323,14 +340,17 @@ export function StartEpicModal({
     } else if (desc) {
       signal = `brief:${desc}`;
       fire = () => requestSuggestion(desc);
-    } else if (isJiraKey) {
+    } else if (isJiraKey && key !== prefill?.epicId) {
+      // A prefilled key came from the Sprint tab, which already fetched the
+      // ticket over REST. Re-fetching it through the agentic MCP path would be
+      // slow and would often fail — and would add nothing we do not have.
       signal = `jira:${key}`;
       fire = () => startLoad('jira', key);
     }
     if (!signal || signal === lastAnalyzed.current) { return; }
     const t = setTimeout(() => { lastAnalyzed.current = signal; fire(); }, 800);
     return () => clearTimeout(t);
-  }, [selected, epicId, description, recipes.length, classifying, loadingExternal]);
+  }, [selected, epicId, description, recipes.length, classifying, loadingExternal, prefill?.epicId]);
 
   // ── Extra project helpers (GH-67) ──────────────────────────────────────────
   const isDuplicateProject = (ref: string) =>

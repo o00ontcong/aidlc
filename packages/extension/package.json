@@ -273,6 +273,48 @@
         "title": "Refresh Skills & Agents Catalog",
         "icon": "$(refresh)",
         "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.openSprintView",
+        "title": "Open Sprint (Jira)",
+        "icon": "$(list-unordered)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.connectJira",
+        "title": "Connect Jira",
+        "icon": "$(plug)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.disconnectJira",
+        "title": "Disconnect Jira (remove API token)",
+        "icon": "$(debug-disconnect)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.testJiraConnection",
+        "title": "Test Jira Connection",
+        "icon": "$(pulse)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.refreshSprint",
+        "title": "Refresh Sprint from Jira",
+        "icon": "$(sync)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.importJiraSubtaskTemplate",
+        "title": "Import Jira Subtask Template (from Confluence)",
+        "icon": "$(cloud-download)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.openJiraSubtaskTemplate",
+        "title": "Open Jira Subtask Template",
+        "icon": "$(file-code)",
+        "category": "AIDLC"
       }
     ],
     "configuration": {
@@ -344,6 +386,96 @@
           ],
           "default": "auto",
           "description": "Language for AIDLC interface labels and AI-authored Markdown artifacts. Auto follows VS Code's display language."
+        },
+        "aidlc.jira.site": {
+          "type": "string",
+          "default": "",
+          "description": "Jira Cloud site, e.g. acme.atlassian.net. The API token is stored in VS Code SecretStorage, never here."
+        },
+        "aidlc.jira.email": {
+          "type": "string",
+          "default": "",
+          "description": "Email of the Atlassian account used for Jira API calls."
+        },
+        "aidlc.jira.projectKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Jira project key used to find the board (e.g. ACME)."
+        },
+        "aidlc.jira.boardId": {
+          "type": "number",
+          "default": 0,
+          "description": "Scrum board id to read sprints from. 0 = pick the first board the account can see."
+        },
+        "aidlc.jira.jql": {
+          "type": "string",
+          "default": "",
+          "description": "Optional JQL override for the Sprint tab. When set it replaces the default \"assignee = currentUser() AND sprint IN openSprints()\" query entirely."
+        },
+        "aidlc.jira.refreshMinutes": {
+          "type": "number",
+          "default": 10,
+          "description": "Minutes before cached sprint data is refetched. 0 disables auto-refresh (manual Refresh only)."
+        },
+        "aidlc.jira.requestTimeoutSeconds": {
+          "type": "number",
+          "default": 20,
+          "description": "Per-request timeout for Jira and Confluence API calls."
+        },
+        "aidlc.jira.transitions.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Push AIDLC pipeline progress back to Jira as status transitions. Off by default — this writes to your team's board."
+        },
+        "aidlc.jira.transitions.onTaskCreated": {
+          "type": "string",
+          "default": "In Progress",
+          "description": "Jira status to move a ticket to when an AIDLC task is created from it. Empty = do nothing."
+        },
+        "aidlc.jira.transitions.onReview": {
+          "type": "string",
+          "default": "In Review",
+          "description": "Jira status to move a ticket to when the run reaches its first review gate. Empty = do nothing."
+        },
+        "aidlc.jira.transitions.onRunCompleted": {
+          "type": "string",
+          "default": "",
+          "description": "Jira status to move a ticket to when the run completes. Empty = do nothing. A transition into a Done category always asks for confirmation."
+        },
+        "aidlc.jira.transitions.confirm": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask before each Jira status transition."
+        },
+        "aidlc.jira.subtasks.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow creating Jira subtasks from the template. Off by default — this writes to your team's board."
+        },
+        "aidlc.jira.subtasks.templatePath": {
+          "type": "string",
+          "default": ".aidlc/jira-subtask-template.yaml",
+          "description": "Path (relative to the workspace root) of the subtask template YAML."
+        },
+        "aidlc.jira.subtasks.confluencePageUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Confluence page the subtask template is imported from, for re-import."
+        },
+        "aidlc.jira.subtasks.issueTypeName": {
+          "type": "string",
+          "default": "auto",
+          "description": "Subtask issue type name. \"auto\" resolves it from the project (the type flagged subtask)."
+        },
+        "aidlc.jira.subtasks.assignToMe": {
+          "type": "boolean",
+          "default": true,
+          "description": "Assign created subtasks to the authenticated account."
+        },
+        "aidlc.jira.transitions.onRunFailed": {
+          "type": "string",
+          "default": "",
+          "description": "Jira status to move a ticket to when the run fails. Empty = do nothing (the default: a failed run is usually still in progress)."
         }
       }
     },
@@ -445,7 +577,7 @@
     "copy:templates": "rm -rf templates && cp -R ../core/templates templates",
     "copy:tools": "rm -rf tools && cp -R ../../tools tools",
     "copy:annotron": "rm -rf vendor && mkdir -p vendor && cp -R ../../vendor/annotron vendor/annotron",
-    "compile": "pnpm copy:templates && pnpm copy:tools && pnpm copy:annotron && pnpm copy:archify && tsc -p ./ && vite build",
+    "compile": "pnpm copy:templates && pnpm copy:tools && pnpm copy:annotron && tsc -p ./ && vite build",
     "watch": "trap 'kill 0' SIGINT EXIT; pnpm watch:tsc & pnpm watch:webviews & wait",
     "watch:tsc": "tsc -watch -p ./",
     "watch:webviews": "vite build --watch",
@@ -456,8 +588,7 @@
     "clean:out": "rm -rf out",
     "test": "vitest run",
     "test:watch": "vitest",
-    "copy:archify": "mkdir -p vendor && cp -R ../../vendor/archify vendor/archify",
-    "package": "pnpm --filter @aidlc/core build && pnpm copy:templates && pnpm copy:tools && pnpm copy:annotron && pnpm copy:archify && pnpm typecheck && pnpm clean:out && pnpm bundle:webviews && pnpm bundle:prod && vsce package --no-dependencies"
+    "package": "pnpm --filter @aidlc/core build && pnpm copy:templates && pnpm copy:tools && pnpm copy:annotron && pnpm typecheck && pnpm clean:out && pnpm bundle:webviews && pnpm bundle:prod && vsce package --no-dependencies"
   },
   "dependencies": {
     "@aidlc/core": "workspace:*",

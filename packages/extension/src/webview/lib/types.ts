@@ -766,15 +766,20 @@ export interface WorkspaceState {
     followedIds?: string[];
     listWidth?: number;
   };
-  /** Curated, feature-centric diagram model. It is read-only and never replaces workspace state. */
-  architecture: ArchitectureExplorerState;
+  /** Curated, read-only architecture model for Architecture Studio. */
+  architecture: ArchitectureStudioState;
   /** Resolved once in the extension host from aidlc.displayLanguage / VS Code. */
   displayLanguage: 'en' | 'vi';
   /** Active agent provider — mirrored from sidebar for Epic Run / model display. */
   providerConfig?: ProviderConfig;
+  /**
+   * Jira sprint snapshot, read from cache synchronously so the Sprint tab paints
+   * on first open. Live updates arrive as separate `sprintState` messages.
+   */
+  sprint?: SprintState;
 }
 
-export interface ArchitectureNode {
+export interface ArchitectureStudioNode {
   id: string;
   label: string;
   kind?: string;
@@ -782,13 +787,26 @@ export interface ArchitectureNode {
   file?: string;
   symbol?: string;
   role?: string;
+  summary?: string;
+  confidence?: string;
+  evidence?: string[];
 }
 
-export interface ArchitectureEdge { source: string; target: string; label?: string; confidence?: string; }
+export interface ArchitectureStudioEdge {
+  id?: string;
+  source: string;
+  target: string;
+  label?: string;
+  protocol?: string;
+  role?: string;
+  confidence?: string;
+  evidence?: string[];
+}
 
-export interface ArchitectureFeature {
+export interface ArchitectureStudioFeature {
   id: string;
   name: string;
+  kind?: string;
   summary?: string;
   confidence?: string;
   evidence?: string[];
@@ -800,31 +818,29 @@ export interface ArchitectureFeature {
   layers?: string[];
 }
 
-export interface ArchitectureFeatureFlow {
+export interface ArchitectureStudioFeatureFlow {
   featureId: string;
   title?: string;
-  nodes: ArchitectureNode[];
-  edges: ArchitectureEdge[];
-  mermaid?: string;
-  surfacesMermaid?: string;
+  nodes: ArchitectureStudioNode[];
+  edges: ArchitectureStudioEdge[];
 }
 
-export interface ArchitectureExplorerState {
+export interface ArchitectureStudioState {
   available: boolean;
   message?: string;
-  layers: ArchitectureNode[];
-  edges: ArchitectureEdge[];
-  features: ArchitectureFeature[];
-  screens: ArchitectureFeature[];
-  structuralNodes: ArchitectureNode[];
-  structuralEdges: ArchitectureEdge[];
-  featureFlows: Record<string, ArchitectureFeatureFlow>;
-  /** Hub map of tab/flow areas — used when the full graph would be unreadable. */
-  screensMermaid?: string;
-  /** One readable navigation slice per tab/flow. */
-  screenAreas?: ScreenAreaDiagram[];
-  /** Script-free Archify SVG preview encoded for the webview image sandbox. */
-  archifyOverviewSvgBase64?: string;
+  revision?: string;
+  generatedAt?: string;
+  freshness: 'fresh' | 'stale' | 'unknown';
+  sourcePaths: string[];
+  warnings: string[];
+  nodes: ArchitectureStudioNode[];
+  edges: ArchitectureStudioEdge[];
+  features: ArchitectureStudioFeature[];
+  screens: ArchitectureStudioFeature[];
+  screenEdges: ArchitectureStudioEdge[];
+  structuralNodes: ArchitectureStudioNode[];
+  structuralEdges: ArchitectureStudioEdge[];
+  featureFlows: Record<string, ArchitectureStudioFeatureFlow>;
 }
 
 export interface TestAgentTarget {
@@ -834,7 +850,128 @@ export interface TestAgentTarget {
   url?: string;
 }
 
-export type WorkspaceView = 'project' | 'builder' | 'architecture' | 'epics' | 'analyze' | 'tests';
+export type WorkspaceView =
+  | 'project' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
+
+// ── Jira Sprint tab ────────────────────────────────────────────────────────
+// Mirrors the host shapes in @aidlc/core (JiraTicket) and
+// src/v2/jiraSprintLogic.ts (SprintState). Copied, not imported — see the file
+// header. The host is the only writer; the webview never constructs these.
+
+export type JiraStatusCategory = 'todo' | 'inprogress' | 'done';
+export type JiraTypeKind = 'story' | 'bug' | 'task' | 'spike' | 'subtask' | 'other';
+export type SprintScope = 'mine' | 'team';
+export type SprintStatus = 'unconfigured' | 'loading' | 'ready' | 'error';
+
+export interface JiraBoardRef { id: number; name: string; }
+
+export interface JiraSprintRef {
+  id: number;
+  name: string;
+  state: 'active' | 'future' | 'closed' | 'unknown';
+  startDate: string;
+  endDate: string;
+}
+
+export interface SprintTicket {
+  key: string;
+  id: string;
+  type: string;
+  typeKind: JiraTypeKind;
+  summary: string;
+  descriptionMd: string;
+  acceptanceCriteria: string[];
+  status: string;
+  statusCategory: JiraStatusCategory;
+  assigneeAccountId: string;
+  assigneeName: string;
+  isMine: boolean;
+  points: number | null;
+  priority: string;
+  labels: string[];
+  parentKey: string;
+  parentSummary: string;
+  existingSubtasks: Array<{ key: string; summary: string; status: string }>;
+  /** Jira forbids nesting, so a subtask cannot be a parent. */
+  isSubtask: boolean;
+  url: string;
+  updatedAt: string;
+  /** AIDLC task created from this ticket, joined on inputs.jira. */
+  linkedEpicId?: string;
+  /** `step 4/7` · `xong` · `lỗi` */
+  linkedEpicProgress?: string;
+}
+
+/** One rendered section of a subtask body, mirroring core's RenderedSection. */
+export interface SubtaskSection {
+  heading: string;
+  kind: 'prose' | 'bulletList' | 'taskList' | 'inlineCode';
+  lines: string[];
+}
+
+/** A planned subtask, as the preview panel renders it. Host is the only writer. */
+export interface SubtaskDraft {
+  domain: string;
+  summary: string;
+  sections: SubtaskSection[];
+  /** Preview text — generated from the same model as the ADF payload. */
+  descriptionMd: string;
+  labels: string[];
+  /** Pipeline step ids this subtask stands for. */
+  fromSteps: string[];
+  selected: boolean;
+  /** Already on Jira (our ledger, or a teammate's hand-made subtask). */
+  existingKey?: string;
+  /** Non-empty = cannot be created; each entry is a human-readable reason. */
+  blockedBy: string[];
+}
+
+/** Result of planning subtasks for one ticket. */
+export interface SubtaskPlan {
+  ticketKey: string;
+  drafts: SubtaskDraft[];
+  /** Planning could not run at all. */
+  error?: string;
+  /** Non-fatal notes worth showing above the list. */
+  notices: string[];
+  issueTypeName?: string;
+}
+
+/** Outcome of a create, per draft — bulk create succeeds partially. */
+export interface SubtaskCreateOutcome {
+  ticketKey: string;
+  created: Array<{ domain: string; key: string }>;
+  failed: Array<{ domain: string; message: string }>;
+}
+
+export interface SprintState {
+  status: SprintStatus;
+  board?: JiraBoardRef;
+  sprint?: JiraSprintRef;
+  boards: JiraBoardRef[];
+  sprints: JiraSprintRef[];
+  tickets: SprintTicket[];
+  scope: SprintScope;
+  errorKind?: string;
+  errorMessage?: string;
+  lastSyncedAt?: string;
+  /** Tickets came from cache — readable, but not safe to act on. */
+  fromCache?: boolean;
+  transitionsEnabled: boolean;
+  subtasksEnabled: boolean;
+  /** Event → wanted Jira status. Empty string = do nothing for that event. */
+  transitionMapping: {
+    taskCreated: string;
+    review: string;
+    runCompleted: string;
+    runFailed: string;
+  };
+  transitionConfirm: boolean;
+  /** Settings still missing, for the unconfigured empty state. */
+  missing?: string[];
+  /** Non-secret values prefilled into the connect dialog. Never the token. */
+  connect: { site: string; email: string };
+}
 
 export type EpicFilter = 'all' | 'in_progress' | 'pending' | 'done' | 'failed';
 
