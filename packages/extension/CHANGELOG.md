@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.4.38
+
+- feat: add iOS workflow and refine Jira sprint sync
+- feat(jira): Sprint tab — read sprint, start tasks, write status + subtasks back
+- feat(demo): add TodoKit iOS demo project — parent + child pipeline on real Swift code
+- refactor: keep only the AWS AI-DLC workflow and the new UI theme
+- chore: checkpoint Project Workspace continuation before AI-DLC-only cleanup
+- feat: replace Cohesive Delivery with Project Workspace
+- a
+- fix(step): clear isNew flag when a step is approved
+- fix(epics): resolve produces/requires against the active epics directory
+- fix(project-context): preserve full screen graph and split agent briefing
+- fix(cohesive): complete epic migration and normalize legacy run steps
+- feat(cohesive): draw screen catalogs from navigation, not folder trees
+- feat(epics): add resizable epic list column width
+- feat(webview): improve diagram zoom and simplify epic list rows
+- feat: require briefing graphs and tighten mission packs
+
 ## 3.4.36
 
 ### Added

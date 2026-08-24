@@ -2,7 +2,7 @@
   "name": "aidlc-o00ontcong",
   "displayName": "AIDLC Workspace",
   "description": "A shared AI development workspace for VS Code. Keep project context, decisions, status, focused tasks, workflow pipelines, review, and verification in one visible place.",
-  "version": "3.4.37",
+  "version": "3.4.38",
   "publisher": "o00ontcong",
   "license": "MIT",
   "sponsor": {
