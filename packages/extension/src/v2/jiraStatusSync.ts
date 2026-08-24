@@ -1,9 +1,17 @@
 /**
  * Push AIDLC run progress back to Jira as status transitions.
  *
- * Wired from a single place: `saveRun()` in {@link ./runCommands}, which every
- * run-state change in the extension passes through (markStepDone, approveStep,
- * rejectStep, skipStep…). One hook instead of a call at each site.
+ * Wired from `saveRun()` in {@link ./runCommands}, which every run-state
+ * *change* passes through (markStepDone, approveStep, rejectStep, skipStep…) —
+ * one hook instead of a call at each site.
+ *
+ * Run *creation* is the exception: `scaffoldEpic` and `startRun` write the state
+ * themselves, so the three places that start a run (the Start-Task modal, the
+ * epic wizard, "Start pipeline run") call {@link onRunStateSaved} directly.
+ * Without that, a ticket turned into a task keeps its old status until the first
+ * step action — and if `review` fires first, the never-move-backwards guard
+ * drops `taskCreated` entirely. The migration sweep in `epicsList` deliberately
+ * does not call it: backfilling old epics must not transition their tickets.
  *
  * The rules this file exists to enforce, in the order they matter:
  *

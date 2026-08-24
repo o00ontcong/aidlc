@@ -283,6 +283,14 @@ export interface RecipeDef {
   id: string;
   description: string;
   steps: string[];
+  /**
+   * Source pipeline for this recipe. Omitted = the workflow's primary
+   * `pipelineId`. Bundles whose recipes span `additionalPipelines` (e.g. the
+   * iOS workflow's parent `foundation` + child `feature` pipelines) must set
+   * it, otherwise every recipe would draw from the primary pipeline and
+   * `collectWorkspaceRefIssues` would reject the steps as unknown.
+   */
+  from?: string;
 }
 
 export interface BuiltinWorkflow {
@@ -371,6 +379,219 @@ const SDLC_RECIPES: RecipeDef[] = [
   },
 ];
 
+/**
+ * iOS workflow — parent pipeline (`aidlc-ios-foundation`).
+ *
+ * Builds the project-understanding base once per repository: scan → canonical
+ * structure → architecture map → business rules → published context. Its
+ * outputs are project-scoped (`docs/project/**` + root `CLAUDE.md`), not
+ * epic-scoped, so every phase declares `produces` explicitly instead of
+ * relying on the `docs/epics/{epic}/artifacts/` convention.
+ *
+ * `publish-context` writes `CONTEXT-MANIFEST.json`, which the child pipeline's
+ * first phase requires — that cross-pipeline gate is why the workflow sets
+ * `seedArtifacts: false`.
+ */
+const IOS_FOUNDATION_PHASES: PhaseDef[] = [
+  {
+    id: 'scan-project', name: 'Scan Project', persona: 'ios-project-architect',
+    skillFiles: ['ios-scan-project'], model: 'claude-opus-5',
+    description: 'Inventory the repository — layout, modules, build and test commands.',
+    inputs: 'The repository itself',
+    outputs: 'PROJECT-SCAN.md — layout, modules, how to build and test',
+    artifact: 'PROJECT-SCAN.md',
+    produces: ['docs/project/context/PROJECT-SCAN.md'],
+    producesContains: ['## Repository Layout', '## Modules', '## Build and Test Commands'],
+    humanReview: false, autoReview: false,
+    capabilities: ['files'],
+  },
+  {
+    id: 'standardize-structure', name: 'Standardize Structure', persona: 'ios-project-architect',
+    skillFiles: ['ios-standardize-structure'], model: 'claude-opus-5',
+    description: 'Write the canonical layout + layering rules, and record where the code drifts from them.',
+    inputs: 'PROJECT-SCAN',
+    outputs: 'CONVENTIONS.md + STRUCTURE-DRIFT.md',
+    artifact: 'CONVENTIONS.md',
+    produces: [
+      'docs/project/conventions/CONVENTIONS.md',
+      'docs/project/conformance/STRUCTURE-DRIFT.md',
+    ],
+    producesContains: ['## Canonical Layout', '## Layering Rules', '## Drift Table'],
+    humanReview: true, autoReview: false,
+    capabilities: ['files'],
+    dependsOn: ['scan-project'],
+  },
+  {
+    id: 'map-system', name: 'Map System', persona: 'ios-project-architect',
+    skillFiles: ['ios-map-system'], model: 'claude-opus-5',
+    description: 'Map the layers and entry points, then write the read-this-first project context.',
+    inputs: 'PROJECT-SCAN, CONVENTIONS',
+    outputs: 'ARCHITECTURE-MAP.md + PROJECT-CONTEXT.md',
+    artifact: 'ARCHITECTURE-MAP.md',
+    produces: [
+      'docs/project/context/ARCHITECTURE-MAP.md',
+      'docs/project/context/PROJECT-CONTEXT.md',
+    ],
+    producesContains: ['## Layer Map', '## Read This First'],
+    humanReview: true, autoReview: false,
+    capabilities: ['files'],
+    dependsOn: ['standardize-structure'],
+  },
+  {
+    id: 'document-business-rules', name: 'Document Business Rules', persona: 'ios-project-architect',
+    skillFiles: ['ios-document-business-rules'], model: 'claude-opus-5',
+    description: 'Extract the business rules that actually live in the code, each with cited evidence.',
+    inputs: 'ARCHITECTURE-MAP, source + tests',
+    outputs: 'BUSINESS-RULES.md (every rule cites a file) + RULE-OPEN-QUESTIONS.md',
+    artifact: 'BUSINESS-RULES.md',
+    produces: [
+      'docs/project/domain/BUSINESS-RULES.md',
+      'docs/project/domain/RULE-OPEN-QUESTIONS.md',
+    ],
+    producesContains: ['## Rule Index', '## Unresolved', '**Evidence:**'],
+    humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/business-rules.mjs',
+    capabilities: ['files'],
+    dependsOn: ['map-system'],
+  },
+  {
+    id: 'publish-context', name: 'Publish Context', persona: 'ios-project-architect',
+    skillFiles: ['ios-publish-context'], model: 'claude-opus-5',
+    description: 'Publish the reading order + context manifest and wire the root AI instruction file.',
+    inputs: 'ARCHITECTURE-MAP, BUSINESS-RULES',
+    outputs: 'docs/README.md, CONTEXT-MANIFEST.json, root CLAUDE.md',
+    artifact: 'CONTEXT-MANIFEST.json',
+    produces: [
+      'docs/README.md',
+      'docs/project/context/CONTEXT-MANIFEST.json',
+      'CLAUDE.md',
+    ],
+    producesContains: ['aidlc:context start', 'aidlc:context end', '## Reading Order'],
+    humanReview: true, autoReview: false,
+    capabilities: ['files'],
+    dependsOn: ['document-business-rules'],
+  },
+];
+
+/**
+ * iOS workflow — child pipeline (`aidlc-ios-feature`), run once per epic.
+ *
+ * requirement → create-plan → ui-spec → implement, with an optional
+ * `fix-bug` branch. `implement` is gated on a real `swift build` /
+ * `swift test` via `.aidlc/validators/swift-build.mjs`, so an agent cannot
+ * self-report a green build.
+ */
+const IOS_FEATURE_PHASES: PhaseDef[] = [
+  {
+    id: 'requirement', name: 'Requirement', persona: 'ios-po',
+    skillFiles: ['ios-requirement'], model: 'claude-sonnet-5',
+    description: 'Turn the epic brief into a testable REQUIREMENT.',
+    inputs: 'Epic brief, published project context',
+    outputs: 'REQUIREMENT.md with numbered acceptance criteria',
+    artifact: 'REQUIREMENT.md',
+    // The only `requires` in this workflow, and deliberately so: it is the
+    // cross-pipeline gate that stops an epic from starting before the parent
+    // pipeline published the project context. Within a pipeline, ordering is
+    // expressed by `dependsOn` + the upstream step's `produces` — declaring
+    // intra-pipeline `requires` too would hard-block any recipe that drops the
+    // producing step (`assemblePipeline` re-links `depends_on` but keeps
+    // `requires` as-is).
+    requires: ['docs/project/context/CONTEXT-MANIFEST.json'],
+    producesContains: ['Acceptance Criteria'],
+    humanReview: false, autoReview: false,
+    capabilities: ['files', 'jira'],
+  },
+  {
+    id: 'create-plan', name: 'Create Plan', persona: 'ios-tech-lead',
+    skillFiles: ['ios-create-plan'], model: 'claude-sonnet-5',
+    description: 'Break the requirement into layered tasks in execution order.',
+    inputs: 'REQUIREMENT, architecture map, business rules',
+    outputs: 'TASK-PLAN.md — tasks per layer, execution order, test mapping',
+    artifact: 'TASK-PLAN.md',
+    producesContains: ['## Tasks'],
+    humanReview: true, autoReview: false,
+    capabilities: ['files'],
+    dependsOn: ['requirement'],
+  },
+  {
+    id: 'ui-spec', name: 'UI Spec', persona: 'ios-developer',
+    skillFiles: ['ios-ui-spec'], model: 'claude-sonnet-5',
+    description: 'Lock the concrete UI numbers before writing view code.',
+    inputs: 'TASK-PLAN, screenshots or designs, current view code',
+    outputs: 'UI-SPEC.md with measurements, states and empty/error cases',
+    artifact: 'UI-SPEC.md',
+    humanReview: true, autoReview: false,
+    capabilities: ['files', 'figma'],
+    dependsOn: ['create-plan'],
+  },
+  {
+    id: 'implement', name: 'Implement', persona: 'ios-developer',
+    skillFiles: ['ios-implement'], model: 'claude-sonnet-5',
+    description: 'Implement the tasks and prove it with a real build + test run.',
+    inputs: 'TASK-PLAN, UI-SPEC, conventions, business rules',
+    outputs: 'Swift code + tests, IMPLEMENT-SUMMARY.md with pasted build evidence',
+    artifact: 'IMPLEMENT-SUMMARY.md',
+    producesContains: ['## Build Evidence', 'Build complete!'],
+    humanReview: true, autoReview: true,
+    autoReviewRunner: '.aidlc/validators/swift-build.mjs',
+    capabilities: ['files', 'github'],
+    dependsOn: ['ui-spec'],
+  },
+  {
+    id: 'fix-bug', name: 'Fix Bug', persona: 'ios-tech-lead',
+    skillFiles: ['ios-fix-bug'], model: 'claude-sonnet-5',
+    description: 'Diagnose a defect and plan the fix — root cause before code.',
+    inputs: 'Bug report, business rules, failing test or repro',
+    outputs: 'Root-cause analysis + fix plan (no artifact gate)',
+    artifact: '',
+    produces: [],
+    humanReview: false, autoReview: false,
+    skippable: true,
+    capabilities: ['files'],
+    dependsOn: ['implement'],
+  },
+];
+
+/**
+ * iOS recipes. Ids are `ios-`-prefixed because recipe ids are resolved
+ * globally across built-ins (`startEpicInline` picks the first workflow
+ * owning the id) — reusing `bugfix` / `feature` would be shadowed by the
+ * SDLC workflow. Each declares its source pipeline via `from` since the
+ * bundle spans two.
+ */
+const IOS_RECIPES: RecipeDef[] = [
+  {
+    id: 'ios-bootstrap',
+    description: 'Parent: first-time base — scan, standardize, map, rules, publish.',
+    from: 'aidlc-ios-foundation',
+    steps: ['scan-project', 'standardize-structure', 'map-system', 'document-business-rules', 'publish-context'],
+  },
+  {
+    id: 'ios-refresh-context',
+    description: 'Parent: code drifted — re-scan and re-map, then publish. Keeps conventions and rules.',
+    from: 'aidlc-ios-foundation',
+    steps: ['scan-project', 'map-system', 'publish-context'],
+  },
+  {
+    id: 'ios-feature',
+    description: 'Child: UI feature — requirement → plan → ui-spec → implement.',
+    from: 'aidlc-ios-feature',
+    steps: ['requirement', 'create-plan', 'ui-spec', 'implement'],
+  },
+  {
+    id: 'ios-small',
+    description: 'Child: small change, no task plan — requirement → ui-spec → implement.',
+    from: 'aidlc-ios-feature',
+    steps: ['requirement', 'ui-spec', 'implement'],
+  },
+  {
+    id: 'ios-bugfix',
+    description: 'Child: diagnose and plan a bug fix only.',
+    from: 'aidlc-ios-feature',
+    steps: ['fix-bug'],
+  },
+];
+
 export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
   {
     id: 'aidlc-workflow',
@@ -381,6 +602,31 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
       'Parallel SDLC pipeline ending at execute-test: Plan → (Design → Implement+UnitTest) ∥ (Test Plan → Generate Test Cases) → Execute Test+Report. PO / Tech Lead / Developer / QA. QA runs concurrently with engineering.',
     phases: PHASES,
     recipes: SDLC_RECIPES,
+  },
+  {
+    id: 'aidlc-ios',
+    // Parent pipeline is primary; the per-epic child ships as a companion.
+    pipelineId: 'aidlc-ios-foundation',
+    name: 'AIDLC iOS Workflow',
+    templatesDir: 'ios',
+    description:
+      'Two-tier iOS/Swift workflow. Parent `aidlc-ios-foundation` builds the project-understanding base once (scan → structure → architecture map → business rules → published context); child `aidlc-ios-feature` runs per epic (requirement → plan → ui-spec → implement), gated on a real `swift build` + `swift test`.',
+    // `phases` is the command-install union of both pipelines; `primaryPhases`
+    // is what the parent pipeline actually installs.
+    phases: [...IOS_FOUNDATION_PHASES, ...IOS_FEATURE_PHASES],
+    primaryPhases: IOS_FOUNDATION_PHASES,
+    additionalPipelines: [
+      {
+        id: 'aidlc-ios-feature',
+        name: 'AIDLC iOS Feature',
+        phases: IOS_FEATURE_PHASES,
+      },
+    ],
+    // The child pipeline gates on the parent's CONTEXT-MANIFEST.json; seeding
+    // empty artifact templates would let those cross-pipeline gates pass
+    // before an agent produced anything.
+    seedArtifacts: false,
+    recipes: IOS_RECIPES,
   },
 ];
 
@@ -882,7 +1128,7 @@ export function loadBuiltinPreset(extensionPath: string, workflow: BuiltinWorkfl
       recipes: (workflow.recipes ?? []).map((r) => ({
         id: r.id,
         description: r.description,
-        from: workflow.pipelineId,
+        from: r.from ?? workflow.pipelineId,
         steps: r.steps,
       })),
       sidebar: {
@@ -938,10 +1184,32 @@ export { PHASES };
  * workflow's `phases` array — no file I/O needed.
  */
 export function getBuiltinPipelineSummary(workflow: BuiltinWorkflow) {
-  const phases = workflow.primaryPhases ?? workflow.phases;
+  return pipelineSummaryOf(
+    workflow.pipelineId,
+    workflow.name,
+    workflow.primaryPhases ?? workflow.phases,
+  );
+}
+
+/**
+ * Every pipeline a built-in workflow installs — primary first, then the
+ * companions from `additionalPipelines`. Multi-pipeline bundles (parent
+ * "foundation" + child "feature") need all of them in the picker, not just
+ * the primary.
+ */
+export function getBuiltinPipelineSummariesOf(workflow: BuiltinWorkflow) {
+  return [
+    getBuiltinPipelineSummary(workflow),
+    ...(workflow.additionalPipelines ?? []).map((p) =>
+      pipelineSummaryOf(p.id, p.name, p.phases)),
+  ];
+}
+
+/** Shared shape builder — one pipeline id + its phase list → summary. */
+function pipelineSummaryOf(pipelineId: string, name: string, phases: PhaseDef[]) {
   return {
-    id: workflow.pipelineId,
-    name: workflow.name,
+    id: pipelineId,
+    name,
     builtin: true as const,
     on_failure: 'stop' as const,
     steps: phases.map((p) => ({
@@ -982,7 +1250,7 @@ export function getSdlcBuiltinPipelineSummary() {
  * needed to materialize the agent/skill files on disk for a run.
  */
 export function getAllBuiltinPipelineSummaries() {
-  return BUILTIN_WORKFLOWS.map((w) => getBuiltinPipelineSummary(w));
+  return BUILTIN_WORKFLOWS.flatMap((w) => getBuiltinPipelineSummariesOf(w));
 }
 
 /**
@@ -999,15 +1267,25 @@ export function getBuiltinRecipeSummaries(): Array<{
   agents: string[];
 }> {
   return BUILTIN_WORKFLOWS.flatMap((wf) => {
-    const summary = getBuiltinPipelineSummary(wf);
-    const agentByStep = new Map(summary.steps.map((s) => [s.name, s.agent]));
-    return (wf.recipes ?? []).map((r) => ({
-      id: r.id,
-      description: r.description,
-      from: wf.pipelineId,
-      steps: r.steps,
-      agents: r.steps.map((id) => agentByStep.get(id)).filter((a): a is string => !!a),
-    }));
+    // Key by pipeline id: a bundle's recipes can draw from a companion
+    // pipeline, whose steps aren't in the primary summary.
+    const stepsByPipeline = new Map(
+      getBuiltinPipelineSummariesOf(wf).map((s) => [
+        s.id,
+        new Map(s.steps.map((step) => [step.name, step.agent])),
+      ]),
+    );
+    return (wf.recipes ?? []).map((r) => {
+      const from = r.from ?? wf.pipelineId;
+      const agentByStep = stepsByPipeline.get(from) ?? new Map<string, string>();
+      return {
+        id: r.id,
+        description: r.description,
+        from,
+        steps: r.steps,
+        agents: r.steps.map((id) => agentByStep.get(id)).filter((a): a is string => !!a),
+      };
+    });
   });
 }
 

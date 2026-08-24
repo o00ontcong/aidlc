@@ -955,8 +955,14 @@ export interface SprintState {
   errorKind?: string;
   errorMessage?: string;
   lastSyncedAt?: string;
-  /** Tickets came from cache — readable, but not safe to act on. */
+  /** Tickets came from cache rather than a live fetch. */
   fromCache?: boolean;
+  /**
+   * Tickets could not be re-verified (fetch failed, or the cache is past its
+   * refresh window) — readable, but not safe to act on. Narrower than
+   * `fromCache`: a cache still inside the refresh window is not stale.
+   */
+  stale?: boolean;
   transitionsEnabled: boolean;
   subtasksEnabled: boolean;
   /** Event → wanted Jira status. Empty string = do nothing for that event. */

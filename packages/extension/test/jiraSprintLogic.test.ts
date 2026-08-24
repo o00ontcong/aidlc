@@ -331,7 +331,16 @@ describe('buildTicketBrief', () => {
 });
 
 describe('buildSprintState', () => {
-  const base = { settings: settings(), hasToken: true, scope: 'mine' as const, epics: [epic()] };
+  // Four minutes after the cache below was written — inside the 10-minute
+  // refresh window, which is the ordinary state of the tab.
+  const NOW = Date.UTC(2026, 7, 22, 9, 4, 0);
+  const base = {
+    settings: settings(),
+    hasToken: true,
+    scope: 'mine' as const,
+    epics: [epic()],
+    nowMs: NOW,
+  };
 
   const cache = (over: Partial<SprintCache> = {}): SprintCache => ({
     key: 'k',
@@ -371,6 +380,7 @@ describe('buildSprintState', () => {
     expect(state.status).toBe('ready');
     expect(state.tickets.map((t) => t.key)).toEqual(['NEW-1']);
     expect(state.fromCache).toBe(false);
+    expect(state.stale).toBe(false);
     expect(state.lastSyncedAt).toBe('2026-08-22T10:00:00.000Z');
   });
 
@@ -390,6 +400,46 @@ describe('buildSprintState', () => {
     expect(state.boards).toEqual([{ id: 3, name: 'ACME Web' }]);
   });
 
+  // The bug this guards: `fromCache` used to imply `stale`, so reopening the tab
+  // inside the refresh window served the cache and disabled "Start task in
+  // AIDLC" — for data the service had just decided was fresh enough to reuse.
+  it('does not call a cache inside the refresh window stale', () => {
+    const state = buildSprintState({ ...base, cache: cache() });
+    expect(state.fromCache).toBe(true);
+    expect(state.stale).toBe(false);
+  });
+
+  it('calls a cache past the refresh window stale', () => {
+    const state = buildSprintState({
+      ...base,
+      cache: cache(),
+      nowMs: Date.UTC(2026, 7, 22, 9, 30, 0),
+    });
+    expect(state.status).toBe('ready');
+    expect(state.fromCache).toBe(true);
+    expect(state.stale).toBe(true);
+  });
+
+  it('never expires the cache when auto-refresh is off', () => {
+    // refreshMinutes <= 0 hands freshness to the user; the actions stay live
+    // until they refresh by hand, rather than dying on a hidden timer.
+    const state = buildSprintState({
+      ...base,
+      settings: settings({ refreshMinutes: 0 }),
+      cache: cache(),
+      nowMs: Date.UTC(2026, 7, 23, 9, 0, 0),
+    });
+    expect(state.stale).toBe(false);
+  });
+
+  it('treats a cache saved in the future as stale', () => {
+    const state = buildSprintState({
+      ...base,
+      cache: cache({ savedAt: Date.UTC(2026, 7, 22, 10, 0, 0) }),
+    });
+    expect(state.stale).toBe(true);
+  });
+
   it('loads when configured with nothing cached yet', () => {
     const state = buildSprintState({ ...base, cache: null });
     expect(state.status).toBe('loading');
@@ -401,6 +451,7 @@ describe('buildSprintState', () => {
     expect(state.status).toBe('loading');
     expect(state.tickets).toHaveLength(1);
     expect(state.fromCache).toBe(true);
+    expect(state.stale).toBe(false);
   });
 
   it('shows cached tickets alongside an error, flagged as cached', () => {
@@ -413,6 +464,8 @@ describe('buildSprintState', () => {
     expect(state.errorKind).toBe('auth');
     expect(state.tickets).toHaveLength(1);
     expect(state.fromCache).toBe(true);
+    // A fetch we could not complete makes even a young cache unverified.
+    expect(state.stale).toBe(true);
   });
 
   it('errors with no tickets when there is no cache to fall back on', () => {

@@ -144,7 +144,9 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
     tickets: visible.filter((ticket) => bucketOf(ticket) === id),
   })), [visible]);
 
-  const stale = Boolean(sprint.fromCache) || sprint.status === 'error';
+  // The host decides this — a cache inside its refresh window is trustworthy,
+  // so "came from cache" alone must not disable the tab's primary action.
+  const stale = Boolean(sprint.stale);
   const hasFilter = statusFilter !== 'all' || search.trim().length > 0;
 
   const refresh = (force = true) => postMessage({ type: 'sprintRefresh', force });
@@ -341,7 +343,8 @@ function SprintHeader({
             {busy
               ? 'đang đồng bộ…'
               : sprint.lastSyncedAt
-                ? `đồng bộ ${describeAge(sprint.lastSyncedAt)}${sprint.fromCache ? ' · cache' : ''}`
+                ? `đồng bộ ${describeAge(sprint.lastSyncedAt)}`
+                  + (sprint.fromCache ? (sprint.stale ? ' · cache cũ' : ' · cache') : '')
                 : ''}
           </span>
           <button

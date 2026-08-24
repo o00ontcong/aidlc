@@ -190,6 +190,7 @@ import {
 } from '@aidlc/core';
 import { jiraCredentials, verifyAndStoreJiraCredentials } from './jiraCredentials';
 import { jiraSprintService } from './jiraSprintService';
+import { jiraStatusSync } from './jiraStatusSync';
 import { jiraSubtaskService } from './jiraSubtaskService';
 import { issueBrowseUrl } from './jiraSubtaskLogic';
 import { buildTicketBrief, type EpicLinkSource, type SprintState } from './jiraSprintLogic';
@@ -233,6 +234,7 @@ import type {
   DiscoveredAsset,
   PipelineConfig,
   RecipeConfig,
+  ScaffoldEpicResult,
   StepStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
@@ -4041,8 +4043,9 @@ export class WorkspaceWebview {
 
     // Scaffold the epic on disk via the shared core helper — same folder
     // layout / state.json / RunState the CLI's `epic start` produces.
+    let scaffolded: ScaffoldEpicResult | undefined;
     try {
-      scaffoldEpic({
+      scaffolded = scaffoldEpic({
         workspaceRoot: root,
         doc,
         epicId,
@@ -4068,6 +4071,14 @@ export class WorkspaceWebview {
         `Epic could not be scaffolded: ${err instanceof Error ? err.message : String(err)}`,
       );
       return;
+    }
+
+    // The run is born here rather than through `saveRun()`, so Jira write-back
+    // has to be told by hand — otherwise a ticket turned into a task sits in its
+    // old status until the first step action, and by then `review` may have
+    // fired first and the backwards guard drops `taskCreated` for good.
+    if (scaffolded?.runState) {
+      jiraStatusSync.onRunStateSaved(root, scaffolded.runState, doc);
     }
 
     // GH-67: add workspace-mode projects to VS Code via a named .code-workspace file.
@@ -5202,6 +5213,8 @@ export class WorkspaceWebview {
       const runState = startRun({ runId: epicId, pipeline, context });
       RunStateStore.save(root, runState);
       mirrorRunStateToEpic(root, runState, readYaml(root));
+      // Same reason as in `startEpicInline`: run creation bypasses `saveRun()`.
+      jiraStatusSync.onRunStateSaved(root, runState, doc);
       void vscode.window.showInformationMessage(
         `Pipeline run "${epicId}" started — current step: ${runState.steps[runState.currentStepIdx].agent}.`,
       );

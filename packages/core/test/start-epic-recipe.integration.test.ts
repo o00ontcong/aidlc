@@ -77,7 +77,14 @@ describe('Start Epic → recipe materialization (built-in workspace)', () => {
     // via `from`), and Start materializes the owning workflow on submit
     // (startEpicInline), so resolve each summary against ITS workflow's
     // workspace, not the default one.
-    const byPipelineId = new Map(BUILTIN_WORKFLOWS.map((wf) => [wf.pipelineId, wf]));
+    // A bundle's recipes can point at a companion pipeline (the iOS workflow's
+    // child `aidlc-ios-feature`), so index those ids too — not just primaries.
+    const byPipelineId = new Map(
+      BUILTIN_WORKFLOWS.flatMap((wf) => [
+        [wf.pipelineId, wf] as const,
+        ...(wf.additionalPipelines ?? []).map((p) => [p.id, wf] as const),
+      ]),
+    );
     for (const summary of getBuiltinRecipeSummaries()) {
       const wf = byPipelineId.get(summary.from);
       expect(wf, `recipe "${summary.id}" points at unknown pipeline "${summary.from}"`).toBeDefined();

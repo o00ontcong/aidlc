@@ -3,9 +3,11 @@
  *
  * The action bar is the point of the whole tab: one primary move ("start a task
  * from this ticket"), and it changes shape rather than lying when that move is
- * unavailable. A ticket that already has a task offers to open it; a ticket read
- * from a stale cache offers nothing, because acting on tickets we could not
- * re-verify is how you create a task against a ticket someone else already closed.
+ * unavailable. A ticket that already has a task offers to open it; a ticket we
+ * could not re-verify — the fetch failed, or the cache is past its refresh
+ * window — offers nothing, because acting on those is how you create a task
+ * against a ticket someone else already closed. A cache still inside its
+ * refresh window is not that case, and keeps every action live.
  */
 
 import { ArrowRight, Copy, ExternalLink, Link2, ListChecks, Play } from 'lucide-react';
@@ -37,7 +39,7 @@ function SectionLabel({ children, hint }: { children: React.ReactNode; hint?: st
 
 export interface SprintTicketDetailProps {
   ticket: SprintTicket | null;
-  /** Tickets are from cache — writes and task creation are blocked. */
+  /** Tickets could not be re-verified — writes and task creation are blocked. */
   stale: boolean;
   subtasksEnabled: boolean;
   transitionsEnabled: boolean;
@@ -171,7 +173,7 @@ export function SprintTicketDetail({
           <button
             type="button"
             disabled={stale}
-            title={stale ? 'Danh sách đang là bản cache — làm mới trước khi tạo task.' : undefined}
+            title={stale ? 'Chưa xác minh lại được ticket này (Jira lỗi hoặc cache đã quá hạn) — bấm Refresh trước khi tạo task.' : undefined}
             onClick={() => onStartTask(ticket)}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold',
@@ -190,7 +192,7 @@ export function SprintTicketDetail({
           title={
             ticket.isSubtask
               ? 'Jira không cho subtask lồng nhau.'
-              : stale ? 'Danh sách đang là bản cache — làm mới trước.' : undefined
+              : stale ? 'Chưa xác minh lại được ticket này (Jira lỗi hoặc cache đã quá hạn) — bấm Refresh trước.' : undefined
           }
           onClick={onOpenSubtasks}
           className={cn(

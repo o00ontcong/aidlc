@@ -60,6 +60,15 @@ export interface SprintState {
   lastSyncedAt?: string;
   /** True when `tickets` came from the cache rather than a live fetch. */
   fromCache?: boolean;
+  /**
+   * True when the tickets could not be re-verified — a failed fetch, or a cache
+   * past its refresh window. The UI blocks writes and task creation on these.
+   *
+   * Deliberately not the same thing as {@link fromCache}: a cache the service
+   * itself considers fresh enough to skip a fetch is not stale, or the primary
+   * action would sit disabled for the whole refresh window after every reopen.
+   */
+  stale: boolean;
   transitionsEnabled: boolean;
   subtasksEnabled: boolean;
   /** Mirrored so the mapping panel can render without a second round trip. */
@@ -91,6 +100,7 @@ export const EMPTY_SPRINT_STATE: SprintState = {
   sprints: [],
   tickets: [],
   scope: 'mine',
+  stale: false,
   transitionsEnabled: false,
   subtasksEnabled: false,
   transitionMapping: DEFAULT_TRANSITION_MAPPING,
@@ -331,6 +341,8 @@ export interface BuildSprintStateInput {
   scope: SprintScope;
   epics: readonly EpicLinkSource[];
   cache?: SprintCache | null;
+  /** Epoch ms used to age the cache. Injected so tests get a fixed clock. */
+  nowMs?: number;
   /** Set while a fetch is in flight and there is nothing cached to show. */
   loading?: boolean;
   error?: { errorKind: JiraErrorKind; errorMessage: string } | null;
@@ -355,6 +367,12 @@ export interface BuildSprintStateInput {
  *   3. an error still shows cached tickets, flagged `fromCache`, because stale
  *      tickets you can read beat an empty screen — but the UI blocks acting on
  *      them.
+ *
+ * `stale` is the flag the UI gates writes on, and it is narrower than
+ * `fromCache`: only a failed fetch or a cache past its refresh window earns it.
+ * Serving a cache the service itself just decided was fresh enough to skip a
+ * fetch, then calling that cache untrustworthy, would disable the tab's primary
+ * action for the whole refresh window every time the panel is reopened.
  */
 export function buildSprintState(input: BuildSprintStateInput): SprintState {
   const { settings, hasToken, scope } = input;
@@ -384,6 +402,7 @@ export function buildSprintState(input: BuildSprintStateInput): SprintState {
       tickets: linkTicketsToEpics(fetched.tickets, input.epics),
       lastSyncedAt: fetched.syncedAt,
       fromCache: false,
+      stale: false,
     };
   }
 
@@ -397,11 +416,12 @@ export function buildSprintState(input: BuildSprintStateInput): SprintState {
       tickets: linkTicketsToEpics(cache.tickets, input.epics),
       lastSyncedAt: new Date(cache.savedAt).toISOString(),
       fromCache: true,
+      stale: !isCacheFresh(cache, input.nowMs ?? Date.now(), settings.refreshMinutes),
     }
-    : { boards: [], sprints: [], tickets: [] as SprintTicket[] };
+    : { boards: [], sprints: [], tickets: [] as SprintTicket[], stale: false };
 
   if (input.error) {
-    return { ...base, ...cached, status: 'error', ...input.error };
+    return { ...base, ...cached, status: 'error', ...input.error, stale: true };
   }
   if (input.loading) {
     return { ...base, ...cached, status: 'loading' };

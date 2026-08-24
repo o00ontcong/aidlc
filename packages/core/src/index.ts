@@ -243,6 +243,7 @@ export {
   getBuiltinStepHelp,
   renderBuiltinStepHelpMarkdown,
   getBuiltinPipelineSummary,
+  getBuiltinPipelineSummariesOf,
   getSdlcBuiltinPipelineSummary,
   getAllBuiltinPipelineSummaries,
   getBuiltinRecipeSummaries,
