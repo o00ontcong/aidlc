@@ -21,5 +21,7 @@ export * from './epic';
 export * from './run';
 export * from './command';
 export * from './project';
+export * from './foundation';
+export * from './shape';
 export * from './artifact';
 export * from './capability';

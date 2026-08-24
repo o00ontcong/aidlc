@@ -11,10 +11,11 @@ import { TestAgentView } from './TestAgentView';
 import { ArchitectureStudio } from './architecture/ArchitectureStudio';
 import { ProjectOverview } from './ProjectOverview';
 import { SprintView } from './SprintView';
+import { DiscoveryView } from './DiscoveryView';
 import { onHostMessage, postMessage } from '@/lib/bridge';
 
 const VIEWS: WorkspaceView[] = [
-  'project', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
+  'project', 'discovery', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
 ];
 
 export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
@@ -23,6 +24,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   const [startEpicOpen, setStartEpicOpen] = useState(false);
   const [epicPrefill, setEpicPrefill] = useState<StartEpicPrefill | undefined>();
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
+  const [selectedShapeId, setSelectedShapeId] = useState<string | undefined>();
   const seededView = useRef(Boolean(state?.initialView));
   // Sprint data arrives on its own channel: the host fetches it asynchronously,
   // so it cannot ride along in the synchronous `state` push. The snapshot in
@@ -51,6 +53,14 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
       if (msg.type === 'selectEpic') {
         const epicId = String(msg.epicId ?? '');
         if (epicId) { setSelectedTaskId(epicId); }
+      }
+      if (msg.type === 'selectShape') {
+        const shapeId = String(msg.shapeId ?? '');
+        if (shapeId) {
+          setSelectedShapeId(shapeId);
+          setView('discovery');
+          seededView.current = true;
+        }
       }
     });
   }, []);
@@ -145,11 +155,16 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
           <ProjectOverview
             state={state}
             onNewTask={() => setStartEpicOpen(true)}
+            onDiscussIdea={() => onView('discovery')}
             onOpenTask={(taskId) => {
               setSelectedTaskId(taskId);
               onView('epics');
             }}
           />
+        </main>
+      ) : view === 'discovery' ? (
+        <main className="flex-1 overflow-y-auto">
+          <DiscoveryView state={state} selectedShapeId={selectedShapeId} onSelectShape={setSelectedShapeId} />
         </main>
       ) : view === 'sprint' ? (
         // Reading a sprint needs no workspace.yaml — it only needs Jira
@@ -235,6 +250,9 @@ function TopBar({
     <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/80 px-6 py-2.5 backdrop-blur-sm">
       <PillButton active={view === 'project'} onClick={() => onView('project')}>
         Project
+      </PillButton>
+      <PillButton active={view === 'discovery'} onClick={() => onView('discovery')}>
+        Discovery
       </PillButton>
       <PillButton active={view === 'epics'} onClick={() => onView('epics')}>
         Tasks

@@ -71,4 +71,19 @@ describe('CommandProviderAdapter', () => {
     expect(taskSection).not.toContain('docs/epics');
     expect(taskSection).toContain('.aidlc/epics/$ARGUMENTS/artifacts/');
   });
+
+  it('uses only verified read-only provider modes for discovery', () => {
+    const prompt = 'Discuss SHAPE-001 only.';
+    const claude = getCommandProviderAdapter('claude').buildDiscoveryInvocation({ prompt })!;
+    const cursor = getCommandProviderAdapter('cursor').buildDiscoveryInvocation({ prompt })!;
+    const codex = getCommandProviderAdapter('codex').buildDiscoveryInvocation({ prompt })!;
+    expect(claude.argv).toContain('--permission-mode');
+    expect(claude.argv).toContain('plan');
+    expect(cursor.argv).toContain('--mode');
+    expect(cursor.argv).toContain('ask');
+    expect(codex.argv).toContain('--sandbox');
+    expect(codex.argv).toContain('read-only');
+    expect(codex.argv).not.toContain('workspace-write');
+    expect(getCommandProviderAdapter('opencode').buildDiscoveryInvocation({ prompt })).toBeNull();
+  });
 });

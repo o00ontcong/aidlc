@@ -24,6 +24,7 @@ import { startRun } from './PipelineRunner';
 import { RunStateStore } from './RunStateStore';
 import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
+import type { FoundationSnapshot } from '../contracts/foundation';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
@@ -161,6 +162,17 @@ export interface ScaffoldEpicArgs {
    * sessions and must honor every configured human gate.
    */
   runMode?: 'guided' | 'autonomous';
+  /**
+   * Immutable pre-Epic decision provenance. Only ShapeService supplies this;
+   * callers cannot reconstruct it from a free-form description.
+   */
+  shapeProvenance?: {
+    id: string;
+    revision: number;
+    acceptanceHash: string;
+    foundation: FoundationSnapshot;
+    brief: string;
+  };
 }
 
 export interface ScaffoldEpicResult {
@@ -180,6 +192,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraProjects, pipeline,
     enableAutopilot = false,
     runMode = 'guided',
+    shapeProvenance,
   } = args;
 
   if (!epicId.trim()) { throw new EpicScaffoldError('Epic id is required.'); }
@@ -243,6 +256,18 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const persistedInputs: Record<string, unknown> = { ...inputs };
   if (extraProjects && extraProjects.length > 0) {
     persistedInputs.extra_projects = extraProjects;
+  }
+  if (shapeProvenance) {
+    persistedInputs.source_shape = {
+      id: shapeProvenance.id,
+      revision: shapeProvenance.revision,
+      acceptance_hash: shapeProvenance.acceptanceHash,
+      foundation_revision: shapeProvenance.foundation.revision,
+      foundation_hash: shapeProvenance.foundation.contentHash,
+      foundation_source_commit: shapeProvenance.foundation.sourceCommit,
+    };
+    // This is a handoff snapshot, not a second editable source of truth.
+    fs.writeFileSync(path.join(artifactsDir, 'SHAPE.md'), shapeProvenance.brief, 'utf8');
   }
   fs.writeFileSync(
     path.join(epicDir, 'inputs.json'),

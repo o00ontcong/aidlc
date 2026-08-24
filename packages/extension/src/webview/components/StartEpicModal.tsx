@@ -42,6 +42,9 @@ export interface StartEpicDraft {
   description: string;
   inputs: Record<string, string>;
   extraProjects?: ExtraProject[];
+  /** Set only by an accepted Discovery Shape; host performs the atomic conversion. */
+  sourceShapeId?: string;
+  sourceShapeRevision?: number;
 }
 
 /**
@@ -54,6 +57,8 @@ export interface StartEpicPrefill {
   title?: string;
   description?: string;
   inputs?: Record<string, string>;
+  sourceShapeId?: string;
+  sourceShapeRevision?: number;
 }
 
 interface Props {
@@ -508,6 +513,8 @@ export function StartEpicModal({
       description: description.trim(),
       inputs: cleanInputs,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
+      sourceShapeId: prefill?.sourceShapeId,
+      sourceShapeRevision: prefill?.sourceShapeRevision,
     });
     onClose();
   };

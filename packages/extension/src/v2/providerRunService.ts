@@ -218,6 +218,61 @@ export function openAgentTerminal(providerId?: string): void {
   });
 }
 
+/**
+ * Open the provider's native chat for a pre-Epic Shape. Unlike a task run,
+ * this always requests the adapter's verified read-only discovery profile.
+ * Unsupported providers are rejected instead of receiving an unsafe fallback.
+ */
+export function openShapeDiscussion(opts: {
+  root: string;
+  shapeId: string;
+  title: string;
+  providerId?: string;
+}): void {
+  const terminalName = `AIDLC · Discovery · ${opts.shapeId}`;
+  const existing = vscode.window.terminals.find((terminal) => terminal.name === terminalName);
+  if (existing) {
+    // A live provider terminal is the durable chat surface for this Shape.
+    // Focus it rather than injecting another process command into its shell.
+    existing.show(false);
+    return;
+  }
+  const store = getProviderConfigStore(opts.root);
+  const config = store.loadOrDefault();
+  const id = opts.providerId ?? config.defaultProvider;
+  const adapter = getCommandProviderAdapter(id);
+  const cli = store.cliFor(id, config);
+  const model = mappedOrFallbackModel({
+    providerId: id,
+    cli,
+    root: opts.root,
+    mappedModel: store.modelFor(id, undefined, config),
+    defaultModel: store.modelFor(id, undefined, config),
+  });
+  const prompt = [
+    `You are discussing AIDLC Shape ${opts.shapeId}: ${opts.title}.`,
+    'This is discovery only. Do not edit source files, run write commands, create an Epic, or start a delivery workflow.',
+    `Read AGENTS.md, PROJECT.md, STATUS.md, DECISIONS.md, .aidlc/shapes/${opts.shapeId}/state.json, and relevant source code when useful.`,
+    'Challenge assumptions and propose alternatives. Keep the human in control of scope and the final decision.',
+    'When the user asks to update the Shape, return only a fenced JSON object named shape-update with any of these fields:',
+    'title, problem, desiredOutcome, appetite, constraints, options, selectedApproach, rationale, risks, noGos, acceptanceCriteria, architectureImpact, openQuestions.',
+    'Do not claim the Shape is accepted. Only the human can accept it from AIDLC Discovery.',
+  ].join('\n\n');
+  const invocation = adapter.buildDiscoveryInvocation({ prompt, mappedModel: model, cwd: opts.root, cliBinary: cli });
+  if (!invocation) {
+    void vscode.window.showWarningMessage(
+      `AIDLC Discovery is unavailable for ${adapter.displayName}: its read-only CLI profile has not been validated. Choose Claude, Cursor, or Codex.`,
+    );
+    return;
+  }
+  spawnTerminalOneShot({
+    oneShot: invocation.shellOneLiner ?? invocation.argv.join(' '),
+    terminalName,
+    cwd: opts.root,
+    fresh: true,
+  });
+}
+
 export function runStepWithProvider(opts: {
   slashCommand: string;
   runId: string;

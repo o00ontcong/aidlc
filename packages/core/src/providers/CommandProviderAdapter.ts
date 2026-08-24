@@ -11,6 +11,11 @@ export interface OneShotInvocation {
   shellOneLiner?: string;
 }
 
+/** A provider command which is permitted to discuss but not to change source. */
+export interface DiscoveryInvocation extends OneShotInvocation {
+  readonly restricted: true;
+}
+
 export interface CommandProviderAdapter {
   readonly id: BuiltinCommandProviderId;
   readonly displayName: string;
@@ -25,6 +30,16 @@ export interface CommandProviderAdapter {
     /** Persisted provider CLI override from `.aidlc/providers.yaml`. */
     cliBinary?: string;
   }): OneShotInvocation;
+  /**
+   * Return null rather than silently falling back to an unrestricted CLI mode.
+   * A Shape discussion is a hard read-only boundary, not merely a prompt.
+   */
+  buildDiscoveryInvocation(opts: {
+    prompt: string;
+    mappedModel?: string;
+    cwd?: string;
+    cliBinary?: string;
+  }): DiscoveryInvocation | null;
 }
 
 function shellQuote(value: string): string {
@@ -50,6 +65,17 @@ const claudeAdapter: CommandProviderAdapter = {
     return {
       argv: mappedModel ? [binary, '--model', mappedModel, slashOrPrompt] : [binary, slashOrPrompt],
       shellOneLiner: oneShot,
+    };
+  },
+  buildDiscoveryInvocation({ prompt, mappedModel, cliBinary }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    return {
+      restricted: true,
+      argv: mappedModel
+        ? [binary, '--model', mappedModel, '--permission-mode', 'plan', prompt]
+        : [binary, '--permission-mode', 'plan', prompt],
+      shellOneLiner: `${binary}${modelFlag} --permission-mode plan ${shellQuote(prompt)}`,
     };
   },
 };
@@ -85,6 +111,17 @@ ${spec.body}`;
       shellOneLiner: oneShot,
     };
   },
+  buildDiscoveryInvocation({ prompt, mappedModel, cliBinary }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    return {
+      restricted: true,
+      argv: mappedModel
+        ? [binary, '--model', mappedModel, '--mode', 'ask', prompt]
+        : [binary, '--mode', 'ask', prompt],
+      shellOneLiner: `${binary}${modelFlag} --mode ask ${shellQuote(prompt)}`,
+    };
+  },
 };
 
 const codexAdapter: CommandProviderAdapter = {
@@ -113,6 +150,17 @@ ${spec.body}`;
         ? [binary, 'exec', '--model', mappedModel, '--sandbox', 'workspace-write', slashOrPrompt]
         : [binary, 'exec', '--sandbox', 'workspace-write', slashOrPrompt],
       shellOneLiner: oneShot,
+    };
+  },
+  buildDiscoveryInvocation({ prompt, mappedModel, cliBinary }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    return {
+      restricted: true,
+      argv: mappedModel
+        ? [binary, '--model', mappedModel, '--sandbox', 'read-only', '--ask-for-approval', 'never', prompt]
+        : [binary, '--sandbox', 'read-only', '--ask-for-approval', 'never', prompt],
+      shellOneLiner: `${binary}${modelFlag} --sandbox read-only --ask-for-approval never ${shellQuote(prompt)}`,
     };
   },
 };
@@ -145,6 +193,11 @@ const opencodeAdapter: CommandProviderAdapter = {
         : [binary, '--auto', '--prompt', slashOrPrompt],
       shellOneLiner: oneShot,
     };
+  },
+  buildDiscoveryInvocation() {
+    // Do not use OpenCode's --auto command for discovery: the current CLI
+    // adapter has no verified source read-only profile.
+    return null;
   },
 };
 

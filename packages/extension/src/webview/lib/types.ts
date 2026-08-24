@@ -713,12 +713,57 @@ export interface ProjectWorkspaceSummary {
   documents: ProjectDocumentSummary[];
 }
 
+export interface FoundationSummary {
+  status: 'incomplete' | 'ready' | 'stale';
+  revision?: number;
+  contentHash?: string;
+  sourceCommit?: string;
+  publishedAt?: string;
+  reason?: string;
+}
+
+export interface ShapeOption {
+  id: string;
+  title: string;
+  summary: string;
+  tradeoffs: string[];
+}
+
+export interface ShapeSummary {
+  id: string;
+  title: string;
+  status: 'draft' | 'exploring' | 'ready' | 'accepted' | 'converted' | 'shelved';
+  revision: number;
+  problem: string;
+  desiredOutcome: string;
+  appetite: string;
+  constraints: string[];
+  options: ShapeOption[];
+  selectedApproach: string;
+  rationale: string;
+  risks: string[];
+  noGos: string[];
+  acceptanceCriteria: string[];
+  architectureImpact: string;
+  openQuestions: string[];
+  foundationRevision: number;
+  foundationHash: string;
+  acceptedAt?: string;
+  convertedEpicId?: string;
+  readinessBlockers: string[];
+  updatedAt: string;
+}
+
 export interface WorkspaceState {
   hasFolder: boolean;
   workspaceName: string;
   configExists: boolean;
   /** Shared, durable project memory used by every task. */
   projectWorkspace?: ProjectWorkspaceSummary;
+  /** Published project rules and architecture revision pinned by each Shape. */
+  foundation?: FoundationSummary;
+  /** Pre-Epic discovery records; only accepted records can become tasks. */
+  shapes: ShapeSummary[];
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
@@ -851,7 +896,7 @@ export interface TestAgentTarget {
 }
 
 export type WorkspaceView =
-  | 'project' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
+  | 'project' | 'discovery' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
 
 // ── Jira Sprint tab ────────────────────────────────────────────────────────
 // Mirrors the host shapes in @aidlc/core (JiraTicket) and

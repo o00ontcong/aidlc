@@ -15,6 +15,7 @@ export * from './artifacts';
 export * from './guide';
 export * from './capabilities';
 export * from './project';
+export * from './shape';
 export * from './workflows';
 export * from './application';
 export * from './migration';
@@ -42,6 +43,11 @@ export {
   type ResolvedModel,
   type ProjectFacts,
   type ProjectRecommendation,
+  type ProjectFoundation,
+  type FoundationSnapshot,
+  type Shape,
+  type ShapeStatus,
+  type ShapeOption,
   type ArtifactPolicy,
   type Capability,
 } from './contracts';
@@ -334,6 +340,7 @@ export {
 export type {
   StepCommandSpec,
   CommandProviderAdapter,
+  DiscoveryInvocation,
   OneShotInvocation,
   SyncPipelineCommandsResult,
   BuiltinCommandProviderId,

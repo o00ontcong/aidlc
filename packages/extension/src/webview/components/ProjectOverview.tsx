@@ -17,9 +17,10 @@ interface ProjectOverviewProps {
   state: WorkspaceState;
   onOpenTask: (taskId?: string) => void;
   onNewTask: () => void;
+  onDiscussIdea: () => void;
 }
 
-export function ProjectOverview({ state, onOpenTask, onNewTask }: ProjectOverviewProps) {
+export function ProjectOverview({ state, onOpenTask, onNewTask, onDiscussIdea }: ProjectOverviewProps) {
   const context = state.projectWorkspace;
   const counts = taskCounts(state.epics);
   const active = [...state.epics]
@@ -43,6 +44,14 @@ export function ProjectOverview({ state, onOpenTask, onNewTask }: ProjectOvervie
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onDiscussIdea}
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/10"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Discuss an idea
+          </button>
           <button
             type="button"
             onClick={onNewTask}

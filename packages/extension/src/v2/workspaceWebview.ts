@@ -182,6 +182,8 @@ import {
   parseClassificationVerdict,
   slugEpicId,
   scaffoldEpic,
+  ProjectFoundationService,
+  ShapeService,
   epicsRoot,
   EpicScaffoldError,
   installAnnotationTools,
@@ -227,7 +229,7 @@ import {
 const workspaceOutput = vscode.window.createOutputChannel('AIDLC Workspace');
 import { syncBuiltinPipelineCommands } from './presetWizards';
 import { buildProviderConfigUi, type ProviderConfigUi } from './providerConfig';
-import { runSlashCommandWithProvider } from './providerRunService';
+import { openShapeDiscussion, runSlashCommandWithProvider } from './providerRunService';
 import type {
   PipelineStepConfig,
   AssetScope,
@@ -238,6 +240,7 @@ import type {
   StepStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
+  ShapePatch,
 } from '@aidlc/core';
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
@@ -279,10 +282,76 @@ function runSlashCommandInProvider(slash: string, root: string, extensionPath: s
   runSlashCommandWithProvider(slash, root, extensionPath);
 }
 
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean) : [];
+}
+
+/** Narrow untrusted webview input to the agent-editable Shape fields. */
+function readShapePatch(value: unknown): ShapePatch {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const patch: ShapePatch = {};
+  for (const key of ['title', 'problem', 'desiredOutcome', 'appetite', 'selectedApproach', 'rationale', 'architectureImpact'] as const) {
+    if (typeof raw[key] === 'string') patch[key] = raw[key];
+  }
+  for (const key of ['constraints', 'risks', 'noGos', 'acceptanceCriteria', 'openQuestions'] as const) {
+    if (Array.isArray(raw[key])) patch[key] = stringList(raw[key]);
+  }
+  if (Array.isArray(raw.options)) {
+    patch.options = raw.options.flatMap((option) => {
+      if (!option || typeof option !== 'object' || Array.isArray(option)) return [];
+      const entry = option as Record<string, unknown>;
+      if (typeof entry.id !== 'string' || typeof entry.title !== 'string' || typeof entry.summary !== 'string') return [];
+      return [{ id: entry.id, title: entry.title, summary: entry.summary, tradeoffs: stringList(entry.tradeoffs) }];
+    });
+  }
+  return patch;
+}
+
 // ── Webview-side type shapes (must mirror src/webview/lib/types.ts) ───────
 
 type WorkspaceView =
-  | 'project' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
+  | 'project' | 'discovery' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
+
+interface FoundationUi {
+  status: 'incomplete' | 'ready' | 'stale';
+  revision?: number;
+  contentHash?: string;
+  sourceCommit?: string;
+  publishedAt?: string;
+  reason?: string;
+}
+
+interface ShapeOptionUi {
+  id: string;
+  title: string;
+  summary: string;
+  tradeoffs: string[];
+}
+
+interface ShapeUi {
+  id: string;
+  title: string;
+  status: 'draft' | 'exploring' | 'ready' | 'accepted' | 'converted' | 'shelved';
+  revision: number;
+  problem: string;
+  desiredOutcome: string;
+  appetite: string;
+  constraints: string[];
+  options: ShapeOptionUi[];
+  selectedApproach: string;
+  rationale: string;
+  risks: string[];
+  noGos: string[];
+  acceptanceCriteria: string[];
+  architectureImpact: string;
+  openQuestions: string[];
+  foundationRevision: number;
+  foundationHash: string;
+  acceptedAt?: string;
+  convertedEpicId?: string;
+  readinessBlockers: string[];
+  updatedAt: string;
+}
 
 interface AgentSummary {
   id: string;
@@ -501,6 +570,8 @@ interface WorkspaceState {
   workspaceName: string;
   configExists: boolean;
   projectWorkspace?: ProjectWorkspaceSummary;
+  foundation?: FoundationUi;
+  shapes: ShapeUi[];
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
@@ -591,6 +662,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       hasFolder: false,
       workspaceName: '',
       configExists: false,
+      shapes: [],
       agents: [], skills: [], pipelines: [], recipes: [], epics: [],
       agentMeta: {}, slashCommandsByAgent: {},
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0, epicsCount: 0,
@@ -614,6 +686,40 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const root = folder.uri.fsPath;
   const doc = readYaml(root);
   const projectWorkspace = readProjectWorkspace(root);
+  const foundationInspection = new ProjectFoundationService(root).inspect();
+  const shapeService = new ShapeService(root);
+  const shapes: ShapeUi[] = shapeService.list().map((shape) => ({
+    id: shape.id,
+    title: shape.title,
+    status: shape.status,
+    revision: shape.revision,
+    problem: shape.problem,
+    desiredOutcome: shape.desiredOutcome,
+    appetite: shape.appetite,
+    constraints: shape.constraints,
+    options: shape.options,
+    selectedApproach: shape.selectedApproach,
+    rationale: shape.rationale,
+    risks: shape.risks,
+    noGos: shape.noGos,
+    acceptanceCriteria: shape.acceptanceCriteria,
+    architectureImpact: shape.architectureImpact,
+    openQuestions: shape.openQuestions,
+    foundationRevision: shape.foundation.revision,
+    foundationHash: shape.foundation.contentHash,
+    acceptedAt: shape.acceptance?.acceptedAt,
+    convertedEpicId: shape.conversion?.state === 'completed' ? shape.conversion.epicId : undefined,
+    readinessBlockers: shapeService.readiness(shape).blockers,
+    updatedAt: shape.updatedAt,
+  }));
+  const foundation: FoundationUi = {
+    status: foundationInspection.status,
+    revision: foundationInspection.foundation?.revision,
+    contentHash: foundationInspection.foundation?.contentHash,
+    sourceCommit: foundationInspection.foundation?.sourceCommit,
+    publishedAt: foundationInspection.foundation?.publishedAt,
+    reason: foundationInspection.reason,
+  };
   const discovered = discoverAssets(root);
   const architecture = readArchitectureStudio(root);
 
@@ -674,6 +780,8 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       workspaceName: folder.name,
       configExists: false,
       projectWorkspace,
+      foundation,
+      shapes,
       agents, skills,
       pipelines: builtinPipelines,
       recipes: getBuiltinRecipeSummaries(),
@@ -742,6 +850,8 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     workspaceName: folder.name,
     configExists: true,
     projectWorkspace,
+    foundation,
+    shapes,
     agents, skills, pipelines, recipes, epics,
     agentMeta, slashCommandsByAgent,
     agentsCount: agents.length,
@@ -2001,7 +2111,7 @@ export class WorkspaceWebview {
 
       case 'setView': {
         const v = msg.view;
-        if (v === 'project' || v === 'builder' || v === 'architecture' || v === 'epics' || v === 'analyze' || v === 'tests') {
+        if (v === 'project' || v === 'discovery' || v === 'builder' || v === 'architecture' || v === 'epics' || v === 'sprint' || v === 'analyze' || v === 'tests') {
           this.currentView = v;
           void workspaceUiPrefs.setLastView(v);
         }
@@ -2019,6 +2129,115 @@ export class WorkspaceWebview {
           void vscode.window.showInformationMessage(
             `AIDLC Workspace: created ${created.length} shared context file${created.length === 1 ? '' : 's'}. Existing files were preserved.`,
           );
+        }
+        return;
+      }
+
+      // ── Discovery / Shape lifecycle ────────────────────────────────────
+      case 'publishFoundation': {
+        const root = this.getRootOrWarn();
+        if (!root) return;
+        try {
+          const foundation = new ProjectFoundationService(root).publish();
+          this.refresh();
+          void vscode.window.showInformationMessage(`AIDLC Discovery: published Foundation revision ${foundation.revision}.`);
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'createShape': {
+        const root = this.getRootOrWarn();
+        if (!root) return;
+        try {
+          const shape = new ShapeService(root).create({
+            title: typeof msg.title === 'string' ? msg.title : '',
+            problem: typeof msg.problem === 'string' ? msg.problem : '',
+            desiredOutcome: typeof msg.desiredOutcome === 'string' ? msg.desiredOutcome : '',
+            appetite: typeof msg.appetite === 'string' ? msg.appetite : '',
+            constraints: stringList(msg.constraints),
+            actor: { kind: 'user', id: 'vscode-user' },
+          });
+          this.refresh();
+          void this.panel.webview.postMessage({ type: 'selectShape', shapeId: shape.id });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'updateShape': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.shapeId === 'string' ? msg.shapeId : '';
+        const revision = Number(msg.revision);
+        if (!root || !id || !Number.isInteger(revision)) return;
+        try {
+          const actor = msg.source === 'agent-proposal'
+            ? { kind: 'agent' as const, id: 'shape-discussion-agent' }
+            : { kind: 'user' as const, id: 'vscode-user' };
+          new ShapeService(root).patch(id, revision, readShapePatch(msg.patch), actor);
+          this.refresh();
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'markShapeReady':
+      case 'acceptShape':
+      case 'reopenShape':
+      case 'shelveShape': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.shapeId === 'string' ? msg.shapeId : '';
+        const revision = Number(msg.revision);
+        if (!root || !id || !Number.isInteger(revision)) return;
+        try {
+          const service = new ShapeService(root);
+          const human = { kind: 'user' as const, id: 'vscode-user' };
+          if (msg.type === 'markShapeReady') service.markReady(id, revision, { kind: 'system', id: 'aidlc-readiness-check' });
+          if (msg.type === 'acceptShape') service.accept(id, revision, human);
+          if (msg.type === 'reopenShape') service.reopen(id, revision, human);
+          if (msg.type === 'shelveShape') service.shelve(id, revision, human);
+          this.refresh();
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'openShapeDiscussion': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.shapeId === 'string' ? msg.shapeId : '';
+        if (!root || !id) return;
+        try {
+          const shape = new ShapeService(root).require(id);
+          if (shape.status === 'converted') throw new Error('This Shape has already become an Epic. Continue the delivery task instead.');
+          openShapeDiscussion({ root, shapeId: shape.id, title: shape.title });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'convertShapeStartEpic': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.shapeId === 'string' ? msg.shapeId : '';
+        if (!root || !id) return;
+        try {
+          const shape = new ShapeService(root).require(id);
+          if (shape.status !== 'accepted' || !shape.acceptance) throw new Error('Accept the Shape before creating an Epic.');
+          void this.panel.webview.postMessage({
+            type: 'openStartEpicModal',
+            prefill: {
+              title: shape.title,
+              description: shape.problem,
+              sourceShapeId: shape.id,
+              sourceShapeRevision: shape.revision,
+            },
+          });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
         }
         return;
       }
@@ -3988,6 +4207,8 @@ export class WorkspaceWebview {
 
     const title = String(draft.title ?? '').trim();
     const description = String(draft.description ?? '').trim();
+    const sourceShapeId = typeof draft.sourceShapeId === 'string' ? draft.sourceShapeId.trim() : '';
+    const sourceShapeRevision = Number(draft.sourceShapeRevision);
     const selectedGoals = Array.isArray(draft.selectedGoals)
       ? [...new Set(draft.selectedGoals
         .filter((goal): goal is string => typeof goal === 'string')
@@ -4045,12 +4266,8 @@ export class WorkspaceWebview {
     // layout / state.json / RunState the CLI's `epic start` produces.
     let scaffolded: ScaffoldEpicResult | undefined;
     try {
-      scaffolded = scaffoldEpic({
-        workspaceRoot: root,
+      const scaffoldArgs = {
         doc,
-        epicId,
-        title,
-        description,
         target: { kind: targetKind as 'pipeline' | 'agent', id: targetId },
         agents,
         inputs,
@@ -4061,7 +4278,15 @@ export class WorkspaceWebview {
         enableAutopilot: vscode.workspace
           .getConfiguration('aidlc')
           .get<boolean>('autopilot.enabled', false),
-      });
+      };
+      if (sourceShapeId) {
+        const shapes = new ShapeService(root);
+        const shape = shapes.require(sourceShapeId);
+        const revision = Number.isInteger(sourceShapeRevision) ? sourceShapeRevision : shape.revision;
+        scaffolded = shapes.convertToEpic(sourceShapeId, revision, { ...scaffoldArgs, epicId }, { kind: 'user', id: 'vscode-user' }).scaffold;
+      } else {
+        scaffolded = scaffoldEpic({ workspaceRoot: root, epicId, title, description, ...scaffoldArgs });
+      }
     } catch (err) {
       if (err instanceof EpicScaffoldError) {
         void vscode.window.showWarningMessage(`AIDLC: ${err.message}`);
