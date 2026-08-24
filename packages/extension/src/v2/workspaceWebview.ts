@@ -2134,6 +2134,12 @@ export class WorkspaceWebview {
       }
 
       // ── Discovery / Shape lifecycle ────────────────────────────────────
+      case 'openDiscoveryGuide': {
+        const { openDiscoveryGuide } = await import('./openGuides');
+        await openDiscoveryGuide(this.extensionUri.fsPath);
+        return;
+      }
+
       case 'publishFoundation': {
         const root = this.getRootOrWarn();
         if (!root) return;

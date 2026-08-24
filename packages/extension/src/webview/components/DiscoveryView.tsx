@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronRight, FileCheck2, MessageSquare, Plus, Send, Sparkles } from 'lucide-react';
+import { BookOpen, Check, ChevronRight, FileCheck2, MessageSquare, Plus, Send, Sparkles } from 'lucide-react';
 
 import type { ShapeSummary, WorkspaceState } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -35,6 +35,9 @@ export function DiscoveryView({ state, selectedShapeId, onSelectShape }: Props) 
             </div>
           </div>
           <div className="flex shrink-0 gap-2">
+            <button type="button" onClick={() => postMessage({ type: 'openDiscoveryGuide' })} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent">
+              <BookOpen className="h-3.5 w-3.5 text-primary" /> Guide
+            </button>
             <button type="button" onClick={() => setCreating(true)} disabled={foundation?.status !== 'ready'} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
               <Plus className="h-3.5 w-3.5" /> New Shape
             </button>

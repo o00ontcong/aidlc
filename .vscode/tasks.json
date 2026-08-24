@@ -4,7 +4,7 @@
     {
       "label": "compile-extension",
       "type": "shell",
-      "command": "npx tsc -p ../core && npm run copy:templates && npm run copy:tools && npm run copy:annotron && npx tsc -p ./ && npx vite build",
+      "command": "npx tsc -p ../core && npm run copy:templates && npm run copy:tools && npm run copy:annotron && npm run copy:discovery-guide && npx tsc -p ./ && npx vite build",
       "options": {
         "cwd": "${workspaceFolder}/packages/extension"
       },
@@ -21,7 +21,7 @@
     {
       "label": "pnpm: compile-all",
       "type": "shell",
-      "command": "npx tsc -p ../core && npm run copy:templates && npm run copy:tools && npm run copy:annotron && npx tsc -p ./ && npx vite build",
+      "command": "npx tsc -p ../core && npm run copy:templates && npm run copy:tools && npm run copy:annotron && npm run copy:discovery-guide && npx tsc -p ./ && npx vite build",
       "options": {
         "cwd": "${workspaceFolder}/packages/extension"
       },

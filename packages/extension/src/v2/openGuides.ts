@@ -46,6 +46,14 @@ export async function openTemplateGuide(
   );
 }
 
+/** Open the packaged instructions for the Discovery tab. */
+export async function openDiscoveryGuide(extensionPath: string): Promise<void> {
+  await openMarkdownPreview(
+    path.join(extensionPath, 'assets', 'discovery-shape-workflow.md'),
+    'Discovery guide',
+  );
+}
+
 /**
  * Render step help to a real file under the OS temp dir, then open Markdown
  * preview only. Untitled documents were wrong here: `openTextDocument({content})`
