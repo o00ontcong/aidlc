@@ -11,6 +11,9 @@ import {
   buildCodexRunPrompt,
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
+  buildHeadlessShapeProposalInvocation,
+  buildShapeProposalPrompt,
+  buildShapeDiscussionPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   resolveRunnableModel,
@@ -26,6 +29,9 @@ export {
   buildCodexRunPrompt,
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
+  buildHeadlessShapeProposalInvocation,
+  buildShapeProposalPrompt,
+  buildShapeDiscussionPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   resolveRunnableModel,
@@ -228,8 +234,11 @@ export function openShapeDiscussion(opts: {
   shapeId: string;
   title: string;
   providerId?: string;
+  proposal?: string;
 }): void {
-  const terminalName = `AIDLC · Discovery · ${opts.shapeId}`;
+  const terminalName = opts.proposal
+    ? `AIDLC · Proposal · ${opts.shapeId}`
+    : `AIDLC · Discovery · ${opts.shapeId}`;
   const existing = vscode.window.terminals.find((terminal) => terminal.name === terminalName);
   if (existing) {
     // A live provider terminal is the durable chat surface for this Shape.
@@ -249,19 +258,19 @@ export function openShapeDiscussion(opts: {
     mappedModel: store.modelFor(id, undefined, config),
     defaultModel: store.modelFor(id, undefined, config),
   });
-  const prompt = [
-    `You are discussing AIDLC Shape ${opts.shapeId}: ${opts.title}.`,
-    'This is discovery only. Do not edit source files, run write commands, create an Epic, or start a delivery workflow.',
-    `Read AGENTS.md, PROJECT.md, STATUS.md, DECISIONS.md, .aidlc/shapes/${opts.shapeId}/state.json, and relevant source code when useful.`,
-    'Challenge assumptions and propose alternatives. Keep the human in control of scope and the final decision.',
-    'When the user asks to update the Shape, return only a fenced JSON object named shape-update with any of these fields:',
-    'title, problem, desiredOutcome, appetite, constraints, options, selectedApproach, rationale, risks, noGos, acceptanceCriteria, architectureImpact, openQuestions.',
-    'Do not claim the Shape is accepted. Only the human can accept it from AIDLC Discovery.',
-  ].join('\n\n');
+  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+  const prompt = buildShapeDiscussionPrompt({
+    shapeId: opts.shapeId,
+    title: opts.title,
+    language: resolveAidlcLanguage(configured, vscode.env.language),
+    proposal: opts.proposal,
+  });
   const invocation = adapter.buildDiscoveryInvocation({ prompt, mappedModel: model, cwd: opts.root, cliBinary: cli });
   if (!invocation) {
     void vscode.window.showWarningMessage(
-      `AIDLC Discovery is unavailable for ${adapter.displayName}: its read-only CLI profile has not been validated. Choose Claude, Cursor, or Codex.`,
+      resolveAidlcLanguage(configured, vscode.env.language) === 'vi'
+        ? `Không thể thảo luận ý tưởng bằng ${adapter.displayName}: chế độ chỉ đọc của công cụ này chưa được xác thực. Hãy chọn Claude, Cursor hoặc Codex.`
+        : `AIDLC Discovery is unavailable for ${adapter.displayName}: its read-only CLI profile has not been validated. Choose Claude, Cursor, or Codex.`,
     );
     return;
   }

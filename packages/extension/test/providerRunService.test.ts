@@ -7,7 +7,10 @@ import { getCommandProviderAdapter } from '@aidlc/core';
 
 import {
   buildCodexRunPrompt,
+  buildHeadlessShapeProposalInvocation,
   buildOpenCodeRunPrompt,
+  buildShapeProposalPrompt,
+  buildShapeDiscussionPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   formatBugReportScreenshotSection,
@@ -30,6 +33,52 @@ describe('providerRunService', () => {
 
   it('names terminal after provider display name', () => {
     expect(terminalNameForProvider('Cursor Agent')).toBe('AIDLC · Cursor Agent');
+  });
+
+  it('builds a beginner-friendly Shape discussion in the selected language', () => {
+    const vietnamese = buildShapeDiscussionPrompt({ shapeId: 'SHAPE-001', title: 'Onboarding', language: 'vi' });
+    expect(vietnamese).toContain('Speak with the human in Vietnamese');
+    expect(vietnamese).toContain('one question at a time');
+    expect(vietnamese).toContain('plain, non-technical language');
+    expect(vietnamese).toContain('Never ask the human to copy or paste JSON');
+
+    const english = buildShapeDiscussionPrompt({ shapeId: 'SHAPE-001', title: 'Onboarding', language: 'en' });
+    expect(english).toContain('Speak with the human in English');
+
+    const proposalDiscussion = buildShapeDiscussionPrompt({
+      shapeId: 'SHAPE-001',
+      title: 'Onboarding',
+      language: 'vi',
+      proposal: '{"selectedApproach":"Guided setup"}',
+    });
+    expect(proposalDiscussion).toContain('Treat it as a draft');
+    expect(proposalDiscussion).toContain('Guided setup');
+    expect(proposalDiscussion).toContain('Do not ask the human to restate this proposal');
+  });
+
+  it('builds a localized structured proposal without exposing JSON to the human', () => {
+    const prompt = buildShapeProposalPrompt({
+      shapeId: 'SHAPE-001',
+      title: 'Onboarding',
+      language: 'vi',
+      currentShape: '{"problem":"Setup is confusing"}',
+    });
+    expect(prompt).toContain('Write every human-readable string value in Vietnamese');
+    expect(prompt).toContain('Return ONLY one JSON object');
+    expect(prompt).toContain('Setup is confusing');
+  });
+
+  it('uses verified read-only headless modes for supported proposal providers', () => {
+    expect(buildHeadlessShapeProposalInvocation({ providerId: 'claude', cli: 'claude', prompt: 'plan' }).args)
+      .toEqual(['--print', '--permission-mode', 'plan', 'plan']);
+    expect(buildHeadlessShapeProposalInvocation({ providerId: 'cursor', cli: 'agent', model: 'gpt-5', prompt: 'plan' }).args)
+      .toEqual(['--print', '--output-format', 'text', '--mode', 'ask', '--model', 'gpt-5', 'plan']);
+    expect(buildHeadlessShapeProposalInvocation({ providerId: 'codex', cli: 'codex', prompt: 'plan' }).args)
+      .toEqual(['exec', '--sandbox', 'read-only', 'plan']);
+    expect(buildHeadlessShapeProposalInvocation({ providerId: 'codex', cli: 'codex', model: 'gpt-5', prompt: 'plan' }).args)
+      .toEqual(['exec', '--model', 'gpt-5', '--sandbox', 'read-only', 'plan']);
+    expect(() => buildHeadlessShapeProposalInvocation({ providerId: 'opencode', cli: 'opencode', prompt: 'plan' }))
+      .toThrow(/verified read-only headless/i);
   });
 
   it('builds slash task prompt for claude/cursor', () => {

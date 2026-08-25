@@ -40,6 +40,19 @@ describe('Discovery Foundation and Shape lifecycle', () => {
     expect(foundation.inspect().status).toBe('stale');
   });
 
+  it('does not create a new Foundation revision when nothing has changed', () => {
+    const rootDir = root();
+    writeFoundation(rootDir);
+    const foundation = new ProjectFoundationService(rootDir, () => '2026-08-24T00:00:00.000Z', () => 'commit-a');
+
+    const first = foundation.publish();
+    const repeated = foundation.publish();
+
+    expect(first.revision).toBe(0);
+    expect(repeated).toEqual(first);
+    expect(foundation.inspect().foundation?.revision).toBe(0);
+  });
+
   it('only lets a user accept a ready Shape and invalidates acceptance on edit', () => {
     const rootDir = root();
     writeFoundation(rootDir);

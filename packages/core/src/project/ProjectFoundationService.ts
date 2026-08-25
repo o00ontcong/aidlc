@@ -122,6 +122,12 @@ export class ProjectFoundationService {
     if (inspection.documents.some((document) => !document.exists)) {
       throw new FoundationNotReadyError('Create the missing shared project-context documents before publishing Foundation.');
     }
+    // Publishing a current Foundation must be idempotent. Without this guard,
+    // an accidental second click creates a new revision despite no change to
+    // the project context or source commit.
+    if (inspection.status === 'ready' && inspection.foundation) {
+      return inspection.foundation;
+    }
     const previous = this.load();
     const documents: FoundationDocument[] = inspection.documents.map((document) => ({
       id: document.id,

@@ -752,6 +752,8 @@ export interface ShapeSummary {
   convertedEpicId?: string;
   readinessBlockers: string[];
   updatedAt: string;
+  /** Revision-bound agent recommendation saved for review but not yet applied. */
+  proposalDraft?: Record<string, unknown>;
 }
 
 export interface WorkspaceState {

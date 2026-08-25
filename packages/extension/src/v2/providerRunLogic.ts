@@ -12,6 +12,89 @@ export function terminalNameForProvider(displayName: string): string {
   return `AIDLC · ${displayName}`;
 }
 
+export function buildShapeDiscussionPrompt(opts: {
+  shapeId: string;
+  title: string;
+  language: 'en' | 'vi';
+  proposal?: string;
+}): string {
+  const conversationLanguage = opts.language === 'vi' ? 'Vietnamese' : 'English';
+  const prompt = [
+    `You are discussing AIDLC Shape ${opts.shapeId}: ${opts.title}.`,
+    'This is discovery only. Do not edit source files, run write commands, create an Epic, or start a delivery workflow.',
+    `Read AGENTS.md, PROJECT.md, STATUS.md, DECISIONS.md, .aidlc/shapes/${opts.shapeId}/state.json, and relevant source code when useful.`,
+    `Speak with the human in ${conversationLanguage}. Use plain, non-technical language unless the human asks for technical detail.`,
+    'Guide the discussion one question at a time. Offer two or three concrete choices with simple tradeoffs, include a recommended choice, and let the human say they are unsure.',
+    'Challenge assumptions while keeping the human in control of scope and the final decision.',
+    'When the human is satisfied, return a short plain-language summary.',
+    'Never ask the human to copy or paste JSON. The extension handles structured plan updates itself.',
+    'Do not claim the plan is approved. Only the human can approve it in AIDLC.',
+  ];
+  if (opts.proposal) {
+    prompt.push(
+      'The extension has prepared the proposed plan below. Treat it as a draft: explain it, question weak assumptions, and help the human compare alternatives. Start with a short plain-language summary, then ask what part they want to discuss first.',
+      `Current proposed plan:\n${opts.proposal}`,
+      'Do not ask the human to restate this proposal. If the human wants changes, summarize the agreed changes in plain language so the extension can prepare a revised proposal later.',
+    );
+  }
+  return prompt.join('\n\n');
+}
+
+export function buildShapeProposalPrompt(opts: {
+  shapeId: string;
+  title: string;
+  language: 'en' | 'vi';
+  currentShape: string;
+}): string {
+  const outputLanguage = opts.language === 'vi' ? 'Vietnamese' : 'English';
+  return [
+    `Complete the decision plan for AIDLC idea ${opts.shapeId}: ${opts.title}.`,
+    'This is analysis only. Do not edit files, run write commands, create tasks, or start delivery.',
+    'Use the project context and read relevant source files only when they materially improve the recommendation.',
+    'Recommend a practical approach for the stated problem and outcome. Keep the scope proportional to the chosen effort.',
+    'Populate options, selectedApproach, rationale, risks, noGos, acceptanceCriteria, architectureImpact, and openQuestions.',
+    'Preserve the human-authored problem, desiredOutcome, appetite, and constraints. Do not invent business facts.',
+    'If an important choice cannot be inferred safely, put a concise question in openQuestions instead of guessing.',
+    `Write every human-readable string value in ${outputLanguage}, using plain language for a non-technical reader.`,
+    'Return ONLY one JSON object. Do not use Markdown fences, commentary, or a shape-update wrapper.',
+    'Allowed keys: title, problem, desiredOutcome, appetite, constraints, options, selectedApproach, rationale, risks, noGos, acceptanceCriteria, architectureImpact, openQuestions.',
+    'Each option must contain id, title, summary, and tradeoffs.',
+    '',
+    'Current idea:',
+    opts.currentShape,
+  ].join('\n');
+}
+
+export function buildHeadlessShapeProposalInvocation(opts: {
+  providerId: string;
+  cli: string;
+  model?: string;
+  prompt: string;
+}): { command: string; args: string[] } {
+  const modelArgs = opts.model ? ['--model', opts.model] : [];
+  switch (opts.providerId) {
+    case 'claude':
+      return {
+        command: opts.cli,
+        args: ['--print', '--permission-mode', 'plan', ...modelArgs, opts.prompt],
+      };
+    case 'cursor':
+      return {
+        command: opts.cli,
+        args: ['--print', '--output-format', 'text', '--mode', 'ask', ...modelArgs, opts.prompt],
+      };
+    case 'codex':
+      return {
+        command: opts.cli,
+        // `codex exec` is non-interactive and read-only here. Recent Codex CLIs
+        // do not accept the old `--ask-for-approval` flag on this subcommand.
+        args: ['exec', ...modelArgs, '--sandbox', 'read-only', opts.prompt],
+      };
+    default:
+      throw new Error(`Provider ${opts.providerId} does not have a verified read-only headless Discovery mode.`);
+  }
+}
+
 export function slashCommandName(slash: string): string {
   return slash.trim().split(/\s+/)[0]?.replace(/^\//, '') ?? '';
 }

@@ -80,6 +80,55 @@ function runClaude(
   });
 }
 
+function runHeadlessProvider(
+  command: string,
+  args: string[],
+  opts: { cwd: string; timeoutMs: number },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const extraPath = ['/opt/homebrew/bin', '/usr/local/bin', `${process.env.HOME ?? ''}/.local/bin`]
+      .filter(Boolean)
+      .join(':');
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${process.env.PATH ?? ''}:${extraPath}` };
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    delete env.ANTHROPIC_BASE_URL;
+    delete env.CLAUDE_CODE_ENTRYPOINT;
+    delete env.CLAUDE_CODE_SESSION_ID;
+    delete env.CLAUDE_CODE_EXECPATH;
+
+    const proc = spawn(command, args, { cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
+    let out = '';
+    let err = '';
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      finish(() => reject(new Error('The agent took too long to prepare the plan.')));
+    }, opts.timeoutMs);
+
+    proc.stdout.on('data', (data: Buffer) => {
+      out += data.toString('utf8');
+      if (out.length > 4 * 1024 * 1024) {
+        proc.kill('SIGKILL');
+        finish(() => reject(new Error('The agent response was unexpectedly large.')));
+      }
+    });
+    proc.stderr.on('data', (data: Buffer) => { err += data.toString('utf8'); });
+    proc.on('error', (error) => finish(() => reject(error)));
+    proc.on('close', (code) => finish(() => {
+      rlog(`[Discovery proposal] provider=${command} exit=${code}\n  stdout: ${out.trim().slice(0, 600)}\n  stderr: ${err.trim().slice(0, 600)}`);
+      if (code === 0 && out.trim()) resolve(out);
+      else reject(Object.assign(new Error(`${command} exited ${code}`), { stderr: err, stdout: out }));
+    }));
+  });
+}
+
 /**
  * Per-source "how to fetch" actions for the `claude` CLI. Claude uses whatever
  * MCP integrations the user has configured (Atlassian, GitHub, Google Drive,
@@ -228,8 +277,19 @@ import {
 
 const workspaceOutput = vscode.window.createOutputChannel('AIDLC Workspace');
 import { syncBuiltinPipelineCommands } from './presetWizards';
-import { buildProviderConfigUi, type ProviderConfigUi } from './providerConfig';
-import { openShapeDiscussion, runSlashCommandWithProvider } from './providerRunService';
+import { buildProviderConfigUi, getProviderConfigStore, type ProviderConfigUi } from './providerConfig';
+import {
+  buildHeadlessShapeProposalInvocation,
+  buildShapeProposalPrompt,
+  openShapeDiscussion,
+  runSlashCommandWithProvider,
+} from './providerRunService';
+import {
+  deleteShapeProposalDraft,
+  loadShapeProposalDraft,
+  parseShapeUpdateProposalText,
+  saveShapeProposalDraft,
+} from './shapeProposal';
 import type {
   PipelineStepConfig,
   AssetScope,
@@ -351,6 +411,7 @@ interface ShapeUi {
   convertedEpicId?: string;
   readinessBlockers: string[];
   updatedAt: string;
+  proposalDraft?: ShapePatch;
 }
 
 interface AgentSummary {
@@ -688,30 +749,35 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const projectWorkspace = readProjectWorkspace(root);
   const foundationInspection = new ProjectFoundationService(root).inspect();
   const shapeService = new ShapeService(root);
-  const shapes: ShapeUi[] = shapeService.list().map((shape) => ({
-    id: shape.id,
-    title: shape.title,
-    status: shape.status,
-    revision: shape.revision,
-    problem: shape.problem,
-    desiredOutcome: shape.desiredOutcome,
-    appetite: shape.appetite,
-    constraints: shape.constraints,
-    options: shape.options,
-    selectedApproach: shape.selectedApproach,
-    rationale: shape.rationale,
-    risks: shape.risks,
-    noGos: shape.noGos,
-    acceptanceCriteria: shape.acceptanceCriteria,
-    architectureImpact: shape.architectureImpact,
-    openQuestions: shape.openQuestions,
-    foundationRevision: shape.foundation.revision,
-    foundationHash: shape.foundation.contentHash,
-    acceptedAt: shape.acceptance?.acceptedAt,
-    convertedEpicId: shape.conversion?.state === 'completed' ? shape.conversion.epicId : undefined,
-    readinessBlockers: shapeService.readiness(shape).blockers,
-    updatedAt: shape.updatedAt,
-  }));
+  const shapes: ShapeUi[] = shapeService.list().map((shape) => {
+    const storedProposal = loadShapeProposalDraft(root, shape.id, shape.revision);
+    const proposalDraft = storedProposal ? readShapePatch(storedProposal) : undefined;
+    return {
+      id: shape.id,
+      title: shape.title,
+      status: shape.status,
+      revision: shape.revision,
+      problem: shape.problem,
+      desiredOutcome: shape.desiredOutcome,
+      appetite: shape.appetite,
+      constraints: shape.constraints,
+      options: shape.options,
+      selectedApproach: shape.selectedApproach,
+      rationale: shape.rationale,
+      risks: shape.risks,
+      noGos: shape.noGos,
+      acceptanceCriteria: shape.acceptanceCriteria,
+      architectureImpact: shape.architectureImpact,
+      openQuestions: shape.openQuestions,
+      foundationRevision: shape.foundation.revision,
+      foundationHash: shape.foundation.contentHash,
+      acceptedAt: shape.acceptance?.acceptedAt,
+      convertedEpicId: shape.conversion?.state === 'completed' ? shape.conversion.epicId : undefined,
+      readinessBlockers: shapeService.readiness(shape).blockers,
+      updatedAt: shape.updatedAt,
+      proposalDraft: proposalDraft && Object.keys(proposalDraft).length > 0 ? proposalDraft : undefined,
+    };
+  });
   const foundation: FoundationUi = {
     status: foundationInspection.status,
     revision: foundationInspection.foundation?.revision,
@@ -2109,6 +2175,11 @@ export class WorkspaceWebview {
         return;
       }
 
+      case 'openSettings': {
+        await vscode.commands.executeCommand('aidlc.openSettings');
+        return;
+      }
+
       case 'setView': {
         const v = msg.view;
         if (v === 'project' || v === 'discovery' || v === 'builder' || v === 'architecture' || v === 'epics' || v === 'sprint' || v === 'analyze' || v === 'tests') {
@@ -2183,7 +2254,106 @@ export class WorkspaceWebview {
             ? { kind: 'agent' as const, id: 'shape-discussion-agent' }
             : { kind: 'user' as const, id: 'vscode-user' };
           new ShapeService(root).patch(id, revision, readShapePatch(msg.patch), actor);
+          deleteShapeProposalDraft(root, id);
           this.refresh();
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'generateShapeProposal': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.shapeId === 'string' ? msg.shapeId : '';
+        const revision = Number(msg.revision);
+        if (!root || !id || !Number.isInteger(revision)) return;
+        const language = resolveDisplayLanguage();
+        void this.panel.webview.postMessage({ type: 'shapeProposalStarted', shapeId: id, revision });
+        try {
+          const shape = new ShapeService(root).require(id);
+          if (shape.revision !== revision) throw new Error('The idea changed. Please try again.');
+          const store = getProviderConfigStore(root);
+          const config = store.loadOrDefault();
+          const providerId = config.defaultProvider;
+          const prompt = buildShapeProposalPrompt({
+            shapeId: shape.id,
+            title: shape.title,
+            language,
+            currentShape: JSON.stringify({
+              title: shape.title,
+              problem: shape.problem,
+              desiredOutcome: shape.desiredOutcome,
+              appetite: shape.appetite,
+              constraints: shape.constraints,
+              options: shape.options,
+              selectedApproach: shape.selectedApproach,
+              rationale: shape.rationale,
+              risks: shape.risks,
+              noGos: shape.noGos,
+              acceptanceCriteria: shape.acceptanceCriteria,
+              architectureImpact: shape.architectureImpact,
+              openQuestions: shape.openQuestions,
+            }, null, 2),
+          });
+          const invocation = buildHeadlessShapeProposalInvocation({
+            providerId,
+            cli: store.cliFor(providerId, config),
+            model: store.modelFor(providerId, undefined, config),
+            prompt,
+          });
+          const stdout = await runHeadlessProvider(invocation.command, invocation.args, {
+            cwd: root,
+            timeoutMs: 120_000,
+          });
+          const raw = parseShapeUpdateProposalText(stdout);
+          const patch = readShapePatch(raw);
+          if (Object.keys(patch).length === 0) {
+            throw new Error('The response does not contain any supported plan fields.');
+          }
+          saveShapeProposalDraft({ root, shapeId: id, shapeRevision: revision, proposal: patch });
+          void this.panel.webview.postMessage({ type: 'shapeProposalReady', shapeId: id, revision, proposal: patch });
+        } catch (error) {
+          void this.panel.webview.postMessage({
+            type: 'shapeProposalError',
+            shapeId: id,
+            revision,
+            message: describeExecError(error),
+          });
+        }
+        return;
+      }
+
+      case 'applyGeneratedShapeProposal': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.shapeId === 'string' ? msg.shapeId : '';
+        const revision = Number(msg.revision);
+        const raw = msg.proposal;
+        if (!root || !id || !Number.isInteger(revision) || !raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+        try {
+          const patch = readShapePatch(raw as Record<string, unknown>);
+          if (Object.keys(patch).length === 0) throw new Error('The proposal is empty.');
+          new ShapeService(root).patch(id, revision, patch, { kind: 'agent', id: 'shape-proposal-agent' });
+          deleteShapeProposalDraft(root, id);
+          this.refresh();
+          void this.panel.webview.postMessage({ type: 'shapeProposalApplied', shapeId: id });
+        } catch (error) {
+          void this.panel.webview.postMessage({
+            type: 'shapeProposalError',
+            shapeId: id,
+            revision,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return;
+      }
+
+      case 'discardGeneratedShapeProposal': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.shapeId === 'string' ? msg.shapeId : '';
+        if (!root || !id) return;
+        try {
+          new ShapeService(root).require(id);
+          deleteShapeProposalDraft(root, id);
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -2220,6 +2390,30 @@ export class WorkspaceWebview {
           const shape = new ShapeService(root).require(id);
           if (shape.status === 'converted') throw new Error('This Shape has already become an Epic. Continue the delivery task instead.');
           openShapeDiscussion({ root, shapeId: shape.id, title: shape.title });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'openShapeProposalDiscussion': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.shapeId === 'string' ? msg.shapeId : '';
+        const revision = Number(msg.revision);
+        const raw = msg.proposal;
+        if (!root || !id || !Number.isInteger(revision) || !raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+        try {
+          const shape = new ShapeService(root).require(id);
+          if (shape.status === 'converted') throw new Error('This Shape has already become an Epic. Continue the delivery task instead.');
+          if (shape.revision !== revision) throw new Error('The idea changed. Prepare a new proposal before discussing it.');
+          const proposal = readShapePatch(raw as Record<string, unknown>);
+          if (Object.keys(proposal).length === 0) throw new Error('The proposal is empty.');
+          openShapeDiscussion({
+            root,
+            shapeId: shape.id,
+            title: shape.title,
+            proposal: JSON.stringify(proposal, null, 2),
+          });
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Discovery: ${error instanceof Error ? error.message : String(error)}`);
         }

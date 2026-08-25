@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Plus, ExternalLink } from 'lucide-react';
+import { FolderOpen, Plus, ExternalLink, Globe2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SprintState, WorkspaceState, WorkspaceView } from '@/lib/types';
 import { BuilderView } from './BuilderView';
@@ -13,6 +13,7 @@ import { ProjectOverview } from './ProjectOverview';
 import { SprintView } from './SprintView';
 import { DiscoveryView } from './DiscoveryView';
 import { onHostMessage, postMessage } from '@/lib/bridge';
+import { discoveryCopy, type DiscoveryLanguage } from '@/lib/discoveryI18n';
 
 const VIEWS: WorkspaceView[] = [
   'project', 'discovery', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
@@ -90,7 +91,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   if (!state.hasFolder) {
     return (
       <div className="flex h-full flex-col">
-        <TopBar view={view} onView={onView} workspaceName={state.workspaceName} />
+        <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} />
         {view === 'sprint' ? (
           // Jira needs credentials, not a workspace folder — so the Sprint tab
           // stays usable here. Starting a task from a ticket then surfaces the
@@ -149,7 +150,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar view={view} onView={onView} workspaceName={state.workspaceName} />
+      <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} />
       {view === 'project' ? (
         <main className="flex-1 overflow-y-auto p-6">
           <ProjectOverview
@@ -241,43 +242,57 @@ function TopBar({
   view,
   onView,
   workspaceName,
+  language,
 }: {
   view: WorkspaceView;
   onView: (v: WorkspaceView) => void;
   workspaceName: string;
+  language: DiscoveryLanguage;
 }) {
+  const nav = language === 'vi'
+    ? { project: 'Dự án', epics: 'Công việc', sprint: 'Sprint', builder: 'Thiết lập', architecture: 'Kiến trúc', analyze: 'Phân tích', tests: 'Kiểm thử', projectTag: 'DỰ ÁN' }
+    : { project: 'Project', epics: 'Tasks', sprint: 'Sprint', builder: 'Builder', architecture: 'Architecture', analyze: 'Analyze', tests: 'Tests', projectTag: 'PROJECT' };
+  const discovery = discoveryCopy(language);
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/80 px-6 py-2.5 backdrop-blur-sm">
       <PillButton active={view === 'project'} onClick={() => onView('project')}>
-        Project
+        {nav.project}
       </PillButton>
       <PillButton active={view === 'discovery'} onClick={() => onView('discovery')}>
-        Discovery
+        {discovery.tab}
       </PillButton>
       <PillButton active={view === 'epics'} onClick={() => onView('epics')}>
-        Tasks
+        {nav.epics}
       </PillButton>
       <PillButton active={view === 'sprint'} onClick={() => onView('sprint')}>
-        Sprint
+        {nav.sprint}
       </PillButton>
       <PillButton active={view === 'builder'} onClick={() => onView('builder')}>
-        Builder
+        {nav.builder}
       </PillButton>
       <PillButton active={view === 'architecture'} onClick={() => onView('architecture')}>
-        Architecture
+        {nav.architecture}
       </PillButton>
       <PillButton active={view === 'analyze'} onClick={() => onView('analyze')}>
-        Analyze
+        {nav.analyze}
       </PillButton>
       <PillButton active={view === 'tests'} onClick={() => onView('tests')}>
-        Tests
+        {nav.tests}
       </PillButton>
       <div className="ml-auto flex items-center gap-2">
         {workspaceName && (
           <span className="rounded-md bg-secondary px-2.5 py-1 font-mono text-[10px] font-medium text-muted-foreground">
-            PROJECT {workspaceName}
+            {nav.projectTag} {workspaceName}
           </span>
         )}
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'openSettings' })}
+          title={discovery.languageSettings}
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-secondary/50 px-2 text-[10px] font-bold text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <Globe2 className="h-3 w-3" /> {language.toUpperCase()}
+        </button>
         <ThemeToggle />
       </div>
     </div>
