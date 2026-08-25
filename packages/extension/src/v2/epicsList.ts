@@ -584,6 +584,18 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     try {
       runState = RunStateStore.load(workspaceRoot, epicId);
     } catch { /* invalid runId — treat as no run */ }
+    // A user (or an externally-run agent) can explicitly advance the legacy
+    // epic mirror as a recovery action when an older extension could not
+    // persist the run state.  Do not leave the UI pinned to that stale run:
+    // when the mirror is demonstrably newer, promote its contiguous completed
+    // prefix into the authoritative run before rendering the card.
+    if (runState) {
+      const reconciled = reconcileNewerEpicMirror(workspaceRoot, epicId, doc, runState);
+      if (reconciled.changed) {
+        RunStateStore.save(workspaceRoot, reconciled.runState);
+        runState = reconciled.runState;
+      }
+    }
     // Overlay run-state keyed by step *index*, not agent id. A single agent
     // (persona) can own several steps in a pipeline — e.g. the `qa` persona
     // in `sdlc-parallel-full` owns test-plan, generate-test-cases, and
@@ -1002,6 +1014,11 @@ export function migrateEpicStateFiles(workspaceRoot: string): MigrationReport {
       }
       const pipelines = (doc?.pipelines as PipelineConfig[] | undefined) ?? [];
       let changed = didBackfill;
+      const reconciled = reconcileNewerEpicMirror(workspaceRoot, epicId, doc, runState);
+      if (reconciled.changed) {
+        runState = reconciled.runState;
+        changed = true;
+      }
       const pipelineCfg = pipelines.find(
         (pipeline) => pipeline.id === runState!.pipelineId,
       );
@@ -1032,6 +1049,98 @@ export function migrateEpicStateFiles(workspaceRoot: string): MigrationReport {
   }
 
   return report;
+}
+
+/**
+ * Reconcile an explicitly newer epic `state.json` into its run state.
+ *
+ * Run files normally win, but older extension versions could leave the run
+ * unchanged when a user used the documented manual recovery route and updated
+ * `state.json` directly.  In that narrow, auditable case the newer mirror is
+ * evidence of a manual approval.  We only promote a contiguous prefix to
+ * `approved`; we never regress a run, revive rejected work, or infer progress
+ * from a merely in-progress mirror.
+ */
+function reconcileNewerEpicMirror(
+  workspaceRoot: string,
+  epicId: string,
+  doc: YamlDocument | null,
+  runState: RunState,
+): { runState: RunState; changed: boolean } {
+  const stateFile = path.join(epicsRoot(workspaceRoot, doc), epicId, 'state.json');
+  let mirror: Record<string, unknown>;
+  try {
+    mirror = JSON.parse(fs.readFileSync(stateFile, 'utf8')) ?? {};
+    if (typeof mirror !== 'object' || mirror === null) { return { runState, changed: false }; }
+  } catch {
+    return { runState, changed: false };
+  }
+
+  const mirrorUpdatedAt = typeof mirror.updatedAt === 'string' ? mirror.updatedAt : '';
+  const mirrorTime = Date.parse(mirrorUpdatedAt);
+  const runTime = Date.parse(runState.updatedAt);
+  if (!Number.isFinite(mirrorTime) || !Number.isFinite(runTime) || mirrorTime <= runTime) {
+    return { runState, changed: false };
+  }
+
+  const reconstructed = backfillRunStateFromEpic(workspaceRoot, epicId, doc);
+  if (!reconstructed.ok || reconstructed.runState.pipelineId !== runState.pipelineId) {
+    return { runState, changed: false };
+  }
+
+  const legacySteps = reconstructed.runState.steps;
+  const firstIncomplete = legacySteps.findIndex((step) => step.status !== 'approved');
+  const completedPrefixEnd = firstIncomplete < 0 ? legacySteps.length : firstIncomplete;
+  if (completedPrefixEnd === 0) { return { runState, changed: false }; }
+
+  let changed = false;
+  const steps = runState.steps.map((step, index) => {
+    const legacy = legacySteps[index];
+    if (index >= completedPrefixEnd || !legacy || step.status === 'approved') {
+      return { ...step };
+    }
+    changed = true;
+    return {
+      ...step,
+      status: 'approved' as const,
+      finishedAt: legacy.finishedAt ?? mirrorUpdatedAt,
+      artifactsProduced: legacy.artifactsProduced.length > 0
+        ? legacy.artifactsProduced
+        : step.artifactsProduced,
+      rejectReason: undefined,
+      autoReviewVerdict: undefined,
+      lastFailureId: undefined,
+      reviewDisposition: 'human-approved' as const,
+      history: [
+        ...(step.history ?? []),
+        { kind: 'approve' as const, at: legacy.finishedAt ?? mirrorUpdatedAt, revision: step.revision },
+      ],
+    };
+  });
+  if (!changed) { return { runState, changed: false }; }
+
+  const nextIdx = steps.findIndex((step) => step.status !== 'approved');
+  if (nextIdx < 0) {
+    return {
+      runState: { ...runState, steps, currentStepIdx: Math.max(0, steps.length - 1), status: 'completed', updatedAt: mirrorUpdatedAt },
+      changed: true,
+    };
+  }
+
+  // The next sequential phase must be actionable.  A legacy mirror records
+  // it as pending, while the run machine represents it as awaiting_work.
+  if (steps[nextIdx].status === 'pending') {
+    steps[nextIdx] = {
+      ...steps[nextIdx],
+      status: 'awaiting_work',
+      startedAt: steps[nextIdx].startedAt ?? mirrorUpdatedAt,
+    };
+  }
+
+  return {
+    runState: { ...runState, steps, currentStepIdx: nextIdx, status: 'running', updatedAt: mirrorUpdatedAt },
+    changed: true,
+  };
 }
 
 /**

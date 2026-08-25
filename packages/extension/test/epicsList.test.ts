@@ -121,6 +121,31 @@ describe('listEpics run-state overlay with a multi-step agent', () => {
     expect(setEpicRunMode(root, doc, epicId, 'guided')).toBe(true);
     expect(listEpics(root, doc).find((epic) => epic.id === epicId)?.runMode).toBe('guided');
   });
+
+  it('reconciles a newer manually-completed epic mirror into the live run', () => {
+    const statePath = path.join(root, 'docs', 'epics', epicId, 'state.json');
+    const mirror = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    mirror.currentStep = 3;
+    mirror.updatedAt = '2026-01-02T00:00:00Z';
+    mirror.stepStates[2] = {
+      ...mirror.stepStates[2],
+      status: 'done',
+      finishedAt: '2026-01-02T00:00:00Z',
+    };
+    fs.writeFileSync(statePath, JSON.stringify(mirror));
+
+    const epic = listEpics(root, doc).find((entry) => entry.id === epicId);
+    const run = JSON.parse(fs.readFileSync(
+      path.join(root, '.aidlc', 'runs', `${epicId}.json`),
+      'utf8',
+    ));
+
+    expect(run.steps[2].status).toBe('approved');
+    expect(run.steps[3].status).toBe('awaiting_work');
+    expect(run.currentStepIdx).toBe(3);
+    expect(epic?.currentStep).toBe(3);
+    expect(epic?.stepDetails[3].isCurrentRunStep).toBe(true);
+  });
 });
 
 /**

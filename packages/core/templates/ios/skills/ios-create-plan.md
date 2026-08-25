@@ -20,7 +20,7 @@ argument-hint: "<EPIC-KEY>"
 
 - `## Tasks` — bảng: ID (`T-n`) | Việc | Tầng | File | AC phục vụ | Phụ thuộc
 - `## Execution Order` — thứ tự chạy, không có cycle
-- `## Test Plan` — mỗi AC ánh xạ tới ít nhất một test trong test target của package
+- `## Verification Plan` — mỗi AC ánh xạ tới build, repro hoặc review evidence phù hợp
 - `## Risks` — chỗ dễ vỡ, hoặc `Không có.`
 
 ## Quy tắc chia task

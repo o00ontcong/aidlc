@@ -396,12 +396,12 @@ const IOS_FOUNDATION_PHASES: PhaseDef[] = [
   {
     id: 'scan-project', name: 'Scan Project', persona: 'ios-project-architect',
     skillFiles: ['ios-scan-project'], model: 'claude-opus-5',
-    description: 'Inventory the repository — layout, modules, build and test commands.',
+    description: 'Inventory the repository — layout, modules, and build commands.',
     inputs: 'The repository itself',
-    outputs: 'PROJECT-SCAN.md — layout, modules, how to build and test',
+    outputs: 'PROJECT-SCAN.md — layout, modules, and how to build',
     artifact: 'PROJECT-SCAN.md',
     produces: ['docs/project/context/PROJECT-SCAN.md'],
-    producesContains: ['## Repository Layout', '## Modules', '## Build and Test Commands'],
+    producesContains: ['## Repository Layout', '## Modules', '## Build Commands'],
     humanReview: false, autoReview: false,
     capabilities: ['files'],
   },
@@ -477,15 +477,16 @@ const IOS_FOUNDATION_PHASES: PhaseDef[] = [
  * iOS workflow — child pipeline (`aidlc-ios-feature`), run once per epic.
  *
  * requirement → create-plan → ui-spec → implement, with an optional
- * `fix-bug` branch. `implement` is gated on a real `swift build` /
- * `swift test` via `.aidlc/validators/swift-build.mjs`, so an agent cannot
- * self-report a green build.
+ * `fix-bug` branch. `implement` validates a real project build, then pauses
+ * for human review. iOS test execution is deliberately outside this pipeline
+ * because projects vary between SwiftPM, Xcode, device-only, and
+ * simulator-restricted verification environments.
  */
 const IOS_FEATURE_PHASES: PhaseDef[] = [
   {
     id: 'requirement', name: 'Requirement', persona: 'ios-po',
     skillFiles: ['ios-requirement'], model: 'claude-sonnet-5',
-    description: 'Turn the epic brief into a testable REQUIREMENT.',
+    description: 'Turn the epic brief into a verifiable REQUIREMENT.',
     inputs: 'Epic brief, published project context',
     outputs: 'REQUIREMENT.md with numbered acceptance criteria',
     artifact: 'REQUIREMENT.md',
@@ -506,7 +507,7 @@ const IOS_FEATURE_PHASES: PhaseDef[] = [
     skillFiles: ['ios-create-plan'], model: 'claude-sonnet-5',
     description: 'Break the requirement into layered tasks in execution order.',
     inputs: 'REQUIREMENT, architecture map, business rules',
-    outputs: 'TASK-PLAN.md — tasks per layer, execution order, test mapping',
+    outputs: 'TASK-PLAN.md — tasks per layer, execution order, verification mapping',
     artifact: 'TASK-PLAN.md',
     producesContains: ['## Tasks'],
     humanReview: true, autoReview: false,
@@ -527,11 +528,11 @@ const IOS_FEATURE_PHASES: PhaseDef[] = [
   {
     id: 'implement', name: 'Implement', persona: 'ios-developer',
     skillFiles: ['ios-implement'], model: 'claude-sonnet-5',
-    description: 'Implement the tasks and prove it with a real build + test run.',
+    description: 'Implement the tasks and prove it with a real project build.',
     inputs: 'TASK-PLAN, UI-SPEC, conventions, business rules',
-    outputs: 'Swift code + tests, IMPLEMENT-SUMMARY.md with pasted build evidence',
+    outputs: 'Swift code, IMPLEMENT-SUMMARY.md with pasted build evidence',
     artifact: 'IMPLEMENT-SUMMARY.md',
-    producesContains: ['## Build Evidence', 'Build complete!'],
+    producesContains: ['## Build Evidence'],
     humanReview: true, autoReview: true,
     autoReviewRunner: '.aidlc/validators/swift-build.mjs',
     capabilities: ['files', 'github'],
@@ -541,7 +542,7 @@ const IOS_FEATURE_PHASES: PhaseDef[] = [
     id: 'fix-bug', name: 'Fix Bug', persona: 'ios-tech-lead',
     skillFiles: ['ios-fix-bug'], model: 'claude-sonnet-5',
     description: 'Diagnose a defect and plan the fix — root cause before code.',
-    inputs: 'Bug report, business rules, failing test or repro',
+    inputs: 'Bug report, business rules, reproduction details',
     outputs: 'Root-cause analysis + fix plan (no artifact gate)',
     artifact: '',
     produces: [],
@@ -610,7 +611,7 @@ export const BUILTIN_WORKFLOWS: BuiltinWorkflow[] = [
     name: 'AIDLC iOS Workflow',
     templatesDir: 'ios',
     description:
-      'Two-tier iOS/Swift workflow. Parent `aidlc-ios-foundation` builds the project-understanding base once (scan → structure → architecture map → business rules → published context); child `aidlc-ios-feature` runs per epic (requirement → plan → ui-spec → implement), gated on a real `swift build` + `swift test`.',
+      'Two-tier iOS/Swift workflow. Parent `aidlc-ios-foundation` builds the project-understanding base once (scan → structure → architecture map → business rules → published context); child `aidlc-ios-feature` runs per epic (requirement → plan → ui-spec → implement), gated on evidence from the project build command and human review.',
     // `phases` is the command-install union of both pipelines; `primaryPhases`
     // is what the parent pipeline actually installs.
     phases: [...IOS_FOUNDATION_PHASES, ...IOS_FEATURE_PHASES],

@@ -12,6 +12,6 @@ tools: [files]
   (store / service theo `ARCHITECTURE-MAP.md`), **không** thuộc View
 - Mỗi AC phải có ít nhất một task phục vụ
 - Bug: debug **từ triệu chứng ra tầng lỗi**, không đối chiếu spec ở sai tầng. Ghi `BUG-LEDGER.md`
-  append-only, mặc định `claimed`, chỉ `verified` khi có build + test chứng minh.
+  append-only, mặc định `claimed`, chỉ `verified` khi có build hoặc repro evidence phù hợp.
 
 Không implement code Swift.

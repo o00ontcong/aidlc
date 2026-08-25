@@ -37,8 +37,8 @@ grep -rho "^import .*" <pkg> --include='*.swift' | sort -u           # phụ thu
 
 - `## Repository Layout` — cây thư mục cấp 1–2, mỗi mục một dòng vai trò. Ghi rõ `<pkg>` là thư mục nào.
 - `## Modules` — bảng: Module | Vai trò | Layer | Phụ thuộc | Đường dẫn
-- `## Build and Test Commands` — lệnh **copy-paste chạy được** (`swift build`, `swift test`, hoặc
-  `xcodebuild …`), kèm nguồn và thư mục chạy. Chưa chạy thử thì đánh dấu `(chưa verify)`
+- `## Build Commands` — lệnh build **copy-paste chạy được** (`swift build` hoặc `xcodebuild …`), kèm
+  nguồn và thư mục chạy. Chưa chạy thử thì đánh dấu `(chưa verify)`
 - `## Entry Points` — app entry, scene, hoặc kiểu public là cửa vào của library
 - `## Unknowns` — mỗi dòng một câu hỏi cụ thể cho human
 

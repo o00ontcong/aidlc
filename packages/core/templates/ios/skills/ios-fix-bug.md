@@ -38,8 +38,7 @@ Files touched | Verdict | **Status** | Verify evidence
 ## Verify gate
 
 - Status mặc định là **`claimed`** — đã sửa nhưng chưa chứng minh.
-- Lên **`verified`** chỉ khi có evidence: `swift build` + `swift test` xanh **và** một test mới tái
-  hiện được bug cũ.
+- Lên **`verified`** chỉ khi có evidence: build thành công và repro/manual review xác nhận bug cũ đã hết.
 - **Evidence trống → tối đa `claimed`.** Đừng ghi `verified` để cho xong.
 - Bug `claimed` còn treo là việc dở — lần sau đọc ledger phải nhặt lại.
 

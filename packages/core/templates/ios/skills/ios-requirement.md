@@ -33,7 +33,7 @@ Bảng §4 với 4 cột: Screen | Change | Screen file | View/Type trong source
 - `## 3. Scope` — In scope / Out of scope
 - `## 4. Screens` — bảng 4 cột, hoặc `N/A — no UI change`
 - `## 5. Screen Flow` — mermaid `flowchart TD`, node khớp cột Screen
-- `## 6. Acceptance Criteria` — **testable**, mỗi AC một dòng `AC-n`
+- `## 6. Acceptance Criteria` — **có thể kiểm chứng**, mỗi AC một dòng `AC-n`
 - `## 7. Business Rule Impact` — luật `BR-n` nào bị chạm; luật mới đề xuất
 - `## 8. Open Questions` — blocking khi thiếu nguồn design / mapping
 
@@ -43,5 +43,5 @@ Set `**Status:** Ready` chỉ khi §8 không còn dòng blocking.
 
 - Không implement code, không sửa source
 - Đọc `screens/` trước khi viết bảng — không bỏ qua file human đã import
-- AC phải kiểm chứng được bằng một unit test hoặc một thao tác cụ thể; "UI đẹp hơn" không phải AC
+- AC phải kiểm chứng được bằng một thao tác hoặc evidence cụ thể; "UI đẹp hơn" không phải AC
 - Mâu thuẫn với `BR-n` đang `confirmed` → Open Question blocking, không tự ghi đè luật

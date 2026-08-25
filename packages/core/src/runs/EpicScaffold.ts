@@ -97,22 +97,42 @@ export function mirrorRunStateToEpic(
         ? 'failed'
         : 'in_progress';
 
-  const stepStates = runState.steps.map((s) => ({
-    agent: s.agent,
-    status: mapStepStatusToEpic(s.status),
-    isNew: s.isNew,
-    revision: s.revision,
-    runStatus: s.status,
-    startedAt: s.startedAt ?? null,
-    finishedAt: s.finishedAt ?? null,
-    rejectReason: s.rejectReason,
-    feedback: s.feedback,
-    autoReviewVerdict: s.autoReviewVerdict,
-    history: s.history ?? [],
-    reviewDisposition: s.reviewDisposition,
-    reviewBundleRevision: s.reviewBundleRevision,
-    artifactsProduced: s.artifactsProduced,
-  }));
+  const priorStepStates = Array.isArray(parsed.stepStates)
+    ? parsed.stepStates as Array<Record<string, unknown>>
+    : [];
+  const mergeHistory = (persisted: unknown[], live: unknown[]) => {
+    const seen = new Set<string>();
+    return [...persisted, ...live].filter((entry) => {
+      const key = JSON.stringify(entry);
+      if (seen.has(key)) { return false; }
+      seen.add(key);
+      return true;
+    });
+  };
+  const stepStates = runState.steps.map((s, index) => {
+    // Legacy/provider-managed epic history can predate the run-state machine.
+    // Merge it with live transition history so a later mirror never deletes an
+    // audit trail that exists only in state.json.
+    const persistedHistory = Array.isArray(priorStepStates[index]?.history)
+      ? priorStepStates[index].history
+      : [];
+    return {
+      agent: s.agent,
+      status: mapStepStatusToEpic(s.status),
+      isNew: s.isNew,
+      revision: s.revision,
+      runStatus: s.status,
+      startedAt: s.startedAt ?? null,
+      finishedAt: s.finishedAt ?? null,
+      rejectReason: s.rejectReason,
+      feedback: s.feedback,
+      autoReviewVerdict: s.autoReviewVerdict,
+      history: mergeHistory(persistedHistory, s.history ?? []),
+      reviewDisposition: s.reviewDisposition,
+      reviewBundleRevision: s.reviewBundleRevision,
+      artifactsProduced: s.artifactsProduced,
+    };
+  });
 
   const next = {
     ...parsed,

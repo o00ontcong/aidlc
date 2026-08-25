@@ -22,7 +22,7 @@ Mỗi luật trả lời: **Khi nào áp dụng · Ràng buộc · Ngoại lệ 
 
 1. `docs/project/context/ARCHITECTURE-MAP.md` — bắt buộc
 2. Type sở hữu state (store / service / repository) — nơi luật sống
-3. Test target của package — **test đã pass là luật đã được chứng minh**
+3. Code ở tầng sở hữu state và history/version control, nếu có — chỉ dùng làm evidence cho luật đã tồn tại
 4. `docs/project/domain/BUSINESS-RULES.md` — bản trước. Luật `Status: confirmed` giữ nguyên câu chữ.
 
 ## Luật hay ẩn ở đâu
@@ -31,7 +31,7 @@ Mỗi luật trả lời: **Khi nào áp dụng · Ràng buộc · Ngoại lệ 
 - Thứ tự trong computed property lọc/sắp xếp danh sách → luật hiển thị
 - Hằng số ngưỡng (`maxTitleLength = 120`) → **luôn hỏi "con số này từ đâu ra"**; không có nguồn thì
   đó là câu hỏi mở, không phải luật
-- Tên test → mô tả luật bằng ngôn ngữ người
+- Tên API và luồng xử lý có thể gợi ý nơi kiểm tra, nhưng không tự chứng minh ý định nghiệp vụ
 
 ## Output
 
@@ -39,7 +39,7 @@ Mỗi luật trả lời: **Khi nào áp dụng · Ràng buộc · Ngoại lệ 
 
 - `## Rule Index` — bảng: ID (`BR-n`) | Luật (một câu, ngôn ngữ nghiệp vụ) | Status | Evidence
 - Mỗi luật một mục: Khi nào · Ràng buộc · Ngoại lệ · Hệ quả · `**Evidence:** path:line`
-- `Status: inferred` mặc định. Lên `confirmed` chỉ khi có **test chứng minh** hoặc người xác nhận.
+- `Status: inferred` mặc định. Lên `confirmed` chỉ khi có evidence code rõ ràng hoặc người xác nhận.
 - ID tăng dần liên tục, không reset, không tái sử dụng.
 
 ### `docs/project/domain/RULE-OPEN-QUESTIONS.md`

@@ -70,6 +70,23 @@ describe('aidlc-ios built-in workflow', () => {
     ]);
   });
 
+  it('requires a build-only auto-review for implementation', () => {
+    const config = iosWorkspace();
+    const feature = config.pipelines.find((pipeline) => pipeline.id === 'aidlc-ios-feature')!;
+    const implement = feature.steps.find((step) => step.name === 'implement')!;
+
+    expect(implement.auto_review).toBe(true);
+    expect(implement.auto_review_runner).toBe('.aidlc/validators/swift-build.mjs');
+    expect(implement.produces_contains).toEqual(['## Build Evidence']);
+
+    const validator = fs.readFileSync(
+      path.join(builtinTemplatesRoot(), 'templates', 'ios', 'validators', 'swift-build.mjs'),
+      'utf8',
+    );
+    expect(validator).toContain("['build']");
+    expect(validator).not.toContain("['test']");
+  });
+
   it('leaves no unsatisfiable gate when a recipe drops steps', () => {
     // `assemblePipeline` re-links `depends_on` for the reduced step set but
     // copies `requires` verbatim. So a phase that requires an artifact its own
