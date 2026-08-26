@@ -8,8 +8,6 @@ import {
   workflowCommandPhases,
 } from '@aidlc/core';
 
-import { markdownOutputLanguageInstruction, type AidlcLanguage } from './outputLanguage';
-
 export function terminalNameForProvider(displayName: string): string {
   return `AIDLC · ${displayName}`;
 }
@@ -52,11 +50,9 @@ export function buildShapeProposalPrompt(opts: {
   return [
     `Complete the decision plan for AIDLC idea ${opts.shapeId}: ${opts.title}.`,
     'This is analysis only. Do not edit files, run write commands, create tasks, or start delivery.',
-    'Research relevant codebase patterns before recommending changes. Inspect project context plus the closest examples for naming, error handling, architecture boundaries, and tests; state uncertainty as an open question rather than inventing a pattern.',
+    'Use the project context and read relevant source files only when they materially improve the recommendation.',
     'Recommend a practical approach for the stated problem and outcome. Keep the scope proportional to the chosen effort.',
     'Populate options, selectedApproach, rationale, risks, noGos, acceptanceCriteria, architectureImpact, and openQuestions.',
-    'Make acceptanceCriteria a test-first delivery contract: each criterion must describe observable behavior and the validation evidence that will prove it. Do not claim tests have run during this planning-only step.',
-    'Plan the handoff as: test-first, minimal implementation, fresh-context review, verification with actual evidence, then record evidence and reusable learnings. This plan defines those expectations; it does not perform them.',
     'Preserve the human-authored problem, desiredOutcome, appetite, and constraints. Do not invent business facts.',
     'If an important choice cannot be inferred safely, put a concise question in openQuestions instead of guessing.',
     `Write every human-readable string value in ${outputLanguage}, using plain language for a non-technical reader.`,
@@ -275,106 +271,4 @@ export function buildTaskPrompt(
   return feedback
     ? `${slashOnly} ${runId} — Update artifact per feedback: "${feedback.replace(/"/g, '\\"')}"`
     : `${slashOnly} ${runId}`;
-}
-
-/**
- * A provider-neutral prompt intended for an agent chat input, rather than a
- * shell or a provider-specific slash-command REPL. It deliberately includes
- * the run's durable context so a human can paste it into any agent surface
- * without having to reconstruct the task by hand.
- *
- * This function is read-only. In particular, it does not install or refresh
- * command files: copying a prompt must never modify the workspace.
- */
-export function buildStepChatPrompt(opts: {
-  root: string;
-  runId: string;
-  stepName: string;
-  agent: string;
-  epicDir: string;
-  requires: readonly string[];
-  produces: readonly string[];
-  feedback?: string;
-  slashCommand?: string;
-  providerId: string;
-  language: AidlcLanguage;
-  /** False for an epic whose pipeline run has not been started yet. */
-  hasRunState?: boolean;
-}): string {
-  const displayPath = (target: string): string => {
-    const relative = path.relative(opts.root, target).split(path.sep).join('/');
-    return relative && relative !== '..' && !relative.startsWith('../') ? relative : target;
-  };
-  const taskDir = displayPath(opts.epicDir);
-  const feedback = opts.feedback?.trim();
-  const commandName = opts.slashCommand ? slashCommandName(opts.slashCommand) : '';
-  // Command adapters render different frontmatter but share the same Markdown
-  // body. Prefer the selected provider, then reuse any installed provider's
-  // body so copying remains useful when a user switches chat clients before
-  // command files have been synced for the new provider.
-  const instructionProviderId = commandName
-    ? [opts.providerId, 'claude', 'cursor', 'codex', 'opencode']
-      .filter((id, index, ids) => ids.indexOf(id) === index)
-      .find((id) => fs.existsSync(getCommandProviderAdapter(id).commandFilePath(opts.root, commandName)))
-    : undefined;
-
-  const lines = [
-    `You are responsible for AIDLC task \`${opts.runId}\`, step \`${opts.stepName}\` (agent \`${opts.agent}\`).`,
-    'Work only in the workspace already open or attached to this chat.',
-    '',
-    '## First, inspect the durable AIDLC context',
-    '',
-    `- \`${taskDir}/state.json\``,
-    `- \`${taskDir}/inputs.json\``,
-    '- \`.aidlc/workspace.yaml\` and the relevant project instructions',
-  ];
-  if (opts.hasRunState !== false) {
-    lines.splice(5, 0, `- \`.aidlc/runs/${opts.runId}.json\``);
-  } else {
-    lines.push('- This task has no live AIDLC run state yet; do not assume previous steps were approved.');
-  }
-
-  if (opts.requires.length > 0) {
-    lines.push('', '## Required inputs', '', ...opts.requires.map((item) => `- \`${item}\``));
-  }
-  if (opts.produces.length > 0) {
-    lines.push('', '## Required outputs', '', ...opts.produces.map((item) => `- \`${item}\``));
-  }
-  if (feedback) {
-    lines.push('', '## Feedback to address', '', feedback);
-  }
-
-  if (instructionProviderId && opts.slashCommand) {
-    // Command files contain the maintained skill and task instructions. Strip
-    // provider frontmatter and substitute the run id, but keep feedback above
-    // so it appears exactly once in a provider-neutral form.
-    lines.push(
-      '',
-      '## AIDLC step instructions',
-      '',
-      buildProviderCommandPrompt(opts.root, opts.slashCommand, opts.runId, '', instructionProviderId).trim(),
-    );
-  } else if (opts.slashCommand) {
-    lines.push(
-      '',
-      '## Step instructions',
-      '',
-      `The native AIDLC command is \`${opts.slashCommand}\`. Its installed command file is unavailable, so resolve the configured skills and constraints from \`.aidlc/workspace.yaml\` before making changes.`,
-    );
-  } else {
-    lines.push(
-      '',
-      '## Step instructions',
-      '',
-      `Resolve and follow the configured step \`${opts.stepName}\` for agent \`${opts.agent}\` from \`.aidlc/workspace.yaml\` before making changes.`,
-    );
-  }
-
-  lines.push(
-    '',
-    'When finished, summarize the work and outputs. Do not change AIDLC run state yourself; I will mark the step done in AIDLC after review.',
-    '',
-    markdownOutputLanguageInstruction(opts.language),
-  );
-  return lines.join('\n');
 }

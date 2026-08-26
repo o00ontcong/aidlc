@@ -11,7 +11,6 @@ import {
   buildOpenCodeRunPrompt,
   buildShapeProposalPrompt,
   buildShapeDiscussionPrompt,
-  buildStepChatPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   formatBugReportScreenshotSection,
@@ -67,10 +66,6 @@ describe('providerRunService', () => {
     expect(prompt).toContain('Write every human-readable string value in Vietnamese');
     expect(prompt).toContain('Return ONLY one JSON object');
     expect(prompt).toContain('Setup is confusing');
-    expect(prompt).toContain('Research relevant codebase patterns before recommending changes');
-    expect(prompt).toContain('test-first');
-    expect(prompt).toContain('fresh-context review');
-    expect(prompt).toContain('evidence and reusable learnings');
   });
 
   it('uses verified read-only headless modes for supported proposal providers', () => {
@@ -89,62 +84,6 @@ describe('providerRunService', () => {
   it('builds slash task prompt for claude/cursor', () => {
     expect(buildTaskPrompt('/aidlc-workflow-full-implement', 'EPIC-1', '', 'claude', '/tmp'))
       .toBe('/aidlc-workflow-full-implement EPIC-1');
-  });
-
-  it('builds a self-contained, provider-neutral prompt for an agent chat', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-chat-prompt-'));
-    roots.push(root);
-    const adapter = getCommandProviderAdapter('claude');
-    const commandFile = adapter.commandFilePath(root, 'implement');
-    fs.mkdirSync(path.dirname(commandFile), { recursive: true });
-    fs.writeFileSync(commandFile, '---\ndescription: test\n---\n\nImplement $ARGUMENTS carefully.', 'utf8');
-
-    const prompt = buildStepChatPrompt({
-      root,
-      runId: 'EPIC-7',
-      stepName: 'implement',
-      agent: 'developer',
-      epicDir: path.join(root, 'docs', 'epics', 'EPIC-7'),
-      requires: ['docs/epics/EPIC-7/artifacts/TECH-DESIGN.md'],
-      produces: ['docs/epics/EPIC-7/artifacts/IMPLEMENT-SUMMARY.md'],
-      feedback: 'Handle the empty state too.',
-      slashCommand: '/implement',
-      // The Claude command body stays portable if the human switches to a
-      // different chat provider before that provider's files are synced.
-      providerId: 'codex',
-      language: 'en',
-    });
-
-    expect(prompt).toContain('AIDLC task `EPIC-7`, step `implement`');
-    expect(prompt).toContain('`.aidlc/runs/EPIC-7.json`');
-    expect(prompt).toContain('`docs/epics/EPIC-7/state.json`');
-    expect(prompt).toContain('TECH-DESIGN.md');
-    expect(prompt).toContain('Handle the empty state too.');
-    expect(prompt).toContain('Implement EPIC-7 carefully.');
-    expect(prompt).toContain('Write all human-readable prose');
-    expect(prompt).not.toContain('$ARGUMENTS');
-  });
-
-  it('falls back to workspace step metadata when no command file is installed', () => {
-    const prompt = buildStepChatPrompt({
-      root: '/workspace',
-      runId: 'EPIC-8',
-      stepName: 'custom-review',
-      agent: 'reviewer',
-      epicDir: '/workspace/docs/epics/EPIC-8',
-      requires: [],
-      produces: [],
-      slashCommand: '/custom-review',
-      providerId: 'codex',
-      language: 'vi',
-      hasRunState: false,
-    });
-
-    expect(prompt).toContain('The native AIDLC command is `/custom-review`');
-    expect(prompt).toContain('`.aidlc/workspace.yaml`');
-    expect(prompt).toContain('no live AIDLC run state yet');
-    expect(prompt).not.toContain('`.aidlc/runs/EPIC-8.json`');
-    expect(prompt).toContain('Vietnamese');
   });
 
   it('stores multiple bug screenshots with unique names for the agent to read', () => {

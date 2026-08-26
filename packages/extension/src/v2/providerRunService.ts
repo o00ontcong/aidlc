@@ -2,14 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import {
-  getCommandProviderAdapter,
-  normalizeStep,
-  resolveArtifactPath,
-  RunStateStore,
-  stepDagId,
-} from '@aidlc/core';
-import type { PipelineConfig, RunState } from '@aidlc/core';
+import { getCommandProviderAdapter } from '@aidlc/core';
 
 import { syncBuiltinPipelineCommands } from './presetWizards';
 import { readEpicsDirFromYaml, DEFAULT_EPICS_DIR } from './epicsDirSync';
@@ -18,7 +11,6 @@ import {
   buildCodexRunPrompt,
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
-  buildStepChatPrompt,
   buildHeadlessShapeProposalInvocation,
   buildShapeProposalPrompt,
   buildShapeDiscussionPrompt,
@@ -27,8 +19,6 @@ import {
   resolveRunnableModel,
   terminalNameForProvider,
 } from './providerRunLogic';
-import { listEpics, epicsRoot } from './epicsList';
-import { readYaml, type YamlDocument } from './yamlIO';
 import {
   ensureMarkdownOutputLanguagePolicy,
   markdownOutputLanguageInstruction,
@@ -39,7 +29,6 @@ export {
   buildCodexRunPrompt,
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
-  buildStepChatPrompt,
   buildHeadlessShapeProposalInvocation,
   buildShapeProposalPrompt,
   buildShapeDiscussionPrompt,
@@ -351,117 +340,6 @@ export function runStepWithProvider(opts: {
     cwd: opts.root,
     fresh: true,
   });
-}
-
-/**
- * Copy a self-contained, provider-neutral prompt for one pipeline step. This
- * is intentionally separate from {@link runStepWithProvider}: it does not
- * create a terminal, execute a CLI, install command files, or mutate run
- * state. The user stays in control of where and when the prompt is sent.
- */
-export async function copyStepForAgentChat(opts: {
-  root: string;
-  epicId?: string;
-  runId?: string;
-  stepIdx?: number;
-  format?: 'prompt' | 'command';
-}): Promise<void> {
-  const doc = readYaml(opts.root);
-  const requestedId = (opts.runId ?? opts.epicId ?? '').trim();
-  if (!requestedId) {
-    void vscode.window.showWarningMessage('AIDLC: không xác định được task để copy prompt.');
-    return;
-  }
-
-  const epics = listEpics(opts.root, doc);
-  const epic = epics.find((item) => item.id === (opts.epicId ?? requestedId))
-    ?? epics.find((item) => item.runId === requestedId);
-  let state: RunState | null;
-  try {
-    state = RunStateStore.load(opts.root, requestedId);
-  } catch {
-    state = null;
-  }
-
-  const pipeline = state?.pipelineSnapshot?.pipeline
-    ?? (epic?.pipeline
-      ? (doc?.pipelines as PipelineConfig[] | undefined)?.find((item) => item.id === epic.pipeline)
-      : undefined);
-  const stepIdx = opts.stepIdx ?? state?.currentStepIdx ?? epic?.currentStep ?? 0;
-  const rawStep = pipeline?.steps[stepIdx];
-  if (!pipeline || !rawStep) {
-    void vscode.window.showWarningMessage(
-      `AIDLC: không tìm được step ${stepIdx + 1} cho task "${requestedId}".`,
-    );
-    return;
-  }
-
-  const step = normalizeStep(rawStep);
-  const runId = state?.runId ?? epic?.runId ?? requestedId;
-  const context = state?.context ?? { epic: epic?.id ?? runId };
-  const epicDir = epic?.epicDir ?? path.join(epicsRoot(opts.root, doc), epic?.id ?? runId);
-  const epicsDir = readEpicsDirFromYaml(opts.root);
-  const resolveArtifacts = (items: readonly string[]) => items.map((item) =>
-    resolveArtifactPath(item, context, epicsDir));
-  const slashCommand = epic?.stepDetails[stepIdx]?.slashCommand
-    ?? slashForPipelineStep(doc, pipeline, stepIdx);
-  const feedback = state?.steps[stepIdx]?.feedback?.trim()
-    || state?.steps[stepIdx]?.rejectReason?.trim();
-  const store = getProviderConfigStore(opts.root);
-  const config = store.loadOrDefault();
-  const providerId = config.defaultProvider;
-  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
-  const language = resolveAidlcLanguage(configured, vscode.env.language);
-  let clipboardText: string;
-  if (opts.format === 'command') {
-    if (!slashCommand) {
-      void vscode.window.showWarningMessage(`AIDLC: step "${stepDagId(rawStep)}" không có slash command để copy.`);
-      return;
-    }
-    const slashOnly = slashCommand.trim().split(/\s+/)[0];
-    clipboardText = feedback
-      ? `${slashOnly} ${runId} — Update artifact per feedback: "${feedback.replace(/"/g, '\\"')}"`
-      : `${slashOnly} ${runId}`;
-  } else {
-    clipboardText = buildStepChatPrompt({
-      root: opts.root,
-      runId,
-      stepName: stepDagId(rawStep),
-      agent: step.agent,
-      epicDir,
-      requires: resolveArtifacts(step.requires),
-      produces: resolveArtifacts(step.produces),
-      feedback,
-      slashCommand,
-      providerId,
-      language,
-      hasRunState: Boolean(state),
-    });
-  }
-
-  await vscode.env.clipboard.writeText(clipboardText);
-  const label = stepDagId(rawStep);
-  const copied = opts.format === 'command' ? 'slash command' : 'prompt cho agent chat';
-  void vscode.window.setStatusBarMessage(`Đã copy ${copied} · ${label}`, 3_000);
-}
-
-/** Mirror the display resolver without trusting a message from the webview. */
-function slashForPipelineStep(
-  doc: YamlDocument | null,
-  pipeline: PipelineConfig,
-  stepIdx: number,
-): string | undefined {
-  const rawStep = pipeline.steps[stepIdx];
-  if (!rawStep) { return undefined; }
-  const stepName = stepDagId(rawStep);
-  const names = new Set(doc?.slash_commands
-    .map((entry) => typeof entry.name === 'string' ? entry.name : '')
-    .filter(Boolean) ?? []);
-  const namespaced = `/${pipeline.id}-${stepName}`;
-  if (names.has(namespaced)) { return namespaced; }
-  const bare = `/${stepName}`;
-  if (names.has(bare)) { return bare; }
-  return undefined;
 }
 
 export function runSlashCommandWithProvider(

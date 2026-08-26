@@ -799,13 +799,6 @@ function StepActions({
             />
           )}
           <StepBtn
-            label="Copy for agent chat"
-            title="Copy prompt đầy đủ để dán vào Codex, Claude, Cursor hoặc agent chat khác. Không chạy step và không đổi trạng thái AIDLC."
-            onClick={stop(() => postMessage({
-              type: 'copyStepForAgentChat', epicId: epic.id, runId, stepIdx,
-            }))}
-          />
-          <StepBtn
             label="Đánh dấu step xong"
             title="Bỏ qua agent — ghi step này là done trên disk. Không chạy code, không tạo artifact."
             onClick={stop(() => postMessage({ type: 'markStepDone', runId, stepIdx }))}
@@ -857,13 +850,6 @@ function StepActions({
               })}
             />
           )}
-          <StepBtn
-            label="Copy for agent chat"
-            title="Copy prompt đầy đủ để dán vào agent chat trước khi chạy lại. Không đổi trạng thái AIDLC."
-            onClick={stop(() => postMessage({
-              type: 'copyStepForAgentChat', epicId: epic.id, runId, stepIdx,
-            }))}
-          />
           <StepBtn
             label="Sửa feedback rồi chạy"
             title="Mở form sửa lý do reject trước khi rerun. Khác nút chạy lại ngay bên cạnh."
@@ -1039,30 +1025,11 @@ function StepDetailCard({
       <CardHeader pad="10px 13px" style={{ gap: 8 }}>
         <CardTitle>Chi tiết step · {name}</CardTitle>
         <Spacer />
-        <Btn
-          label="Copy for agent chat"
-          variant="ghost"
-          pad="4px 7px"
-          fs={10.5}
-          title="Copy prompt đầy đủ để dán vào Codex, Claude, Cursor hoặc agent chat khác. Không chạy step và không đổi trạng thái AIDLC."
-          onClick={() => postMessage({
-            type: 'copyStepForAgentChat',
-            epicId: epic.id,
-            runId: epic.runId ?? undefined,
-            stepIdx,
-          })}
-        />
         {step.slashCommand && (
           <Mono
-            onClick={() => postMessage({
-              type: 'copyStepForAgentChat',
-              format: 'command',
-              epicId: epic.id,
-              runId: epic.runId ?? undefined,
-              stepIdx,
-            })}
+            onClick={() => postMessage({ type: 'copyCommand', command: step.slashCommand })}
             style={{ fontSize: 11, color: 'var(--txt3)', cursor: 'pointer' }}
-            title="Copy slash command đầy đủ (bao gồm task id) cho agent CLI"
+            title="Click để copy — dán vào Claude để chạy step này"
           >
             {step.slashCommand}
           </Mono>

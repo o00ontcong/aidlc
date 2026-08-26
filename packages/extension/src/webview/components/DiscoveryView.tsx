@@ -76,11 +76,6 @@ export function DiscoveryView({ state, selectedShapeId, onSelectShape }: Props) 
         </div>
 
         <ProgressSteps language={language} current={currentStep} />
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-[10.5px] leading-relaxed text-muted-foreground">
-          <CircleCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-          <span>{copy.approvalGate}</span>
-        </div>
-        <EngineeringLoop language={language} />
         {guideOpen && (
           <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
             <div className="text-xs font-bold text-foreground">{copy.guideTitle}</div>
@@ -147,7 +142,7 @@ export function DiscoveryView({ state, selectedShapeId, onSelectShape }: Props) 
 function ProgressSteps({ language, current }: { language: DiscoveryLanguage; current: number }) {
   const copy = discoveryCopy(language);
   return (
-    <div className="mt-5 grid gap-2 sm:grid-cols-3">
+    <div className="mt-5 grid gap-2 sm:grid-cols-4">
       {copy.steps.map((step, index) => {
         const complete = index < current;
         const active = index === current;
@@ -170,46 +165,11 @@ function ProgressSteps({ language, current }: { language: DiscoveryLanguage; cur
               </span>
               <span className="text-[10.5px] font-bold text-foreground">{step.label}</span>
             </div>
-            <p className="mt-1 pl-7 text-[10.5px] leading-relaxed text-muted-foreground">{step.description}</p>
+            <p className="mt-1 pl-7 text-[9.5px] leading-relaxed text-muted-foreground">{step.description}</p>
           </div>
         );
       })}
     </div>
-  );
-}
-
-function EngineeringLoop({ language }: { language: DiscoveryLanguage }) {
-  const copy = discoveryCopy(language);
-
-  return (
-    <details className="group mt-3 rounded-lg border border-border bg-background/50">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 [&::-webkit-details-marker]:hidden">
-        <div>
-          <div className="text-[11px] font-bold text-foreground">{copy.engineeringLoopTitle}</div>
-          <p className="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground">{copy.engineeringLoopBody}</p>
-        </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
-      </summary>
-      <div className="grid gap-2 border-t border-border p-3.5 sm:grid-cols-2 lg:grid-cols-4">
-        {copy.engineeringPillars.map((pillar) => {
-          const stageLabels = pillar.stageIds.map((stageId) => (
-            copy.engineeringLoop.find((stage) => stage.id === stageId)?.label ?? stageId
-          ));
-          return (
-            <div
-              key={pillar.label}
-              className="min-w-0 rounded-md border border-border bg-card p-3"
-            >
-              <div className="text-[9px] font-bold uppercase tracking-wide text-primary">
-                {stageLabels.join(' → ')}
-              </div>
-              <div className="mt-1.5 text-[10.5px] font-bold text-foreground">{pillar.label}</div>
-              <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{pillar.description}</p>
-            </div>
-          );
-        })}
-      </div>
-    </details>
   );
 }
 
@@ -484,7 +444,7 @@ function ShapeDetail({ shape, language }: { shape: ShapeSummary; language: Disco
         </div>
       </div>
 
-      <DeliveryHandoff shape={shape} language={language} />
+      <ProgressSteps language={language} current={discoveryProgress(shape)} />
 
       {canEdit && proposalStatus === 'idle' && (
         <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-3.5">
@@ -615,25 +575,6 @@ function ShapeDetail({ shape, language }: { shape: ShapeSummary; language: Disco
             {copy.setAside}
           </button>
         )}
-      </div>
-    </div>
-  );
-}
-
-function DeliveryHandoff({ shape, language }: { shape: ShapeSummary; language: DiscoveryLanguage }) {
-  if (shape.status !== 'accepted' && shape.status !== 'converted') return null;
-  const copy = discoveryCopy(language);
-  const started = shape.status === 'converted';
-  return (
-    <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3.5">
-      <div className="flex items-start gap-2.5">
-        <CircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-        <div>
-          <div className="text-[11px] font-bold text-foreground">
-            {started ? copy.deliveryHandoffActive : copy.deliveryHandoffReady}
-          </div>
-          <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{copy.deliveryHandoffBody}</p>
-        </div>
       </div>
     </div>
   );
@@ -784,9 +725,10 @@ function EmptyDetail({ language }: { language: DiscoveryLanguage }) {
 
 function discoveryProgress(shape: ShapeSummary | undefined): number {
   if (!shape) return 0;
-  if (shape.status === 'converted') return 3;
+  if (shape.status === 'converted') return 4;
   if (shape.status === 'accepted') return 3;
   if (shape.status === 'ready') return 2;
+  if (shape.selectedApproach && shape.rationale) return 2;
   return 1;
 }
 
