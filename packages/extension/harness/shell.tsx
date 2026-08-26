@@ -17,7 +17,7 @@ const theme = params.get('theme') === 'light' ? 'light' : 'dark';
 // the real webview host injects so the bridge forces the mode we asked for.
 (window as unknown as { __AIDLC_INITIAL_THEME__?: string }).__AIDLC_INITIAL_THEME__ = theme;
 if (theme === 'dark') { document.documentElement.classList.add('dark'); }
-const view = (params.get('view') ?? 'builder') as 'builder' | 'analyze' | 'tests' | 'epics';
+const view = (params.get('view') ?? 'builder') as 'builder' | 'analyze' | 'tests' | 'epics' | 'discovery';
 
 const root = document.getElementById('app');
 if (root) {

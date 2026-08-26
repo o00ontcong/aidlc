@@ -17,8 +17,28 @@ function keyPaths(value: unknown, prefix = ''): string[] {
 describe('Discovery translations', () => {
   it('keeps English and Vietnamese copy structurally aligned', () => {
     expect(keyPaths(DISCOVERY_COPY.vi)).toEqual(keyPaths(DISCOVERY_COPY.en));
-    expect(discoveryCopy('en').title).toContain('clear plan');
+    expect(discoveryCopy('en').title).toContain('plan');
     expect(discoveryCopy('vi').title).toContain('kế hoạch');
+  });
+
+  it('shows the complete ECC engineering loop and clearly separates the approval gate', () => {
+    const english = discoveryCopy('en');
+    const vietnamese = discoveryCopy('vi');
+
+    expect(english.engineeringLoop.map((stage) => stage.id)).toEqual([
+      'research', 'plan', 'test', 'implement', 'review', 'verify', 'remember', 'improve',
+    ]);
+    expect(english.engineeringLoop[2].handoff).toBe(true);
+    expect(english.approvalGate).toContain('approve');
+    expect(vietnamese.approvalGate).toContain('duyệt');
+    expect(english.steps).toHaveLength(3);
+    expect(english.engineeringPillars).toHaveLength(4);
+    expect(english.engineeringPillars.map((pillar) => pillar.stageIds)).toEqual([
+      ['research', 'plan'],
+      ['test', 'implement'],
+      ['review', 'verify'],
+      ['remember', 'improve'],
+    ]);
   });
 
   it('turns technical readiness blockers into plain localized guidance', () => {

@@ -98,7 +98,10 @@ describe('Discovery Foundation and Shape lifecycle', () => {
     const inputs = JSON.parse(fs.readFileSync(path.join(rootDir, 'docs/epics/EPIC-900/inputs.json'), 'utf8'));
     expect(inputs.source_shape.id).toBe(created.id);
     expect(inputs.source_shape.acceptance_hash).toBe(accepted.acceptance?.shapeHash);
-    expect(fs.readFileSync(path.join(rootDir, 'docs/epics/EPIC-900/artifacts/SHAPE.md'), 'utf8')).toContain('Add a guided checklist.');
+    const handoff = fs.readFileSync(path.join(rootDir, 'docs/epics/EPIC-900/artifacts/SHAPE.md'), 'utf8');
+    expect(handoff).toContain('Add a guided checklist.');
+    expect(handoff).toContain('## Engineering Loop Handoff');
+    expect(handoff).toContain('Write a failing test before changing production code.');
 
     const retry = shapes.convertToEpic(converted.shape.id, converted.shape.revision, {
       epicId: 'EPIC-900', doc: null, target: { kind: 'pipeline', id: PIPELINE.id }, agents: ['planner'], inputs: {}, pipeline: PIPELINE,

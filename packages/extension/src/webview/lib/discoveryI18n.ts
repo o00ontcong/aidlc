@@ -2,6 +2,22 @@ export type DiscoveryLanguage = 'en' | 'vi';
 
 type DiscoveryStatus = 'draft' | 'exploring' | 'ready' | 'accepted' | 'converted' | 'shelved';
 
+type EngineeringLoopStageId = 'research' | 'plan' | 'test' | 'implement' | 'review' | 'verify' | 'remember' | 'improve';
+
+interface EngineeringLoopStage {
+  id: EngineeringLoopStageId;
+  label: string;
+  description: string;
+  /** This stage starts only after the human approves the Idea. */
+  handoff?: boolean;
+}
+
+interface EngineeringPillar {
+  stageIds: [EngineeringLoopStageId, EngineeringLoopStageId];
+  label: string;
+  description: string;
+}
+
 interface DiscoveryCopy {
   tab: string;
   eyebrow: string;
@@ -13,6 +29,15 @@ interface DiscoveryCopy {
   guideTitle: string;
   guideBody: string;
   steps: Array<{ label: string; description: string }>;
+  engineeringLoopTitle: string;
+  engineeringLoopBody: string;
+  engineeringLoop: EngineeringLoopStage[];
+  engineeringPillars: EngineeringPillar[];
+  approvalGate: string;
+  deliveryHandoffTitle: string;
+  deliveryHandoffBody: string;
+  deliveryHandoffReady: string;
+  deliveryHandoffActive: string;
   contextTitle: string;
   contextReady: string;
   contextNeedsSetup: string;
@@ -104,34 +129,56 @@ interface DiscoveryCopy {
 export const DISCOVERY_COPY: Record<DiscoveryLanguage, DiscoveryCopy> = {
   en: {
     tab: 'Ideas',
-    eyebrow: 'PLAN BEFORE BUILDING',
-    title: 'Turn an idea into a clear plan',
-    subtitle: 'AIDLC helps you explain the problem, compare choices, and decide what success looks like. No code changes happen here.',
+    eyebrow: 'FROM IDEA TO APPROVED PLAN',
+    title: 'Describe the change. Review the plan. Stay in control.',
+    subtitle: 'Tell AIDLC what should improve. It studies the project and prepares a plan you can review before any code changes.',
     languageSettings: 'Change language',
     howItWorks: 'How this works',
     closeGuide: 'Hide guide',
-    guideTitle: 'Four simple steps',
-    guideBody: 'You stay in control. AIDLC can suggest answers, but only you can approve the plan and start the work.',
+    guideTitle: 'What happens from idea to delivery',
+    guideBody: 'AIDLC first learns how your project already works, then drafts a plan. You can change or approve it. After approval, delivery uses tests, an independent review, final checks, and saved lessons.',
     steps: [
-      { label: 'Describe', description: 'Explain what should improve.' },
-      { label: 'Discuss', description: 'Compare choices with AIDLC.' },
-      { label: 'Review', description: 'Check the plan in plain language.' },
-      { label: 'Start', description: 'Approve it and create the work.' },
+      { label: 'Describe', description: 'Explain the problem and the result you want.' },
+      { label: 'Review', description: 'Let AIDLC study the project and prepare a draft.' },
+      { label: 'Approve & start', description: 'Approve the plan before delivery begins.' },
     ],
-    contextTitle: 'Project context',
+    engineeringLoopTitle: 'Why delivery is safer with ECC',
+    engineeringLoopBody: 'ECC is the behind-the-scenes engineering workflow. Open this only when you want to see its delivery safeguards.',
+    engineeringLoop: [
+      { id: 'research', label: 'Research', description: 'Use project context and relevant code patterns as evidence.' },
+      { id: 'plan', label: 'Plan', description: 'Set scope, risks, acceptance evidence, and validation.' },
+      { id: 'test', label: 'Test first', description: 'Turn accepted behavior into a failing test before code changes.', handoff: true },
+      { id: 'implement', label: 'Implement', description: 'Make the smallest change that satisfies the test.', handoff: true },
+      { id: 'review', label: 'Review', description: 'Inspect the implementation from a fresh context.', handoff: true },
+      { id: 'verify', label: 'Verify', description: 'Run the agreed tests and capture actual evidence.', handoff: true },
+      { id: 'remember', label: 'Remember', description: 'Keep decisions and evidence with the delivery record.', handoff: true },
+      { id: 'improve', label: 'Improve', description: 'Turn repeating wins into reusable workflow knowledge.', handoff: true },
+    ],
+    engineeringPillars: [
+      { stageIds: ['research', 'plan'], label: 'Understand before deciding', description: 'AIDLC checks project context and existing patterns before recommending a plan.' },
+      { stageIds: ['test', 'implement'], label: 'Prove before changing', description: 'Delivery starts with a failing test, then makes the smallest change needed.' },
+      { stageIds: ['review', 'verify'], label: 'Check with fresh eyes', description: 'A separate review looks for blind spots before final tests confirm the result.' },
+      { stageIds: ['remember', 'improve'], label: 'Keep what was learned', description: 'Evidence and useful lessons stay with the work instead of disappearing in chat.' },
+    ],
+    approvalGate: 'Nothing is implemented until you approve the plan.',
+    deliveryHandoffTitle: 'Delivery handoff',
+    deliveryHandoffBody: 'The approved plan becomes the test contract for the Epic: write the failing test, implement the smallest change, review from a fresh context, verify the result, and save evidence and learnings.',
+    deliveryHandoffReady: 'Approved — ready for test-first delivery',
+    deliveryHandoffActive: 'Delivery created — follow the engineering loop in the Epic',
+    contextTitle: 'Project knowledge',
     contextReady: 'Ready',
     contextNeedsSetup: 'One-time setup needed',
     contextNeedsUpdate: 'Needs an update',
-    contextReadyBody: 'AIDLC has enough background to discuss a new idea safely.',
-    contextSetupBody: 'Prepare the shared project background before starting your first idea.',
-    contextUpdateBody: 'The project changed. Update the shared background before continuing.',
-    prepareContext: 'Prepare project context',
-    updateContext: 'Update project context',
-    createContext: 'Create project context',
+    contextReadyBody: 'AIDLC understands enough about this project to prepare a grounded plan.',
+    contextSetupBody: 'Let AIDLC learn the project once before starting your first idea.',
+    contextUpdateBody: 'The project changed. Refresh what AIDLC knows before continuing.',
+    prepareContext: 'Learn this project',
+    updateContext: 'Refresh project knowledge',
+    createContext: 'Set up project knowledge',
     technicalDetails: 'Technical details',
     revision: 'Context version',
     sourceCommit: 'Source version',
-    startIdea: 'Explore a new idea',
+    startIdea: 'Start with an idea',
     ideasTitle: 'Your ideas',
     ideasSubtitle: 'Pick one to continue where you left off.',
     noIdeasTitle: 'No ideas here yet',
@@ -163,10 +210,10 @@ export const DISCOVERY_COPY: Record<DiscoveryLanguage, DiscoveryCopy> = {
     status: {
       draft: 'Draft', exploring: 'In discussion', ready: 'Ready to approve', accepted: 'Approved', converted: 'Work started', shelved: 'Set aside',
     },
-    suggestPlan: 'Let AIDLC suggest the plan',
-    suggestPlanHelp: 'AIDLC will use the answers already saved in this idea and relevant project context. You do not need to repeat the discussion or paste JSON. The recommendation is saved as a draft; your plan changes only when you apply it.',
-    generatingPlan: 'AIDLC is preparing a recommendation…',
-    generatingPlanHelp: 'You can stay on this page. This usually takes less than a minute.',
+    suggestPlan: 'Research the project and draft my plan',
+    suggestPlanHelp: 'AIDLC checks the relevant parts of the project, compares practical options, and prepares a draft for you. Nothing changes until you review and apply it.',
+    generatingPlan: 'AIDLC is studying the project and preparing your draft…',
+    generatingPlanHelp: 'It is checking existing patterns, risks, and how the result can be proven.',
     proposalReady: 'AIDLC has a recommendation',
     proposalReadyBody: 'This draft is saved and will still be here when you reopen the app. Apply it only when it matches what you want.',
     proposalPreview: 'Proposed plan',
@@ -212,34 +259,56 @@ export const DISCOVERY_COPY: Record<DiscoveryLanguage, DiscoveryCopy> = {
   },
   vi: {
     tab: 'Ý tưởng',
-    eyebrow: 'LẬP KẾ HOẠCH TRƯỚC KHI XÂY DỰNG',
-    title: 'Biến ý tưởng thành kế hoạch rõ ràng',
-    subtitle: 'AIDLC giúp bạn mô tả vấn đề, so sánh lựa chọn và xác định thế nào là thành công. Giai đoạn này không thay đổi mã nguồn.',
+    eyebrow: 'TỪ Ý TƯỞNG ĐẾN KẾ HOẠCH ĐÃ DUYỆT',
+    title: 'Mô tả thay đổi. Xem lại kế hoạch. Bạn luôn quyết định.',
+    subtitle: 'Cho AIDLC biết điều cần cải thiện. AIDLC sẽ tìm hiểu dự án và chuẩn bị một kế hoạch để bạn xem lại trước khi mã nguồn thay đổi.',
     languageSettings: 'Đổi ngôn ngữ',
     howItWorks: 'Quy trình hoạt động thế nào',
     closeGuide: 'Ẩn hướng dẫn',
-    guideTitle: 'Bốn bước đơn giản',
-    guideBody: 'Bạn luôn là người quyết định. AIDLC có thể đề xuất câu trả lời, nhưng chỉ bạn mới có thể duyệt kế hoạch và bắt đầu công việc.',
+    guideTitle: 'Điều gì xảy ra từ ý tưởng đến thực thi',
+    guideBody: 'AIDLC trước tiên tìm hiểu cách dự án đang hoạt động, rồi chuẩn bị kế hoạch. Bạn có thể yêu cầu sửa hoặc phê duyệt. Sau đó phần thực thi dùng kiểm thử, review độc lập, kiểm tra cuối và lưu lại bài học.',
     steps: [
-      { label: 'Mô tả', description: 'Nói điều bạn muốn cải thiện.' },
-      { label: 'Thảo luận', description: 'So sánh các lựa chọn với AIDLC.' },
-      { label: 'Xem lại', description: 'Kiểm tra kế hoạch bằng ngôn ngữ dễ hiểu.' },
-      { label: 'Bắt đầu', description: 'Duyệt và tạo công việc.' },
+      { label: 'Mô tả', description: 'Nêu vấn đề và kết quả bạn mong muốn.' },
+      { label: 'Xem lại', description: 'Để AIDLC tìm hiểu dự án và chuẩn bị bản nháp.' },
+      { label: 'Duyệt & bắt đầu', description: 'Duyệt kế hoạch trước khi thực thi.' },
     ],
-    contextTitle: 'Thông tin dự án',
+    engineeringLoopTitle: 'Vì sao ECC giúp thực thi an toàn hơn',
+    engineeringLoopBody: 'ECC là quy trình kỹ thuật hoạt động phía sau. Chỉ mở phần này khi bạn muốn xem các lớp bảo vệ trong lúc thực thi.',
+    engineeringLoop: [
+      { id: 'research', label: 'Nghiên cứu', description: 'Dùng bối cảnh dự án và các mẫu mã liên quan làm bằng chứng.' },
+      { id: 'plan', label: 'Lập kế hoạch', description: 'Chốt phạm vi, rủi ro, bằng chứng chấp nhận và cách kiểm chứng.' },
+      { id: 'test', label: 'Test trước', description: 'Chuyển hành vi đã chấp nhận thành test thất bại trước khi sửa mã.', handoff: true },
+      { id: 'implement', label: 'Triển khai', description: 'Chỉ thực hiện thay đổi nhỏ nhất để test đạt.', handoff: true },
+      { id: 'review', label: 'Review', description: 'Kiểm tra phần triển khai từ ngữ cảnh mới, độc lập.', handoff: true },
+      { id: 'verify', label: 'Kiểm chứng', description: 'Chạy các test đã thống nhất và lưu bằng chứng thực tế.', handoff: true },
+      { id: 'remember', label: 'Ghi nhớ', description: 'Lưu quyết định và bằng chứng cùng hồ sơ thực thi.', handoff: true },
+      { id: 'improve', label: 'Cải thiện', description: 'Biến kết quả lặp lại thành kiến thức quy trình có thể tái sử dụng.', handoff: true },
+    ],
+    engineeringPillars: [
+      { stageIds: ['research', 'plan'], label: 'Hiểu trước khi quyết định', description: 'AIDLC kiểm tra bối cảnh và các mẫu hiện có trước khi đề xuất kế hoạch.' },
+      { stageIds: ['test', 'implement'], label: 'Chứng minh trước khi thay đổi', description: 'Phần thực thi bắt đầu bằng test thất bại, rồi chỉ thay đổi phần nhỏ nhất cần thiết.' },
+      { stageIds: ['review', 'verify'], label: 'Kiểm tra bằng góc nhìn mới', description: 'Một lượt review độc lập tìm điểm mù trước khi kiểm thử cuối xác nhận kết quả.' },
+      { stageIds: ['remember', 'improve'], label: 'Giữ lại điều đã học', description: 'Bằng chứng và bài học hữu ích được lưu cùng công việc thay vì mất trong đoạn chat.' },
+    ],
+    approvalGate: 'Không có phần triển khai nào bắt đầu cho đến khi bạn duyệt kế hoạch.',
+    deliveryHandoffTitle: 'Bàn giao thực thi',
+    deliveryHandoffBody: 'Kế hoạch đã duyệt trở thành hợp đồng kiểm thử cho Epic: viết test thất bại, thực hiện thay đổi nhỏ nhất, review từ ngữ cảnh mới, kiểm chứng kết quả, rồi lưu bằng chứng và bài học.',
+    deliveryHandoffReady: 'Đã duyệt — sẵn sàng thực thi test-first',
+    deliveryHandoffActive: 'Đã tạo phần thực thi — theo dõi vòng kỹ thuật trong Epic',
+    contextTitle: 'Hiểu biết về dự án',
     contextReady: 'Đã sẵn sàng',
     contextNeedsSetup: 'Cần thiết lập một lần',
     contextNeedsUpdate: 'Cần cập nhật',
-    contextReadyBody: 'AIDLC đã có đủ thông tin nền để thảo luận ý tưởng mới một cách an toàn.',
-    contextSetupBody: 'Chuẩn bị thông tin chung của dự án trước khi bắt đầu ý tưởng đầu tiên.',
-    contextUpdateBody: 'Dự án đã thay đổi. Hãy cập nhật thông tin chung trước khi tiếp tục.',
-    prepareContext: 'Chuẩn bị thông tin dự án',
-    updateContext: 'Cập nhật thông tin dự án',
-    createContext: 'Tạo thông tin dự án',
+    contextReadyBody: 'AIDLC đã hiểu đủ về dự án để chuẩn bị một kế hoạch có căn cứ.',
+    contextSetupBody: 'Hãy để AIDLC tìm hiểu dự án một lần trước khi bắt đầu ý tưởng đầu tiên.',
+    contextUpdateBody: 'Dự án đã thay đổi. Hãy làm mới hiểu biết của AIDLC trước khi tiếp tục.',
+    prepareContext: 'Tìm hiểu dự án',
+    updateContext: 'Làm mới hiểu biết dự án',
+    createContext: 'Thiết lập hiểu biết dự án',
     technicalDetails: 'Chi tiết kỹ thuật',
     revision: 'Phiên bản thông tin',
     sourceCommit: 'Phiên bản mã nguồn',
-    startIdea: 'Khám phá ý tưởng mới',
+    startIdea: 'Bắt đầu với một ý tưởng',
     ideasTitle: 'Ý tưởng của bạn',
     ideasSubtitle: 'Chọn một ý tưởng để tiếp tục từ chỗ đã dừng.',
     noIdeasTitle: 'Chưa có ý tưởng nào',
@@ -271,10 +340,10 @@ export const DISCOVERY_COPY: Record<DiscoveryLanguage, DiscoveryCopy> = {
     status: {
       draft: 'Bản nháp', exploring: 'Đang thảo luận', ready: 'Sẵn sàng duyệt', accepted: 'Đã duyệt', converted: 'Đã bắt đầu', shelved: 'Tạm gác',
     },
-    suggestPlan: 'Để AIDLC đề xuất kế hoạch',
-    suggestPlanHelp: 'AIDLC sẽ dùng các câu trả lời đã lưu trong ý tưởng này và thông tin dự án liên quan. Bạn không cần thảo luận lại hoặc dán JSON. Đề xuất được lưu dưới dạng bản nháp; kế hoạch chỉ thay đổi khi bạn áp dụng.',
-    generatingPlan: 'AIDLC đang chuẩn bị đề xuất…',
-    generatingPlanHelp: 'Bạn có thể ở lại trang này. Quá trình thường mất chưa đến một phút.',
+    suggestPlan: 'Nghiên cứu dự án và soạn kế hoạch cho tôi',
+    suggestPlanHelp: 'AIDLC kiểm tra các phần liên quan của dự án, so sánh các lựa chọn thực tế và chuẩn bị bản nháp cho bạn. Không có gì thay đổi cho đến khi bạn xem và áp dụng.',
+    generatingPlan: 'AIDLC đang tìm hiểu dự án và chuẩn bị bản nháp…',
+    generatingPlanHelp: 'AIDLC đang kiểm tra các mẫu hiện có, rủi ro và cách chứng minh kết quả.',
     proposalReady: 'AIDLC đã có đề xuất',
     proposalReadyBody: 'Bản nháp này đã được lưu và vẫn còn khi bạn mở lại ứng dụng. Chỉ áp dụng khi nội dung đúng với mong muốn của bạn.',
     proposalPreview: 'Kế hoạch được đề xuất',

@@ -1,11 +1,12 @@
-# Quy trình Discovery và Shape
+# Quy trình Idea và Shape
 
 ## Mục đích
 
 Quy trình này tạo ra một thỏa thuận bền vững giữa con người và agent trước khi
-có Epic hoặc lượt thực thi delivery. Quy trình tách biệt việc **quyết định sẽ
-xây dựng gì** với việc **xây dựng**, để không thể bắt đầu triển khai từ một
-đoạn chat mà các bên mới chỉ đồng thuận một phần.
+có Epic hoặc lượt thực thi delivery. Nó bắt đầu bằng nghiên cứu mã nguồn và
+ngữ cảnh dự án, tách biệt việc **quyết định sẽ xây dựng gì** với việc **xây
+dựng**, để không thể bắt đầu triển khai từ một đoạn chat mà các bên mới chỉ
+đồng thuận một phần.
 
 Quy trình dựa trên bốn ý tưởng bổ trợ cho nhau:
 
@@ -14,6 +15,13 @@ Quy trình dựa trên bốn ý tưởng bổ trợ cho nhau:
 - Các artifact được sắp thứ tự và việc làm rõ tường minh của spec-driven development.
 - Hệ thống human-in-the-loop, nơi phê duyệt là một ranh giới quyền hạn được
   thực thi, không chỉ là một câu trong prompt.
+- Vòng kỹ thuật ECC: `research → plan → test → implement → review → verify → remember → improve`.
+
+Idea tab sở hữu hai giai đoạn đầu — **research** và **plan** — cùng cổng phê
+duyệt của con người. Chỉ sau khi Shape được chấp nhận và chuyển thành Epic thì
+delivery mới bắt đầu từ **test-first**. Các giai đoạn review, kiểm chứng, lưu
+bằng chứng và cải thiện là trách nhiệm của Epic; Idea tab không được mô tả
+như thể chúng đã hoàn tất.
 
 ## Đối tượng bền vững
 
@@ -21,7 +29,7 @@ Quy trình dựa trên bốn ý tưởng bổ trợ cho nhau:
 | --- | --- | --- | --- |
 | Project Foundation | `.aidlc/foundation/manifest.json` | Con người xuất bản; AIDLC ghi nhận | Ghim thỏa thuận làm việc, brief dự án, trạng thái, quyết định, hash và revision mã nguồn. |
 | Shape | `.aidlc/shapes/SHAPE-nnn/` | Con người sở hữu việc chấp nhận; agent có thể đề xuất cập nhật | Lưu vấn đề, phạm vi nỗ lực, các lựa chọn, hướng tiếp cận được chọn, rủi ro, điều không làm, acceptance criteria và câu hỏi chưa được giải quyết. |
-| Epic | thư mục gốc Epic đã cấu hình, thường là `docs/epics/<id>/` | Con người tạo từ Shape đã được chấp nhận | Lưu workflow delivery và snapshot `artifacts/SHAPE.md` bất biến. |
+| Epic | thư mục gốc Epic đã cấu hình, thường là `docs/epics/<id>/` | Con người tạo từ Shape đã được chấp nhận | Lưu workflow delivery, test contract, review/verification evidence, bài học tái sử dụng và snapshot `artifacts/SHAPE.md` bất biến. |
 
 Foundation là tài liệu tham chiếu, không phải một bản sao khác của tài liệu dự
 án. Shape ghim đúng revision và content hash của Foundation đã được dùng để
@@ -55,17 +63,20 @@ flowchart TD
     H4 -- Chấp nhận --> S5["AIDLC · Khóa cam kết\nLưu hash Shape và Foundation đã chấp nhận"]
     S5 --> H5["Con người · Tạo Epic\nChọn workflow delivery, provider và chế độ thực thi"]
     H5 --> S6["AIDLC · Chuyển đổi nguyên tử\nTạo một Epic, snapshot SHAPE.md và lưu provenance"]
-    S6 --> A5["Agent · Lập kế hoạch delivery\nBiến Shape đã chấp thuận thành kế hoạch thực thi; không mở lại quyết định đã chốt"]
+    S6 --> A5["Agent · Lập kế hoạch delivery\nBiến Shape đã chấp thuận thành kế hoạch thực thi có test contract; không mở lại quyết định đã chốt"]
     A5 --> H6{"Con người · Duyệt kế hoạch\nKế hoạch vẫn triển khai đúng Shape đã chấp nhận?"}
 
     H6 -- Thay đổi cấp tác vụ --> A5
     H6 -- Quyết định mới về phạm vi hoặc kiến trúc --> S7["AIDLC · Tạm dừng Epic\nMở lại hoặc thay thế Shape"]
     S7 --> A2
-    H6 -- Phê duyệt --> A6["Agent · Triển khai\nThay đổi mã, thêm kiểm thử và thu thập bằng chứng"]
-    A6 --> A7{"Agent · Phát hiện thay đổi đáng kể về thiết kế/phạm vi?"}
-    A7 -- Có --> S7
-    A7 -- Không --> A8["Agent · Báo cáo delivery\nTệp đã đổi, kiểm chứng, giới hạn và việc cần theo dõi"]
-    A8 --> H7{"Con người · Duyệt cuối\nMã và bằng chứng có chấp nhận được?"}
+    H6 -- Phê duyệt --> A6["Agent · Test-first (RED)\nViết và chạy test thất bại chứng minh hành vi cần có"]
+    A6 --> A7["Agent · Triển khai tối thiểu (GREEN)\nThay đổi mã nhỏ nhất để test đạt"]
+    A7 --> A8{"Agent · Phát hiện thay đổi đáng kể về thiết kế/phạm vi?"}
+    A8 -- Có --> S7
+    A8 -- Không --> A9["Agent · Review ngữ cảnh mới\nKiểm tra độc lập về chất lượng, hồi quy và bảo mật"]
+    A9 --> A10["Agent · Kiểm chứng\nChạy test/kiểm tra đã thống nhất và lưu bằng chứng thực tế"]
+    A10 --> A11["Agent · Ghi nhớ và cải thiện\nLưu quyết định, bằng chứng và bài học có thể tái sử dụng"]
+    A11 --> H7{"Con người · Duyệt cuối\nMã và bằng chứng có chấp nhận được?"}
     H7 -- Yêu cầu thay đổi --> A6
     H7 -- Phê duyệt --> S8["AIDLC · Hoàn tất Epic\nLưu bằng chứng delivery và đề xuất cập nhật Foundation/ADR"]
     S8 --> DONE([Hoàn tất])
@@ -76,7 +87,7 @@ flowchart TD
     classDef decision fill:#d97706,color:#fff,stroke:#b45309,stroke-width:2px;
 
     class H1,H2,H3,H3A,H4,H5,H6,H7 human;
-    class A1,A2,A3,A4,A5,A6,A7,A8 agent;
+    class A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11 agent;
     class S1,S2,S4,S5,S6,S7,S8 system;
     class F0,S3 decision;
 ```
@@ -106,7 +117,8 @@ có khi thử lại, rồi mới đánh dấu Shape là `converted`. `inputs.jso
 chứa provenance của Shape và Foundation; `artifacts/SHAPE.md` là bản bàn giao
 bất biến cho pipeline delivery iOS hoặc AIDLC hiện có.
 
-Trong bản phát hành đầu tiên, chat với provider chỉ có quyền đọc. Agent trả về
+Trong bản phát hành đầu tiên, chat với provider chỉ có quyền đọc. Agent nghiên
+cứu các mẫu liên quan trong mã nguồn và trả về
 một JSON proposal `shape-update` có phạm vi giới hạn; con người áp dụng nó từ
 Discovery, nơi AIDLC xác thực, lưu trữ và audit. Cách này bảo toàn ranh giới
 không ghi mã nguồn mà không cấp công cụ filesystem tổng quát cho một phiên thảo

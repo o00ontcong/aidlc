@@ -281,6 +281,7 @@ import { buildProviderConfigUi, getProviderConfigStore, type ProviderConfigUi } 
 import {
   buildHeadlessShapeProposalInvocation,
   buildShapeProposalPrompt,
+  copyStepForAgentChat,
   openShapeDiscussion,
   runSlashCommandWithProvider,
 } from './providerRunService';
@@ -2984,6 +2985,21 @@ export class WorkspaceWebview {
         if (!cmd) { return; }
         await vscode.env.clipboard.writeText(cmd);
         void vscode.window.setStatusBarMessage(`Copied ${cmd} to clipboard`, 2000);
+        return;
+      }
+      case 'copyStepForAgentChat': {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!root) {
+          void vscode.window.showWarningMessage('AIDLC: mở project trước khi copy prompt.');
+          return;
+        }
+        const epicId = typeof msg.epicId === 'string' ? msg.epicId : undefined;
+        const runId = typeof msg.runId === 'string' ? msg.runId : undefined;
+        const stepIdx = typeof msg.stepIdx === 'number' && Number.isInteger(msg.stepIdx)
+          ? msg.stepIdx
+          : undefined;
+        const format = msg.format === 'command' ? 'command' : 'prompt';
+        await copyStepForAgentChat({ root, epicId, runId, stepIdx, format });
         return;
       }
       case 'openTemplateGuide': {
