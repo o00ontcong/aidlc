@@ -120,6 +120,69 @@ function writeSidecar(file, data) {
   fs.writeFileSync(sidecarPath(file), JSON.stringify(data, null, 2), 'utf8');
 }
 
+// --- Formal review mode ---
+//
+// A session registered with `review` metadata is an approval gate, not the
+// freeform annotate-and-auto-apply loop. Two things follow, and both are
+// enforced here rather than in the browser, because the browser is only one of
+// the clients: the reviewed bytes must not move under the reviewer, and nothing
+// except a typed verdict may close the gate.
+const FORMAL_REFUSAL =
+  'refused: this is a formal review session — the reviewed content is read-only '
+  + 'and only a /verdict can close the gate';
+
+/** The review metadata for a formal session, or `null` for a freeform one. */
+function formalReview(file) {
+  return sessions.get(file)?.review ?? null;
+}
+
+/**
+ * Prefixed content hash for review binding.
+ *
+ * Distinct from `hashFile` above, which returns bare hex for change detection:
+ * this one carries the `sha256:` prefix the core bundle format uses, and
+ * lstat-guards so a file swapped for a symlink reads as drift rather than
+ * hashing whatever the link now points at.
+ */
+function reviewHash(file) {
+  try {
+    if (!fs.lstatSync(file).isFile()) return null;
+    return 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Registered artifacts that no longer hash to what was shown.
+ *
+ * An empty result is the only state in which an approval means anything: it
+ * says the reviewer signed off on the bytes still on disk.
+ */
+function staleArtifacts(review) {
+  const stale = [];
+  for (const artifact of review.artifacts ?? []) {
+    const actual = reviewHash(artifact.path);
+    if (actual !== artifact.hash) {
+      stale.push({ path: artifact.path, expected: artifact.hash, actual });
+    }
+  }
+  return stale;
+}
+
+/**
+ * Persist the review (and any verdict) to the sidecar.
+ *
+ * Memory alone is not enough: a reviewer can walk away mid-gate and this server
+ * is a short-lived local process. The sidecar sits beside the artifact rather
+ * than inside it, so recording a verdict never changes the hash it is bound to.
+ */
+function persistReview(file, review) {
+  const sidecar = readSidecar(file);
+  sidecar.review = review;
+  writeSidecar(file, sidecar);
+}
+
 // --- SSE broadcast ---
 function broadcastSSE(file, event, data) {
   const sess = sessions.get(file);
@@ -240,15 +303,90 @@ async function handler(req, res) {
   }
 
   if (pathname === '/session' && method === 'POST') {
-    const { file } = await readBody(req);
+    const { file, review } = await readBody(req);
     if (!file) return send(res, 400, { error: 'missing file' });
     const abs = path.resolve(file);
     if (!fs.existsSync(abs)) return send(res, 404, { error: 'file not found' });
     if (!abs.endsWith('.html') && !isMarkdown(abs)) return send(res, 400, { error: 'must be .html or .md' });
     allowList.add(abs);
-    getSession(abs);
+    const sess = getSession(abs);
+    // Opt into formal review mode. Absent = the freeform preview/annotate
+    // session this server has always served, unchanged.
+    if (review && typeof review === 'object') {
+      sess.review = { ...review, verdict: null };
+      persistReview(abs, sess.review);
+    }
     watchFile(abs);
-    return send(res, 200, { ok: true, file: abs });
+    return send(res, 200, { ok: true, file: abs, formal: !!sess.review });
+  }
+
+  // The only way to close a formal review gate.
+  if (pathname === '/verdict' && method === 'POST') {
+    const body = await readBody(req);
+    if (!body.file) return send(res, 400, { error: 'missing file' });
+    const abs = path.resolve(body.file);
+    if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
+
+    const review = formalReview(abs);
+    if (!review) {
+      return send(res, 400, {
+        error: 'not a formal review session — register with `review` metadata to open an approval gate',
+      });
+    }
+    if (review.verdict) {
+      return send(res, 409, {
+        error: `a "${review.verdict.verdict}" verdict has already been given for review revision `
+          + `${review.reviewRevision} — reopen a new round to decide again`,
+      });
+    }
+
+    // Exactly two verdicts, spelled exactly one way each. A near-miss is a
+    // client bug, and guessing what it meant is how a gate gets closed wrong.
+    if (body.verdict !== 'approve' && body.verdict !== 'request-changes') {
+      return send(res, 400, { error: 'verdict must be exactly "approve" or "request-changes"' });
+    }
+    const reviewer = typeof body.reviewer === 'string' ? body.reviewer.trim() : '';
+    if (!reviewer) {
+      return send(res, 400, { error: 'missing reviewer — a verdict must name the human who gave it' });
+    }
+    const feedback = typeof body.feedback === 'string' ? body.feedback.trim() : '';
+    if (body.verdict === 'request-changes' && !feedback) {
+      return send(res, 400, { error: 'request-changes needs feedback saying what to change' });
+    }
+
+    // An approval is bound to the bytes that were shown; asking for changes is
+    // not, because that content is expected to move next.
+    if (body.verdict === 'approve') {
+      const stale = staleArtifacts(review);
+      if (stale.length > 0) {
+        return send(res, 409, {
+          error: 'stale: the reviewed content changed after it was shown, so an approval would cover bytes nobody reviewed',
+          stale,
+        });
+      }
+    }
+
+    review.verdict = {
+      verdict: body.verdict,
+      reviewer,
+      at: new Date().toISOString(),
+      ...(feedback ? { feedback } : {}),
+    };
+    persistReview(abs, review);
+    broadcastSSE(abs, 'verdict', JSON.stringify(review.verdict));
+    return send(res, 200, { ok: true, verdict: review.verdict });
+  }
+
+  // Read the gate back: its identity (so the caller can bind the verdict to run
+  // state) and the verdict if one has landed. `null` until a human decides.
+  if (pathname === '/verdict' && method === 'GET') {
+    const file = u.searchParams.get('file');
+    if (!file) return send(res, 400, { error: 'missing file' });
+    const abs = path.resolve(file);
+    if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
+    const review = formalReview(abs);
+    if (!review) return send(res, 400, { error: 'not a formal review session' });
+    return send(res, 200, { review, verdict: review.verdict ?? null });
   }
 
   if (pathname === '/' && method === 'GET') {
@@ -310,6 +448,7 @@ async function handler(req, res) {
     const abs = path.resolve(file);
     if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
     if (!isMarkdown(abs)) return send(res, 400, { error: 'not a markdown file' });
+    if (formalReview(abs)) return send(res, 409, { error: FORMAL_REFUSAL });
     try { fs.writeFileSync(abs, body.markdown, 'utf8'); } catch (e) { return send(res, 500, { error: 'write failed: ' + e.message }); }
     return send(res, 200, { ok: true });
   }
@@ -328,6 +467,7 @@ async function handler(req, res) {
     const abs = path.resolve(file);
     if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
     if (!isMarkdown(abs)) return send(res, 400, { error: 'not a markdown file' });
+    if (formalReview(abs)) return send(res, 409, { error: FORMAL_REFUSAL });
     let md;
     try { md = fs.readFileSync(abs, 'utf8'); } catch { return send(res, 404, { error: 'not found' }); }
     // Prefer the client-provided index (verified), else a unique match.
@@ -495,6 +635,9 @@ async function handler(req, res) {
     if (!file) return send(res, 400, { error: 'missing file' });
     const abs = path.resolve(file);
     if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
+    // A generic "I'm finished" must not stand in for a verdict: it carries no
+    // reviewer, no decision, and no binding to the content.
+    if (formalReview(abs)) return send(res, 409, { error: FORMAL_REFUSAL });
     const sess = getSession(abs);
     sess.finalized = true;
     sess.working = false;
@@ -703,6 +846,9 @@ async function handler(req, res) {
     if (!file) return send(res, 400, { error: 'missing file' });
     const abs = path.resolve(file);
     if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
+    // Approving an agent's tool call is a different authority from approving an
+    // artifact. A review gate must not be a place where the two get conflated.
+    if (formalReview(abs)) return send(res, 409, { error: FORMAL_REFUSAL });
     const sess = getSession(abs);
     const resolve = sess.permWaiters.get(body.requestId);
     if (resolve) {
@@ -722,6 +868,9 @@ async function handler(req, res) {
     if (!file) return send(res, 400, { error: 'missing file' });
     const abs = path.resolve(file);
     if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
+    // Remote tool approval turns the review window into an agent control
+    // surface. Not from inside an approval gate.
+    if (formalReview(abs)) return send(res, 409, { error: FORMAL_REFUSAL });
     const sess = getSession(abs);
     sess.remoteApprove = !!body.enabled;
     if (!sess.remoteApprove) {
