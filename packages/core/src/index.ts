@@ -20,6 +20,7 @@ export * from './workflows';
 export * from './application';
 export * from './migration';
 export * from './runs/PipelineSnapshot';
+export * from './runs/ArtifactReview';
 export * from './packs';
 export * from './validators';
 export * from './release';
