@@ -1,0 +1,1423 @@
+<title>Cofofo Workflow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap">
+<style>
+  :root {
+    --paper: #F0F2F1;
+    --surface: #FAFBFA;
+    --sunken: #E7EAE8;
+    --ink: #1A2320;
+    --ink-soft: #4C5A55;
+    --ink-faint: #7C8B85;
+    --line: #D7DDD9;
+    --line-strong: #B7C1BB;
+    --accent: #B9531F;
+    --accent-ink: #8A3D15;
+    --accent-tint: #F3E2D5;
+    --good: #3D7A52;
+    --good-tint: #E1EEE3;
+    --warn: #96731A;
+    --warn-tint: #F1E7CE;
+    --crit: #A93E3E;
+    --crit-tint: #F3E0DF;
+    --shadow: 0 1px 2px rgba(26,35,32,0.06), 0 8px 24px rgba(26,35,32,0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14201B;
+      --surface: #1A2721;
+      --sunken: #101A16;
+      --ink: #E9EDE9;
+      --ink-soft: #AAB8B0;
+      --ink-faint: #7C8B85;
+      --line: #2C3A34;
+      --line-strong: #3C4C44;
+      --accent: #E48A4E;
+      --accent-ink: #F0A870;
+      --accent-tint: #33261C;
+      --good: #6FBF89;
+      --good-tint: #1E3327;
+      --warn: #D6B25B;
+      --warn-tint: #392E17;
+      --crit: #E08484;
+      --crit-tint: #3A2222;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14201B;
+    --surface: #1A2721;
+    --sunken: #101A16;
+    --ink: #E9EDE9;
+    --ink-soft: #AAB8B0;
+    --ink-faint: #7C8B85;
+    --line: #2C3A34;
+    --line-strong: #3C4C44;
+    --accent: #E48A4E;
+    --accent-ink: #F0A870;
+    --accent-tint: #33261C;
+    --good: #6FBF89;
+    --good-tint: #1E3327;
+    --warn: #D6B25B;
+    --warn-tint: #392E17;
+    --crit: #E08484;
+    --crit-tint: #3A2222;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px rgba(0,0,0,0.35);
+  }
+
+  * { box-sizing: border-box; }
+  html { text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 780px; margin: 0 auto; padding: 4.5rem 1.75rem 6rem; }
+  @media (max-width: 640px) { .page { padding: 3rem 1.25rem 4rem; } }
+
+  h1, h2, h3 {
+    font-family: 'Fraunces', Georgia, serif;
+    text-wrap: balance;
+    color: var(--ink);
+    margin: 0;
+  }
+
+  a { color: var(--accent-ink); text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: currentColor; }
+
+  .mono { font-family: 'Space Mono', ui-monospace, SFMono-Regular, monospace; }
+
+  .cover-eyebrow {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 1rem;
+  }
+
+  h1.title {
+    font-size: clamp(2.1rem, 5vw, 2.9rem);
+    font-weight: 600;
+    font-optical-sizing: auto;
+    line-height: 1.08;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle {
+    margin: 1.1rem 0 0;
+    max-width: 58ch;
+    font-size: 1.1rem;
+    color: var(--ink-soft);
+    line-height: 1.6;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.6rem;
+    margin-top: 2.2rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .meta-item { display: flex; flex-direction: column; gap: 0.15rem; }
+
+  .meta-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .meta-value { font-size: 0.92rem; color: var(--ink); }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.2em 0.65em;
+    border-radius: 3px;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: var(--accent-tint);
+    color: var(--accent-ink);
+    width: fit-content;
+  }
+
+  section.block {
+    margin-top: 3.6rem;
+    padding-top: 3.6rem;
+    border-top: 1px solid var(--line);
+  }
+
+  .sec-head { display: flex; align-items: baseline; gap: 0.9rem; margin-bottom: 1.3rem; }
+
+  .sec-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+    flex-shrink: 0;
+  }
+
+  h2.sec-title { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.005em; }
+
+  h3.sub-title {
+    font-family: 'Public Sans', sans-serif;
+    font-size: 1.02rem;
+    font-weight: 700;
+    margin: 1.8rem 0 0.7rem;
+    color: var(--ink);
+  }
+
+  p { margin: 0 0 1rem; max-width: 68ch; }
+  p:last-child { margin-bottom: 0; }
+
+  ul, ol { margin: 0 0 1rem; padding-left: 1.3rem; max-width: 66ch; }
+  li { margin-bottom: 0.45rem; }
+  li:last-child { margin-bottom: 0; }
+
+  strong { font-weight: 700; color: var(--ink); }
+
+  code {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.86em;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    color: var(--accent-ink);
+  }
+
+  .callout {
+    display: flex;
+    gap: 0.9rem;
+    padding: 1.1rem 1.3rem;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    background: var(--surface);
+    margin: 1.4rem 0;
+    box-shadow: var(--shadow);
+  }
+  .callout p { margin: 0; max-width: none; }
+  .callout .callout-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .flow {
+    margin: 1.5rem 0 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--sunken);
+    padding: 1.3rem;
+    box-shadow: var(--shadow);
+  }
+
+  .lane + .lane { margin-top: 1rem; }
+
+  .lane-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .lane-name {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+
+  .lane-freq { font-size: 0.76rem; color: var(--ink-faint); white-space: nowrap; }
+
+  .lane-track {
+    display: flex;
+    align-items: stretch;
+    gap: 0.3rem;
+    overflow-x: auto;
+    padding-bottom: 0.3rem;
+  }
+
+  .node {
+    flex: 0 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    padding: 0.45rem 0.6rem;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+  }
+  .node.opt { border-style: dashed; color: var(--ink-faint); background: transparent; }
+  .node.canvas { border-color: var(--accent); color: var(--accent-ink); }
+  .node.auto { border-color: var(--good); color: var(--good); }
+
+  .arrow {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    color: var(--ink-faint);
+    font-size: 0.8rem;
+  }
+
+  .handoff {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 0.85rem 0;
+    padding: 0.55rem 0.75rem;
+    border: 1px dashed var(--line-strong);
+    border-radius: 5px;
+    background: var(--surface);
+  }
+  .handoff-tag {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--good);
+    background: var(--good-tint);
+    padding: 0.2em 0.5em;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .handoff-text { font-size: 0.8rem; color: var(--ink-soft); }
+
+  .flow-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.2rem;
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--line);
+    font-size: 0.76rem;
+    color: var(--ink-faint);
+  }
+  .legend-item { display: flex; align-items: center; gap: 0.35rem; }
+  .legend-swatch {
+    width: 16px; height: 10px;
+    border-radius: 2px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .legend-swatch.canvas { border-color: var(--accent); }
+  .legend-swatch.auto { border-color: var(--good); }
+  .legend-swatch.opt { border-style: dashed; background: transparent; }
+
+  .scope-grid {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 1.2rem 0 0.4rem;
+  }
+  .scope-row { display: contents; }
+  .scope-row > div {
+    padding: 0.85rem 1.1rem;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+  }
+  .scope-row:last-child > div { border-bottom: none; }
+  .scope-row .scope-desc { color: var(--ink-soft); font-size: 0.94rem; }
+  .scope-row .scope-tag { justify-content: flex-end; }
+
+  .chip {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.28em 0.6em;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .chip.decided { background: var(--good-tint); color: var(--good); }
+
+  .table-scroll {
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+
+  table.phases {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 660px;
+    font-size: 0.87rem;
+    background: var(--surface);
+  }
+  table.phases th {
+    text-align: left;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--line-strong);
+    background: var(--paper);
+  }
+  table.phases td {
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-soft);
+    vertical-align: top;
+  }
+  table.phases tr:last-child td { border-bottom: none; }
+  table.phases td.phase-id {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  table.phases td.gate { white-space: nowrap; }
+  table.phases td.layer-n {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--accent-ink);
+    white-space: nowrap;
+  }
+
+  .gate-tag {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 0.15em 0.55em;
+    border-radius: 3px;
+    background: var(--accent-tint);
+    color: var(--accent-ink);
+  }
+  .gate-tag.none { background: transparent; color: var(--ink-faint); padding-left: 0; }
+  .gate-tag.block { background: var(--crit-tint); color: var(--crit); }
+  .gate-tag.auto { background: var(--good-tint); color: var(--good); }
+
+  .src-tag {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.66rem;
+    padding: 0.15em 0.45em;
+    border-radius: 3px;
+    background: var(--good-tint);
+    color: var(--good);
+    white-space: nowrap;
+  }
+  .src-tag.generic { background: transparent; color: var(--ink-faint); padding-left: 0; }
+
+  .rules-doc {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 1.3rem 0;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .rules-doc-head {
+    padding: 0.7rem 1.1rem;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line-strong);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--ink);
+  }
+  .rules-row {
+    display: grid;
+    grid-template-columns: 12.5rem 1fr;
+    gap: 0.9rem;
+    padding: 0.7rem 1.1rem;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  .rules-row:last-child { border-bottom: none; }
+  .rules-row .rule-head {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.76rem;
+    color: var(--accent-ink);
+  }
+  .rules-row .rule-what { font-size: 0.88rem; color: var(--ink-soft); }
+  @media (max-width: 560px) { .rules-row { grid-template-columns: 1fr; gap: 0.2rem; } }
+
+  .enforce { display: flex; flex-direction: column; gap: 1.1rem; margin: 1.3rem 0; }
+  .enforce-item { display: grid; grid-template-columns: 1.7rem 1fr; gap: 0.85rem; }
+  .enforce-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--accent-ink);
+    background: var(--accent-tint);
+    border-radius: 3px;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .enforce-body strong { display: block; margin-bottom: 0.2rem; font-size: 0.96rem; }
+  .enforce-body p { margin: 0; font-size: 0.92rem; color: var(--ink-soft); max-width: 62ch; }
+
+  .dont-list { display: flex; flex-direction: column; gap: 0.8rem; margin: 1.2rem 0; }
+  .dont-item { display: grid; grid-template-columns: 1.1rem 1fr; gap: 0.7rem; align-items: baseline; }
+  .dont-mark { color: var(--crit); font-weight: 700; font-size: 0.95rem; text-align: center; }
+  .dont-item p { margin: 0; font-size: 0.93rem; color: var(--ink-soft); max-width: 62ch; }
+
+  .decision {
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    padding: 1.1rem 1.3rem;
+    margin: 1.3rem 0;
+    box-shadow: var(--shadow);
+  }
+  .decision-q {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 1.12rem;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 0.8rem;
+  }
+  .decision-fork { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+  @media (max-width: 560px) { .decision-fork { grid-template-columns: 1fr; } }
+  .fork-arm { border-left: 2px solid var(--line-strong); padding-left: 0.8rem; }
+  .fork-arm.primary { border-left-color: var(--accent); }
+  .fork-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+  .fork-arm.primary .fork-label { color: var(--accent-ink); }
+  .fork-arm p { margin: 0; font-size: 0.89rem; color: var(--ink-soft); max-width: none; }
+
+  .risk-list { display: flex; flex-direction: column; gap: 0.9rem; margin: 1.2rem 0; }
+  .risk-item { display: grid; grid-template-columns: 7px 1fr; gap: 0.9rem; }
+  .risk-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    margin-top: 0.5em;
+    background: var(--crit);
+    flex-shrink: 0;
+  }
+  .risk-dot.warn { background: var(--warn); }
+  .risk-body strong { display: block; margin-bottom: 0.15rem; font-size: 0.96rem; }
+  .risk-body p { margin: 0; font-size: 0.92rem; color: var(--ink-soft); max-width: 62ch; }
+
+  .ask {
+    margin-top: 3.6rem;
+    padding: 2rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .ask h2 { font-size: 1.35rem; font-weight: 600; margin-bottom: 0.9rem; }
+  .ask ol { padding-left: 1.4rem; }
+  .ask ol li { margin-bottom: 0.6rem; font-size: 0.98rem; }
+  .ask ol li:last-child { margin-bottom: 0; }
+  .ask ol li strong { color: var(--accent-ink); }
+
+  footer.doc-footer {
+    margin-top: 4rem;
+    padding-top: 1.6rem;
+    border-top: 1px solid var(--line);
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+  }
+  footer.doc-footer p { max-width: none; margin: 0 0 0.4rem; }
+  footer.doc-footer a { color: var(--ink-soft); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    a, .risk-dot { transition: color 0.15s ease, background-color 0.15s ease; }
+  }
+</style>
+
+<div class="page">
+
+  <p class="cover-eyebrow">Đề xuất workflow — công cụ kỹ thuật nội bộ</p>
+  <h1 class="title">Cofofo Workflow</h1>
+  <p class="subtitle">Một workflow hai tầng nhận biết stack, mang lại cho mọi dự án — mới hoặc đã có — cùng mức độ chặt chẽ mà iOS workflow đã chứng minh: kiến trúc được thiết lập, quy tắc được chốt và ràng buộc, gói agent/skill khớp đúng công nghệ, và mỗi bước đều bị kiểm chứng bằng máy chứ không tin lời agent tự khai.</p>
+
+  <div class="meta-row">
+    <div class="meta-item">
+      <span class="meta-label">Người soạn</span>
+      <span class="meta-value">Cong</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Ngày</span>
+      <span class="meta-value">28 tháng 8, 2026</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Trạng thái</span>
+      <span class="status-pill">Chờ duyệt</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">Repository</span>
+      <span class="meta-value mono">aidlc-custom</span>
+    </div>
+  </div>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2 class="sec-title">Lý do</h2>
+    </div>
+    <p>AIDLC đã chạy tốt một workflow: pipeline SDLC tổng quát (Plan → Design → Implement → Test) được xây cho công việc web/backend điển hình. AIDLC cũng có một workflow chuyên biệt hóa có chủ đích — <strong>iOS workflow</strong> — đã chứng minh một pattern hai tầng: pipeline <em>nền tảng</em> nghiên cứu một repository một lần rồi publish kiến trúc và quy tắc của nó, tiếp theo là pipeline <em>tính năng</em> chạy theo từng epic dựa trên nền tảng đã publish đó.</p>
+    <p>Pattern đó chưa từng được tổng quát hóa ra ngoài Swift. Mỗi stack mới muốn có cùng mức độ chặt chẽ này hôm nay đồng nghĩa với việc viết tay toàn bộ một workflow song song — agent, skill, validator riêng — theo đúng cách iOS workflow đã được xây. Điều đó không scale được cho "mọi dự án, mọi stack".</p>
+    <p>Riêng biệt, <a href="https://github.com/affaan-m/ECC" target="_blank" rel="noopener">ECC</a> duy trì một catalog lớn, cấp phép MIT, phù hợp chính xác để lấp khoảng trống đó: 68 agent chuyên biệt và 286 skill trải khắp hầu hết ngôn ngữ/framework phổ biến, cộng thêm một công cụ review qua trình duyệt ("Plan Canvas") mà chúng ta đang tích hợp riêng cho gate duyệt Markdown. Đề xuất này là về việc khai thác catalog đó một cách có hệ thống, thay vì viết tay từng workflow một.</p>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2 class="sec-title">Đề xuất</h2>
+    </div>
+    <p>Thêm một workflow built-in mới gồm <strong>hai pipeline</strong>: một pipeline nền tảng dựng nền cho cả dự án, và một pipeline tính năng chạy cho mọi epic sau đó. Nền tảng không phải dựng một lần rồi bỏ đó — nó có bốn đường vào để theo kịp khi stack, kiến trúc hay quy tắc thay đổi (mục 05). Pipeline tính năng có nhiều <em>biến thể</em> — một đường làm tính năng và một đường sửa bug — cắt ra từ cùng bộ phase, không phải workflow riêng.</p>
+
+    <div class="flow">
+      <div class="lane">
+        <div class="lane-head">
+          <span class="lane-name">cofofo-foundation</span>
+          <span class="lane-freq">dựng nền · 4 đường vào</span>
+        </div>
+        <div class="lane-track">
+          <span class="node opt canvas">design-architecture</span>
+          <span class="arrow">→</span>
+          <span class="node opt">scaffold-project</span>
+          <span class="arrow">→</span>
+          <span class="node auto">scan-stack</span>
+          <span class="arrow">→</span>
+          <span class="node canvas">define-rules</span>
+          <span class="arrow">→</span>
+          <span class="node">map-system</span>
+          <span class="arrow">→</span>
+          <span class="node canvas">select-ecc-catalog</span>
+          <span class="arrow">→</span>
+          <span class="node auto">install-ecc-assets</span>
+          <span class="arrow">→</span>
+          <span class="node canvas">publish-context</span>
+        </div>
+      </div>
+
+      <div class="handoff">
+        <span class="handoff-tag">Cổng bàn giao</span>
+        <span class="handoff-text"><span class="mono">CONTEXT-MANIFEST.json</span> — chưa publish thì không epic nào bắt đầu được</span>
+      </div>
+
+      <div class="lane">
+        <div class="lane-head">
+          <span class="lane-name">cofofo-feature · tính năng</span>
+          <span class="lane-freq">chạy lại cho mỗi epic</span>
+        </div>
+        <div class="lane-track">
+          <span class="node">requirement</span>
+          <span class="arrow">→</span>
+          <span class="node canvas">create-plan</span>
+          <span class="arrow">→</span>
+          <span class="node canvas">implement</span>
+          <span class="arrow">→</span>
+          <span class="node">test</span>
+        </div>
+      </div>
+
+      <div class="lane">
+        <div class="lane-head">
+          <span class="lane-name">cofofo-feature · sửa bug</span>
+          <span class="lane-freq">chạy lại cho mỗi bug</span>
+        </div>
+        <div class="lane-track">
+          <span class="node canvas">diagnose</span>
+          <span class="arrow">→</span>
+          <span class="node auto">reproduce</span>
+          <span class="arrow">→</span>
+          <span class="node canvas">implement</span>
+          <span class="arrow">→</span>
+          <span class="node">test</span>
+        </div>
+      </div>
+
+      <div class="flow-legend">
+        <span class="legend-item"><span class="legend-swatch canvas"></span> Cổng Canvas — không chế độ nào vượt được</span>
+        <span class="legend-item"><span class="legend-swatch"></span> Provider review</span>
+        <span class="legend-item"><span class="legend-swatch auto"></span> Chỉ cổng máy, không cổng người</span>
+        <span class="legend-item"><span class="legend-swatch opt"></span> Nét đứt: chỉ dự án mới</span>
+      </div>
+    </div>
+
+    <p>Pipeline nền tảng làm năm việc: thiết lập kiến trúc, phát hiện stack, <strong>chốt bộ quy tắc bắt buộc</strong>, khớp và cài gói agent/skill đúng công nghệ, rồi publish tất cả thành một nền tảng duy nhất. Pipeline tính năng sau đó chạy cho từng epic hoặc từng bug, dùng đúng gói đã cài và bị chặn bởi đúng bộ quy tắc đã chốt.</p>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2 class="sec-title">Phạm vi, đã chốt</h2>
+    </div>
+    <p>Ba câu hỏi phạm vi đã nảy sinh trong lúc định hình việc này, và đã được chốt:</p>
+    <div class="scope-grid">
+      <div class="scope-row">
+        <div class="scope-desc">Workflow tổng quát, không phải phần mở rộng riêng cho iOS — tái dùng <em>hình dạng</em> hai tầng, hoạt động với bất kỳ stack nào ECC có hỗ trợ.</div>
+        <div class="scope-tag"><span class="chip decided">Đã chốt</span></div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-desc">Xử lý cả dự án hoàn toàn mới (kiến trúc trước) lẫn dự án đã có (bỏ qua thẳng bước phát hiện stack).</div>
+        <div class="scope-tag"><span class="chip decided">Đã chốt</span></div>
+      </div>
+      <div class="scope-row">
+        <div class="scope-desc">"Cải thiện harness capabilities" nghĩa là tiếp nhận pattern hook của ECC, cấu trúc soạn skill/agent của ECC, và quy ước validator/CI của ECC — không phải toàn bộ runtime hay catalog nội dung của ECC.</div>
+        <div class="scope-tag"><span class="chip decided">Đã chốt</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2 class="sec-title">Vấn đề tương thích — và cần bao nhiêu việc ở tầng core</h2>
+    </div>
+    <p>Một phiên bản đề xuất ban đầu giả định rằng công việc feature theo từng epic có thể dùng chung pipeline tổng quát hiện có của AIDLC, nguyên trạng. Điều đó không đúng: một dự án Android được giao một skill web sẽ bị hướng dẫn chạy <code>npm test</code> trên một dự án Gradle — không phải lỗi tinh vi, mà là một hướng dẫn sai hoàn toàn. Tệ hơn, bước kiểm tra bằng chứng build tự động của AIDLC (script chứng minh một implementation thực sự build được, trước khi con người review) sẽ cố chạy hoàn toàn sai công cụ build.</p>
+    <p>Kiểm tra codebase xác nhận vì sao: cơ chế duy nhất hiện có của AIDLC để "đổi agent/skill theo từng phase" đã biến đổi theo độ chặt tài liệu (Agile-lite so với ISO/IEC/IEEE), nhưng mọi biến thể đó vẫn trỏ phase Implement về đúng một nội dung developer tổng quát — <strong>hiện tại không có gì trong AIDLC chọn nội dung agent, skill, hay validator theo technology stack.</strong> iOS workflow lách qua vấn đề này bằng cách tồn tại như một workflow hoàn toàn tách biệt, được viết tay.</p>
+    <p>Một pipeline definition trong AIDLC chỉ là dữ liệu khai báo thuần — một agent là một id kèm danh sách skill id, và một bước trong pipeline gọi tên một agent bằng id. Không có gì bắt buộc dữ liệu đó phải đến từ một danh sách built-in cố định. Việc của pipeline nền tảng là <strong>soạn ra dữ liệu đó lúc cài đặt</strong> — một pipeline tính năng nhất quán, ráp từ đúng bundle theo stack.</p>
+
+    <div class="callout">
+      <div>
+        <span class="callout-label">Cần bao nhiêu việc ở tầng core — nói chính xác</span>
+        <p>Không cần một <strong>mô hình điều phối mới</strong>: state machine, gate, snapshot và cơ chế recipe đều dùng lại nguyên vẹn. Nhưng <strong>vẫn cần một installer/migration API thuộc core</strong> — cài động agent/skill/validator không phải chỉ là chép file vào thư mục. Phiên bản trước của tài liệu này kết luận "không cần đụng runtime"; kết luận đó quá mạnh và đã được sửa.</p>
+      </div>
+    </div>
+
+    <p>Bảy việc phải làm ở tầng core, cần tính vào ước lượng công sức:</p>
+    <ul>
+      <li>Ghi <code>.aidlc/workspace.yaml</code> theo kiểu nguyên tử — hỏng giữa chừng không được để lại workspace nửa vời.</li>
+      <li>Kiểm tra cross-reference trước khi thay thế: mọi agent id, skill id, validator path phải resolve được.</li>
+      <li>Merge mà không phá tuỳ chỉnh người dùng đã viết tay.</li>
+      <li>Version manifest cho bundle đã cài, kèm backup và đường rollback.</li>
+      <li>Đồng bộ command cho từng provider — cơ chế sinh command đa provider đã có sẵn, cần mở rộng.</li>
+      <li>Xử lý run đang chạy: snapshot pipeline phải bảo vệ chúng khỏi bị đổi giữa chừng.</li>
+      <li>Xác minh hash của asset đã cài, để phát hiện file bị sửa ngoài luồng.</li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2 class="sec-title">Pipeline nền tảng — và bốn đường vào</h2>
+    </div>
+    <p>Gọi đây là pipeline "chạy một lần" là nói chưa đủ. Stack đổi, dependency nâng cấp, kiến trúc tiến hoá, quy tắc học thêm điều mới — nền tảng phải theo kịp, nếu không nó thành tài liệu chết. iOS workflow đã thừa nhận điều này bằng một recipe làm mới ngữ cảnh riêng. Cofofo cần bốn đường vào:</p>
+    <div class="table-scroll">
+      <table class="phases">
+        <thead>
+          <tr><th>Đường chạy</th><th>Dùng khi nào</th><th>Chạy những phase nào</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="phase-id">bootstrap</td>
+            <td>Lần đầu — chưa có nền tảng nào</td>
+            <td>Toàn bộ pipeline</td>
+          </tr>
+          <tr>
+            <td class="phase-id">refresh-context</td>
+            <td>Code đã trôi xa bản đồ kiến trúc</td>
+            <td><code>scan-stack</code> → <code>map-system</code> → <code>publish-context</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">update-rules</td>
+            <td>Bug lặp lại thành quy tắc mới, hoặc chuẩn thay đổi</td>
+            <td><code>define-rules</code> → <code>publish-context</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">repin-bundle</td>
+            <td>Nâng snapshot ECC lên commit mới</td>
+            <td><code>select-ecc-catalog</code> → <code>install-ecc-assets</code> → <code>publish-context</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Cả bốn đều kết thúc ở <code>publish-context</code> — nơi manifest được ghi lại. Nghĩa là mọi thay đổi nền tảng đều tạo ra một manifest mới, và epic đang chạy biết được nền tảng dưới chân mình vừa đổi.</p>
+    <div class="table-scroll">
+      <table class="phases">
+        <thead>
+          <tr><th>Phase</th><th>Chạy khi nào</th><th>Sinh ra</th><th>Gate</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="phase-id">design-architecture</td>
+            <td>Chỉ dự án mới</td>
+            <td><code>ARCHITECTURE.md</code></td>
+            <td class="gate"><span class="gate-tag">Canvas</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">scaffold-project</td>
+            <td>Chỉ dự án mới</td>
+            <td>Bộ khung code ban đầu</td>
+            <td class="gate"><span class="gate-tag none">—</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">scan-stack</td>
+            <td>Luôn chạy</td>
+            <td><code>STACK-PROFILE.json</code> (nguồn chuẩn) + <code>STACK-PROFILE.md</code></td>
+            <td class="gate"><span class="gate-tag auto">Evidence + confidence</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">define-rules</td>
+            <td>Luôn chạy</td>
+            <td><code>PROJECT-RULES.json</code> (nguồn chuẩn) + <code>PROJECT-RULES.md</code> + <code>RULE-DRIFT.md</code></td>
+            <td class="gate"><span class="gate-tag">Canvas</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">map-system</td>
+            <td>Luôn chạy</td>
+            <td><code>ARCHITECTURE-MAP.md</code></td>
+            <td class="gate"><span class="gate-tag">Provider review</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">select-ecc-catalog</td>
+            <td>Luôn chạy</td>
+            <td><code>ECC-CATALOG-SELECTION.md</code></td>
+            <td class="gate"><span class="gate-tag">Canvas</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">install-ecc-assets</td>
+            <td>Luôn chạy</td>
+            <td>Pipeline tính năng đã soạn + ECC agent/skill dạng văn bản + validator/hook do AIDLC sở hữu</td>
+            <td class="gate"><span class="gate-tag none">Tự động</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">publish-context</td>
+            <td>Luôn chạy</td>
+            <td><code>CONTEXT-MANIFEST.json</code> + khối chỉ dẫn cho từng provider đang bật</td>
+            <td class="gate"><span class="gate-tag auto">Hash + freshness</span> <span class="gate-tag">Canvas</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub-title">Stack profile phải có bằng chứng máy</h3>
+    <p><code>scan-stack</code> quyết định bundle nào được cài, nên một bản mô tả Markdown đơn thuần không đủ làm nguồn sự thật. <code>STACK-PROFILE.json</code> phải ghi stack, version, package manager, build system, các file bằng chứng và confidence; <code>STACK-PROFILE.md</code> chỉ là bản render cho người đọc.</p>
+    <p>Auto-validator kiểm tra mọi đường dẫn bằng chứng tồn tại, version khớp nội dung trên đĩa, và kết quả chỉ có đúng một stack được hỗ trợ. Nếu phát hiện nhiều stack, nhiều package manager, hoặc confidence dưới ngưỡng, phase phải fail closed và chỉ rõ rằng repository sẽ rơi về pipeline SDLC tổng quát — không được đoán một bundle để cài.</p>
+
+    <h3 class="sub-title">Epic đang chạy thì sao khi nền tảng đổi</h3>
+    <p>Đây là chỗ dễ hỏng âm thầm nhất, và phải chọn một hành vi dứt khoát. Cơ chế snapshot hiện có chỉ đóng băng <em>định nghĩa pipeline</em> — nó không đóng băng bộ quy tắc, bản đồ kiến trúc hay manifest. Nếu <code>repin-bundle</code> chạy giữa lúc một epic đang dở, phase sau có thể đọc policy mới trong khi phase trước đã làm theo policy cũ.</p>
+    <div class="callout">
+      <div>
+        <span class="callout-label">Semantics đề xuất — fail closed</span>
+        <p>Ghim <code>foundationRevision</code> và hash manifest vào state của run ngay khi epic bắt đầu. Nếu nền tảng đổi giữa epic, phase tiếp theo <strong>không tự chạy tiếp</strong>. Trong MVP, run bắt buộc rebase lên nền tảng mới và chạy lại các phase đã hoàn thành dưới policy mới. Không cho phép "hoàn thành trên nền tảng cũ" chỉ dựa vào một hash, vì các file policy và kiến trúc cũ có thể đã bị ghi đè. Khả năng tiếp tục trên foundation cũ chỉ được thêm sau này nếu hệ thống lưu được một snapshot nội dung bất biến, content-addressed.</p>
+      </div>
+    </div>
+    <p>Technical plan phải thiết kế đường rebase, các trường mới trong RunState và cổng so sánh revision/hash trước mỗi phase. Approved history vẫn được giữ để audit, nhưng kết quả làm việc phải được kiểm lại dưới foundation mới.</p>
+
+    <h3 class="sub-title">Hai loại cổng review, phân biệt rõ</h3>
+    <p>Bản trước dùng lẫn "Canvas" và "Human review" mà không nói khác nhau ở đâu. Từ bản này hai loại review được tách bạch:</p>
+    <div class="table-scroll">
+      <table class="phases">
+        <thead>
+          <tr><th>Loại cổng</th><th>Tính chất</th><th>Dùng ở phase nào</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="phase-id">Canvas</td>
+            <td>Gắn với hash nội dung; chỉ người nhận diện được mới đóng được; <strong>không</strong> chế độ tự động hay provider nào vượt qua được</td>
+            <td>Mọi artifact quyết định hướng đi: <code>design-architecture</code>, <code>define-rules</code>, <code>select-ecc-catalog</code>, <code>publish-context</code>, <code>create-plan</code>, <code>diagnose</code>, <code>implement</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">Provider review</td>
+            <td>Cổng review thông thường; chế độ provider-managed được phép tự xử lý, không đại diện cho human approval</td>
+            <td>Bước mang tính thông tin, không cam kết dự án vào hướng nào: <code>map-system</code>, <code>test</code>. <strong>Có leo thang:</strong> <code>test</code> chuyển sang Canvas nếu full-suite không chạy đủ hoặc cần waiver</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Phân loại này không phải chuyện trình bày. Chế độ provider-managed hiện tự xử lý được mọi cổng Provider review, nên bất cứ artifact nào cần con người thật duyệt <strong>phải</strong> nằm ở loại Canvas — nếu không, nó bị vượt qua trong im lặng.</p>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">06</span>
+      <h2 class="sec-title">Bộ quy tắc — và cách nó thực sự ràng buộc</h2>
+    </div>
+    <p>Đây là phần quyết định việc dự án có bị chệch hướng hay không. Một file quy tắc nằm im trong thư mục docs không ngăn được gì cả — policy phải được đưa vào context của từng phase và được validator độc lập thi hành tại cổng. iOS workflow đã chứng minh tiền lệ publish context; đề xuất này tổng quát hóa và bổ sung enforcement bằng máy.</p>
+
+    <h3 class="sub-title">Nguồn chuẩn là JSON, không phải văn xuôi</h3>
+    <p>Một quy tắc viết bằng văn xuôi không thể biến thành phép kiểm xác định. Vì vậy <code>define-rules</code> sinh ra <strong>hai</strong> artifact: một file JSON là nguồn chuẩn cho máy đọc, và một file Markdown là bản giải thích cho người. Markdown được sinh <em>từ</em> JSON, mang marker <code>generated</code> và hash của JSON nguồn. Gate từ chối nếu hash không khớp; chỉnh policy phải sửa JSON rồi sinh lại Markdown, không sửa bản render trực tiếp.</p>
+
+    <div class="table-scroll">
+      <table class="phases">
+        <thead>
+          <tr><th>Trường</th><th>Nghĩa</th><th>Ví dụ</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="phase-id">ruleId</td>
+            <td>Định danh ổn định, trích dẫn được trong review và trong báo lỗi</td>
+            <td><code>INV-3</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">kind</td>
+            <td>Loại kiểm tra — quyết định thuật toán nào chạy</td>
+            <td><code>layering</code> · <code>path</code> · <code>naming</code> · <code>dependency</code> · <code>commandId</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">scope</td>
+            <td>Glob giới hạn phạm vi áp dụng</td>
+            <td><code>src/domain/**</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">matcher</td>
+            <td>Điều kiện khai báo, máy đối chiếu được. <strong>Không bao giờ chứa shell command</strong></td>
+            <td><code>forbidImport: ["src/ui/**"]</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">commandId</td>
+            <td>Với rule cần chạy lệnh: <strong>chỉ tham chiếu tới allow-list</strong> trong bundle đã duyệt và ghim hash — không phải lệnh tự do</td>
+            <td><code>test.unit</code> · <code>lint.project</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">severity</td>
+            <td><code>block</code> chặn gate · <code>warn</code> chỉ ghi nhận</td>
+            <td><code>block</code></td>
+          </tr>
+          <tr>
+            <td class="phase-id">exceptions</td>
+            <td>Miễn trừ có ghi lý do và ngày rà lại — không phải cửa sau vô thời hạn</td>
+            <td>đường dẫn + lý do + hạn</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <div>
+        <span class="callout-label">Ranh giới quan trọng: ai thi hành cái gì</span>
+        <p>Validator của dự án chỉ kiểm được <strong>nội dung code</strong> — phân tầng, đặt tên, đường dẫn, dependency. Những quy tắc về <em>chính quy trình</em> — "không được bỏ qua gate", "không được tự duyệt" — thì <strong>core phải thi hành</strong>. Không thể giao cho một validator do dự án cài đặt tự canh chính nó; validator chạy sau khi step đã làm xong, và bản thân nó nằm trong phạm vi mà kẻ muốn lách có thể sửa.</p>
+      </div>
+    </div>
+
+    <h3 class="sub-title">Bản Markdown cho người đọc</h3>
+    <div class="rules-doc">
+      <div class="rules-doc-head">PROJECT-RULES.md — sinh từ PROJECT-RULES.json</div>
+      <div class="rules-row">
+        <span class="rule-head">## Canonical Layout</span>
+        <span class="rule-what">Cây thư mục chuẩn — mỗi node kèm "cái gì được phép nằm ở đây"</span>
+      </div>
+      <div class="rules-row">
+        <span class="rule-head">## Layering Rules</span>
+        <span class="rule-what">Layer nào được import layer nào, và <strong>cấm</strong> chiều ngược lại</span>
+      </div>
+      <div class="rules-row">
+        <span class="rule-head">## Naming Rules</span>
+        <span class="rule-what">Bảng: Loại · Pattern · Đúng · Sai · <strong>Tỷ lệ tuân thủ (n/tổng)</strong></span>
+      </div>
+      <div class="rules-row">
+        <span class="rule-head">## Invariants</span>
+        <span class="rule-what">Các điều bất biến, đánh số <code>INV-1</code>, <code>INV-2</code>… mỗi dòng một điều, để trích dẫn được trong review</span>
+      </div>
+      <div class="rules-row">
+        <span class="rule-head">## Forbidden Actions</span>
+        <span class="rule-what">Điều agent tuyệt đối không được tự làm: thêm dependency mới, đổi public API, bỏ qua gate</span>
+      </div>
+      <div class="rules-row">
+        <span class="rule-head">## Proposed Changes</span>
+        <span class="rule-what">Đề xuất đổi quy tắc, kèm chi phí thực (số file phải sửa)</span>
+      </div>
+    </div>
+
+    <h3 class="sub-title">Ba cơ chế khiến quy tắc có hiệu lực</h3>
+    <div class="enforce">
+      <div class="enforce-item">
+        <span class="enforce-num">1</span>
+        <div class="enforce-body">
+          <strong>Policy tới được mọi provider, không chỉ Claude</strong>
+          <p><code>PROJECT-RULES.json</code> là nguồn chuẩn duy nhất, không thuộc provider nào. Từ nó, <code>publish-context</code> sinh ra khối chỉ dẫn cho <em>từng</em> provider mà workspace đang bật — AIDLC hỗ trợ Claude, Cursor, Codex và OpenCode, mỗi provider có thư mục command và định dạng riêng, và cơ chế sinh command đa provider đã có sẵn để mở rộng. Nội dung người viết tay bên ngoài khối được quản lý không bị đụng tới một byte.</p>
+          <p style="margin-top:0.5rem;">Khai báo policy là input bắt buộc thì <strong>chưa</strong> đủ để gọi là ràng buộc: cổng đầu vào hiện chỉ kiểm tra file có tồn tại, nó không chứng minh agent đã mở hay đã dùng nội dung. Ba biện pháp thật, không cái nào tin vào lời agent:</p>
+        <ul style="margin-top:0.5rem;">
+          <li>Command của phase <strong>bắt buộc chèn đường dẫn và hash policy</strong> vào ngay trong nội dung command — agent không thể chạy mà không nhìn thấy nó.</li>
+          <li>Validator của <code>create-plan</code> kiểm tra plan có <strong>tham chiếu đúng các <code>ruleId</code> liên quan</strong> tới phạm vi thay đổi. Không dẫn rule nào trong khi diff dự kiến chạm vào vùng có rule <code>block</code> thì reject.</li>
+          <li>Validator của <code>implement</code> <strong>tự kiểm diff</strong> từ đầu, độc lập với việc agent có đọc policy hay không. Đây là biện pháp duy nhất không phụ thuộc vào hành vi của agent.</li>
+        </ul>
+        </div>
+      </div>
+      <div class="enforce-item">
+        <span class="enforce-num">2</span>
+        <div class="enforce-body">
+          <strong>Đếm trước, kết luận sau</strong>
+          <p>Mỗi quy tắc phải kèm tỷ lệ tuân thủ thực tế. Quy tắc mà đa số code hiện tại đang vi phạm được ghi vào <code>## Proposed Changes</code> như một <em>đề xuất</em> — không được khẳng định như thể đã là chuẩn. <code>RULE-DRIFT.md</code> liệt kê từng vi phạm kèm đường dẫn thật; không có đường dẫn thì không tính là vi phạm.</p>
+        </div>
+      </div>
+      <div class="enforce-item">
+        <span class="enforce-num">3</span>
+        <div class="enforce-body">
+          <strong>Chặn tại cổng, trước khi tốn thời gian người</strong>
+          <p>Bước kiểm tra tự động của phase <code>implement</code> chạy lệnh build của stack <em>và</em> đối chiếu diff với <code>PROJECT-RULES.json</code> — đọc từ JSON, không phải từ văn xuôi. Mỗi rule có <code>kind</code> riêng nên máy biết chạy thuật toán nào: <code>layering</code> soi đồ thị import, <code>path</code> và <code>naming</code> soi đường dẫn, <code>dependency</code> soi manifest package, <code>commandId</code> chạy một lệnh trong allow-list đã duyệt. Rule <code>severity: block</code> bị vi phạm thì chặn ngay tại đó, báo kèm <code>ruleId</code> cụ thể — trước khi bất kỳ ai phải mở ra review.</p>
+          <p style="margin-top:0.5rem;">Lưu ý một cạm bẫy tự tạo: nếu để JSON chứa shell command tự do thì <code>PROJECT-RULES.json</code> trở thành <em>executable configuration</em> — đúng loại rủi ro thực thi code nêu ở mục 14, chỉ đổi vỏ. Vì vậy trường <code>commandId</code> chỉ được tham chiếu tới allow-list nằm trong bundle đã duyệt và ghim hash; agent không bao giờ tự soạn được lệnh mới.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div>
+        <span class="callout-label">Quy tắc là quyết định của người</span>
+        <p>Phase <code>define-rules</code> có gate Plan Canvas vì bộ quy tắc là cam kết dài hạn của dự án, không phải thứ agent tự chốt. Agent chỉ đề xuất dựa trên hiện trạng đếm được; người duyệt mới là người quyết định đâu là chuẩn.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">07</span>
+      <h2 class="sec-title">Pipeline tính năng — chạy mỗi epic</h2>
+    </div>
+    <p>Đây là pipeline được <code>install-ecc-assets</code> soạn ra và ghi vào workspace. Khung phase là cố định; agent và skill dạng văn bản đến từ tập con ECC đã khớp với stack, còn validator và hook tương ứng do AIDLC tự viết, tự test và sở hữu. Không có executable asset nào được lấy từ ECC trong MVP.</p>
+    <div class="table-scroll">
+      <table class="phases">
+        <thead>
+          <tr><th>Phase</th><th>Nội dung từ đâu</th><th>Sinh ra</th><th>Gate</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="phase-id">requirement</td>
+            <td><span class="src-tag generic">Chung</span></td>
+            <td><code>REQUIREMENT.md</code></td>
+            <td class="gate"><span class="gate-tag block">Cần CONTEXT-MANIFEST</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">create-plan</td>
+            <td><span class="src-tag generic">Chung</span></td>
+            <td><code>TASK-PLAN.md</code></td>
+            <td class="gate"><span class="gate-tag">Canvas</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">implement</td>
+            <td><span class="src-tag">Bundle theo stack</span></td>
+            <td>Code + <code>IMPLEMENT-SUMMARY.md</code></td>
+            <td class="gate"><span class="gate-tag auto">Build + quy tắc</span> <span class="gate-tag">Canvas</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">test</td>
+            <td><span class="src-tag">Bundle theo stack</span></td>
+            <td><code>TEST-REPORT.md</code></td>
+            <td class="gate"><span class="gate-tag auto">Full-suite evidence</span> <span class="gate-tag">Provider review</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Hai điều đáng chú ý ở bảng này. Thứ nhất, <code>requirement</code> khai báo phụ thuộc vào <code>CONTEXT-MANIFEST.json</code> — đây là cổng chặn giữa hai pipeline: chưa có nền tảng thì không epic nào khởi động được, đúng cách iOS workflow đang làm hôm nay. Thứ hai, <code>create-plan</code> khai báo <code>PROJECT-RULES.json</code> và <code>ARCHITECTURE-MAP.md</code> là input bắt buộc — quy tắc tham gia từ lúc thiết kế, không chỉ lúc kiểm tra cuối. Mọi phase khác cũng vậy, theo cơ chế ở mục 06.</p>
+    <p>Một số stack cần thêm phase riêng — ví dụ mobile cần một bước chốt số đo UI trước khi viết code giao diện, đúng như <code>ui-spec</code> trong iOS workflow. Những phase như vậy đến kèm bundle của stack đó, không phải nhồi vào khung chung.</p>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">08</span>
+      <h2 class="sec-title">Khi có bug</h2>
+    </div>
+    <p>Bug không cần workflow riêng. AIDLC có sẵn cơ chế <em>recipe</em> — cắt một tập con phase theo thứ tự từ chính pipeline đó rồi tự nối lại các phụ thuộc. SDLC workflow hiện đã có recipe <code>bugfix</code>, iOS workflow đã có phase <code>fix-bug</code> chuyên tìm nguyên nhân gốc trước khi chạm code. Đề xuất này dùng đúng cơ chế đó, thêm một bước tái hiện bắt buộc.</p>
+
+    <div class="table-scroll">
+      <table class="phases">
+        <thead>
+          <tr><th>Phase</th><th>Việc phải làm</th><th>Sinh ra</th><th>Gate</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="phase-id">diagnose</td>
+            <td>Tìm nguyên nhân gốc <em>trước khi</em> sửa dòng code nào</td>
+            <td><code>ROOT-CAUSE.md</code></td>
+            <td class="gate"><span class="gate-tag">Canvas</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">reproduce</td>
+            <td>Viết test tái hiện bug — test phải chạy và <strong>thất bại đúng kiểu</strong></td>
+            <td>Test mới + bằng chứng thất bại</td>
+            <td class="gate"><span class="gate-tag auto">Failure oracle</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">implement</td>
+            <td>Sửa cho tới khi test đó xanh, không phá chỗ khác</td>
+            <td>Code + <code>IMPLEMENT-SUMMARY.md</code></td>
+            <td class="gate"><span class="gate-tag auto">Build + test + quy tắc</span> <span class="gate-tag">Canvas</span></td>
+          </tr>
+          <tr>
+            <td class="phase-id">test</td>
+            <td>Chạy toàn bộ suite, xác nhận không hồi quy chỗ nào</td>
+            <td><code>TEST-REPORT.md</code></td>
+            <td class="gate"><span class="gate-tag auto">Full-suite evidence</span> <span class="gate-tag">Provider review</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub-title">Ba điều khiến bug đã sửa không quay lại</h3>
+    <div class="enforce">
+      <div class="enforce-item">
+        <span class="enforce-num">1</span>
+        <div class="enforce-body">
+          <strong>Test tái hiện phải thất bại đúng kiểu</strong>
+          <p>"Mã thoát khác 0" là điều kiện quá lỏng: một test đỏ vì sai cú pháp, thiếu import hay không compile được vẫn thoả, mà chẳng tái hiện gì. Cổng này cần một <strong>failure oracle</strong> thật, gồm bốn thành phần: định danh test cụ thể, assertion hoặc chuỗi lỗi mong đợi, xác nhận chuỗi đó khớp mô tả trong <code>ROOT-CAUSE.md</code>, và <strong>loại trừ</strong> các thất bại do compile, import hoặc syntax. Một agent viết test luôn xanh, hoặc chỉ ghi "tôi đã tái hiện được" vào Markdown, không qua được.</p>
+          <p style="margin-top:0.5rem;"><strong>Đường ngoại lệ, do người duyệt.</strong> Có bug không tái hiện ổn định được bằng test tự động: race condition, lỗi chỉ xảy ra trên production, phụ thuộc thiết bị, hoặc hành vi chập chờn. Bắt buộc phải có test đỏ trong những ca này sẽ đẩy người ta tới chỗ viết test giả. Vì vậy cần một đường miễn trừ tường minh: người duyệt ghi rõ vì sao không tái hiện được, chấp nhận bằng chứng thay thế (log, trace, dấu vết production), và bản miễn trừ đó được lưu vào evidence của run — không phải một ô tick lặng lẽ.</p>
+        </div>
+      </div>
+      <div class="enforce-item">
+        <span class="enforce-num">2</span>
+        <div class="enforce-body">
+          <strong>Test đó ở lại vĩnh viễn</strong>
+          <p>Nó vào thẳng test suite của dự án. Từ đó về sau, mọi phase <code>implement</code> — của mọi epic, mọi bug khác — đều chạy nó trong bước kiểm tra tự động. Bug quay lại đồng nghĩa gate đỏ ngay lập tức, không phụ thuộc vào việc có ai nhớ ra hay không.</p>
+        </div>
+      </div>
+      <div class="enforce-item">
+        <span class="enforce-num">3</span>
+        <div class="enforce-body">
+          <strong>Bug lặp lại được nâng thành quy tắc</strong>
+          <p>Nếu cùng một loại lỗi xuất hiện nhiều lần, đó không còn là bug lẻ mà là lỗ hổng trong quy tắc. Khi đó <code>PROJECT-RULES.json</code> được bổ sung một rule mới — có <code>kind</code> và <code>matcher</code> để máy kiểm được — qua đường <code>update-rules</code> ở mục 05 và cổng Canvas ở mục 06 — từ đó lỗi bị chặn ngay ở tầng thiết kế, không đợi tới tầng test. Bộ quy tắc vì vậy không phải thứ chốt một lần rồi bỏ đó; nó lớn lên theo những gì dự án học được.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">09</span>
+      <h2 class="sec-title">Người vận hành làm gì khi có bug</h2>
+    </div>
+    <p>Mục 08 mô tả hệ thống làm gì. Mục này là việc của người — cụ thể, theo thứ tự, và nói rõ chỗ nào người <em>không</em> phải làm gì cả.</p>
+
+    <h3 class="sub-title">Quyết định đầu tiên, và quan trọng nhất</h3>
+    <div class="decision">
+      <p class="decision-q">Đây là bug, hay là thiếu tính năng?</p>
+      <div class="decision-fork">
+        <div class="fork-arm primary">
+          <span class="fork-label">Bug</span>
+          <p>Thứ đã được xây nhưng chạy sai so với đặc tả đã duyệt. → Khởi động run mới với recipe <code>bugfix</code>, đưa bug report vào làm ngữ cảnh.</p>
+        </div>
+        <div class="fork-arm">
+          <span class="fork-label">Thiếu tính năng</span>
+          <p>Thứ chưa từng được đặc tả. → Đây là epic mới, chạy đường tính năng đầy đủ ở mục 07.</p>
+        </div>
+      </div>
+    </div>
+    <p>Hệ thống không tự phân biệt được điều này. Chọn sai ngay từ đầu sẽ hỏng cả run — chạy <code>bugfix</code> cho một yêu cầu chưa có đặc tả sẽ tạo ra một bản vá mà không ai duyệt phạm vi của nó.</p>
+
+    <h3 class="sub-title">Việc của người ở từng cổng</h3>
+    <div class="table-scroll">
+      <table class="phases">
+        <thead>
+          <tr><th>Bước</th><th>Người làm gì</th><th>Câu hỏi cần trả lời</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="phase-id">diagnose</td>
+            <td><strong>Duyệt trên Canvas</strong> — chỗ người có giá trị nhất</td>
+            <td>Đây có đúng là nguyên nhân gốc, hay chỉ là triệu chứng?</td>
+          </tr>
+          <tr>
+            <td class="phase-id">reproduce</td>
+            <td><span class="gate-tag auto">Không làm gì</span> Cổng máy kiểm</td>
+            <td>— chỉ nhìn tới nếu nó kẹt</td>
+          </tr>
+          <tr>
+            <td class="phase-id">implement</td>
+            <td>Máy kiểm build + test + quy tắc trước; người chỉ duyệt thứ đã qua máy</td>
+            <td>Bản sửa có khớp nguyên nhân gốc đã duyệt? Diff có phình ra ngoài phạm vi bug?</td>
+          </tr>
+          <tr>
+            <td class="phase-id">test</td>
+            <td>Duyệt báo cáo suite đầy đủ</td>
+            <td>Có chỗ nào khác vỡ không?</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <div>
+        <span class="callout-label">Dấu hiệu phải từ chối ở bước diagnose</span>
+        <p>Phân tích kiểu <em>"API trả về null nên tôi thêm kiểm tra null"</em> là mô tả triệu chứng, không phải nguyên nhân — câu hỏi <em>tại sao API trả null</em> vẫn chưa được trả lời. Bấm Request changes và nêu rõ điều đó. Duyệt qua ở bước này là cách chắc chắn nhất để bug quay lại dưới một hình dạng khác.</p>
+      </div>
+    </div>
+
+    <p>Ở <code>implement</code>, việc của người nhẹ hơn hẳn vì máy đã lọc trước: build hỏng, test đỏ, hay vi phạm quy tắc phân tầng đều không bao giờ tới được mắt người. Cái người cần soi là thứ máy không thấy — bản sửa có đúng là bản sửa cho <em>nguyên nhân đã duyệt</em>, hay agent đã đi lạc sang cách khác giữa chừng.</p>
+
+    <h3 class="sub-title">Bốn điều người không được làm</h3>
+    <div class="dont-list">
+      <div class="dont-item">
+        <span class="dont-mark">✕</span>
+        <p><strong>Bỏ qua <code>diagnose</code> để nhảy thẳng vào <code>implement</code></strong> — kể cả khi đã "biết chắc lỗi ở đâu". Không có <code>ROOT-CAUSE.md</code> được duyệt thì <code>implement</code> không có gì để đối chiếu.</p>
+      </div>
+      <div class="dont-item">
+        <span class="dont-mark">✕</span>
+        <p><strong>Duyệt một <code>reproduce</code> chưa từng thất bại thật.</strong> Đây là lý do cổng này để máy giữ — nhưng nếu ai đó nới validator cho qua thì mất luôn ý nghĩa.</p>
+      </div>
+      <div class="dont-item">
+        <span class="dont-mark">✕</span>
+        <p><strong>Sửa Markdown ngay trong Canvas cho nó qua.</strong> Canvas ở chế độ cổng chính thức là chỉ đọc, có chủ đích — muốn đổi nội dung thì Request changes để agent viết bản mới, giữ được lịch sử.</p>
+      </div>
+      <div class="dont-item">
+        <span class="dont-mark">✕</span>
+        <p><strong>Nới quy tắc để gate xanh.</strong> Code sai là drift, không phải lý do sửa chuẩn.</p>
+      </div>
+    </div>
+
+    <h3 class="sub-title">Khi pipeline kẹt</h3>
+    <p>Cổng máy từ chối thì validator trả về <strong>lý do cụ thể</strong>, không phải chỉ pass/fail. Người đọc lý do đó rồi chọn một trong hai:</p>
+    <ul>
+      <li><strong>Cho chạy lại bước đó</strong> — nếu là lỗi nhất thời hoặc agent làm ẩu. Hệ thống tăng số revision và giữ nguyên lịch sử lần trước.</li>
+      <li><strong>Từ chối và quay lại bước trước</strong> — nếu tiền đề sai. AIDLC hỗ trợ từ chối kiểu lan truyền: các bước phía sau bị đặt lại và artifact của chúng bị bỏ, để không còn kết quả cũ trộn lẫn vào lần chạy mới.</li>
+    </ul>
+    <div class="callout">
+      <div>
+        <span class="callout-label">Quy tắc nhận biết</span>
+        <p><code>reproduce</code> kẹt hai, ba lần liên tiếp thường không phải lỗi của bước đó — mà là dấu hiệu <code>diagnose</code> đã chỉ sai chỗ. Cho chạy lại <code>reproduce</code> lần thứ tư sẽ không giải quyết được gì; quay về sửa chẩn đoán mới đúng.</p>
+      </div>
+    </div>
+
+    <h3 class="sub-title">Việc cuối, dễ bị bỏ quên nhất</h3>
+    <p>Sau khi bug đã sửa xong, người phải hỏi thêm một câu: <strong>đây là lần thứ mấy loại lỗi này xuất hiện?</strong></p>
+    <p>Lần đầu thì thôi. Lần thứ hai, thứ ba thì đó không còn là bug lẻ — đó là lỗ hổng trong bộ quy tắc. Lúc đó người chạy đường <code>update-rules</code> ở mục 05, thêm một rule mới vào <code>PROJECT-RULES.json</code> kèm <code>matcher</code> mà máy kiểm được, rồi duyệt qua cổng Canvas ở mục 06. Từ đó cả lớp lỗi này bị chặn ở tầng thiết kế thay vì đợi tới tầng test.</p>
+    <p>Đây là việc hệ thống không tự làm được — nó không biết hai bug cách nhau ba tháng có cùng bản chất hay không. Bỏ qua bước này thì bộ quy tắc đứng yên trong khi dự án vẫn lặp lại cùng một lỗi.</p>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">10</span>
+      <h2 class="sec-title">Làm sao biết mỗi bước làm đúng việc được giao</h2>
+    </div>
+    <p>Không dựa vào việc agent tự khai. AIDLC đã có bốn tầng kiểm tra chạy tuần tự quanh mỗi phase, và hạng mục evidence đang làm bổ sung tầng thứ năm. Một step chỉ đi tiếp khi qua hết các tầng áp dụng cho nó.</p>
+
+    <div class="table-scroll">
+      <table class="phases">
+        <thead>
+          <tr><th>Tầng</th><th>Kiểm tra điều gì</th><th>Ví dụ đang chạy thật trong repo</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="layer-n">1 · Điều kiện vào</td>
+            <td>Step không được khởi động nếu artifact đầu vào chưa tồn tại</td>
+            <td><code>requirement</code> đòi <code>CONTEXT-MANIFEST.json</code> của pipeline nền tảng</td>
+          </tr>
+          <tr>
+            <td class="layer-n">2 · File đầu ra</td>
+            <td>Chạy xong, mọi file đã khai báo phải thật sự tồn tại trên đĩa</td>
+            <td><code>scan-stack</code> phải sinh ra <code>STACK-PROFILE.json</code> và bản render <code>STACK-PROFILE.md</code></td>
+          </tr>
+          <tr>
+            <td class="layer-n">3 · Nội dung đầu ra</td>
+            <td>File phải chứa đúng các mục bắt buộc — chặn file rỗng hoặc viết nửa vời</td>
+            <td>Bước scan của iOS bắt buộc có <code>## Repository Layout</code>, <code>## Modules</code>, <code>## Build Commands</code></td>
+          </tr>
+          <tr>
+            <td class="layer-n">4 · Validator tự động</td>
+            <td>Một script chạy thật, trả <code>pass</code> hoặc <code>reject</code> kèm lý do. Reject thì step dừng, không tới tay người</td>
+            <td><code>swift-build.mjs</code> chạy <code>xcodebuild</code> thật, non-zero thì reject. <code>ci.mjs</code> là <em>khung rỗng</em> — danh sách lệnh đang comment hết, mỗi dự án phải tự điền</td>
+          </tr>
+          <tr>
+            <td class="layer-n">5 · Bằng chứng máy</td>
+            <td>Ghi lại lệnh đã chạy: thời gian, mã thoát, output đã lọc, hash của log đầy đủ</td>
+            <td>Thuộc hạng mục Plan Canvas / evidence đang review riêng</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <div>
+        <span class="callout-label">Nguyên tắc nền: văn xuôi không phải bằng chứng</span>
+        <p><strong>Lời khai của agent không tự trở thành sự thật — phải có kết quả lệnh máy chạy được, kiểm chứng được.</strong> Tầng 4 hôm nay đã thực thi được nửa nguyên tắc này: validator build của iOS thực sự chạy <code>xcodebuild</code>, và build hỏng thì reject — agent không thể viết "build thành công" để lách.</p>
+        <p style="margin-top:0.5rem;">Nhưng nửa còn lại thì <em>chưa</em>: phần kiểm bằng chứng trong tài liệu chỉ xác minh <strong>có heading <code>## Build Evidence</code> hay không</strong>, không đối chiếu đoạn output dán bên dưới với lần build vừa chạy. Một agent viết heading rồi bịa nội dung dưới đó vẫn pass. Đây chính là lý do tầng 5 tồn tại: khi output được máy bắt lại kèm hash, validator mới đối chiếu được văn bản trong Markdown với log thật. Technical plan phải nêu việc này thành một hạng mục, không mặc định là đã có.</p>
+      </div>
+    </div>
+
+    <p>Ngoài năm tầng trên, khi bật chuẩn tài liệu, AIDLC còn chạy một validator truy vết kiểm tra tính nhất quán xuyên suốt cả epic: tiêu chí nghiệm thu có kiểm chứng được không, mỗi tiêu chí có ít nhất một test case không, mỗi test case đã có kết quả chưa, và các tham chiếu chéo có trỏ tới id có thật không. Đây là lớp bắt những sai lệch mà từng step riêng lẻ không thể tự thấy.</p>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">11</span>
+      <h2 class="sec-title">Nội dung lấy từ đâu</h2>
+    </div>
+    <p>Không repo nguồn nào được kéo vào toàn bộ. Riêng thư mục <code>docs/</code> của ECC đã có gần 1.500 file Markdown (đếm bằng <code>find docs -name '*.md'</code> tại commit đã pin); vendor toàn bộ sẽ làm phình repo này mà không đem lại lợi ích gì.</p>
+
+    <div class="callout">
+      <div>
+        <span class="callout-label">Quyết định — chỉ vendor văn bản</span>
+        <p>Theo khuyến nghị của vòng review: <strong>chỉ vendor agent và skill dạng văn bản. Validator và hook do AIDLC tự viết, tự test và tự sở hữu.</strong> Đây là phương án an toàn hơn đáng kể, thu hẹp phạm vi audit xuống mức xử lý được, và vẫn giữ được phần lớn giá trị của ECC — vốn nằm ở nội dung chuyên môn theo stack, không ở mấy script kiểm tra. Việc vendor asset thực thi được có thể xem xét sau, như một capability riêng có audit riêng.</p>
+      </div>
+    </div>
+
+    <ul>
+      <li><strong>Một tập con văn bản đã tuyển chọn</strong> gồm agent và skill của ECC (khoảng chục stack phổ biến để bắt đầu), vendor tại commit đã pin <span class="mono">d8409a4b0813771235555e32e3d8046a73988bfa</span> — cùng pattern đã dùng cho công cụ review Plan Canvas.</li>
+      <li><strong>Không vendor validator, hook, hay bất cứ file chạy được nào</strong> từ ECC. Xem mục 14.</li>
+      <li><strong>Chỉ các case study đã hoàn thiện</strong> từ <a href="https://github.com/donnemartin/system-design-primer" target="_blank" rel="noopener">system-design-primer</a>, làm tài liệu tham khảo để agent đọc khi soạn <code>ARCHITECTURE.md</code> — không copy nguyên văn vào docs của một dự án. Repo này cấp phép <strong>CC BY 4.0</strong>, nên bản vendor phải kèm <code>NOTICE</code> ghi tác giả, nguồn, giấy phép, và nêu rõ những gì đã sửa đổi. Đây là nghĩa vụ pháp lý, cần đưa vào checklist triển khai.</li>
+      <li>Không có gì được fetch qua mạng trong lúc pipeline đang chạy. Tái lập được, chạy offline được, và không bao giờ biến ECC thành một runtime dependency.</li>
+    </ul>
+
+    <h3 class="sub-title">Mô hình stack — phạm vi MVP</h3>
+    <p>Cần nói thẳng một giới hạn: bản MVP giả định <strong>repository đơn stack</strong>. Monorepo, backend cộng frontend trong cùng repo, nhiều package manager, hay nhiều phiên bản framework song song đều <em>chưa</em> được xử lý.</p>
+    <p>Với những repo như vậy, hành vi mặc định là <strong>rơi về pipeline SDLC tổng quát hiện có</strong>, và <code>scan-stack</code> phải báo rõ lý do — không được đoán lấy một stack rồi cài bundle sai. Bước mở rộng sau này là để <code>STACK-PROFILE.json</code> mô tả nhiều component kèm bundle composite và quy tắc giải quyết xung đột; nhưng đó là hạng mục riêng, không nhồi vào MVP.</p>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">12</span>
+      <h2 class="sec-title">Phụ thuộc</h2>
+    </div>
+    <div class="callout">
+      <div>
+        <span class="callout-label">Chặn, không chạy song song</span>
+        <p>Các phase có gate Canvas ở trên cần cơ chế review Markdown của ECC. Đó là một hạng mục riêng, đã được scope sẵn (<span class="mono">ecc-evidence-and-artifact-review-canvas.plan.md</span>), hiện đang được review riêng. Hạng mục đó cũng là nơi cung cấp tầng 5 — bằng chứng máy — mà cổng <code>reproduce</code> ở mục 08 dựa vào. Workflow này không thể bắt đầu các phase đó cho tới khi hạng mục kia hoàn thành; lát cắt đầu tiên của nó là thứ cần ưu tiên.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">13</span>
+      <h2 class="sec-title">Điều kiện nghiệm thu</h2>
+    </div>
+    <p>Những điều kiện dưới đây phải kiểm chứng được bằng test tự động, không phải bằng lời hứa trong tài liệu. Đây là thứ dùng để xác định workflow đã sẵn sàng hay chưa.</p>
+
+    <h3 class="sub-title">Cổng Canvas không thể bị vượt qua</h3>
+    <p>Hiện tại đây <strong>chưa</strong> đúng, và đó là lý do hạng mục Plan Canvas phải xong trước. Kiểm tra hôm nay cho thấy chế độ provider-managed đang coi cổng human review là "approval do provider quản lý" rồi chạy tiếp — nghĩa là gate bị vượt qua trong im lặng.</p>
+    <div class="dont-list">
+      <div class="dont-item">
+        <span class="dont-mark">✕</span>
+        <p><strong>Cờ tự động duyệt không được vượt cổng Canvas.</strong> Một run chạy với cờ đó phải dừng lại ở cổng Canvas, không phải tự duyệt qua.</p>
+      </div>
+      <div class="dont-item">
+        <span class="dont-mark">✕</span>
+        <p><strong>Chế độ provider-managed không được vượt cổng Canvas.</strong> Đây là lỗ hổng đang tồn tại thật, phải bịt trước khi workflow này chạy.</p>
+      </div>
+      <div class="dont-item">
+        <span class="dont-mark">✕</span>
+        <p><strong>Approval không gắn với hash nội dung thì không tính là approval.</strong> Duyệt xong mà file bị sửa thì gate phải trở lại trạng thái chờ duyệt, không được để lọt.</p>
+      </div>
+      <div class="dont-item">
+        <span class="dont-mark">✕</span>
+        <p><strong>Agent không được tự phát hành verdict.</strong> Chỉ con người nhận diện được mới đóng được cổng.</p>
+      </div>
+    </div>
+
+    <h3 class="sub-title">Manifest phải được kiểm nội dung, không chỉ kiểm tồn tại</h3>
+    <p>Runner hiện chỉ kiểm tra file đầu vào có tồn tại hay không. Với <code>CONTEXT-MANIFEST.json</code>, như vậy là chưa đủ: một manifest cũ, hoặc manifest trỏ tới các file đã bị sửa từ lâu, vẫn mở khoá được epic mới. Ba điều kiện cần có:</p>
+    <ul>
+      <li>Hash của từng artifact ghi trong manifest phải khớp với file thật trên đĩa.</li>
+      <li>Manifest phải mới hơn mọi artifact nền tảng mà nó tham chiếu.</li>
+      <li>Bundle ECC đã cài phải khớp commit đã pin — phát hiện được asset bị sửa ngoài luồng.</li>
+    </ul>
+    <p>Không thoả thì epic không được khởi động, và thông báo phải chỉ đúng đường chạy lại cần dùng: <code>refresh-context</code>, <code>update-rules</code> hay <code>repin-bundle</code>.</p>
+
+    <h3 class="sub-title">Quy tắc quy trình do core thi hành</h3>
+    <p>Các quy tắc thuộc loại "không được bỏ qua gate", "không được tự duyệt" phải được kiểm ở tầng core và có test riêng. Một validator do dự án cài đặt không đủ tư cách canh chính quy trình đang chạy nó.</p>
+
+    <h3 class="sub-title">Stack detection và test report phải có machine evidence</h3>
+    <ul>
+      <li><code>scan-stack</code> chỉ qua khi <code>STACK-PROFILE.json</code> dẫn tới các file bằng chứng tồn tại, version kiểm được, confidence đạt ngưỡng và repository được xác nhận là đơn stack.</li>
+      <li><code>test</code> chỉ tới Provider review sau khi lệnh full-suite do bundle khai báo đã chạy và machine evidence xác nhận exit status, output đã lọc và hash log. Nếu suite không chạy đủ hoặc cần waiver, step phải chuyển sang Canvas thay vì tự đi tiếp.</li>
+      <li><code>PROJECT-RULES.md</code> chỉ hợp lệ khi marker và source hash khớp <code>PROJECT-RULES.json</code>; bản Markdown không phải nguồn policy thứ hai.</li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <div class="sec-head">
+      <span class="sec-num">14</span>
+      <h2 class="sec-title">Rủi ro</h2>
+    </div>
+    <div class="risk-list">
+      <div class="risk-item">
+        <div class="risk-dot"></div>
+        <div class="risk-body">
+          <strong>Nhập code thực thi — đã xử lý bằng cách thu hẹp phạm vi</strong>
+          <p>Đây là rủi ro nặng nhất của bản đề xuất trước. Validator trong AIDLC được nạp và chạy như <strong>code tin cậy, không sandbox</strong> — thiết kế có chủ đích, ghi rõ trong mã nguồn, vì xưa nay validator là code do chính người dùng viết. Lấy validator và hook từ catalog bên ngoài phá vỡ giả định đó: mỗi asset vendor vào là một đoạn mã chạy với toàn quyền trên máy lập trình viên và trong CI.</p>
+          <p style="margin-top:0.5rem;"><strong>Quyết định:</strong> MVP <em>không</em> vendor validator hoặc hook. Chỉ agent và skill dạng văn bản. Validator do AIDLC tự viết, tự test, tự sở hữu (mục 11). Rủi ro còn lại thu về mức xử lý được: nội dung văn bản có thể chứa hướng dẫn sai hoặc lỗi thời, nhưng không tự chạy được. Cổng <code>select-ecc-catalog</code> vẫn phải hiện rõ loại của từng asset, và bất cứ file chạy được nào lọt vào bundle phải làm cổng đó fail — coi như một phép kiểm chống hồi quy.</p>
+          <p style="margin-top:0.5rem;">Kèm theo: trường <code>commandId</code> trong <code>PROJECT-RULES.json</code> chỉ tham chiếu allow-list đã duyệt, không cho lệnh tự do (mục 06). Nếu không có ràng buộc đó thì file rules trở thành cùng một lỗ thực thi code, chỉ đổi vỏ.</p>
+        </div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-dot"></div>
+        <div class="risk-body">
+          <strong>Nền tảng lỗi thời nhưng vẫn mở khoá epic</strong>
+          <p>Vì cổng đầu vào hiện chỉ kiểm tra file có tồn tại hay không, một manifest cũ vẫn cho epic mới chạy trên bản đồ kiến trúc và bộ quy tắc đã lạc hậu — hỏng âm thầm, khó phát hiện. Đây là lý do mục 13 đặt điều kiện kiểm hash và độ mới, và mục 05 có ba đường chạy lại.</p>
+        </div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-dot"></div>
+        <div class="risk-body">
+          <strong>Bundle không nhất quán</strong>
+          <p>Chọn nội dung agent, skill, và validator độc lập với nhau có thể trộn nhầm một skill web với một validator Android. Bước lựa chọn phải coi bundle là một khối thống nhất, khớp với đúng một stack đã phát hiện, không bao giờ ráp rời rạc.</p>
+        </div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-dot"></div>
+        <div class="risk-body">
+          <strong>Quy tắc bị hạ chuẩn cho khớp code sai</strong>
+          <p>Áp lực để "làm gate xanh" có thể dẫn tới việc nới quy tắc thay vì sửa code. Đây là lý do mỗi quy tắc phải kèm tỷ lệ tuân thủ đếm được, và mọi thay đổi quy tắc phải qua duyệt Canvas — code sai là drift, không phải lý do sửa chuẩn.</p>
+        </div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-dot"></div>
+        <div class="risk-body">
+          <strong>Test tái hiện bị viết cho có</strong>
+          <p>Một test "đỏ" vì lý do sai — sai cú pháp, sai import — vẫn thoả điều kiện mã thoát khác 0 nhưng không thực sự tái hiện bug. Cổng <code>reproduce</code> vì vậy phải so lý do thất bại với mô tả bug, không chỉ nhìn mã thoát; và <code>diagnose</code> phải được duyệt trước để có mô tả đủ cụ thể mà đối chiếu.</p>
+        </div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-dot warn"></div>
+        <div class="risk-body">
+          <strong>Nội dung vendor bị lỗi thời</strong>
+          <p>Một snapshot đã pin của catalog ECC sẽ trôi dần khỏi upstream theo thời gian. Cần một bước re-pin tường minh, thỉnh thoảng thực hiện — không phải cập nhật tự động, âm thầm.</p>
+        </div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-dot warn"></div>
+        <div class="risk-body">
+          <strong>Coverage nhất thiết chỉ là một phần</strong>
+          <p>Bắt đầu với khoảng chục stack đã tuyển chọn nghĩa là một số dự án sẽ nằm ngoài phạm vi lúc ra mắt. Rơi về pipeline tổng quát hiện có nên là mặc định tường minh, nhìn thấy được — không bao giờ là một sự không khớp âm thầm.</p>
+        </div>
+      </div>
+      <div class="risk-item">
+        <div class="risk-dot"></div>
+        <div class="risk-body">
+          <strong>Scope trôi dạt về phía toàn bộ catalog ECC</strong>
+          <p>Đúng rủi ro đã được cảnh báo ở công việc Plan Canvas. Đề xuất này được scope vào một tập con đã tuyển chọn và các pattern cụ thể — không phải cài đặt ECC, và không phụ thuộc vào công cụ bảo mật rộng hơn của ECC.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="ask">
+    <h2>Tôi đang xin duyệt những gì</h2>
+    <p style="margin-bottom:1rem;">Bản này đã xử lý ba vòng review. Đáng chú ý: phạm vi vendor đã thu hẹp còn <strong>chỉ văn bản</strong>; lỗ thực thi code do trường <code>command</code> tự tạo ra đã bịt bằng allow-list; cổng RED có failure oracle và đường miễn trừ; MVP bắt buộc rebase khi foundation đổi; stack detection và full-suite test đều có machine evidence gate; và các khẳng định về validator đã được sửa đúng hiện trạng code.</p>
+    <ol>
+      <li><strong>Duyệt hướng đi</strong> — workflow hai tầng, nhận biết stack đơn, quy tắc là policy JSON máy thi hành được, có đường sửa bug chống tái phát.</li>
+      <li><strong>Xác nhận thứ tự</strong> — Plan Canvas và việc bịt các đường vượt cổng phải xong trước; workflow này theo sau. Đây là phụ thuộc chặn, không phải khuyến nghị.</li>
+      <li><strong>Xác nhận giới hạn MVP</strong> — chỉ hỗ trợ repo đơn stack; monorepo rơi về pipeline SDLC hiện có (mục 11). Nếu monorepo là ưu tiên thì phạm vi phải mở rộng và ước lượng lại.</li>
+      <li><strong>Đèn xanh</strong> để viết technical implementation plan đầy đủ — gồm installer/migration API thuộc core (mục 04), semantics <code>foundationRevision</code>, stack-profile evidence và full-suite evidence gate (mục 05), failure oracle (mục 08), cùng nghĩa vụ attribution CC BY 4.0 (mục 11).</li>
+    </ol>
+  </div>
+
+  <footer class="doc-footer">
+    <p>Nguồn ngoài: <a href="https://github.com/affaan-m/ECC" target="_blank" rel="noopener">github.com/affaan-m/ECC</a> tại commit <span class="mono">d8409a4b0813771235555e32e3d8046a73988bfa</span> (MIT) · <a href="https://github.com/donnemartin/system-design-primer" target="_blank" rel="noopener">github.com/donnemartin/system-design-primer</a> (CC BY 4.0 — cần <span class="mono">NOTICE</span> và ghi nhận thay đổi)</p>
+    <p>Tiền lệ trong repo này: <span class="mono">packages/core/src/presets/builtinWorkflows.ts</span> (workflow hai tầng, recipe bugfix, recipe làm mới ngữ cảnh) · <span class="mono">packages/core/src/runs/PipelineRunner.ts</span> (cổng đầu vào, hiện chỉ kiểm tồn tại) · <span class="mono">packages/core/src/runs/PipelineSnapshot.ts</span> (đóng băng định nghĩa pipeline, không đóng băng policy) · <span class="mono">packages/core/src/runs/AutoReviewer.ts</span> (validator chạy không sandbox) · <span class="mono">packages/core/src/providers/ProviderManagedTaskCommand.ts</span> (đường vượt cổng người hiện có) · <span class="mono">packages/core/src/providers/CommandProviderAdapter.ts</span> (nhiều provider, mỗi provider một thư mục command) · <span class="mono">packages/core/templates/ios/skills/ios-standardize-structure.md</span> và <span class="mono">ios-publish-context.md</span> (bộ quy tắc và khối chỉ dẫn) · <span class="mono">packages/core/templates/ios/validators/swift-build.mjs</span>, <span class="mono">packages/core/templates/sdlc/validators/ci.mjs</span> (validator) · <span class="mono">.claude/plans/ecc-evidence-and-artifact-review-canvas.plan.md</span></p>
+  </footer>
+
+</div>

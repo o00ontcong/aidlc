@@ -18,6 +18,8 @@ packages/*/bin/
 /docs/*
 !/docs/UNIFIED_SYSTEM_GUIDE.md
 !/docs/DISCOVERY_SHAPE_WORKFLOW.md
+!/docs/COFOFO_WORKFLOW_PROPOSAL.html
+!/docs/COFOFO_WORKFLOW_CHECKLIST.md
 # Hand-written design docs, same exception as the guide above — everything else
 # under docs/ is generated epic output.
 !/docs/JIRA-SPRINT-PLAN.md
