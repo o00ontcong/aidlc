@@ -1091,12 +1091,28 @@ function reconcileNewerEpicMirror(
   const legacySteps = reconstructed.runState.steps;
   const firstIncomplete = legacySteps.findIndex((step) => step.status !== 'approved');
   const completedPrefixEnd = firstIncomplete < 0 ? legacySteps.length : firstIncomplete;
-  if (completedPrefixEnd === 0) { return { runState, changed: false }; }
+
+  // A Canvas gate is closed by a human verdict bound to the reviewed content
+  // (core's `applyArtifactReviewVerdict`) — never by inferring approval from a
+  // mirror. Promoting such a step here would record an approval nobody gave,
+  // with no content hash behind it, so the prefix stops before the first one.
+  // The run's own snapshot wins over the current workspace doc: the gate that
+  // matters is the one this run started under.
+  const runPipeline =
+    runState.pipelineSnapshot?.pipeline
+    ?? (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === runState.pipelineId);
+  const firstCanvasGated = Array.isArray(runPipeline?.steps)
+    ? runPipeline.steps.findIndex((raw) => normalizeStep(raw).review !== undefined)
+    : -1;
+  const promoteEnd = firstCanvasGated < 0
+    ? completedPrefixEnd
+    : Math.min(completedPrefixEnd, firstCanvasGated);
+  if (promoteEnd === 0) { return { runState, changed: false }; }
 
   let changed = false;
   const steps = runState.steps.map((step, index) => {
     const legacy = legacySteps[index];
-    if (index >= completedPrefixEnd || !legacy || step.status === 'approved') {
+    if (index >= promoteEnd || !legacy || step.status === 'approved') {
       return { ...step };
     }
     changed = true;

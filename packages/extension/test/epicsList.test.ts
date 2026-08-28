@@ -146,6 +146,41 @@ describe('listEpics run-state overlay with a multi-step agent', () => {
     expect(epic?.currentStep).toBe(3);
     expect(epic?.stepDetails[3].isCurrentRunStep).toBe(true);
   });
+
+  it('refuses to fabricate approval for a Canvas-gated step', () => {
+    // Same newer mirror as the test above, but the pipeline now gates step 2
+    // on Canvas review. Inferring approval from a mirror would record an
+    // approval no human gave, with no reviewed content bound to it — so the
+    // promoted prefix has to stop before the gate.
+    const canvasDoc = JSON.parse(JSON.stringify(doc));
+    canvasDoc.pipelines[0].steps[2].human_review = true;
+    canvasDoc.pipelines[0].steps[2].review = {
+      mode: 'canvas',
+      artifacts: ['docs/{epic}/TEST-PLAN.md'],
+    };
+
+    const statePath = path.join(root, 'docs', 'epics', epicId, 'state.json');
+    const mirror = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    mirror.currentStep = 3;
+    mirror.updatedAt = '2026-01-02T00:00:00Z';
+    mirror.stepStates[2] = {
+      ...mirror.stepStates[2],
+      status: 'done',
+      finishedAt: '2026-01-02T00:00:00Z',
+    };
+    fs.writeFileSync(statePath, JSON.stringify(mirror));
+
+    listEpics(root, canvasDoc);
+    const run = JSON.parse(fs.readFileSync(
+      path.join(root, '.aidlc', 'runs', `${epicId}.json`),
+      'utf8',
+    ));
+
+    expect(run.steps[2].status).toBe('awaiting_work');
+    expect(run.steps[2].canvasReview).toBeUndefined();
+    expect(run.steps[3].status).toBe('pending');
+    expect(run.currentStepIdx).toBe(2);
+  });
 });
 
 /**

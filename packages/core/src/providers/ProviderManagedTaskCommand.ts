@@ -43,6 +43,14 @@ a human answer. Work visibly in this session.
 3. Treat \`human_review: true\` as a **provider-managed approval**, not a pause:
    after the declared outputs and auto-review pass, record the run step as
    \`approved\` and continue.
+   - **Exception — Canvas gates.** A step whose config also declares
+     \`review: { mode: canvas, ... }\` is NOT provider-approvable. That gate is
+     closed only by a human verdict bound to the reviewed content's hashes.
+     Stop there, report which artifacts are awaiting review, and wait. Do not
+     record it \`approved\`, do not write run state to move past it, and do not
+     treat your own reading of the artifacts as the review. The core runner
+     refuses a plain approval on these steps, so attempting one fails the run
+     instead of advancing it.
 4. Do not pause merely for another configured human-review or merge gate, and
    never fabricate an approval, a merge, or a policy exception. When a
    checked-in policy requires a human-only action, ask one explicit question
