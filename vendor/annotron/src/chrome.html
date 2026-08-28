@@ -424,6 +424,49 @@
     #sidebar { width: 100%; position: fixed; bottom: 0; left: 0; right: 0; height: 56vh; border-left: none; border-top: 1px solid var(--line-08); }
     #iframe-wrap { height: 44vh; }
   }
+
+  /* ── Formal review gate banner ───────────────────────────────────────────
+     Scoped entirely to #gate-banner so a freeform session is byte-identical
+     to before. Reuses the existing theme variables rather than new colours. */
+  #gate-banner {
+    padding: 10px 16px;
+    background: var(--accent-soft);
+    border-bottom: 1px solid var(--accent);
+    font-size: 12.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  #gate-banner .gate-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #gate-banner .gate-tag {
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    font-size: 10.5px;
+    color: #fff;
+    background: var(--accent);
+    padding: 2px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  #gate-banner .gate-identity { color: var(--ink); opacity: .8; font-variant-numeric: tabular-nums; }
+  #gate-banner .gate-artifacts {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    opacity: .75;
+    overflow-x: auto;
+  }
+  #gate-banner .gate-artifacts .stale { color: #B3261E; opacity: 1; font-weight: 600; }
+  #gate-banner .gate-verdict {
+    padding: 6px 9px;
+    border-radius: 4px;
+    background: var(--panel, #fff);
+    border: 1px solid var(--accent);
+    font-weight: 600;
+  }
 </style>
 </head>
 <body>
@@ -458,9 +501,30 @@
     <button id="btn-done" class="btn-ghost" title="Finish review &amp; stop the annotron server">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><path d="M12 2v10"/></svg>Done
     </button>
+    <!-- Formal review mode only: the two decisions that can close a gate.
+         Hidden until the session turns out to be a formal review, so a
+         freeform preview looks exactly as it always has. -->
+    <button id="btn-request-changes" class="btn-ghost" title="Send this back with feedback" style="display:none">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/></svg>Request changes
+    </button>
+    <button id="btn-approve" class="btn-primary" title="Approve exactly the content shown" style="display:none">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Approve
+    </button>
     <button id="btn-help" title="Keyboard shortcuts (?)" aria-label="Show keyboard shortcuts">?</button>
   </div>
 </header>
+
+<!-- Formal review mode only: what exactly is being decided. A reviewer who
+     cannot see which gate they are closing, on which revision, is being asked
+     to approve something nobody told them about. -->
+<div id="gate-banner" style="display:none">
+  <div class="gate-row">
+    <span class="gate-tag">Formal review</span>
+    <span id="gate-identity" class="gate-identity"></span>
+  </div>
+  <div id="gate-artifacts" class="gate-artifacts"></div>
+  <div id="gate-verdict" class="gate-verdict" style="display:none"></div>
+</div>
 
 <div id="main">
   <aside id="outline-sidebar" class="hidden">
@@ -2021,9 +2085,122 @@ if (isMd) {
   loadSource();   // keep the textarea in sync even while hidden, so Save is safe
 }
 
+// ── Formal review mode ──────────────────────────────────────────────────────
+//
+// The server already refuses the mutating routes for a formal session, so this
+// is not the enforcement — it is making the window honest about what it is.
+// Leaving Save / Finalize / Done on screen would offer the reviewer actions
+// that can only fail, and worse, imply that finishing is a thing you can do
+// without deciding. A gate has exactly two exits.
+const gateBanner    = document.getElementById('gate-banner');
+const gateIdentity  = document.getElementById('gate-identity');
+const gateArtifacts = document.getElementById('gate-artifacts');
+const gateVerdictEl = document.getElementById('gate-verdict');
+const btnApprove    = document.getElementById('btn-approve');
+const btnRequestCh  = document.getElementById('btn-request-changes');
+
+/** The gate being decided, once `loadFormalReview` has established there is one. */
+let currentReview = null;
+
+const shortHash = (h) => (typeof h === 'string' ? h.replace(/^sha256:/, '').slice(0, 12) : '—');
+const baseName  = (p) => String(p).split('/').pop();
+
+function renderGate(review, verdict) {
+  gateIdentity.textContent =
+    `run ${review.runId} · step ${review.stepIdx} · step rev ${review.stepRevision} · review round ${review.reviewRevision}`;
+
+  gateArtifacts.innerHTML = '';
+  for (const artifact of review.artifacts || []) {
+    const row = document.createElement('div');
+    row.textContent = `${baseName(artifact.path)}  ${shortHash(artifact.hash)}`;
+    gateArtifacts.appendChild(row);
+  }
+
+  if (verdict) {
+    // A decided gate is read-only. Showing the buttons again would invite a
+    // second verdict the server will refuse anyway.
+    gateVerdictEl.style.display = '';
+    gateVerdictEl.textContent =
+      verdict.verdict === 'approve'
+        ? `Approved by ${verdict.reviewer}`
+        : `Changes requested by ${verdict.reviewer}: ${verdict.feedback || ''}`;
+    btnApprove.style.display = 'none';
+    btnRequestCh.style.display = 'none';
+  }
+  gateBanner.style.display = '';
+}
+
+async function postVerdict(verdict, feedback) {
+  const who = await fetch('/whoami?file=' + encodeURIComponent(file))
+    .then((r) => r.json())
+    .catch(() => ({}));
+  // The reviewer identity comes from the environment (git), not from a text
+  // box — a field the decider fills in themselves is not an identity.
+  const reviewer = who.detail ? `${who.name} <${who.detail}>` : (who.name || '');
+
+  const res = await fetch('/verdict', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, verdict, reviewer, feedback }),
+  });
+  const body = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    // Surface the refusal verbatim, including the stale-artifact list: the
+    // reviewer needs to know the content moved, not just that it "failed".
+    gateVerdictEl.style.display = '';
+    gateVerdictEl.textContent = body.error || `verdict refused (${res.status})`;
+    if (Array.isArray(body.stale)) {
+      for (const s of body.stale) {
+        const row = document.createElement('div');
+        row.className = 'stale';
+        row.textContent = `${baseName(s.path)} changed — reviewed ${shortHash(s.expected)}, now ${shortHash(s.actual)}`;
+        gateArtifacts.appendChild(row);
+      }
+    }
+    return;
+  }
+  renderGate(currentReview, body.verdict);
+}
+
+async function loadFormalReview() {
+  let payload;
+  try {
+    const res = await fetch('/verdict?file=' + encodeURIComponent(file));
+    if (!res.ok) return;          // freeform session — leave the window as-is
+    payload = await res.json();
+  } catch { return; }
+  if (!payload || !payload.review) return;
+
+  currentReview = payload.review;
+
+  // Retire everything that could move the reviewed bytes or end the review
+  // without deciding. The server 409s these too; hiding them keeps the window
+  // from advertising dead ends.
+  for (const id of ['btn-finalize', 'btn-save-md', 'btn-done', 'btn-md-source']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+  // Remote tool approval is a different authority from approving an artifact.
+  const remoteWrap = document.getElementById('remote-approve-wrap');
+  if (remoteWrap) remoteWrap.style.display = 'none';
+
+  btnApprove.style.display = '';
+  btnRequestCh.style.display = '';
+  btnApprove.addEventListener('click', () => postVerdict('approve'));
+  btnRequestCh.addEventListener('click', () => {
+    const feedback = (window.prompt('What needs to change?') || '').trim();
+    if (!feedback) return;        // the server requires it; do not send an empty round trip
+    postVerdict('request-changes', feedback);
+  });
+
+  renderGate(currentReview, payload.verdict);
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 loadWhoami();
 loadAnnotations();
+loadFormalReview();
 </script>
 </body>
 </html>
