@@ -8,13 +8,25 @@
  * (sequence, state, mindmap) fall back to its Unicode ASCII rendering; anything
  * unparseable falls back to the raw fenced source.
  */
-import MarkdownIt from 'markdown-it';
+// Zero external/runtime dependencies: both libraries are vendored next to this
+// file as single-file ESM bundles, the same way `tools/md-to-html.mjs` vendors
+// `marked`. This is load-bearing, not tidiness — annotron is *copied* into
+// place (into `~/.claude/tools/annotron` by the extension installer, into the
+// VSIX by `copy:annotron`, into the CLI by `bundle`) with no `npm install`
+// step anywhere, so a bare `import 'markdown-it'` cannot resolve and the
+// server dies on load before serving anything.
+//
+// To refresh a bundle, re-run esbuild against the upstream package:
+//   esbuild <entry>.mjs --bundle --format=esm --platform=node \
+//     --target=node18 --outfile=vendor/<name>.esm.mjs
+// Pinned at markdown-it@14.3.1 and merslim@0.2.3 (see package.json ranges).
+import MarkdownIt from '../vendor/markdown-it.esm.mjs';
 import {
   parseToIR,
   flowchartToSvg, classToSvg, erToSvg,
   buildPieSvg, buildQuadrantSvg, buildJourneySvg, buildGanttSvg,
   buildTimelineSvg, buildC4Svg, buildArchitectureSvg, buildGitGraphSvg,
-} from 'merslim';
+} from '../vendor/merslim.esm.mjs';
 
 // merslim IR type → one-call SVG builder (only the types that lay out headless).
 const SVG_BUILDERS = {

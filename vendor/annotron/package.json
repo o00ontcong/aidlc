@@ -9,6 +9,7 @@
   "files": [
     "bin/",
     "src/",
+    "vendor/",
     "skills/",
     "commands/",
     "hooks/"
