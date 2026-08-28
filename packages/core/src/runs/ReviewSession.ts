@@ -61,9 +61,23 @@ export interface ReviewTransport {
    * Present the bundle for review. Must be idempotent: called again for the same
    * bundle it reopens rather than starting a second gate.
    */
-  open(bundle: ReviewBundle): Promise<void>;
+  open(bundle: ReviewBundle): Promise<OpenResult>;
   /** The verdict for this bundle, or `null` while the human has not decided. */
   read(bundle: ReviewBundle): Promise<TransportVerdict | null>;
+}
+
+/** What opening a gate turned up. */
+export interface OpenResult {
+  /**
+   * A verdict that existed for an *earlier* bundle and was discarded because the
+   * content has since moved.
+   *
+   * Reported rather than dropped, because the two situations look identical from
+   * the outside and mean opposite things: "nobody has decided yet" is a wait,
+   * while "you approved it and then it changed" is a decision that no longer
+   * applies and needs saying out loud.
+   */
+  supersededVerdict?: TransportVerdict | null;
 }
 
 /** An open Canvas gate. */
@@ -71,6 +85,8 @@ export interface ReviewGate {
   bundle: ReviewBundle;
   /** Workspace-relative artifact paths, in display order. */
   paths: string[];
+  /** See {@link OpenResult.supersededVerdict}. */
+  supersededVerdict?: TransportVerdict | null;
 }
 
 /**
@@ -140,8 +156,12 @@ export async function openReviewGate(args: {
     builtAt: args.builtAt,
   });
 
-  await transport.open(bundle);
-  return { bundle, paths: bundle.artifacts.map((a) => a.path) };
+  const opened = await transport.open(bundle);
+  return {
+    bundle,
+    paths: bundle.artifacts.map((a) => a.path),
+    supersededVerdict: opened?.supersededVerdict ?? null,
+  };
 }
 
 /**

@@ -18,7 +18,7 @@
  * a human clicked".
  */
 import type { ReviewBundle } from './ArtifactReview';
-import type { ReviewTransport, TransportVerdict } from './ReviewSession';
+import type { OpenResult, ReviewTransport, TransportVerdict } from './ReviewSession';
 
 /** Where annotron listens unless told otherwise. Matches its own default. */
 export const ANNOTRON_DEFAULT_BASE = 'http://127.0.0.1:7321';
@@ -46,11 +46,12 @@ export class AnnotronTransport implements ReviewTransport {
    * annotron's unit of review is a file. Registration is idempotent on its side,
    * so reopening a gate re-registers harmlessly.
    */
-  async open(bundle: ReviewBundle): Promise<void> {
+  async open(bundle: ReviewBundle): Promise<OpenResult> {
     const artifacts = bundle.artifacts.map((a) => ({
       path: this.absolute(a.path),
       hash: a.hash,
     }));
+    let supersededVerdict: TransportVerdict | null = null;
 
     for (const artifact of bundle.artifacts) {
       const res = await this.fetchImpl(`${this.baseUrl}/session`, {
@@ -76,7 +77,15 @@ export class AnnotronTransport implements ReviewTransport {
           res.status,
         );
       }
+      // Registration reports a verdict it had to discard because the content
+      // moved on. Any one file reporting it is enough — the bundle is one gate.
+      const body = (await res.json().catch(() => ({}))) as {
+        supersededVerdict?: TransportVerdict | null;
+      };
+      if (body.supersededVerdict) { supersededVerdict = body.supersededVerdict; }
     }
+
+    return { supersededVerdict };
   }
 
   /**

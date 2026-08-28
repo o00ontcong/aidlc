@@ -310,14 +310,34 @@ async function handler(req, res) {
     if (!abs.endsWith('.html') && !isMarkdown(abs)) return send(res, 400, { error: 'must be .html or .md' });
     allowList.add(abs);
     const sess = getSession(abs);
+    /** A verdict this registration discarded because the bundle moved on. */
+    let superseded = null;
     // Opt into formal review mode. Absent = the freeform preview/annotate
     // session this server has always served, unchanged.
     if (review && typeof review === 'object') {
-      sess.review = { ...review, verdict: null };
+      // Re-registering the same gate must not discard a verdict already given:
+      // that is the resume path, and a caller reopening a gate to check on it
+      // would otherwise silently erase the decision it came to collect. The
+      // sidecar is consulted too, so a verdict also survives a restart of this
+      // server. A different `bundleHash` is a genuinely different round, and
+      // there the verdict *must* be cleared — it was given for other bytes.
+      const prior = sess.review ?? readSidecar(abs).review ?? null;
+      const sameGate = prior && prior.bundleHash === review.bundleHash;
+      sess.review = { ...review, verdict: sameGate ? (prior.verdict ?? null) : null };
+      // Report a discarded verdict rather than dropping it silently. This is the
+      // "you approved it, then the content changed" case, and a caller that
+      // cannot tell it apart from "nobody has decided yet" will show the user a
+      // timeout for what is really a superseded decision.
+      superseded = !sameGate && prior?.verdict ? prior.verdict : null;
       persistReview(abs, sess.review);
     }
     watchFile(abs);
-    return send(res, 200, { ok: true, file: abs, formal: !!sess.review });
+    return send(res, 200, {
+      ok: true,
+      file: abs,
+      formal: !!sess.review,
+      supersededVerdict: superseded,
+    });
   }
 
   // The only way to close a formal review gate.

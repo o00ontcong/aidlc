@@ -63,7 +63,11 @@ test('renderMarkdown turns a mermaid fence into inline SVG via vendored merslim'
 });
 
 test('the server boots and listens', async () => {
+  // A dedicated port, not annotron's 7321 default: otherwise this fails for
+  // anyone who happens to have a review server already running, which says
+  // nothing about whether the imports resolve.
   const child = spawn(process.execPath, [path.join(ROOT, 'src', 'server.js')], {
+    env: { ...process.env, ANNOTRON_PORT: '7398' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

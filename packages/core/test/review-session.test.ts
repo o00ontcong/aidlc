@@ -23,6 +23,7 @@ import {
   openReviewGate,
   PipelineRunError,
   startRun,
+  type OpenResult,
   type PipelineConfig,
   type ReviewBundle,
   type ReviewTransport,
@@ -74,8 +75,12 @@ class FakeTransport implements ReviewTransport {
   opened: ReviewBundle[] = [];
   verdict: TransportVerdict | null = null;
 
-  async open(bundle: ReviewBundle): Promise<void> {
+  /** What `open` should report as discarded, mimicking a moved-on bundle. */
+  superseded: TransportVerdict | null = null;
+
+  async open(bundle: ReviewBundle): Promise<OpenResult> {
     this.opened.push(bundle);
+    return { supersededVerdict: this.superseded };
   }
 
   async read(): Promise<TransportVerdict | null> {
@@ -145,6 +150,26 @@ describe('openReviewGate', () => {
     const after = await openReviewGate({ workspaceRoot: root, state, pipeline: CANVAS_PIPELINE, transport });
 
     expect(after.bundle.bundleHash).not.toBe(before.bundle.bundleHash);
+  });
+
+  it('surfaces a verdict the transport had to discard', async () => {
+    // "Nobody has decided yet" and "you approved it, then it changed" look
+    // identical from outside and mean opposite things. Dropping the second turns
+    // a discarded decision into an unexplained wait.
+    transport.superseded = { verdict: 'approve', reviewer: 'Cong', at: '2026-01-01T00:00:00.000Z' };
+
+    const gate = await openReviewGate({
+      workspaceRoot: root, state: atGate(), pipeline: CANVAS_PIPELINE, transport,
+    });
+
+    expect(gate.supersededVerdict).toMatchObject({ verdict: 'approve', reviewer: 'Cong' });
+  });
+
+  it('reports no discarded verdict on a first open', async () => {
+    const gate = await openReviewGate({
+      workspaceRoot: root, state: atGate(), pipeline: CANVAS_PIPELINE, transport,
+    });
+    expect(gate.supersededVerdict).toBeNull();
   });
 
   it('refuses a step that is not at its human gate', async () => {

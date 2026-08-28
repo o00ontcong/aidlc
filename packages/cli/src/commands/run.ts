@@ -18,10 +18,16 @@ import {
   PipelineRunError,
   RUN_ID_PATTERN,
   runExecLoop,
+  openReviewGate,
+  applyTransportVerdict,
+  normalizeStep,
+  AnnotronTransport,
+  ANNOTRON_DEFAULT_BASE,
   type ExecOutcome,
   type ExecHooks,
   type RunState,
   type PipelineConfig,
+  type ReviewGate,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 import { info, setQuiet } from '../output';
@@ -115,8 +121,14 @@ export function registerRun(program: Command): void {
         console.log(chalk.dim(`• Step "${step.agent}" is already ${step.status} — nothing to do.`));
       } else if (step.status === 'awaiting_review') {
         console.log(chalk.cyan('✔') + ` Step "${step.agent}" is now ${chalk.cyan('awaiting_review')}`);
-        console.log(chalk.dim(`  Approve: aidlc run approve ${runId}`));
-        console.log(chalk.dim(`  Reject:  aidlc run reject ${runId} --reason "..."`));
+        // A Canvas gate cannot be closed by `approve` — core refuses it — so
+        // pointing there would send the user straight into a rejection.
+        if (normalizeStep(pipeline.steps[next.currentStepIdx] ?? '').review) {
+          console.log(chalk.dim(`  Review:  aidlc run review ${runId}`));
+        } else {
+          console.log(chalk.dim(`  Approve: aidlc run approve ${runId}`));
+          console.log(chalk.dim(`  Reject:  aidlc run reject ${runId} --reason "..."`));
+        }
       } else {
         console.log(chalk.green('✔') + ` Step "${step.agent}" auto-approved, advancing…`);
         printRunSummary(next);
@@ -153,6 +165,121 @@ export function registerRun(program: Command): void {
 
       if (next.status === 'completed') {
         console.log(chalk.green('🎉 Run completed — all steps approved.'));
+      }
+    });
+
+  // ── review ─────────────────────────────────────────────────────────────────
+  //
+  // The Canvas counterpart of `approve`. A step declaring
+  // `review: { mode: canvas }` cannot be closed by `approve` at all — core
+  // refuses it — so this is the only CLI path for such a gate. It opens the
+  // bundle in annotron, waits for a human verdict, and applies it.
+  cmd
+    .command('review <runId>')
+    .description('Open a Canvas review gate, wait for the human verdict, and apply it')
+    .option('--step <idx>', 'Step index to review (default: the current step)')
+    .option('--open-only', 'Open the review and exit without waiting')
+    .option('--timeout <seconds>', 'How long to wait for a verdict (default 1800)', '1800')
+    .option('--base <url>', `annotron base URL (default ${ANNOTRON_DEFAULT_BASE})`)
+    .action(async (
+      runId: string,
+      opts: { step?: string; openOnly?: boolean; timeout: string; base?: string },
+      actionCmd: Command,
+    ) => {
+      const root     = resolveWorkspaceRoot(actionCmd);
+      const state    = requireRun(root, runId);
+      const pipeline = requirePipelineForRun(root, state);
+      const stepIdx  = opts.step !== undefined ? Number(opts.step) : state.currentStepIdx;
+      const base     = opts.base ?? ANNOTRON_DEFAULT_BASE;
+
+      // Fail with the fix rather than a connection stack trace: annotron is a
+      // separate local process and not running it is the common case.
+      try {
+        const health = await fetch(`${base}/health`);
+        if (!health.ok) { throw new Error(String(health.status)); }
+      } catch {
+        console.error(chalk.red(`No annotron server at ${base}.`));
+        console.error(`Start one first:\n  node ~/.claude/tools/annotron/src/server.js`);
+        process.exit(1);
+      }
+
+      const transport = new AnnotronTransport(root, base);
+
+      let gate: ReviewGate;
+      try {
+        gate = await openReviewGate({ workspaceRoot: root, state, pipeline, stepIdx, transport });
+      } catch (err) {
+        console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+        process.exit(1);
+      }
+
+      const step = state.steps[stepIdx];
+      console.log(chalk.bold(`Review gate — ${step.agent}`));
+      console.log(
+        `  run ${state.runId} · step ${stepIdx} · step rev ${step.revision}`
+        + ` · bundle ${gate.bundle.bundleHash.replace(/^sha256:/, '').slice(0, 12)}`,
+      );
+      for (const artifact of gate.bundle.artifacts) {
+        console.log(
+          `  ${chalk.cyan(artifact.path)}  ${artifact.hash.replace(/^sha256:/, '').slice(0, 12)}`,
+        );
+        console.log(`    ${base}/?file=${encodeURIComponent(`${root}/${artifact.path}`)}`);
+      }
+
+      // Without this the user who approved, then edited the file, sees only a
+      // timeout — which reads as a broken tool rather than a discarded decision.
+      const superseded = gate.supersededVerdict;
+      if (superseded) {
+        console.log(
+          chalk.yellow('\n⚠ ')
+          + `A previous "${superseded.verdict}" by ${superseded.reviewer} no longer applies:`,
+        );
+        console.log('  the reviewed content changed after that decision, so this gate reopened');
+        console.log('  on the new content and needs deciding again.');
+      }
+
+      if (opts.openOnly) {
+        console.log(chalk.dim('\nOpened. Re-run without --open-only to wait for the verdict.'));
+        return;
+      }
+
+      const deadline = Date.now() + Number(opts.timeout) * 1000;
+      console.log(chalk.dim('\nWaiting for a verdict… (Ctrl-C to leave the gate open)'));
+
+      for (;;) {
+        let next: RunState | null;
+        try {
+          next = await applyTransportVerdict({
+            workspaceRoot: root, state, pipeline, stepIdx, gate, transport,
+          });
+        } catch (err) {
+          // A refusal here is meaningful — most often the reviewed content moved
+          // after it was shown — so print it and stop rather than looping on it.
+          console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+          process.exit(1);
+        }
+
+        if (next) {
+          RunStateStore.save(root, next);
+          const decided = next.steps[stepIdx].canvasReview;
+          if (decided?.verdict === 'approve') {
+            console.log(chalk.green('✔') + ` Approved by ${decided.reviewer}`);
+          } else {
+            console.log(chalk.yellow('↩') + ` Changes requested by ${decided?.reviewer}: ${decided?.feedback ?? ''}`);
+          }
+          printRunSummary(next);
+          if (next.status === 'completed') {
+            console.log(chalk.green('🎉 Run completed — all steps approved.'));
+          }
+          return;
+        }
+
+        if (Date.now() > deadline) {
+          console.error(chalk.yellow('Timed out waiting for a verdict. The gate is still open —'));
+          console.error('re-run `aidlc run review` to resume it; the bundle rebuilds identically.');
+          process.exit(1);
+        }
+        await new Promise((r) => setTimeout(r, 2000));
       }
     });
 

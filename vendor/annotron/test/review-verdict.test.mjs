@@ -127,6 +127,34 @@ test('a queued verdict is persisted, not just held in memory', async () => {
   assert.equal(sidecar.review.verdict.reviewer, 'R');
 });
 
+test('reopening the same gate keeps a verdict already given', async () => {
+  // The resume path — and the one the persistence test above did not actually
+  // prove. Re-registering used to reset `verdict` to null, so a caller that
+  // reopened a gate to collect a decision silently erased it first. Found by
+  // running `aidlc run review` end to end, not by this suite.
+  const abs = await register('reopen.md', '# Reopen\n', {});
+  await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' });
+
+  await register('reopen.md', '# Reopen\n', {});   // same content → same bundleHash
+
+  const read = await call('GET', `/verdict?file=${encodeURIComponent(abs)}`);
+  assert.equal(read.json.verdict?.verdict, 'approve');
+  assert.equal(read.json.verdict?.reviewer, 'R');
+});
+
+test('reopening with a different bundle clears the verdict', async () => {
+  // The mirror image: a verdict was given for particular bytes, so once the
+  // bundle differs it is a new round, and carrying the decision over would
+  // approve content nobody looked at.
+  const abs = await register('newround.md', '# Round 1\n', {});
+  await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' });
+
+  fs.writeFileSync(abs, '# Round 2\n', 'utf8');
+  await register('newround.md', '# Round 2\n', { reviewRevision: 2 });
+
+  assert.equal((await call('GET', `/verdict?file=${encodeURIComponent(abs)}`)).json.verdict, null);
+});
+
 test('approve is refused once the reviewed content changed', async () => {
   const abs = await register('stale.md', '# Original\n', {});
   fs.writeFileSync(abs, '# Quietly edited\n', 'utf8');
