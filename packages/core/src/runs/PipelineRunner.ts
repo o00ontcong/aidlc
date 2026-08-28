@@ -133,6 +133,73 @@ function isWaivedBySkip(
  *
  * Pure read-only — does not mutate state, does not throw.
  */
+/** A step recorded as approved whose Canvas gate was never actually closed. */
+export interface CanvasApprovalIssue {
+  stepIdx: number;
+  agent: string;
+  reason:
+    /** Approved with no verdict record at all — the signature of a direct write. */
+    | 'missing-verdict'
+    /** A verdict exists but it was not an approval. */
+    | 'not-approved';
+  detail: string;
+}
+
+/**
+ * Find approvals that no Canvas gate can account for.
+ *
+ * `approveStep` refuses Canvas-gated steps, so every legitimate approval of one
+ * carries a `canvasReview` record. A step marked `approved` without one was not
+ * approved through the runner — it was written into run state directly. That is
+ * the shape of the remaining provider-managed bypass: the provider-managed task
+ * command tells an agent to treat `human_review: true` as its own approval and
+ * continue, and an agent that edits the state file rather than calling the
+ * runner leaves exactly this trace.
+ *
+ * **Pass the run's own pipeline**, from `pipelineForRun` — not the workspace's
+ * current one. A step approved legitimately *before* its preset gained a
+ * `review` policy carries no `canvasReview` and is not forged; the run's
+ * immutable snapshot is what stops that from reading as an issue.
+ *
+ * Pure and read-only: it reports, callers decide. Detection cannot undo a forged
+ * write, but it can stop the run being carried forward on one.
+ */
+export function auditCanvasApprovals(
+  state: RunState,
+  pipeline: PipelineConfig,
+): CanvasApprovalIssue[] {
+  const issues: CanvasApprovalIssue[] = [];
+
+  for (const step of state.steps) {
+    if (step.status !== 'approved') { continue; }
+    const config = pipeline.steps[step.stepIdx];
+    if (!config || !normalizeStep(config).review) { continue; }
+
+    const record = step.canvasReview;
+    if (!record) {
+      issues.push({
+        stepIdx: step.stepIdx,
+        agent: step.agent,
+        reason: 'missing-verdict',
+        detail:
+          `step "${step.agent}" is approved but declares a Canvas gate and carries no verdict — `
+          + 'it was not approved through the runner',
+      });
+      continue;
+    }
+    if (record.verdict !== 'approve') {
+      issues.push({
+        stepIdx: step.stepIdx,
+        agent: step.agent,
+        reason: 'not-approved',
+        detail: `step "${step.agent}" is approved but its recorded verdict is "${record.verdict}"`,
+      });
+    }
+  }
+
+  return issues;
+}
+
 export function canStartStep(args: {
   state: RunState;
   pipeline: PipelineConfig;
@@ -153,6 +220,14 @@ export function canStartStep(args: {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
     if (!fs.existsSync(abs) && !isWaivedBySkip(rel, state, pipeline, epicsDir)) { missing.push(rel); }
   }
+
+  // Refuse to build on an approval no gate can account for. A forged write is
+  // already on disk by the time we see it and cannot be undone here — but the
+  // run must not be carried further on it, which is the part that still matters.
+  for (const issue of auditCanvasApprovals(state, pipeline)) {
+    missing.push(`(unapproved Canvas gate) ${issue.detail}`);
+  }
+
   return missing.length === 0 ? { ok: true } : { ok: false, missing };
 }
 

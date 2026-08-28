@@ -50,7 +50,10 @@ a human answer. Work visibly in this session.
      record it \`approved\`, do not write run state to move past it, and do not
      treat your own reading of the artifacts as the review. The core runner
      refuses a plain approval on these steps, so attempting one fails the run
-     instead of advancing it.
+     instead of advancing it — and writing \`approved\` into run state directly
+     does not work either: core audits Canvas approvals against their verdict
+     records and refuses to start the following step while one is unaccounted
+     for. The run stops there until a human actually decides.
 4. Do not pause merely for another configured human-review or merge gate, and
    never fabricate an approval, a merge, or a policy exception. When a
    checked-in policy requires a human-only action, ask one explicit question

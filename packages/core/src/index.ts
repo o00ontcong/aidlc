@@ -212,9 +212,10 @@ export {
   requestStepUpdate,
   submitAutoReviewVerdict,
   applyArtifactReviewVerdict,
+  auditCanvasApprovals,
   PipelineRunError,
 } from './runs/PipelineRunner';
-export type { CanvasVerdict } from './runs/PipelineRunner';
+export type { CanvasVerdict, CanvasApprovalIssue } from './runs/PipelineRunner';
 export { checkBudget } from './runs/budget';
 export type { BudgetCheckArgs, BudgetVerdict } from './runs/budget';
 export { runExecLoop } from './runs/execEngine';

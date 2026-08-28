@@ -20,7 +20,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   applyArtifactReviewVerdict,
   approveStep,
+  auditCanvasApprovals,
   buildReviewBundle,
+  canStartStep,
   markStepDone,
   PipelineRunError,
   startRun,
@@ -259,6 +261,80 @@ describe('applyArtifactReviewVerdict — approve', () => {
         verdict: { verdict: 'approve', reviewer: REVIEWER },
       }),
     ).toThrow(PipelineRunError);
+  });
+});
+
+describe('auditCanvasApprovals — the forged-write backstop', () => {
+  /** What a provider agent writing run state directly leaves behind. */
+  function forgeApproval(state: RunState): RunState {
+    const forged = JSON.parse(JSON.stringify(state)) as RunState;
+    forged.steps[0].status = 'approved';
+    forged.currentStepIdx = 1;
+    forged.steps[1].status = 'awaiting_work';
+    return forged;
+  }
+
+  it('flags an approved Canvas step with no verdict', () => {
+    const issues = auditCanvasApprovals(forgeApproval(atGate(PIPELINE_CANVAS)), PIPELINE_CANVAS);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ stepIdx: 0, agent: 'po', reason: 'missing-verdict' });
+  });
+
+  it('flags an approved step whose recorded verdict was not an approval', () => {
+    const forged = forgeApproval(atGate(PIPELINE_CANVAS));
+    forged.steps[0].canvasReview = {
+      verdict: 'request_changes',
+      reviewer: REVIEWER,
+      at: '2026-01-01T00:00:00.000Z',
+      bundleHash: `sha256:${'0'.repeat(64)}`,
+      reviewRevision: 1,
+    };
+
+    expect(auditCanvasApprovals(forged, PIPELINE_CANVAS)[0]).toMatchObject({
+      reason: 'not-approved',
+    });
+  });
+
+  it('says nothing about a legitimately approved Canvas step', () => {
+    const state = atGate(PIPELINE_CANVAS);
+    const approved = applyArtifactReviewVerdict({
+      workspaceRoot: root,
+      state,
+      pipeline: PIPELINE_CANVAS,
+      bundle: bundleFor(state),
+      verdict: { verdict: 'approve', reviewer: REVIEWER },
+    });
+
+    expect(auditCanvasApprovals(approved, PIPELINE_CANVAS)).toEqual([]);
+  });
+
+  it('says nothing about a legacy step approved before any Canvas policy', () => {
+    // The run's own snapshot is what makes this safe: a step approved under a
+    // pipeline that had no `review` is not forged just because the preset later
+    // grew one. Auditing against the run's pipeline rather than the workspace's
+    // is the whole reason this produces no false positives on upgrade.
+    const state = atGate(PIPELINE_LEGACY);
+    const approved = approveStep({ state, pipeline: PIPELINE_LEGACY });
+
+    expect(auditCanvasApprovals(approved, PIPELINE_LEGACY)).toEqual([]);
+  });
+
+  it('stops the next step from starting on a forged approval', () => {
+    // Detection cannot undo a write that already happened. Refusing to build on
+    // it is the part that still protects the run.
+    const forged = forgeApproval(atGate(PIPELINE_CANVAS));
+    const verdict = canStartStep({
+      state: forged,
+      pipeline: PIPELINE_CANVAS,
+      workspaceRoot: root,
+      stepIdx: 1,
+    });
+
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok) {
+      expect(verdict.missing.join(' ')).toMatch(/unapproved Canvas gate/);
+    }
   });
 });
 
