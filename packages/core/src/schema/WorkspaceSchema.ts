@@ -112,6 +112,29 @@ const SlashCommandSchema = z.union([
  * `docs/epics/{epic}/PRD.md` becomes
  * `docs/epics/EPIC-2100/PRD.md` for a run with `context.epic == "EPIC-2100"`.
  */
+/**
+ * Content-bound human review of a step's Markdown artifacts.
+ *
+ * Declaring this turns the step's human gate into a Canvas gate: the human
+ * reviews the exact files listed here and the verdict is bound to their
+ * content hashes. A step without `review` keeps the legacy confirmation-only
+ * gate, so the field is `.optional()` with no default — a default would
+ * re-hash every existing pipeline and orphan the snapshot of every in-flight
+ * run.
+ */
+const StepReviewSchema = z.object({
+  /** Only `canvas` today. Named so other review transports can be added. */
+  mode: z.literal('canvas'),
+  /**
+   * Markdown artifacts the human reviews at this gate, in display order.
+   * Each must also appear in the step's own `produces` or `requires` — a gate
+   * cannot pull in a file the step never declared.
+   */
+  artifacts: z
+    .array(z.string().min(1))
+    .min(1, '`review.artifacts` must list at least one artifact'),
+});
+
 const PipelineStepObjectSchema = z
   .object({
     agent: z.string().min(1),
@@ -193,11 +216,47 @@ const PipelineStepObjectSchema = z
       /** Open a PR after pushing (only valid when push=true). */
       open_pr: z.boolean().default(true),
     }).optional(),
+    /**
+     * Opt into content-bound Canvas review of this step's Markdown artifacts.
+     * Omitted = the legacy confirmation-only human gate. See
+     * {@link StepReviewSchema}.
+     */
+    review: StepReviewSchema.optional(),
   })
   .refine((s) => !s.auto_review || !!s.auto_review_runner, {
     message: 'Step with `auto_review: true` must set `auto_review_runner` (path to a JS/TS validator module).',
     path: ['auto_review_runner'],
-  });
+  })
+  // A Canvas gate that never pauses is not a gate.
+  .refine((s) => !s.review || s.human_review, {
+    message: 'Step with `review` must also set `human_review: true` — a Canvas gate that never pauses is not a gate.',
+    path: ['human_review'],
+  })
+  // A skipped step's `produces` are treated as satisfied downstream, so a
+  // skippable Canvas step could advance the pipeline with nothing reviewed.
+  .refine((s) => !s.review || !s.skippable, {
+    message: 'Step with `review` cannot be `skippable` — skipping treats its `produces` as satisfied, voiding the review.',
+    path: ['skippable'],
+  })
+  .refine((s) => !s.review || s.review.artifacts.every((a) => a.endsWith('.md')), {
+    message: '`review.artifacts` must all be Markdown (`.md`).',
+    path: ['review', 'artifacts'],
+  })
+  .refine((s) => !s.review || new Set(s.review.artifacts).size === s.review.artifacts.length, {
+    message: '`review.artifacts` must not repeat a path.',
+    path: ['review', 'artifacts'],
+  })
+  // The reviewable set is the step's own declared surface — never an arbitrary
+  // path, so a gate cannot smuggle in a file the step does not own.
+  .refine(
+    (s) =>
+      !s.review ||
+      s.review.artifacts.every((a) => s.produces.includes(a) || s.requires.includes(a)),
+    {
+      message: 'Every `review.artifacts` entry must also appear in the step\'s `produces` or `requires`.',
+      path: ['review', 'artifacts'],
+    },
+  );
 
 const PipelineStepSchema = z.union([
   z.string().min(1),
@@ -282,6 +341,11 @@ export interface NormalizedStep {
   skippable: boolean;
   /** Git behavior for branch-artifact steps (GH-74 Part 3). */
   git?: { branch: boolean; push: boolean; open_pr: boolean };
+  /**
+   * Content-bound Canvas review policy. Absent = legacy confirmation-only
+   * human gate — see {@link StepReviewSchema}.
+   */
+  review?: { mode: 'canvas'; artifacts: string[] };
 }
 
 /**
@@ -329,8 +393,22 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
       }
     : undefined;
 
+  // Parsed defensively like the rest of this function: `normalizeStep` also
+  // runs on raw YAML that never went through `validateWorkspace`, so a
+  // malformed policy must degrade to "no Canvas gate" rather than throw here.
+  // The schema is what rejects it at load time.
+  const reviewCfg = obj.review as Record<string, unknown> | undefined;
+  const review =
+    reviewCfg && reviewCfg.mode === 'canvas' && Array.isArray(reviewCfg.artifacts)
+      ? {
+          mode: 'canvas' as const,
+          artifacts: (reviewCfg.artifacts as unknown[]).map(String).filter((a) => a.length > 0),
+        }
+      : undefined;
+
   return {
     agent: typeof obj.agent === 'string' ? obj.agent : '',
+    review,
     name: typeof obj.name === 'string' ? obj.name : undefined,
     model: typeof obj.model === 'string' && obj.model.length > 0 ? obj.model : undefined,
     skills,
