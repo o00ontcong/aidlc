@@ -21,6 +21,8 @@ export * from './application';
 export * from './migration';
 export * from './runs/PipelineSnapshot';
 export * from './runs/ArtifactReview';
+export * from './runs/ReviewSession';
+export * from './runs/AnnotronTransport';
 export * from './packs';
 export * from './validators';
 export * from './release';
