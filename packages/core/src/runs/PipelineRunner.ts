@@ -25,8 +25,16 @@ import * as path from 'path';
 
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
-import type { RunState, StepRecord, AutoReviewVerdict, StepHistoryEntry } from './RunState';
+import type {
+  RunState,
+  StepRecord,
+  AutoReviewVerdict,
+  StepHistoryEntry,
+  CanvasReviewRecord,
+} from './RunState';
 import { activeEpicsDir, resolveArtifactPath } from './RunState';
+import type { ReviewBundle } from './ArtifactReview';
+import { checkBundleCurrent } from './ArtifactReview';
 import { snapshotPipeline } from './PipelineSnapshot';
 
 export class PipelineRunError extends Error {
@@ -426,7 +434,167 @@ export function approveStep(args: {
       `Cannot approve step "${step.agent}": status is "${step.status}", expected "awaiting_review"`,
     );
   }
+  // Fail-closed chokepoint. Every path that advances a human gate without a
+  // content-bound verdict funnels through here — the CLI approve actions, the
+  // extension approve command, `--auto-approve` (execEngine's autoApproveStep)
+  // and aggregate deferral (execEngine's deferReviewStep). Refusing
+  // Canvas-gated steps in this one place closes all of them, so such a gate
+  // cannot advance by anything other than {@link applyArtifactReviewVerdict}.
+  if (canvasPolicy(pipeline, idx)) {
+    throw new PipelineRunError(
+      `Cannot plain-approve step "${step.agent}": it declares a Canvas review gate. ` +
+        'Use applyArtifactReviewVerdict() — a Canvas gate is closed by a human verdict bound to the ' +
+        'reviewed content, not by a generic approval.',
+    );
+  }
   return advance(clone(state), idx, pipeline);
+}
+
+/** The step's Canvas review policy, or `undefined` for a legacy human gate. */
+function canvasPolicy(
+  pipeline: PipelineConfig,
+  idx: number,
+): { mode: 'canvas'; artifacts: string[] } | undefined {
+  const config = pipeline.steps[idx];
+  return config ? normalizeStep(config).review : undefined;
+}
+
+/** A human's decision at a Canvas gate, as handed to the runner. */
+export interface CanvasVerdict {
+  verdict: 'approve' | 'request_changes';
+  /** Who decided. Refused when empty — an approval must name its author. */
+  reviewer: string;
+  /** What to change. Required for `request_changes`. */
+  feedback?: string;
+  /** Defaults to now. */
+  at?: string;
+}
+
+/**
+ * Apply a human's Canvas verdict — the only way a Canvas-gated step advances.
+ *
+ * `approve` is deliberately the strict path: the bundle must belong to this
+ * exact gate (run, step, step revision) *and* every reviewed file must still
+ * hash to what it hashed when it was shown. An approval recorded against
+ * drifted content approves something the human never saw, so that throws
+ * rather than advancing.
+ *
+ * `request_changes` is looser on purpose — asking for changes to content that
+ * has already moved on is harmless — but it does require feedback, and it
+ * delegates to {@link rejectStep} so the reopen and downstream-reset semantics
+ * live in exactly one place.
+ */
+export function applyArtifactReviewVerdict(args: {
+  workspaceRoot: string;
+  state: RunState;
+  pipeline: PipelineConfig;
+  /** Step being decided. Defaults to `state.currentStepIdx`. */
+  stepIdx?: number;
+  /** The bundle that was presented to the human. */
+  bundle: ReviewBundle;
+  verdict: CanvasVerdict;
+}): RunState {
+  const { workspaceRoot, state, pipeline, bundle, verdict } = args;
+  const idx = args.stepIdx ?? state.currentStepIdx;
+  const step = state.steps[idx];
+  if (!step) {
+    throw new PipelineRunError(`No step at index ${idx}`);
+  }
+
+  if (!canvasPolicy(pipeline, idx)) {
+    throw new PipelineRunError(
+      `Step "${step.agent}" does not declare a Canvas review gate — use approveStep() / rejectStep().`,
+    );
+  }
+  if (step.status !== 'awaiting_review') {
+    throw new PipelineRunError(
+      `Cannot apply a Canvas verdict to step "${step.agent}": status is "${step.status}", ` +
+        'expected "awaiting_review". A verdict that already landed cannot be replayed.',
+    );
+  }
+
+  const reviewer = verdict.reviewer.trim();
+  if (!reviewer) {
+    throw new PipelineRunError(
+      `Canvas verdict for step "${step.agent}" carries no reviewer identity — an approval must name the human who gave it.`,
+    );
+  }
+
+  // The bundle has to be the one built for *this* gate. One from another run,
+  // another step, or a superseded revision describes content that was reviewed
+  // in a different context.
+  const mismatches: string[] = [];
+  if (bundle.runId !== state.runId) {
+    mismatches.push(`run "${bundle.runId}" != "${state.runId}"`);
+  }
+  if (bundle.stepIdx !== idx) {
+    mismatches.push(`step ${bundle.stepIdx} != ${idx}`);
+  }
+  if (bundle.stepRevision !== step.revision) {
+    mismatches.push(`step revision ${bundle.stepRevision} != ${step.revision}`);
+  }
+  if (mismatches.length > 0) {
+    throw new PipelineRunError(
+      `Canvas verdict for step "${step.agent}" was issued against a different gate (${mismatches.join('; ')}).`,
+    );
+  }
+
+  const at = verdict.at ?? new Date().toISOString();
+  const record: CanvasReviewRecord = {
+    verdict: verdict.verdict,
+    reviewer,
+    at,
+    bundleHash: bundle.bundleHash,
+    reviewRevision: bundle.reviewRevision,
+  };
+
+  if (verdict.verdict === 'request_changes') {
+    const feedback = verdict.feedback?.trim();
+    if (!feedback) {
+      throw new PipelineRunError(
+        `A Canvas "request_changes" verdict for step "${step.agent}" must carry feedback saying what to change.`,
+      );
+    }
+    const next = rejectStep({ state, reason: feedback, pipeline, stepIdx: idx });
+    next.steps[idx] = {
+      ...next.steps[idx],
+      canvasReview: { ...record, feedback },
+      history: pushHistory(next.steps[idx].history, {
+        kind: 'canvas_verdict',
+        at,
+        revision: step.revision,
+        verdict: 'request_changes',
+        reviewer,
+        bundleHash: bundle.bundleHash,
+      }),
+    };
+    return next;
+  }
+
+  const stale = checkBundleCurrent(workspaceRoot, bundle);
+  if (stale.length > 0) {
+    throw new PipelineRunError(
+      `Canvas approval for step "${step.agent}" is stale — reviewed content changed after it was shown: ` +
+        stale.map((s) => `${s.path} (${s.reason})`).join(', '),
+      stale.map((s) => s.path),
+    );
+  }
+
+  const next = advance(clone(state), idx, pipeline);
+  next.steps[idx] = {
+    ...next.steps[idx],
+    canvasReview: record,
+    reviewDisposition: 'human-approved',
+    history: pushHistory(next.steps[idx].history, {
+      kind: 'canvas_verdict',
+      at,
+      revision: step.revision,
+      verdict: 'approve',
+      reviewer,
+      bundleHash: bundle.bundleHash,
+    }),
+  };
+  return next;
 }
 
 /**

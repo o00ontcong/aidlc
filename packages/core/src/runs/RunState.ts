@@ -88,6 +88,12 @@ export interface StepRecord {
    */
   history?: StepHistoryEntry[];
   /** How a configured human gate was disposed. Omitted for legacy states. */
+  /**
+   * Outcome of this step's Canvas gate, when its config declares `review`.
+   * Bound to the content the human actually saw — written only by
+   * `applyArtifactReviewVerdict`.
+   */
+  canvasReview?: CanvasReviewRecord;
   reviewDisposition?: 'human-approved' | 'deferred-to-aggregate';
   /** Aggregate review bundle revision that owns the deferred decision. */
   reviewBundleRevision?: number;
@@ -168,6 +174,21 @@ export type StepHistoryEntry =
       reason?: string;
     }
   | {
+      /**
+       * A human closed (or reopened) a Canvas gate. Recorded alongside the
+       * ordinary `approve`/`reject` entry that carried out the transition, so
+       * the audit trail shows both *what* moved and *what content* was signed
+       * off on.
+       */
+      kind: 'canvas_verdict';
+      at: string;
+      revision: number;
+      verdict: 'approve' | 'request_changes';
+      reviewer: string;
+      /** Content digest the verdict was bound to. */
+      bundleHash: string;
+    }
+  | {
       /** Human review was intentionally deferred to a delivery-level bundle. */
       kind: 'aggregate_defer';
       at: string;
@@ -191,6 +212,33 @@ export type StepHistoryEntry =
       /** What the agent changed in the .md in response. */
       summary?: string;
     };
+
+/**
+ * A human's decision at a Canvas gate, bound to the content they reviewed.
+ *
+ * `bundleHash` is what makes the record meaningful: it pins the verdict to the
+ * exact bytes that were on screen, so an artifact edited after approval is
+ * detectable rather than silently carried forward. `reviewRevision` separates
+ * successive rounds on the same step revision — each `request_changes` opens
+ * the next one.
+ *
+ * Note on the reviewer field: core can require that a verdict *carries* an
+ * identity and refuse an empty one, but it cannot by itself prove the identity
+ * belongs to a human. That guarantee comes from the review transport, not from
+ * this record.
+ */
+export interface CanvasReviewRecord {
+  verdict: 'approve' | 'request_changes';
+  /** Who decided — git identity or equivalent. Never empty. */
+  reviewer: string;
+  at: string;
+  /** `bundleHash` of the bundle this verdict was issued against. */
+  bundleHash: string;
+  /** Which review round on the step's current revision. */
+  reviewRevision: number;
+  /** What to change. Required for `request_changes`. */
+  feedback?: string;
+}
 
 /**
  * Outcome of an auto-reviewer (validator script) run for a step. Produced

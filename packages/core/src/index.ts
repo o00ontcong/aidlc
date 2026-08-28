@@ -209,8 +209,10 @@ export {
   recordBugReport,
   requestStepUpdate,
   submitAutoReviewVerdict,
+  applyArtifactReviewVerdict,
   PipelineRunError,
 } from './runs/PipelineRunner';
+export type { CanvasVerdict } from './runs/PipelineRunner';
 export { checkBudget } from './runs/budget';
 export type { BudgetCheckArgs, BudgetVerdict } from './runs/budget';
 export { runExecLoop } from './runs/execEngine';
@@ -233,6 +235,7 @@ export type {
   AutoReviewVerdict,
   StepHistoryEntry,
   ExecutionFailureRef,
+  CanvasReviewRecord,
 } from './runs/RunState';
 
 // ── Built-in workflow presets (shared by extension + CLI) ──────────
