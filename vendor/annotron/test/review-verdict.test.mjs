@@ -58,14 +58,25 @@ async function register(name, text, review) {
       stepRevision: 1,
       reviewRevision: 1,
       bundleHash: sha256(text),
+      // Minted by the opener, exactly as AnnotronTransport does. Without one the
+      // server keeps no token and the refusal tests below cannot fire.
+      token: crypto.randomBytes(32).toString('hex'),
       artifacts: [{ path: abs, hash: sha256(text) }],
       ...review,
     };
   }
   const res = await call('POST', '/session', payload);
   assert.equal(res.status, 200, `register failed: ${JSON.stringify(res.json)}`);
+  if (res.json?.token) { tokens.set(abs, res.json.token); }
   return abs;
 }
+
+/** Effective gate token per artifact, as the server reported it. */
+const tokens = new Map();
+
+/** Post a verdict carrying the gate's token, the way the review window does. */
+const verdictFor = (abs, body) =>
+  call('POST', '/verdict', { file: abs, token: tokens.get(abs), ...body });
 
 before(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'annotron-verdict-'));
@@ -96,14 +107,13 @@ test('a freeform session keeps source writes and generic done', async () => {
   assert.equal((await call('POST', '/save-md', { file: abs, markdown: '# Edited\n' })).status, 200);
   assert.equal((await call('POST', '/done', { file: abs })).status, 200);
   // And it has no verdict to give.
-  assert.equal((await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'X' })).status, 400);
+  assert.equal((await verdictFor(abs, { verdict: 'approve', reviewer: 'X' })).status, 400);
 });
 
 test('approve is accepted and readable back', async () => {
   const abs = await register('approve.md', '# Approve me\n', {});
 
-  const posted = await call('POST', '/verdict', {
-    file: abs,
+  const posted = await verdictFor(abs, {
     verdict: 'approve',
     reviewer: 'Cong <cong@example.test>',
   });
@@ -120,11 +130,56 @@ test('a queued verdict is persisted, not just held in memory', async () => {
   // A review that took a coffee break must not be lost because the server was
   // restarted, so the verdict lands in the sidecar as well.
   const abs = await register('resume.md', '# Resume\n', {});
-  await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' });
+  await verdictFor(abs, { verdict: 'approve', reviewer: 'R' });
 
   const sidecar = JSON.parse(fs.readFileSync(abs.replace(/\.md$/, '.annotron.json'), 'utf8'));
   assert.equal(sidecar.review.verdict.verdict, 'approve');
   assert.equal(sidecar.review.verdict.reviewer, 'R');
+});
+
+test('a verdict without the gate token is refused', async () => {
+  // The token is a capability handed to whoever got the review link. It stops an
+  // unrelated process from posting a verdict to a port it merely found open. It
+  // is NOT identity proof, and not a defence against something that can already
+  // read the workspace — that can hash the file, register the bundle, and get a
+  // token of its own. See the note in server.js.
+  const abs = await register('needstoken.md', '# Token\n', {});
+
+  const bare = await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' });
+  assert.equal(bare.status, 401);
+  assert.match(bare.json.error, /token/i);
+
+  const wrong = await call('POST', '/verdict', {
+    file: abs, verdict: 'approve', reviewer: 'R', token: 'f'.repeat(64),
+  });
+  assert.equal(wrong.status, 401);
+
+  // Nothing was recorded by either attempt.
+  assert.equal((await call('GET', `/verdict?file=${encodeURIComponent(abs)}`)).json.verdict, null);
+  // The real token still works.
+  assert.equal((await verdictFor(abs, { verdict: 'approve', reviewer: 'R' })).status, 200);
+});
+
+test('the gate token is never exposed by reading the gate', async () => {
+  // If GET handed the token out, holding it would mean nothing — anything able
+  // to read the gate could then decide it.
+  const abs = await register('notoken.md', '# X\n', {});
+  const read = await call('GET', `/verdict?file=${encodeURIComponent(abs)}`);
+  assert.equal(read.status, 200);
+  assert.equal(read.json.review.token, undefined);
+});
+
+test('the token survives a re-register, so an open tab keeps working', async () => {
+  const abs = await register('keeptoken.md', '# Keep\n', {});
+  const first = tokens.get(abs);
+
+  await register('keeptoken.md', '# Keep\n', {});   // same bundle → same gate
+  assert.equal(tokens.get(abs), first);
+  // And the token the browser already holds is still accepted.
+  assert.equal(
+    (await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R', token: first })).status,
+    200,
+  );
 });
 
 test('reopening the same gate keeps a verdict already given', async () => {
@@ -133,7 +188,7 @@ test('reopening the same gate keeps a verdict already given', async () => {
   // reopened a gate to collect a decision silently erased it first. Found by
   // running `aidlc run review` end to end, not by this suite.
   const abs = await register('reopen.md', '# Reopen\n', {});
-  await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' });
+  await verdictFor(abs, { verdict: 'approve', reviewer: 'R' });
 
   await register('reopen.md', '# Reopen\n', {});   // same content → same bundleHash
 
@@ -147,7 +202,7 @@ test('reopening with a different bundle clears the verdict', async () => {
   // bundle differs it is a new round, and carrying the decision over would
   // approve content nobody looked at.
   const abs = await register('newround.md', '# Round 1\n', {});
-  await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' });
+  await verdictFor(abs, { verdict: 'approve', reviewer: 'R' });
 
   fs.writeFileSync(abs, '# Round 2\n', 'utf8');
   await register('newround.md', '# Round 2\n', { reviewRevision: 2 });
@@ -159,7 +214,7 @@ test('approve is refused once the reviewed content changed', async () => {
   const abs = await register('stale.md', '# Original\n', {});
   fs.writeFileSync(abs, '# Quietly edited\n', 'utf8');
 
-  const res = await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' });
+  const res = await verdictFor(abs, { verdict: 'approve', reviewer: 'R' });
   assert.equal(res.status, 409, JSON.stringify(res.json));
   assert.match(res.json.error, /stale|changed/i);
 
@@ -170,13 +225,12 @@ test('approve is refused once the reviewed content changed', async () => {
 test('request-changes is allowed on changed content but needs feedback', async () => {
   const abs = await register('changes.md', '# Needs work\n', {});
 
-  const noFeedback = await call('POST', '/verdict', { file: abs, verdict: 'request-changes', reviewer: 'R' });
+  const noFeedback = await verdictFor(abs, { verdict: 'request-changes', reviewer: 'R' });
   assert.equal(noFeedback.status, 400);
   assert.match(noFeedback.json.error, /feedback/i);
 
   fs.writeFileSync(abs, '# Already being reworked\n', 'utf8');
-  const withFeedback = await call('POST', '/verdict', {
-    file: abs,
+  const withFeedback = await verdictFor(abs, {
     verdict: 'request-changes',
     reviewer: 'R',
     feedback: 'Split section 2.',
@@ -187,7 +241,7 @@ test('request-changes is allowed on changed content but needs feedback', async (
 test('an unknown verdict is refused', async () => {
   const abs = await register('unknown.md', '# X\n', {});
   for (const verdict of ['ok', 'approved', 'Approve', '']) {
-    const res = await call('POST', '/verdict', { file: abs, verdict, reviewer: 'R' });
+    const res = await verdictFor(abs, { verdict, reviewer: 'R' });
     assert.equal(res.status, 400, `verdict "${verdict}" should be refused`);
   }
 });
@@ -195,7 +249,7 @@ test('an unknown verdict is refused', async () => {
 test('a verdict without a reviewer is refused', async () => {
   const abs = await register('anon.md', '# X\n', {});
   for (const reviewer of [undefined, '', '   ']) {
-    const res = await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer });
+    const res = await verdictFor(abs, { verdict: 'approve', reviewer });
     assert.equal(res.status, 400, `reviewer "${reviewer}" should be refused`);
     assert.match(res.json.error, /reviewer/i);
   }
@@ -220,15 +274,15 @@ test('formal mode refuses every path that would move or end the review', async (
 
   // The file on disk is untouched, so a later approve is still valid.
   assert.equal(fs.readFileSync(abs, 'utf8'), '# Locked\n');
-  assert.equal((await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' })).status, 200);
+  assert.equal((await verdictFor(abs, { verdict: 'approve', reviewer: 'R' })).status, 200);
 });
 
 test('a second verdict on the same review round is refused', async () => {
   const abs = await register('once.md', '# Once\n', {});
-  assert.equal((await call('POST', '/verdict', { file: abs, verdict: 'approve', reviewer: 'R' })).status, 200);
+  assert.equal((await verdictFor(abs, { verdict: 'approve', reviewer: 'R' })).status, 200);
 
-  const again = await call('POST', '/verdict', {
-    file: abs, verdict: 'request-changes', reviewer: 'R', feedback: 'no',
+  const again = await verdictFor(abs, {
+    verdict: 'request-changes', reviewer: 'R', feedback: 'no',
   });
   assert.equal(again.status, 409);
   assert.match(again.json.error, /already/i);

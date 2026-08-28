@@ -223,7 +223,11 @@ export function registerRun(program: Command): void {
         console.log(
           `  ${chalk.cyan(artifact.path)}  ${artifact.hash.replace(/^sha256:/, '').slice(0, 12)}`,
         );
-        console.log(`    ${base}/?file=${encodeURIComponent(`${root}/${artifact.path}`)}`);
+        // The token rides in the link, because the link is the capability: the
+        // person handed it is the person allowed to decide.
+        const query = new URLSearchParams({ file: `${root}/${artifact.path}` });
+        if (gate.token) { query.set('token', gate.token); }
+        console.log(`    ${base}/?${query.toString()}`);
       }
 
       // Without this the user who approved, then edited the file, sees only a

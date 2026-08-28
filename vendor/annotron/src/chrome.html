@@ -2141,7 +2141,9 @@ async function postVerdict(verdict, feedback) {
   const res = await fetch('/verdict', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ file, verdict, reviewer, feedback }),
+    // The gate token comes from this page's own URL — the link is the
+    // capability, so whoever was handed it is who may decide.
+    body: JSON.stringify({ file, verdict, reviewer, feedback, token: params.get('token') || '' }),
   });
   const body = await res.json().catch(() => ({}));
 

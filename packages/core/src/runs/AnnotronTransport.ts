@@ -17,6 +17,8 @@
  * description of this layer is "the browser tells us who clicked", not "we know
  * a human clicked".
  */
+import * as crypto from 'crypto';
+
 import type { ReviewBundle } from './ArtifactReview';
 import type { OpenResult, ReviewTransport, TransportVerdict } from './ReviewSession';
 
@@ -52,6 +54,12 @@ export class AnnotronTransport implements ReviewTransport {
       hash: a.hash,
     }));
     let supersededVerdict: TransportVerdict | null = null;
+    // A capability for whoever gets handed the review link. The server keeps the
+    // first token minted for a bundle, so reopening a gate does not lock out a
+    // tab already holding one — which means the value we get back may not be the
+    // one offered here.
+    const offered = crypto.randomBytes(32).toString('hex');
+    let token: string | null = null;
 
     for (const artifact of bundle.artifacts) {
       const res = await this.fetchImpl(`${this.baseUrl}/session`, {
@@ -65,6 +73,7 @@ export class AnnotronTransport implements ReviewTransport {
             stepRevision: bundle.stepRevision,
             reviewRevision: bundle.reviewRevision,
             bundleHash: bundle.bundleHash,
+            token: offered,
             // The whole bundle, in every window: each one can then show what is
             // being decided and refuse an approval when *any* file drifted.
             artifacts,
@@ -81,11 +90,13 @@ export class AnnotronTransport implements ReviewTransport {
       // moved on. Any one file reporting it is enough — the bundle is one gate.
       const body = (await res.json().catch(() => ({}))) as {
         supersededVerdict?: TransportVerdict | null;
+        token?: string | null;
       };
       if (body.supersededVerdict) { supersededVerdict = body.supersededVerdict; }
+      if (body.token) { token = body.token; }
     }
 
-    return { supersededVerdict };
+    return { supersededVerdict, token };
   }
 
   /**

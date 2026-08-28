@@ -179,8 +179,30 @@ function staleArtifacts(review) {
  */
 function persistReview(file, review) {
   const sidecar = readSidecar(file);
-  sidecar.review = review;
+  // The gate token stays in memory only. Writing it beside the artifact would
+  // hand it to anything that can read the workspace, which is exactly the reach
+  // it is meant to narrow.
+  const { token, ...withoutToken } = review;
+  sidecar.review = withoutToken;
   writeSidecar(file, sidecar);
+}
+
+/**
+ * Is this request allowed to post a verdict for the gate?
+ *
+ * The token is a **capability handed to whoever was given the review link**, not
+ * proof of identity. It stops an unrelated process on the machine from posting a
+ * verdict to a port it merely found open. It does *not* defend against something
+ * that can read the workspace: that can hash the artifact, register the same
+ * bundle, and obtain a token. Closing that gap needs OS-level scoping — file
+ * permissions, or a unix socket with peer credentials — not a shared secret in
+ * an HTTP body.
+ */
+function verdictTokenOk(review, presented) {
+  if (!review.token) { return true; }   // gate opened without one (older caller)
+  return typeof presented === 'string'
+    && presented.length === review.token.length
+    && crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(review.token));
 }
 
 // --- SSE broadcast ---
@@ -323,7 +345,14 @@ async function handler(req, res) {
       // there the verdict *must* be cleared — it was given for other bytes.
       const prior = sess.review ?? readSidecar(abs).review ?? null;
       const sameGate = prior && prior.bundleHash === review.bundleHash;
-      sess.review = { ...review, verdict: sameGate ? (prior.verdict ?? null) : null };
+      sess.review = {
+        ...review,
+        verdict: sameGate ? (prior.verdict ?? null) : null,
+        // Keep the token across a re-register of the same gate, so a browser tab
+        // already holding it keeps working — reopening a gate to check on it must
+        // not lock out the person reviewing.
+        token: (sameGate && prior.token) ? prior.token : (review.token ?? null),
+      };
       // Report a discarded verdict rather than dropping it silently. This is the
       // "you approved it, then the content changed" case, and a caller that
       // cannot tell it apart from "nobody has decided yet" will show the user a
@@ -337,6 +366,9 @@ async function handler(req, res) {
       file: abs,
       formal: !!sess.review,
       supersededVerdict: superseded,
+      // The effective token, which may be one kept from an earlier register
+      // rather than the one just offered.
+      token: sess.review?.token ?? null,
     });
   }
 
@@ -351,6 +383,13 @@ async function handler(req, res) {
     if (!review) {
       return send(res, 400, {
         error: 'not a formal review session — register with `review` metadata to open an approval gate',
+      });
+    }
+    // Checked before anything else: an unauthorised caller should learn nothing
+    // about the gate's state, not even whether it is already decided.
+    if (!verdictTokenOk(review, body.token)) {
+      return send(res, 401, {
+        error: 'missing or invalid gate token — a verdict may only be posted from the review link that opened this gate',
       });
     }
     if (review.verdict) {
@@ -406,7 +445,11 @@ async function handler(req, res) {
     if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
     const review = formalReview(abs);
     if (!review) return send(res, 400, { error: 'not a formal review session' });
-    return send(res, 200, { review, verdict: review.verdict ?? null });
+    // Never hand the token back. Reading the gate is open to anything that knows
+    // the path; if that also yielded the token, holding one would mean nothing
+    // and the whole capability would be decorative.
+    const { token, ...safe } = review;
+    return send(res, 200, { review: safe, verdict: review.verdict ?? null });
   }
 
   if (pathname === '/' && method === 'GET') {

@@ -78,6 +78,16 @@ export interface OpenResult {
    * applies and needs saying out loud.
    */
   supersededVerdict?: TransportVerdict | null;
+  /**
+   * Capability the transport requires before it will accept a verdict, to be
+   * handed to whoever is given the review link.
+   *
+   * Not proof of identity, and not a defence against something that can already
+   * read the workspace — see the note on `AnnotronTransport`. It narrows who can
+   * post a verdict from "any process that found the port" to "whoever was given
+   * the link", which is worth having and worth not overstating.
+   */
+  token?: string | null;
 }
 
 /** An open Canvas gate. */
@@ -87,6 +97,8 @@ export interface ReviewGate {
   paths: string[];
   /** See {@link OpenResult.supersededVerdict}. */
   supersededVerdict?: TransportVerdict | null;
+  /** See {@link OpenResult.token}. */
+  token?: string | null;
 }
 
 /**
@@ -161,6 +173,7 @@ export async function openReviewGate(args: {
     bundle,
     paths: bundle.artifacts.map((a) => a.path),
     supersededVerdict: opened?.supersededVerdict ?? null,
+    token: opened?.token ?? null,
   };
 }
 
