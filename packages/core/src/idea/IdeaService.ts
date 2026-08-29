@@ -16,6 +16,7 @@ import {
   type IdeaSelfAnswered,
 } from '../contracts/idea';
 import { epicsRoot, scaffoldEpic, type ScaffoldEpicArgs, type ScaffoldEpicResult } from '../runs/EpicScaffold';
+import { RunStateStore } from '../runs/RunStateStore';
 import { CofofoFoundationService } from '../cofofo/FoundationService';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { renderIdeaBrief } from './renderIdeaBrief';
@@ -234,16 +235,17 @@ export class IdeaService {
       throw new IdeaStateError(`Cannot complete prep: checkpoint is "${current.checkpoint}", expected "preparing".`);
     }
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    const gatedQuestions = this.gateQuestions(result.questions);
     const done: Idea = {
       ...current,
-      prep: { status: 'done', jobId: current.prep.jobId, selfAnswered: result.selfAnswered, questions: result.questions },
+      prep: { status: 'done', jobId: current.prep.jobId, selfAnswered: result.selfAnswered, questions: gatedQuestions },
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
     };
     this.store.save(done, current.ideaRevision);
-    this.record(done, 'prep_completed', actor, `${result.questions.length} question(s) survived filtering.`);
+    this.record(done, 'prep_completed', actor, `${gatedQuestions.length} question(s) survived filtering.`);
 
-    if (result.questions.length === 0) {
+    if (gatedQuestions.length === 0) {
       return this.advanceToIntentDrafted(done, actor);
     }
     const next: Idea = { ...done, checkpoint: 'awaiting_human', updatedAt: this.clock(), ideaRevision: done.ideaRevision + 1 };
@@ -260,6 +262,37 @@ export class IdeaService {
     const next: Idea = { ...current, prep: { ...current.prep, selfAnswered }, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
     this.store.save(next, current.ideaRevision);
     this.record(next, 'self_answer_flagged', actor, current.prep.selfAnswered[index]!.question);
+    return next;
+  }
+
+  /** discovery-gate threshold — skip the batch when fewer than 3 low-impact questions survive. */
+  private gateQuestions(questions: IdeaQuestion[]): IdeaQuestion[] {
+    if (questions.length === 0) return [];
+    if (questions.some((question) => question.highImpact)) return questions;
+    if (questions.length >= MIN_QUESTIONS_TO_ASK) return questions;
+    return [];
+  }
+
+  /** True when the CoFoFo Foundation has changed since this Idea was captured. */
+  isFoundationStale(idea: Idea): boolean {
+    const inspection = this.foundation.inspect();
+    const current = inspection.status === 'ready' ? inspection.snapshot : undefined;
+    if (!current) return true;
+    if (!idea.foundationHashAtCapture) return true;
+    return current.revision !== idea.foundationHashAtCapture.revision
+      || current.manifestHash !== idea.foundationHashAtCapture.manifestHash;
+  }
+
+  markSaveFailed(id: string, expectedRevision: number): Idea {
+    const current = this.require(id);
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    const next: Idea = {
+      ...current,
+      saveStatus: 'failed',
+      dirty: true,
+      updatedAt: this.clock(),
+    };
+    this.store.save(next, current.ideaRevision);
     return next;
   }
 
@@ -494,11 +527,13 @@ export class IdeaService {
 
     const reloaded = this.require(id);
     const primary = children[0]!;
+    const primaryRun = RunStateStore.load(this.workspaceRoot, primary.epicId);
+    const stepRevision = primaryRun?.steps[primaryRun.currentStepIdx]?.revision ?? 1;
     const next: Idea = {
       ...reloaded,
       children,
       checkpoint: 'in_delivery',
-      inDelivery: { epicId: primary.epicId, runId: primary.epicId, stepRevision: 1 },
+      inDelivery: { epicId: primary.epicId, runId: primary.epicId, stepRevision },
       updatedAt: this.clock(),
       ideaRevision: reloaded.ideaRevision + 1,
     };
@@ -537,19 +572,26 @@ export class IdeaService {
     const current = this.require(id);
     if (current.checkpoint === 'completed') throw new IdeaStateError('A completed Idea cannot be shelved.');
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const next: Idea = { ...current, checkpoint: 'shelved', updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+    const next: Idea = { ...current, checkpoint: 'shelved', shelvedFromCheckpoint: current.checkpoint, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
     this.store.save(next, current.ideaRevision);
     this.record(next, 'shelved', actor);
     return next;
   }
 
-  /** Reopens to `captured` — a shelved Idea always resumes at the start, never mid-batch (simplicity over precision here). */
+  /** Reopens at the checkpoint stored when shelved — never resets mid-flow state. */
   reopen(id: string, expectedRevision: number, actor: ActorRef): Idea {
     if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may reopen an Idea.');
     const current = this.require(id);
     if (current.checkpoint !== 'shelved') throw new IdeaStateError('Only a shelved Idea can be reopened.');
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const next: Idea = { ...current, checkpoint: 'captured', updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+    const resumeAt = current.shelvedFromCheckpoint ?? 'captured';
+    const next: Idea = {
+      ...current,
+      checkpoint: resumeAt,
+      shelvedFromCheckpoint: undefined,
+      updatedAt: this.clock(),
+      ideaRevision: current.ideaRevision + 1,
+    };
     this.store.save(next, current.ideaRevision);
     this.record(next, 'reopened', actor);
     return next;
@@ -575,6 +617,7 @@ export class IdeaService {
       routeDraft: undefined,
       routeConfirmed: false,
       assumptions: [],
+      shelvedFromCheckpoint: undefined,
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
     };

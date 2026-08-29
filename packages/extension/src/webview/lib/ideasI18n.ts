@@ -69,6 +69,18 @@ interface IdeasCopy {
   closed: { title: string };
   completed: { title: string };
   actions: { shelve: string; reopen: string };
+  foundationStaleBanner: string;
+  conflict: {
+    title: string;
+    body: string;
+    reload: string;
+  };
+  switchConfirm: {
+    title: string;
+    body: string;
+    discard: string;
+    stay: string;
+  };
   languageSettings: string;
 }
 
@@ -165,6 +177,18 @@ const en: IdeasCopy = {
   closed: { title: 'Closed — no build was needed' },
   completed: { title: 'Completed' },
   actions: { shelve: 'Set aside', reopen: 'Reopen' },
+  foundationStaleBanner: 'CONTEXT-MANIFEST.json changed since you captured this idea — routing will prepend cofofo-bootstrap when you confirm.',
+  conflict: {
+    title: 'This idea was updated elsewhere',
+    body: 'Another tab or session saved a newer version. Reload to continue with the latest state.',
+    reload: 'Reload latest',
+  },
+  switchConfirm: {
+    title: 'Discard unsaved changes?',
+    body: 'You have an answer that has not finished saving. Switch anyway and lose it?',
+    discard: 'Switch anyway',
+    stay: 'Stay here',
+  },
   languageSettings: 'Display language',
 };
 
@@ -261,6 +285,18 @@ const vi: IdeasCopy = {
   closed: { title: 'Đã đóng — không cần xây gì' },
   completed: { title: 'Đã hoàn tất' },
   actions: { shelve: 'Gác lại', reopen: 'Mở lại' },
+  foundationStaleBanner: 'CONTEXT-MANIFEST.json đã đổi kể từ khi bạn lưu ý tưởng — khi xác nhận tuyến sẽ chèn cofofo-bootstrap trước.',
+  conflict: {
+    title: 'Ý tưởng này vừa được cập nhật ở nơi khác',
+    body: 'Tab hoặc phiên khác đã lưu bản mới hơn. Tải lại để tiếp tục với trạng thái mới nhất.',
+    reload: 'Tải lại',
+  },
+  switchConfirm: {
+    title: 'Bỏ thay đổi chưa lưu?',
+    body: 'Bạn có câu trả lời đang lưu dở. Chuyển sang ý tưởng khác và mất nó?',
+    discard: 'Vẫn chuyển',
+    stay: 'Ở lại',
+  },
   languageSettings: 'Ngôn ngữ hiển thị',
 };
 

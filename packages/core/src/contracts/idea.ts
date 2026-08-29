@@ -183,6 +183,8 @@ export const IdeaSchema = z.object({
   inDelivery: IdeaInDeliverySchema.optional(),
   children: z.array(IdeaChildSchema),
   blockedReason: z.string().optional(),
+  /** Checkpoint to resume at after shelve → reopen (audit M01). */
+  shelvedFromCheckpoint: IdeaCheckpointSchema.optional(),
   saveStatus: IdeaSaveStatusSchema,
   /** Unsaved local edits exist that a idea-switch would discard (M02). */
   dirty: z.boolean(),

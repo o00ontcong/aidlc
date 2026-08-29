@@ -15,6 +15,7 @@ import {
   generatedCofofoWorkspace,
   markStepDone,
   startRun,
+  syncAllIdeaDeliveries,
   type PipelineConfig,
   type RunState,
 } from '../src';
@@ -152,14 +153,16 @@ describe('Idea question loop', () => {
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'Speed up search.' });
     const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const question = { id: 'q1', text: 'How fast?', options: [{ id: 'a', label: 'Fast', recommended: true }, { id: 'b', label: 'Slow', recommended: false }], reason: 'x', highImpact: false, dependsOn: [] as string[] };
     const done = ideas.completePrep(prepping.id, prepping.ideaRevision, {
       selfAnswered: [],
-      questions: [{ id: 'q1', text: 'How fast?', options: [{ id: 'a', label: 'Fast', recommended: true }, { id: 'b', label: 'Slow', recommended: false }], reason: 'x', highImpact: false, dependsOn: [] }],
+      questions: [question, { ...question, id: 'q2', text: 'Which screen?' }, { ...question, id: 'q3', text: 'Which metric?' }],
     }, AGENT);
+    expect(done.checkpoint).toBe('awaiting_human');
     expect(() => ideas.decideRest(done.id, done.ideaRevision, AGENT)).toThrow(IdeaStateError);
     const decided = ideas.decideRest(done.id, done.ideaRevision, USER);
     expect(decided.checkpoint).toBe('intent_drafted');
-    expect(decided.assumptions).toHaveLength(1);
+    expect(decided.assumptions).toHaveLength(3);
   });
 
   it('F02 — flags a self-answer as wrong without changing checkpoint', () => {
@@ -310,15 +313,36 @@ describe('Idea blocked state', () => {
 });
 
 describe('Idea shelve / reopen / restart', () => {
-  it('shelve hides it from the default inbox bucket; reopen resumes at captured', () => {
+  it('shelve hides it from the default inbox bucket; reopen resumes at the shelved checkpoint', () => {
     const root = temporary();
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'x' });
     expect(() => ideas.shelve(created.id, created.ideaRevision, AGENT)).toThrow(/human user/i);
     const shelved = ideas.shelve(created.id, created.ideaRevision, USER);
     expect(ideas.inboxBucket(shelved)).toBe('shelved');
+    expect(shelved.shelvedFromCheckpoint).toBe('captured');
     const reopened = ideas.reopen(shelved.id, shelved.ideaRevision, USER);
     expect(reopened.checkpoint).toBe('captured');
+    expect(reopened.shelvedFromCheckpoint).toBeUndefined();
+  });
+
+  it('reopen after shelve during awaiting_human resumes the question batch', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const awaiting = ideas.completePrep(prepping.id, prepping.ideaRevision, {
+      selfAnswered: [],
+      questions: [{
+        id: 'q1', text: 'Who?', reason: 'Scope', highImpact: true, dependsOn: [],
+        options: [{ id: 'a', label: 'Users', recommended: true }, { id: 'b', label: 'Admins', recommended: false }],
+      }],
+    }, AGENT);
+    expect(awaiting.checkpoint).toBe('awaiting_human');
+    const shelved = ideas.shelve(awaiting.id, awaiting.ideaRevision, USER);
+    const reopened = ideas.reopen(shelved.id, shelved.ideaRevision, USER);
+    expect(reopened.checkpoint).toBe('awaiting_human');
+    expect(reopened.prep.questions).toHaveLength(1);
   });
 
   it('restart bumps revision and clears prep/answers/route while events.ndjson keeps every prior attempt', () => {
@@ -395,5 +419,51 @@ describe('Idea to CoFoFo delivery, end to end', () => {
     });
     expect(approved.steps[0]!.status).toBe('approved');
     expect(approved.currentStepIdx).toBe(1); // advanced to create-plan
+  });
+
+  it('syncAllIdeaDeliveries marks the Idea completed when every child run finishes', () => {
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'Add a heat alert.' });
+    const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const drafted = ideas.completePrep(prepping.id, prepping.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
+    const proposed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
+      outcome: 'epics',
+      steps: [{ recipeId: 'cofofo-feature', epicTitle: 'Heat alert', rationale: 'New behavior.' }],
+    }, AGENT);
+    const cfg = generatedCofofoWorkspace({ version: '1.0', name: 'x', environment: {} });
+    const pipeline = assemblePipeline(cfg, { recipeId: 'cofofo-feature', pipelineId: 'EPIC-201-PIPELINE' });
+    ideas.confirmRouteAndScaffold(proposed.id, proposed.ideaRevision, [
+      { recipeId: 'cofofo-feature', epicId: 'EPIC-201', epicTitle: 'Heat alert', pipeline, scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} } },
+    ], null, USER);
+
+    const run = RunStateStore.load(root, 'EPIC-201')!;
+    RunStateStore.save(root, {
+      ...run,
+      status: 'completed',
+      steps: run.steps.map((step) => ({ ...step, status: 'approved' as const })),
+    });
+
+    syncAllIdeaDeliveries(root, null);
+    expect(ideas.require(created.id).checkpoint).toBe('completed');
+  });
+});
+
+describe('Idea prep question gate', () => {
+  it('drops fewer than three low-impact questions and skips straight to intent_drafted', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const drafted = ideas.completePrep(prepping.id, prepping.ideaRevision, {
+      selfAnswered: [],
+      questions: [
+        { id: 'q1', text: 'A?', reason: 'r', highImpact: false, dependsOn: [], options: [{ id: 'a', label: 'A', recommended: true }, { id: 'b', label: 'B', recommended: false }] },
+        { id: 'q2', text: 'B?', reason: 'r', highImpact: false, dependsOn: [], options: [{ id: 'a', label: 'A', recommended: true }, { id: 'b', label: 'B', recommended: false }] },
+      ],
+    }, AGENT);
+    expect(drafted.checkpoint).toBe('intent_drafted');
+    expect(drafted.prep.questions).toHaveLength(0);
   });
 });

@@ -233,6 +233,9 @@ import {
   slugEpicId,
   scaffoldEpic,
   IdeaService,
+  IdeaRevisionConflictError,
+  syncAllIdeaDeliveries,
+  resolveChildCanvasStepIndex,
   epicsRoot,
   EpicScaffoldError,
   installAnnotationTools,
@@ -401,6 +404,7 @@ interface IdeaChildUi {
   epicId: string;
   recipeId: IdeaRouteStepUi['recipeId'];
   runStatus: string;
+  canvasStepIdx?: number;
 }
 
 interface IdeaInDeliveryUi {
@@ -428,6 +432,7 @@ interface IdeaUi {
   inDelivery?: IdeaInDeliveryUi;
   children: IdeaChildUi[];
   blockedReason?: string;
+  foundationStale?: boolean;
   saveStatus: 'saved' | 'saving' | 'failed';
   dirty: boolean;
   createdAt: string;
@@ -736,6 +741,19 @@ function buildRecipeSummary(
   };
 }
 
+function buildIdeasUi(root: string, doc: ReturnType<typeof readYaml>): IdeaUi[] {
+  const service = new IdeaService(root);
+  syncAllIdeaDeliveries(root, doc);
+  return service.list().map((idea) => ({
+    ...idea,
+    foundationStale: service.isFoundationStale(idea),
+    children: idea.children.map((child) => ({
+      ...child,
+      canvasStepIdx: resolveChildCanvasStepIndex(root, child.epicId, doc),
+    })),
+  }));
+}
+
 function buildState(initialView: WorkspaceView): WorkspaceState {
   const folder = vscode.workspace.workspaceFolders?.[0];
   const providerConfig = buildProviderConfigUi(folder?.uri.fsPath);
@@ -771,7 +789,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   // Idea capture is unconditional (never gated on Foundation/workspace.yaml —
   // see IdeaService.create), so this list is built the same way in every
   // branch below, including the `!doc` one.
-  const ideas: IdeaUi[] = new IdeaService(root).list();
+  const ideas: IdeaUi[] = buildIdeasUi(root, doc);
   const discovered = discoverAssets(root);
   const architecture = readArchitectureStudio(root);
 
@@ -2099,6 +2117,51 @@ export class WorkspaceWebview {
     await vscode.commands.executeCommand('markdown.showPreview', doc.uri);
   }
 
+  private postIdeaRevisionConflict(ideaId: string, serverRevision: number | null): void {
+    void this.panel.webview.postMessage({
+      type: 'ideaRevisionConflict',
+      ideaId,
+      serverRevision,
+    });
+  }
+
+  private handleIdeaMutation(run: () => void): void {
+    try {
+      run();
+      this.refresh();
+    } catch (error) {
+      if (error instanceof IdeaRevisionConflictError) {
+        this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
+        this.refresh();
+        return;
+      }
+      void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private handleIdeaSaveAnswer(root: string, id: string, revision: number, questionId: string, choiceId: string): void {
+    const service = new IdeaService(root);
+    const human = { kind: 'user' as const, id: 'vscode-user' };
+    try {
+      service.saveAnswer(id, revision, questionId, choiceId, human);
+      this.refresh();
+    } catch (error) {
+      if (error instanceof IdeaRevisionConflictError) {
+        this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
+        this.refresh();
+        return;
+      }
+      try {
+        service.markSaveFailed(id, revision);
+      } catch {
+        // Idea moved on concurrently — conflict path above is enough.
+      }
+      void this.panel.webview.postMessage({ type: 'ideaSaveFailed', ideaId: id });
+      this.refresh();
+      void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   /**
    * Run the Idea prep agent: read-only research + self-answering, gated and
    * batched per docs/design/ideas-tab/ideas-tab-flow-graph.canvas.tsx. Called
@@ -2359,12 +2422,7 @@ export class WorkspaceWebview {
         const questionId = typeof msg.questionId === 'string' ? msg.questionId : '';
         const choiceId = typeof msg.choiceId === 'string' ? msg.choiceId : '';
         if (!root || !id || !questionId || !choiceId || !Number.isInteger(revision)) return;
-        try {
-          new IdeaService(root).saveAnswer(id, revision, questionId, choiceId, { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        this.handleIdeaSaveAnswer(root, id, revision, questionId, choiceId);
         return;
       }
 
@@ -2378,6 +2436,11 @@ export class WorkspaceWebview {
           this.refresh();
           if (submitted.checkpoint === 'intent_drafted') void this.runIdeaRoute(root, id);
         } catch (error) {
+          if (error instanceof IdeaRevisionConflictError) {
+            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
+            this.refresh();
+            return;
+          }
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
         return;
@@ -2393,10 +2456,19 @@ export class WorkspaceWebview {
           this.refresh();
           if (decided.checkpoint === 'intent_drafted') void this.runIdeaRoute(root, id);
         } catch (error) {
+          if (error instanceof IdeaRevisionConflictError) {
+            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
+            this.refresh();
+            return;
+          }
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
         return;
       }
+
+      case 'reloadIdeasState':
+        this.refresh();
+        return;
 
       case 'flagIdeaSelfAnswer': {
         const root = this.getRootOrWarn();
@@ -2482,18 +2554,14 @@ export class WorkspaceWebview {
         const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
         const revision = Number(msg.revision);
         if (!root || !id || !Number.isInteger(revision)) return;
-        try {
+        this.handleIdeaMutation(() => {
           const service = new IdeaService(root);
           const human = { kind: 'user' as const, id: 'vscode-user' };
           if (msg.type === 'shelveIdea') service.shelve(id, revision, human);
           if (msg.type === 'reopenIdea') service.reopen(id, revision, human);
           if (msg.type === 'restartIdea') service.restart(id, revision, human);
-          this.refresh();
-          // Restart lands back at `captured` — same auto-prep as a fresh capture.
           if (msg.type === 'restartIdea') void this.runIdeaPrep(root, id);
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        });
         return;
       }
 

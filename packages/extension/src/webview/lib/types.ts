@@ -787,6 +787,7 @@ export interface IdeaChild {
   epicId: string;
   recipeId: IdeaRouteStep['recipeId'];
   runStatus: string;
+  canvasStepIdx?: number;
 }
 
 export interface IdeaInDelivery {
@@ -820,6 +821,7 @@ export interface IdeaSummary {
   inDelivery?: IdeaInDelivery;
   children: IdeaChild[];
   blockedReason?: string;
+  foundationStale?: boolean;
   saveStatus: 'saved' | 'saving' | 'failed';
   dirty: boolean;
   createdAt: string;

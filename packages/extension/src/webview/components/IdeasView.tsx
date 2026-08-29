@@ -3,7 +3,7 @@ import { AlertTriangle, ChevronDown, Flag, Lightbulb, Loader2, Plus, RotateCcw }
 
 import type { IdeaQuestion, IdeaSelfAnswered, IdeaSummary, WorkspaceState } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import { postMessage } from '@/lib/bridge';
+import { onHostMessage, postMessage } from '@/lib/bridge';
 import { ideasCopy, type IdeasCheckpoint, type IdeasLanguage } from '@/lib/ideasI18n';
 
 interface Props {
@@ -26,9 +26,42 @@ function inboxBucket(idea: IdeaSummary): Filter {
 export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
   const [creating, setCreating] = useState(state.ideas.length === 0);
   const [filter, setFilter] = useState<Filter>('awaiting_you');
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
+  const [switchConfirmOpen, setSwitchConfirmOpen] = useState(false);
+  const [conflictIdeaId, setConflictIdeaId] = useState<string | null>(null);
+  const [savingQuestionId, setSavingQuestionId] = useState<string | null>(null);
   const language = state.displayLanguage;
   const copy = ideasCopy(language);
   const selected = state.ideas.find((idea) => idea.id === selectedIdeaId);
+
+  useEffect(() => {
+    return onHostMessage((msg) => {
+      if (msg.type === 'ideaRevisionConflict') {
+        const ideaId = String(msg.ideaId ?? '');
+        if (ideaId) setConflictIdeaId(ideaId);
+      }
+      if (msg.type === 'ideaSaveFailed') {
+        setSavingQuestionId(null);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    setSavingQuestionId(null);
+  }, [selected?.id, selected?.ideaRevision]);
+
+  const trySelectIdea = (ideaId: string) => {
+    if (
+      selected
+      && selected.id !== ideaId
+      && (selected.dirty || selected.saveStatus === 'saving' || selected.saveStatus === 'failed' || savingQuestionId)
+    ) {
+      setPendingSelectId(ideaId);
+      setSwitchConfirmOpen(true);
+      return;
+    }
+    onSelectIdea(ideaId);
+  };
 
   useEffect(() => {
     if (!selected && selectedIdeaId) {
@@ -69,7 +102,7 @@ export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
         <CaptureCard
           language={language}
           onClose={() => setCreating(false)}
-          onSelect={onSelectIdea}
+          onSelect={trySelectIdea}
         />
       )}
 
@@ -94,7 +127,7 @@ export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
                 <button
                   key={idea.id}
                   type="button"
-                  onClick={() => onSelectIdea(idea.id)}
+                  onClick={() => trySelectIdea(idea.id)}
                   className={cn(
                     'w-full px-4 py-3 text-left transition-colors hover:bg-accent/60',
                     selected?.id === idea.id && 'bg-primary/5',
@@ -117,7 +150,12 @@ export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
         </aside>
         <section className="rounded-xl border border-border bg-card p-5">
           {selected ? (
-            <IdeaDetail idea={selected} language={language} />
+            <IdeaDetail
+              idea={selected}
+              language={language}
+              savingQuestionId={savingQuestionId}
+              onSavingQuestion={setSavingQuestionId}
+            />
           ) : (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               {copy.list.savedAutomatically}
@@ -125,6 +163,37 @@ export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
           )}
         </section>
       </div>
+
+      {switchConfirmOpen && pendingSelectId && (
+        <ConfirmModal
+          title={copy.switchConfirm.title}
+          body={copy.switchConfirm.body}
+          confirmLabel={copy.switchConfirm.discard}
+          cancelLabel={copy.switchConfirm.stay}
+          onCancel={() => { setSwitchConfirmOpen(false); setPendingSelectId(null); }}
+          onConfirm={() => {
+            onSelectIdea(pendingSelectId);
+            setSwitchConfirmOpen(false);
+            setPendingSelectId(null);
+            setSavingQuestionId(null);
+          }}
+        />
+      )}
+
+      {conflictIdeaId && (
+        <ConfirmModal
+          title={copy.conflict.title}
+          body={copy.conflict.body}
+          confirmLabel={copy.conflict.reload}
+          cancelLabel={copy.resume.cancel}
+          onCancel={() => setConflictIdeaId(null)}
+          onConfirm={() => {
+            postMessage({ type: 'reloadIdeasState' });
+            setConflictIdeaId(null);
+            setSavingQuestionId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -182,7 +251,17 @@ function CaptureCard({
   );
 }
 
-function IdeaDetail({ idea, language }: { idea: IdeaSummary; language: IdeasLanguage }) {
+function IdeaDetail({
+  idea,
+  language,
+  savingQuestionId,
+  onSavingQuestion,
+}: {
+  idea: IdeaSummary;
+  language: IdeasLanguage;
+  savingQuestionId: string | null;
+  onSavingQuestion: (questionId: string | null) => void;
+}) {
   const copy = ideasCopy(language);
   const [confirmingRestart, setConfirmingRestart] = useState(false);
 
@@ -212,6 +291,34 @@ function IdeaDetail({ idea, language }: { idea: IdeaSummary; language: IdeasLang
         <p className="mt-1 text-sm text-foreground">{idea.seedSentence}</p>
       </div>
 
+      {idea.foundationStale && idea.checkpoint !== 'in_delivery' && idea.checkpoint !== 'completed' && idea.checkpoint !== 'closed' && (
+        <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+          <p className="text-[10.5px] leading-relaxed text-foreground">{copy.foundationStaleBanner}</p>
+        </div>
+      )}
+
+      {(idea.saveStatus === 'failed' || idea.saveStatus === 'saving') && (
+        <div className={cn(
+          'rounded-lg border p-3',
+          idea.saveStatus === 'failed' ? 'border-destructive/40 bg-destructive/5' : 'border-border bg-background/60',
+        )}
+        >
+          <div className="text-xs font-semibold text-foreground">
+            {idea.saveStatus === 'failed' ? copy.batch.saveFailed : copy.batch.saving}
+          </div>
+          {idea.saveStatus === 'failed' && (
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'reloadIdeasState' })}
+              className="mt-2 rounded-md bg-primary px-3 py-1.5 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              {copy.batch.retrySave}
+            </button>
+          )}
+        </div>
+      )}
+
       {idea.checkpoint === 'captured' && (
         <PrepPanel state="starting" idea={idea} language={language} />
       )}
@@ -223,7 +330,12 @@ function IdeaDetail({ idea, language }: { idea: IdeaSummary; language: IdeasLang
       {idea.checkpoint === 'awaiting_human' && (
         <>
           {idea.prep.selfAnswered.length > 0 && <SelfAnsweredList idea={idea} language={language} />}
-          <BatchQuestions idea={idea} language={language} />
+          <BatchQuestions
+            idea={idea}
+            language={language}
+            savingQuestionId={savingQuestionId}
+            onSavingQuestion={onSavingQuestion}
+          />
         </>
       )}
 
@@ -423,7 +535,17 @@ function SelfAnsweredRow({
   );
 }
 
-function BatchQuestions({ idea, language }: { idea: IdeaSummary; language: IdeasLanguage }) {
+function BatchQuestions({
+  idea,
+  language,
+  savingQuestionId,
+  onSavingQuestion,
+}: {
+  idea: IdeaSummary;
+  language: IdeasLanguage;
+  savingQuestionId: string | null;
+  onSavingQuestion: (questionId: string | null) => void;
+}) {
   const copy = ideasCopy(language);
   const [confirmingDecideRest, setConfirmingDecideRest] = useState(false);
   // Mirrors IdeaService's private eligibleQuestions(): a question only enters
@@ -452,7 +574,19 @@ function BatchQuestions({ idea, language }: { idea: IdeaSummary; language: Ideas
       </div>
 
       {eligible.map((question) => (
-        <QuestionCard key={question.id} ideaId={idea.id} revision={idea.ideaRevision} question={question} selected={idea.answers[question.id]} language={language} />
+        <QuestionCard
+          key={question.id}
+          ideaId={idea.id}
+          revision={idea.ideaRevision}
+          question={question}
+          selected={idea.answers[question.id]}
+          language={language}
+          saving={savingQuestionId === question.id}
+          onSelect={(choiceId) => {
+            onSavingQuestion(question.id);
+            postMessage({ type: 'saveIdeaAnswer', ideaId: idea.id, revision: idea.ideaRevision, questionId: question.id, choiceId });
+          }}
+        />
       ))}
 
       <button
@@ -497,17 +631,24 @@ function QuestionCard({
   question,
   selected,
   language,
+  saving,
+  onSelect,
 }: {
   ideaId: string;
   revision: number;
   question: IdeaQuestion;
   selected: string | undefined;
   language: IdeasLanguage;
+  saving: boolean;
+  onSelect: (choiceId: string) => void;
 }) {
   const copy = ideasCopy(language);
   return (
     <div className="rounded-lg border border-border bg-background/60 p-3">
-      <div className="text-[11.5px] font-semibold text-foreground">{question.text}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11.5px] font-semibold text-foreground">{question.text}</div>
+        {saving && <span className="text-[9.5px] text-muted-foreground">{copy.batch.saving}</span>}
+      </div>
       <div className="mt-2 space-y-1.5">
         {question.options.map((option) => (
           <label key={option.id} className="flex cursor-pointer items-center gap-2 text-[11px] text-foreground">
@@ -515,7 +656,7 @@ function QuestionCard({
               type="radio"
               name={question.id}
               checked={selected === option.id}
-              onChange={() => postMessage({ type: 'saveIdeaAnswer', ideaId, revision, questionId: question.id, choiceId: option.id })}
+              onChange={() => onSelect(option.id)}
               className="h-3.5 w-3.5 accent-primary"
             />
             {option.label}
@@ -621,7 +762,11 @@ function DeliveryPanel({ idea, language }: { idea: IdeaSummary; language: IdeasL
             </div>
             <button
               type="button"
-              onClick={() => postMessage({ type: 'reviewCanvasStep', runId: child.epicId, stepIdx: 0 })}
+              onClick={() => postMessage({
+                type: 'reviewCanvasStep',
+                runId: child.epicId,
+                stepIdx: child.canvasStepIdx ?? 0,
+              })}
               className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90"
             >
               {copy.delivery.openCanvas}
@@ -664,4 +809,37 @@ function formatUpdated(iso: string, language: IdeasLanguage): string {
   if (diffHours < 1) return language === 'vi' ? 'Vừa xong' : 'Just now';
   if (diffHours < 24) return language === 'vi' ? `${diffHours} giờ trước` : `${diffHours}h ago`;
   return date.toLocaleDateString(language === 'vi' ? 'vi-VN' : 'en-US', { month: 'short', day: 'numeric' });
+}
+
+function ConfirmModal({
+  title,
+  body,
+  confirmLabel,
+  cancelLabel,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  body: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 shadow-xl">
+        <div className="text-sm font-bold text-foreground">{title}</div>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{body}</p>
+        <div className="mt-3 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent">
+            {cancelLabel}
+          </button>
+          <button type="button" onClick={onConfirm} className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
