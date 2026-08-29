@@ -74,7 +74,7 @@ export function registerRun(program: Command): void {
 
       let state;
       try {
-        state = startRun({ runId, pipeline, context });
+        state = startRun({ runId, pipeline, context, workspaceRoot: root });
       } catch (err) {
         console.error(chalk.red(err instanceof Error ? err.message : String(err)));
         process.exit(1);
@@ -98,10 +98,13 @@ export function registerRun(program: Command): void {
       const root     = resolveWorkspaceRoot(actionCmd);
       const state    = requireRun(root, runId);
       const pipeline = requirePipelineForRun(root, state);
+      // Execute the frozen snapshot but compare it to the live definition so
+      // an old CoFoFo snapshot cannot silently shed required gates.
+      const sourcePipeline = requirePipeline(root, state.pipelineId).pipeline;
 
       let next;
       try {
-        next = markStepDone({ state, pipeline, workspaceRoot: root });
+        next = markStepDone({ state, pipeline, workspaceRoot: root, sourcePipeline });
       } catch (err) {
         if (err instanceof PipelineRunError && err.missing?.length) {
           console.error(chalk.red('Missing artifacts — step not marked done:'));
@@ -253,8 +256,9 @@ export function registerRun(program: Command): void {
       for (;;) {
         let next: RunState | null;
         try {
+          const latest = requireRun(root, runId);
           next = await applyTransportVerdict({
-            workspaceRoot: root, state, pipeline, stepIdx, gate, transport,
+            workspaceRoot: root, state: latest, pipeline, stepIdx, gate, transport,
           });
         } catch (err) {
           // A refusal here is meaningful — most often the reviewed content moved
@@ -440,8 +444,9 @@ export function registerRun(program: Command): void {
       const root     = resolveWorkspaceRoot(actionCmd);
       const state    = requireRun(root, runId);
       const pipeline = requirePipelineForRun(root, state);
+      const sourcePipeline = requirePipeline(root, state.pipelineId).pipeline;
 
-      const report = verifyRun({ state, pipeline, workspaceRoot: root });
+      const report = verifyRun({ state, pipeline, workspaceRoot: root, sourcePipeline });
 
       if (opts.json) {
         console.log(JSON.stringify({ runId, ...report }, null, 2));
@@ -649,4 +654,3 @@ function cliExecHooks(runId: string, claudeOut: NodeJS.WriteStream): ExecHooks {
     },
   };
 }
-

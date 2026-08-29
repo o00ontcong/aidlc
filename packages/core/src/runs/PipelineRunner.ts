@@ -24,7 +24,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
-import { normalizeStep } from '../schema/WorkspaceSchema';
+import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type {
   RunState,
   StepRecord,
@@ -36,6 +36,14 @@ import { activeEpicsDir, resolveArtifactPath } from './RunState';
 import type { ReviewBundle } from './ArtifactReview';
 import { checkBundleCurrent } from './ArtifactReview';
 import { snapshotPipeline } from './PipelineSnapshot';
+import { CofofoFoundationService } from '../cofofo/FoundationService';
+import { requireAcceptedEvidence } from '../cofofo/EvidenceLedger';
+import { ProjectRulesSchema, StackProfileSchema } from '../cofofo/contracts';
+import {
+  validateMemoryHandoff,
+  validatePlanRuleReferences,
+  validateProjectRules,
+} from '../cofofo/RuleEngine';
 
 export class PipelineRunError extends Error {
   constructor(message: string, public readonly missing?: string[]) {
@@ -55,12 +63,33 @@ export function startRun(args: {
   runId: string;
   pipeline: PipelineConfig;
   context: Record<string, string>;
+  /** Required for pipelines that pin a CoFoFo foundation. */
+  workspaceRoot?: string;
 }): RunState {
   const { runId, pipeline, context } = args;
   if (pipeline.steps.length === 0) {
     throw new PipelineRunError(`Pipeline "${pipeline.id}" has no steps`);
   }
   const now = new Date().toISOString();
+  let cofofoFoundation;
+  if (pipeline.foundation) {
+    if (!args.workspaceRoot) {
+      throw new PipelineRunError(`Pipeline "${pipeline.id}" requires a CoFoFo foundation; startRun needs workspaceRoot.`);
+    }
+    try {
+      cofofoFoundation = new CofofoFoundationService(args.workspaceRoot).requireReady();
+    } catch (error) {
+      const issues = error instanceof Error && 'issues' in error
+        ? (error as Error & { issues?: string[] }).issues
+        : undefined;
+      throw new PipelineRunError(error instanceof Error ? error.message : String(error), issues);
+    }
+    if (cofofoFoundation.manifestPath !== pipeline.foundation.manifest) {
+      throw new PipelineRunError(
+        `Pipeline foundation manifest "${pipeline.foundation.manifest}" does not match the active CoFoFo manifest "${cofofoFoundation.manifestPath}".`,
+      );
+    }
+  }
 
   // DAG roots: every step without a `depends_on` opens up at start time.
   // Pipelines without any depends_on declarations fall back to the legacy
@@ -89,6 +118,7 @@ export function startRun(args: {
     runId,
     pipelineId: pipeline.id,
     pipelineSnapshot: snapshotPipeline(pipeline, now),
+    cofofoFoundation,
     context: { ...context },
     startedAt: now,
     updatedAt: now,
@@ -96,6 +126,66 @@ export function startRun(args: {
     status: 'running',
     steps,
   };
+}
+
+/** Explain why a delivery run can no longer use its pinned foundation. */
+export function cofofoFoundationIssues(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  workspaceRoot: string;
+}): string[] {
+  if (!args.pipeline.foundation) return [];
+  if (!args.state.cofofoFoundation) return ['run has no pinned CoFoFo foundation snapshot'];
+  const inspection = new CofofoFoundationService(args.workspaceRoot).inspect();
+  if (inspection.status !== 'ready' || !inspection.snapshot) {
+    return inspection.issues.length ? inspection.issues : [`foundation status is ${inspection.status}`];
+  }
+  const pinned = args.state.cofofoFoundation;
+  const issues: string[] = [];
+  if (inspection.snapshot.revision !== pinned.revision) issues.push(`foundation revision changed from ${pinned.revision} to ${inspection.snapshot.revision}`);
+  if (inspection.snapshot.manifestHash !== pinned.manifestHash) issues.push('foundation manifest content changed');
+  if (inspection.snapshot.manifestPath !== pinned.manifestPath) issues.push('foundation manifest path changed');
+  return issues;
+}
+
+function foundationRecovery(issue: string): 'rebase' | 'prepare' {
+  // A changed *ready* foundation is recoverable by replaying a delivery run.
+  // Missing/invalid Foundation artifacts are not: rebase would immediately
+  // throw because there is no trusted context to pin.
+  return /foundation (?:revision changed|manifest content changed|manifest path changed)/i.test(issue)
+    ? 'rebase'
+    : 'prepare';
+}
+
+/**
+ * Detect legacy runs whose frozen recipe snapshot predates the fix that keeps
+ * Canvas/evidence policy during assembly. Such a snapshot is unsafe to resume:
+ * it describes a different workflow from the live source pipeline.
+ */
+export function lostCofofoGateSnapshotIssues(args: {
+  state: RunState;
+  sourcePipeline?: PipelineConfig;
+}): string[] {
+  const snapshot = args.state.pipelineSnapshot?.pipeline;
+  const source = args.sourcePipeline;
+  if (!snapshot || !source) return [];
+  if (snapshot.foundation?.mode !== 'cofofo' && source.foundation?.mode !== 'cofofo') return [];
+
+  const snapshotById = new Map(snapshot.steps.map((step) => [stepDagId(step), normalizeStep(step)]));
+  const issues: string[] = [];
+  for (const sourceStep of source.steps) {
+    const id = stepDagId(sourceStep);
+    const frozen = snapshotById.get(id);
+    if (!frozen) continue;
+    const current = normalizeStep(sourceStep);
+    if (current.review && !frozen.review) {
+      issues.push(`step "${id}" lost its Canvas review gate in this run snapshot`);
+    }
+    if (current.evidence && !frozen.evidence) {
+      issues.push(`step "${id}" lost its ${current.evidence.stage.toUpperCase()} evidence gate in this run snapshot`);
+    }
+  }
+  return issues;
 }
 
 /**
@@ -206,6 +296,8 @@ export function canStartStep(args: {
   workspaceRoot: string;
   /** Defaults to the current step. */
   stepIdx?: number;
+  /** Current source definition, used to reject legacy snapshots that lost gates. */
+  sourcePipeline?: PipelineConfig;
 }): { ok: true } | { ok: false; missing: string[] } {
   const { state, pipeline, workspaceRoot } = args;
   const idx = args.stepIdx ?? state.currentStepIdx;
@@ -216,6 +308,14 @@ export function canStartStep(args: {
   const norm = normalizeStep(stepConfig);
   const epicsDir = activeEpicsDir(workspaceRoot);
   const missing: string[] = [];
+  for (const issue of lostCofofoGateSnapshotIssues({ state, sourcePipeline: args.sourcePipeline })) {
+    missing.push(`(unsafe CoFoFo snapshot) ${issue}; start a new run`);
+  }
+  for (const issue of cofofoFoundationIssues({ state, pipeline, workspaceRoot })) {
+    missing.push(foundationRecovery(issue) === 'rebase'
+      ? `(stale CoFoFo foundation) ${issue}; run \`aidlc cofofo rebase ${state.runId}\``
+      : `(invalid CoFoFo foundation) ${issue}; run \`aidlc cofofo prepare --route refresh-context\``);
+  }
   for (const rel of norm.requires.map((p) => resolveArtifactPath(p, state.context, epicsDir))) {
     const abs = path.isAbsolute(rel) ? rel : path.join(workspaceRoot, rel);
     if (!fs.existsSync(abs) && !isWaivedBySkip(rel, state, pipeline, epicsDir)) { missing.push(rel); }
@@ -248,6 +348,8 @@ export function markStepDone(args: {
   workspaceRoot: string;
   /** Step to mark done. Defaults to `state.currentStepIdx` for back-compat. */
   stepIdx?: number;
+  /** Current source definition, used to reject legacy snapshots that lost gates. */
+  sourcePipeline?: PipelineConfig;
 }): RunState {
   const { state, pipeline, workspaceRoot } = args;
   const idx = args.stepIdx ?? state.currentStepIdx;
@@ -279,6 +381,24 @@ export function markStepDone(args: {
   }
   const norm = normalizeStep(stepConfig);
   const epicsDir = activeEpicsDir(workspaceRoot);
+
+  const lostGateIssues = lostCofofoGateSnapshotIssues({ state, sourcePipeline: args.sourcePipeline });
+  if (lostGateIssues.length) {
+    throw new PipelineRunError(
+      `Run "${state.runId}" uses an unsafe CoFoFo pipeline snapshot that lost required gates. Start a new run.`,
+      lostGateIssues,
+    );
+  }
+
+  const foundationIssues = cofofoFoundationIssues({ state, pipeline, workspaceRoot });
+  if (foundationIssues.length) {
+    throw new PipelineRunError(
+      `Step "${step.agent}" is blocked because its CoFoFo foundation is stale.`,
+      foundationIssues.map((issue) => foundationRecovery(issue) === 'rebase'
+        ? `${issue}; run aidlc cofofo rebase ${state.runId}`
+        : `${issue}; run aidlc cofofo prepare --route refresh-context`),
+    );
+  }
 
   // Hard gate-check on requires (separate from the soft check at start time).
   const resolvedRequires = norm.requires.map((p) => resolveArtifactPath(p, state.context, epicsDir));
@@ -326,6 +446,63 @@ export function markStepDone(args: {
       throw new PipelineRunError(
         `Step "${step.agent}" produced its files but they are missing required content.`,
         missingMarkers,
+      );
+    }
+  }
+
+  if (norm.evidence) {
+    try {
+      requireAcceptedEvidence(workspaceRoot, state.runId, norm.evidence.stage, state.steps[idx]!.revision);
+    } catch (error) {
+      throw new PipelineRunError(
+        `Step "${step.agent}" is blocked — accepted ${norm.evidence.stage.toUpperCase()} machine evidence is missing or invalid.`,
+        [error instanceof Error ? error.message : String(error)],
+      );
+    }
+  }
+
+  // CoFoFo's process rules are enforced by core rather than trusted to the
+  // provider's Markdown. Planning must cite the canonical blocking rules;
+  // production/refactor/verify boundaries re-run structural policy; memory is
+  // bounded, secret-screened, and remains explicitly unreviewed.
+  if (pipeline.foundation?.mode === 'cofofo') {
+    const phase = norm.name ?? norm.agent;
+    try {
+      if (phase === 'create-plan') {
+        const rules = ProjectRulesSchema.parse(JSON.parse(
+          fs.readFileSync(path.join(workspaceRoot, 'docs/project/foundation/PROJECT-RULES.json'), 'utf8'),
+        ));
+        const planPath = resolvedProduces.find((item) => /TASK-PLAN\.md$/i.test(item)) ?? resolvedProduces[0];
+        const plan = planPath
+          ? fs.readFileSync(path.isAbsolute(planPath) ? planPath : path.join(workspaceRoot, planPath), 'utf8')
+          : '';
+        const issues = validatePlanRuleReferences(rules, plan);
+        if (issues.length) throw new PipelineRunError('Task plan does not bind its scope to the active project rules.', issues);
+      }
+      if (['implement-green', 'refactor', 'verify'].includes(phase)) {
+        const rules = ProjectRulesSchema.parse(JSON.parse(
+          fs.readFileSync(path.join(workspaceRoot, 'docs/project/foundation/PROJECT-RULES.json'), 'utf8'),
+        ));
+        const profile = StackProfileSchema.parse(JSON.parse(
+          fs.readFileSync(path.join(workspaceRoot, 'docs/project/foundation/STACK-PROFILE.json'), 'utf8'),
+        ));
+        const issues = validateProjectRules({ workspaceRoot, rules, profile })
+          .filter((issue) => issue.severity === 'block')
+          .map((issue) => `${issue.ruleId} · ${issue.path}: ${issue.message}`);
+        if (issues.length) throw new PipelineRunError('Project rules reject the current implementation.', issues);
+      }
+      if (phase === 'remember') {
+        const issues = resolvedProduces.flatMap((item) => {
+          const absolute = path.isAbsolute(item) ? item : path.join(workspaceRoot, item);
+          return validateMemoryHandoff(fs.readFileSync(absolute, 'utf8'));
+        });
+        if (issues.length) throw new PipelineRunError('Memory handoff is unsafe or unbounded.', issues);
+      }
+    } catch (error) {
+      if (error instanceof PipelineRunError) throw error;
+      throw new PipelineRunError(
+        `Step "${step.agent}" could not validate its CoFoFo policy contract.`,
+        [error instanceof Error ? error.message : String(error)],
       );
     }
   }
@@ -545,6 +722,32 @@ export interface CanvasVerdict {
   at?: string;
 }
 
+/** Read the single phase named by ROOT-CAUSE.md's required Resume From section. */
+function resumeFromRootCause(args: {
+  workspaceRoot: string;
+  bundle: ReviewBundle;
+  pipeline: PipelineConfig;
+}): number {
+  const rootCause = args.bundle.artifacts.find((artifact) => /ROOT-CAUSE\.md$/i.test(artifact.path));
+  if (!rootCause) throw new PipelineRunError('Diagnose Canvas gate does not include ROOT-CAUSE.md.');
+  const absolute = path.isAbsolute(rootCause.path)
+    ? rootCause.path
+    : path.join(args.workspaceRoot, rootCause.path);
+  let content: string;
+  try { content = fs.readFileSync(absolute, 'utf8'); }
+  catch { throw new PipelineRunError('ROOT-CAUSE.md cannot be read to validate Resume From.'); }
+  const matches = [...content.matchAll(/^##\s+Resume From\s*\n(?:\s*\n)*([^\r\n]+)\s*$/gim)];
+  if (matches.length !== 1) {
+    throw new PipelineRunError('ROOT-CAUSE.md must contain exactly one non-empty `## Resume From` phase name.');
+  }
+  const phase = matches[0]![1]!.trim().replace(/^`|`$/g, '');
+  const index = args.pipeline.steps.findIndex((step) => stepDagId(step) === phase);
+  if (index < 0) {
+    throw new PipelineRunError(`ROOT-CAUSE.md names unknown resume phase "${phase}".`);
+  }
+  return index;
+}
+
 /**
  * Apply a human's Canvas verdict — the only way a Canvas-gated step advances.
  *
@@ -655,7 +858,7 @@ export function applyArtifactReviewVerdict(args: {
     );
   }
 
-  const next = advance(clone(state), idx, pipeline);
+  let next = advance(clone(state), idx, pipeline);
   next.steps[idx] = {
     ...next.steps[idx],
     canvasReview: record,
@@ -669,6 +872,21 @@ export function applyArtifactReviewVerdict(args: {
       bundleHash: bundle.bundleHash,
     }),
   };
+  if ((normalizeStep(pipeline.steps[idx]!).name ?? step.agent) === 'diagnose') {
+    const resumeIdx = resumeFromRootCause({ workspaceRoot, bundle, pipeline });
+    // A diagnosis can send work back to a preceding phase. Use the normal
+    // reset primitive so revisions, evidence invalidation, and history stay
+    // consistent. A current/downstream phase naturally follows the approved
+    // diagnosis without skipping any prerequisite work.
+    if (resumeIdx < idx) {
+      next = requestStepUpdate({
+        state: next,
+        pipeline,
+        stepIdx: resumeIdx,
+        feedback: `ROOT-CAUSE.md approved: resume from ${stepDagId(pipeline.steps[resumeIdx]!)}.`,
+      });
+    }
+  }
   return next;
 }
 
@@ -749,6 +967,9 @@ export function rejectStep(args: {
           feedback: blame,
           rejectReason: undefined,
           autoReviewVerdict: undefined,
+          canvasReview: undefined,
+          reviewDisposition: undefined,
+          reviewBundleRevision: undefined,
           artifactsProduced: [],
           finishedAt: undefined,
           startedAt: now,
@@ -764,9 +985,13 @@ export function rejectStep(args: {
         // even though we're about to reset its working fields.
         next.steps[i] = {
           ...s,
+          revision: s.revision + 1,
           status: 'pending',
           rejectReason: undefined,
           autoReviewVerdict: undefined,
+          canvasReview: undefined,
+          reviewDisposition: undefined,
+          reviewBundleRevision: undefined,
           artifactsProduced: [],
           startedAt: undefined,
           finishedAt: undefined,
@@ -778,9 +1003,13 @@ export function rejectStep(args: {
         // rejection.
         next.steps[i] = {
           ...s,
+          revision: s.revision + 1,
           status: 'pending',
           rejectReason: undefined,
           autoReviewVerdict: undefined,
+          canvasReview: undefined,
+          reviewDisposition: undefined,
+          reviewBundleRevision: undefined,
           artifactsProduced: [],
           startedAt: undefined,
           finishedAt: undefined,
@@ -844,6 +1073,7 @@ export function rerunStep(args: {
     rejectReason: undefined,
     reviewDisposition: undefined,
     reviewBundleRevision: undefined,
+    canvasReview: undefined,
     artifactsProduced: [],
     startedAt: now,
     history: pushHistory(step.history, {
@@ -853,6 +1083,62 @@ export function rerunStep(args: {
       feedback: carriedFeedback,
     }),
   };
+  next.status = 'running';
+  return next;
+}
+
+/**
+ * Mandatory CoFoFo rebase: pin the active Foundation and replay every phase.
+ * Previous history remains for audit, but no prior artifact approval is
+ * treated as current under a new policy revision.
+ */
+export function rebaseRunToCurrentFoundation(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  workspaceRoot: string;
+}): RunState {
+  if (!args.pipeline.foundation) throw new PipelineRunError(`Pipeline "${args.pipeline.id}" has no CoFoFo foundation gate.`);
+  const current = new CofofoFoundationService(args.workspaceRoot).requireReady();
+  const previous = args.state.cofofoFoundation ?? {
+    revision: 0,
+    manifestPath: '(legacy-unbound)',
+    manifestHash: `sha256:${'0'.repeat(64)}`,
+    capturedAt: args.state.startedAt,
+  };
+  if (
+    current.revision === previous.revision
+    && current.manifestHash === previous.manifestHash
+  ) {
+    return clone(args.state);
+  }
+  const now = new Date().toISOString();
+  const next = clone(args.state);
+  const previouslyApprovedSteps = next.steps.filter((step) => step.status === 'approved').map((step) => step.stepIdx);
+  next.foundationRebases = [
+    ...(next.foundationRebases ?? []),
+    { at: now, from: previous, to: current, previouslyApprovedSteps },
+  ];
+  next.cofofoFoundation = current;
+  const usesDag = args.pipeline.steps.some((step) => normalizeStep(step).depends_on.length > 0);
+  for (let index = 0; index < next.steps.length; index += 1) {
+    const record = next.steps[index]!;
+    const root = usesDag ? normalizeStep(args.pipeline.steps[index]!).depends_on.length === 0 : index === 0;
+    next.steps[index] = {
+      ...record,
+      revision: record.revision + 1,
+      status: root ? 'awaiting_work' : 'pending',
+      startedAt: root ? now : undefined,
+      finishedAt: undefined,
+      artifactsProduced: [],
+      autoReviewVerdict: undefined,
+      canvasReview: undefined,
+      reviewDisposition: undefined,
+      reviewBundleRevision: undefined,
+      rejectReason: undefined,
+      lastFailureId: undefined,
+    };
+  }
+  next.currentStepIdx = Math.max(0, next.steps.findIndex((step) => step.status === 'awaiting_work'));
   next.status = 'running';
   return next;
 }
@@ -945,6 +1231,11 @@ export function requestStepUpdate(args: {
   feedback?: string;
 }): RunState {
   const { state, pipeline, stepIdx, feedback } = args;
+  if (state.status === 'completed' && pipeline.foundation?.mode === 'cofofo') {
+    throw new PipelineRunError(
+      'Completed CoFoFo delivery runs are immutable. Use “Báo lỗi” to create a clean cofofo-bugfix run with fresh evidence.',
+    );
+  }
   if (
     !Number.isInteger(stepIdx) ||
     stepIdx < 0 ||
@@ -985,6 +1276,7 @@ export function requestStepUpdate(args: {
         feedback: feedback ?? s.feedback,
         rejectReason: undefined,
         autoReviewVerdict: undefined,
+        canvasReview: undefined,
         reviewDisposition: undefined,
         reviewBundleRevision: undefined,
         artifactsProduced: [],
@@ -1002,9 +1294,11 @@ export function requestStepUpdate(args: {
       // distinguish "previously done, awaiting update" from "never reached".
       next.steps[i] = {
         ...s,
+        revision: s.revision + 1,
         status: 'pending',
         rejectReason: undefined,
         autoReviewVerdict: undefined,
+        canvasReview: undefined,
         reviewDisposition: undefined,
         reviewBundleRevision: undefined,
         artifactsProduced: [],

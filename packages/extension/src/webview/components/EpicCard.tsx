@@ -1038,6 +1038,10 @@ function HistoryIcon({ kind }: { kind: StepHistoryEntry['kind'] }) {
       return <Bot className="mt-0.5 h-3 w-3 shrink-0 text-info" />;
     case 'approve':
       return <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />;
+    case 'canvas_verdict':
+      return <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-info" />;
+    case 'aggregate_defer':
+      return <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-warning" />;
     case 'annotate':
       return <Highlighter className="mt-0.5 h-3 w-3 shrink-0 text-primary" />;
   }
@@ -1068,6 +1072,14 @@ function HistoryLabel({ entry }: { entry: StepHistoryEntry }) {
       );
     case 'approve':
       return <span className="font-semibold text-success">Approved</span>;
+    case 'canvas_verdict':
+      return (
+        <span className={cn('font-semibold', entry.verdict === 'approve' ? 'text-success' : 'text-destructive')}>
+          Canvas {entry.verdict === 'approve' ? 'approved' : 'requested changes'}
+        </span>
+      );
+    case 'aggregate_defer':
+      return <span className="font-semibold text-warning">Canvas review deferred</span>;
     case 'annotate':
       return (
         <span className="font-semibold text-primary">
@@ -1100,6 +1112,18 @@ function HistoryBody({ entry }: { entry: StepHistoryEntry }) {
       );
     case 'approve':
       return null;
+    case 'canvas_verdict':
+      return (
+        <div className="font-mono text-muted-foreground">
+          ↳ reviewer: {entry.reviewer} · bundle: {entry.bundleHash}
+        </div>
+      );
+    case 'aggregate_defer':
+      return (
+        <div className="font-mono text-muted-foreground">
+          ↳ delivery review bundle revision {entry.reviewBundleRevision}
+        </div>
+      );
     case 'annotate':
       return (
         <div className="space-y-0.5">

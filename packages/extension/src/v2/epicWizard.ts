@@ -220,6 +220,7 @@ export async function startEpicCommand(): Promise<void> {
             runId: epicId,
             pipeline: pipelineCfg,
             context: { epic: epicId, ...inputs },
+            workspaceRoot: root,
           });
           RunStateStore.save(root, runState);
           // Run creation does not pass through `saveRun()`, so Jira write-back

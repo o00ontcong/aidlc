@@ -267,6 +267,17 @@ export interface RunState {
    * Optional because state files written by earlier versions remain valid.
    */
   pipelineSnapshot?: import('./PipelineSnapshot').PipelineSnapshot;
+  /** CoFoFo context pinned when this delivery run started. */
+  cofofoFoundation?: import('../cofofo/contracts').CofofoFoundationSnapshot;
+  /** Original epic for a CoFoFo bugfix run; verified at creation time. */
+  relatesTo?: string;
+  /** Audit trail for mandatory rebases after a Foundation revision changes. */
+  foundationRebases?: Array<{
+    at: string;
+    from: import('../cofofo/contracts').CofofoFoundationSnapshot;
+    to: import('../cofofo/contracts').CofofoFoundationSnapshot;
+    previouslyApprovedSteps: number[];
+  }>;
   /**
    * Free-form context map used for placeholder substitution in artifact
    * paths. Convention: `epic` → epic key, but any key can be used.

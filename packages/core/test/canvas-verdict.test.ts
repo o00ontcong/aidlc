@@ -62,6 +62,15 @@ const PIPELINE_LEGACY: PipelineConfig = {
   ],
 };
 
+const DIAGNOSE_PIPELINE: PipelineConfig = {
+  id: 'diagnose-resume', on_failure: 'stop',
+  steps: [
+    { name: 'requirement', agent: 'po', requires: [], produces: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'], human_review: false, auto_review: false, enabled: true },
+    { name: 'diagnose', agent: 'diagnostician', requires: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'], produces: ['docs/epics/{epic}/artifacts/ROOT-CAUSE.md'], human_review: true, auto_review: false, enabled: true, review: { mode: 'canvas', artifacts: ['docs/epics/{epic}/artifacts/ROOT-CAUSE.md'] } },
+    { name: 'create-plan', agent: 'tech-lead', requires: ['docs/epics/{epic}/artifacts/ROOT-CAUSE.md'], produces: ['docs/epics/{epic}/artifacts/TASK-PLAN.md'], human_review: false, auto_review: false, enabled: true },
+  ],
+};
+
 let root: string;
 
 beforeEach(() => {
@@ -261,6 +270,42 @@ describe('applyArtifactReviewVerdict — approve', () => {
         verdict: { verdict: 'approve', reviewer: REVIEWER },
       }),
     ).toThrow(PipelineRunError);
+  });
+});
+
+describe('diagnose Canvas Resume From', () => {
+  function atDiagnoseGate(rootCause: string): { state: RunState; bundle: ReviewBundle } {
+    write('docs/epics/EPIC-1/artifacts/REQUIREMENT.md', '# Requirement\n');
+    let state = startRun({ runId: 'R-diagnose', pipeline: DIAGNOSE_PIPELINE, context: { epic: 'EPIC-1' } });
+    state = markStepDone({ state, pipeline: DIAGNOSE_PIPELINE, workspaceRoot: root });
+    write('docs/epics/EPIC-1/artifacts/ROOT-CAUSE.md', rootCause);
+    state = markStepDone({ state, pipeline: DIAGNOSE_PIPELINE, workspaceRoot: root });
+    const bundle = buildReviewBundle({
+      workspaceRoot: root, runId: state.runId, stepIdx: 1, stepRevision: state.steps[1]!.revision,
+      reviewRevision: 1, artifacts: ['docs/epics/{epic}/artifacts/ROOT-CAUSE.md'], context: state.context,
+    });
+    return { state, bundle };
+  }
+
+  it('rewinds through the regular reset path when approved diagnosis names an upstream phase', () => {
+    const { state, bundle } = atDiagnoseGate('# Root Cause\n\n## Resume From\n\nrequirement\n');
+    const next = applyArtifactReviewVerdict({
+      workspaceRoot: root, state, pipeline: DIAGNOSE_PIPELINE, bundle,
+      verdict: { verdict: 'approve', reviewer: REVIEWER },
+    });
+    expect(next.currentStepIdx).toBe(0);
+    expect(next.steps.map((step) => step.status)).toEqual(['awaiting_work', 'pending', 'pending']);
+    expect(next.steps.map((step) => step.revision)).toEqual([2, 2, 2]);
+  });
+
+  it('rejects an empty or unknown Resume From instead of choosing a default', () => {
+    for (const rootCause of ['# Root Cause\n\n## Resume From\n\n', '# Root Cause\n\n## Resume From\n\nnot-a-phase\n']) {
+      const { state, bundle } = atDiagnoseGate(rootCause);
+      expect(() => applyArtifactReviewVerdict({
+        workspaceRoot: root, state, pipeline: DIAGNOSE_PIPELINE, bundle,
+        verdict: { verdict: 'approve', reviewer: REVIEWER },
+      })).toThrow(/Resume From|unknown resume phase/i);
+    }
   });
 });
 

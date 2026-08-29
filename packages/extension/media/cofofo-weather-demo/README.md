@@ -1,0 +1,106 @@
+# SkyCast — CoFoFo Weather Demo
+
+SkyCast là weather app SwiftUI nhỏ, chạy offline với dữ liệu xác định,
+dùng để trình diễn CoFoFo trên repository SwiftPM/iOS đơn stack.
+
+```bash
+cd src
+swift run SkyCastDemoApp   # mở app SwiftUI trên macOS
+swift build
+swift test                # 4 XCTest baseline
+```
+
+`WeatherDashboardView` target iOS 16+ và macOS 13+. Executable host giúp demo
+chạy ngay trên máy; view có thể được nhúng nguyên trạng vào iOS app target.
+
+## Pipeline thật đang được kiểm thử
+
+```text
+cofofo-foundation (một lần / mỗi foundation revision)
+  scan-stack → define-rules → map-system → select-ecc-catalog
+             → install-ecc-assets → publish-context
+                                      │
+                                      ▼
+cofofo-feature recipe (materialized from provider-neutral cofofo-delivery, mỗi feature)
+  requirement → create-plan → test-red → implement-green → refactor
+              → fresh-review → verify → remember → improve
+
+cofofo-bugfix recipe (mỗi bug)
+  requirement → diagnose [Canvas] → create-plan → test-red → implement-green
+              → refactor → fresh-review → verify → remember → improve
+```
+
+- Foundation tạo `STACK-PROFILE.json`, policy JSON + view có source hash,
+  architecture map, catalog selection, installed-asset manifest và
+  `CONTEXT-MANIFEST.json`.
+- Catalog ECC ghim commit
+  `d8409a4b0813771235555e32e3d8046a73988bfa`, chỉ cài năm asset Markdown
+  đã audit; executable, hook và validator ngoài bị từ chối.
+- Canvas bundle gắn verdict với run, step revision, artifact path và SHA-256.
+  Sửa nội dung sau duyệt làm approval hết hiệu lực.
+- Evidence ledger bắt buộc đúng thứ tự RED → GREEN → REFACTOR →
+  VERIFY, bind vào revision hiện tại của từng phase, ghi timestamp, exit
+  status, output đã redact, log hash và hash chain.
+- Delivery run ghim foundation revision + manifest hash; foundation thay đổi
+  thì run dừng và phải rebase/replay.
+
+## Demo bằng extension
+
+1. Command Palette → `AIDLC: Load CoFoFo Weather Demo`.
+2. Mở `COFOFO-WEATHER-FOUNDATION`: revision 2 đã hoàn tất và active trước mọi
+   delivery task. Kiểm tra `CONTEXT-MANIFEST.json`, `foundation.json`, catalog
+   manifest và Canvas history.
+3. Mở `COFOFO-WEATHER-001-GATE`, rồi xem `.aidlc/runs/...json`: run ghim đúng
+   Foundation revision, manifest path và SHA-256 khi bắt đầu.
+4. Mở hai task completed để xem artifact, Canvas verdict và evidence ledger;
+   mở task stale để thấy snapshot revision 1 bị active revision 2 chặn thật.
+5. Muốn tạo delivery mới, start recipe `cofofo-feature` (feature) hoặc
+   `cofofo-bugfix` (có diagnosis Canvas). Run mới chỉ được tạo sau `requireReady()` và tự ghim
+   active Foundation snapshot.
+6. Mark các phase đã sinh xong; ở gate dùng `Review in Canvas`. Extension tự
+   khởi động Annotron, mở mọi artifact trong bundle, chờ verdict và ghi
+   run state sau khi core kiểm hash lại.
+   Tại các evidence phase, dùng
+   `AIDLC: CoFoFo: Capture Current RED/GREEN/REFACTOR/VERIFY Evidence`.
+
+Muốn trình diễn lifecycle thay đổi context, chạy `AIDLC: CoFoFo: Prepare
+Foundation` với route `Refresh context`, review/publish/activate revision mới,
+rồi mở một delivery run cũ: core sẽ yêu cầu rebase/replay thay vì dùng policy
+snapshot đã stale.
+
+## Các task seed sẵn
+
+Demo cố ý có cả task đang chạy, task hoàn tất và các đường phục hồi thực tế:
+
+- `COFOFO-WEATHER-FOUNDATION`: Foundation revision 2 hoàn tất, validated và
+  active; đây là nguồn context thật của mọi delivery task trong workspace.
+- `COFOFO-WEATHER-001-GATE`: delivery mới ghim active Foundation revision 2
+  cùng exact manifest SHA-256 trước requirement work.
+- `COFOFO-WEATHER-002-CANVAS`: kế hoạch đang chờ content-addressed Canvas.
+- `COFOFO-WEATHER-003-RED`: trước khi có RED behavioral evidence.
+- `COFOFO-WEATHER-004-REJECTED`: Request changes và feedback phải được rework.
+- `COFOFO-WEATHER-005-COMPLETED`: feature hoàn tất đủ mọi phase và artifact.
+- `COFOFO-WEATHER-006-BUGFIX-COMPLETED`: bugfix đã ship sau reject/rerun và
+  có root-cause, regression, Canvas, evidence, memory, improvement history.
+- `COFOFO-WEATHER-007-PROD-DIAGNOSIS`: incident production-only chờ duyệt
+  nguyên nhân trước khi viết test.
+- `COFOFO-WEATHER-008-RED-WAIVER`: race condition không ổn định, minh họa
+  waiver có reviewer/lý do/evidence thay thế, secret screening và Canvas gate
+  trên `RED-EVIDENCE.md`.
+- `COFOFO-WEATHER-009-STALE-REBASE`: Foundation revision đổi giữa run, bắt
+  buộc rebase/replay thay vì tiếp tục trên policy cũ.
+- `COFOFO-WEATHER-010-RULE-IMPROVEMENT`: improvement là
+  `proposed — not active`, phải đi qua `update-rules` + Canvas mới được áp dụng.
+
+Các task có immutable pipeline snapshot; task cũ có thể dùng
+`AIDLC: CoFoFo: Rebase Delivery Run to Active Foundation` sau khi Foundation
+sẵn sàng. Re-seed sẽ tạo lại toàn bộ trạng thái demo nhưng không đụng scratch
+files ngoài các thư mục fixture sở hữu.
+
+## Phạm vi MVP
+
+Runtime catalog đã audit hiện hỗ trợ **repository SwiftPM đơn stack**.
+Xcode-project-only, multi-stack, monorepo, stack chưa có catalog, hoặc phát hiện
+mơ hồ đều fail closed về `aidlc-workflow-full`; không đoán lệnh build.
+Không có network fetch trong pipeline. Mở rộng stack cần một catalog + command
+allow-list được audit riêng, không chỉ thêm tên stack.

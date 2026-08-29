@@ -521,6 +521,8 @@ interface EpicStepDetailFull {
   autoReviewVerdict?: AutoReviewVerdict;
   stepHasAutoReview: boolean;
   stepHasHumanReview: boolean;
+  reviewMode?: 'canvas';
+  reviewArtifacts?: string[];
   stepSkippable: boolean;
   dependsOn?: string[];
   startedAt?: string;
@@ -1158,6 +1160,8 @@ function toEpicSummaryUi(e: CoreEpicSummary, workspaceRoot?: string): EpicSummar
       autoReviewVerdict: s.autoReviewVerdict,
       stepHasAutoReview: s.stepHasAutoReview,
       stepHasHumanReview: s.stepHasHumanReview,
+      reviewMode: s.reviewMode,
+      reviewArtifacts: s.reviewArtifacts,
       stepSkippable: s.stepSkippable,
       dependsOn: s.dependsOn,
       startedAt: s.startedAt ?? undefined,
@@ -3006,6 +3010,7 @@ export class WorkspaceWebview {
       case 'markStepDone':
       case 'skipStep':
       case 'runAutoReview':
+      case 'reviewCanvasStep':
       case 'approveStep':
       case 'rejectStep':
       case 'rerunStep':
@@ -3168,6 +3173,15 @@ export class WorkspaceWebview {
         await requestStepUpdateInlineCommand(runId, stepIdx, feedback);
         return;
       }
+      case 'reportCofofoBug': {
+        const runId = typeof msg.runId === 'string' ? msg.runId : undefined;
+        const fields = msg.fields && typeof msg.fields === 'object' ? msg.fields : undefined;
+        await vscode.commands.executeCommand('aidlc.reportCofofoBug', runId, fields);
+        return;
+      }
+      case 'cofofoDoctor':
+        await vscode.commands.executeCommand('aidlc.cofofoDoctor');
+        return;
       case 'savePresetInline': {
         const draft = msg.draft;
         if (!draft || typeof draft !== 'object') { return; }
@@ -5635,7 +5649,7 @@ export class WorkspaceWebview {
       } catch { /* ignore */ }
     }
     try {
-      const runState = startRun({ runId: epicId, pipeline, context });
+      const runState = startRun({ runId: epicId, pipeline, context, workspaceRoot: root });
       RunStateStore.save(root, runState);
       mirrorRunStateToEpic(root, runState, readYaml(root));
       // Same reason as in `startEpicInline`: run creation bypasses `saveRun()`.

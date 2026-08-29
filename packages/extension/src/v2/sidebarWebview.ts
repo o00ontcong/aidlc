@@ -19,6 +19,7 @@ import * as fs from 'fs';
 
 const DEMO_DIR_NAME = 'aidlc-demo-project';
 const IOS_DEMO_DIR_NAME = 'aidlc-ios-demo';
+const COFOFO_WEATHER_DEMO_DIR_NAME = 'aidlc-cofofo-weather-demo';
 
 import { readYaml } from './yamlIO';
 import {
@@ -131,6 +132,8 @@ interface SidebarState {
   runIds: string[];
   /** True when ~/aidlc-ios-demo already exists. */
   iosDemoProjectExists: boolean;
+  /** True when ~/aidlc-cofofo-weather-demo already exists. */
+  cofofoWeatherDemoProjectExists: boolean;
   /** True when ~/aidlc-demo-project already exists — surfaced so the
    * sidebar can pop an inline "re-seed / open-as-is / cancel" modal
    * instead of letting the host show a VS Code notification. */
@@ -168,6 +171,7 @@ function buildState(
   const displayLanguage = resolveAidlcLanguage(configuredLanguage, vscode.env.language);
   const demoProjectExists = fs.existsSync(path.join(os.homedir(), DEMO_DIR_NAME));
   const iosDemoProjectExists = fs.existsSync(path.join(os.homedir(), IOS_DEMO_DIR_NAME));
+  const cofofoWeatherDemoProjectExists = fs.existsSync(path.join(os.homedir(), COFOFO_WEATHER_DEMO_DIR_NAME));
   const autopilotEnabled = vscode.workspace
     .getConfiguration('aidlc')
     .get<boolean>('autopilot.enabled', false);
@@ -187,6 +191,7 @@ function buildState(
       pipelines: [], runIds: [],
       demoProjectExists,
       iosDemoProjectExists,
+      cofofoWeatherDemoProjectExists,
       mcpServers: mcp.servers,
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
@@ -256,6 +261,7 @@ function buildState(
       runIds,
       demoProjectExists,
       iosDemoProjectExists,
+      cofofoWeatherDemoProjectExists,
       mcpServers: mcp.servers,
       mcpLoading: mcp.loading,
       mcpError: mcp.error,
@@ -305,6 +311,7 @@ function buildState(
     runIds,
     demoProjectExists,
     iosDemoProjectExists,
+    cofofoWeatherDemoProjectExists,
     mcpServers: mcp.servers,
     mcpLoading: mcp.loading,
     mcpError: mcp.error,
@@ -562,6 +569,13 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('aidlc.loadIosDemoProject', mode);
         return;
       }
+      case 'loadCofofoWeatherDemoProject': {
+        const mode = msg.mode === 'reseed' || msg.mode === 'open-as-is'
+          ? msg.mode
+          : undefined;
+        await vscode.commands.executeCommand('aidlc.loadCofofoWeatherDemoProject', mode);
+        return;
+      }
       case 'loadDemoProject': {
         // mode is set by the React modal so the host skips the VS Code
         // notification — undefined falls back to the legacy prompt.
@@ -665,6 +679,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         await requestStepUpdateInlineCommand(runId, stepIdx, feedback);
         return;
       }
+      case 'reportCofofoBug': {
+        const runId = typeof msg.runId === 'string' ? msg.runId : undefined;
+        const fields = msg.fields && typeof msg.fields === 'object' ? msg.fields : undefined;
+        await vscode.commands.executeCommand('aidlc.reportCofofoBug', runId, fields);
+        return;
+      }
+      case 'cofofoDoctor':
+        await vscode.commands.executeCommand('aidlc.cofofoDoctor');
+        return;
       case 'startPipelineRun':
         await vscode.commands.executeCommand('aidlc.startPipelineRun');
         return;

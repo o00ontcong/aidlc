@@ -307,6 +307,9 @@ export function buildReviewBundle(args: {
  */
 export function checkBundleCurrent(workspaceRoot: string, bundle: ReviewBundle): StaleArtifact[] {
   const root = path.resolve(workspaceRoot);
+  let realRoot: string;
+  try { realRoot = fs.realpathSync(root); }
+  catch { return bundle.artifacts.map((artifact) => ({ path: artifact.path, reason: 'unreadable', expectedHash: artifact.hash })); }
   const stale: StaleArtifact[] = [];
 
   for (const artifact of bundle.artifacts) {
@@ -323,6 +326,21 @@ export function checkBundleCurrent(workspaceRoot: string, bundle: ReviewBundle):
     // A regular file replaced by a symlink is drift, not a hash mismatch —
     // reading through it would hash whatever the link now points at.
     if (!stat.isFile()) {
+      stale.push({ path: artifact.path, reason: 'unreadable', expectedHash: artifact.hash });
+      continue;
+    }
+
+    // Re-check the complete path at verdict time. A parent directory can be
+    // swapped for a symlink after bundling while the leaf still lstats as a
+    // regular file; hashing it would otherwise approve bytes outside the
+    // workspace.
+    try {
+      const realAbs = fs.realpathSync(abs);
+      if (!contains(realRoot, realAbs)) {
+        stale.push({ path: artifact.path, reason: 'unreadable', expectedHash: artifact.hash });
+        continue;
+      }
+    } catch {
       stale.push({ path: artifact.path, reason: 'unreadable', expectedHash: artifact.hash });
       continue;
     }

@@ -402,6 +402,8 @@ export interface SidebarState {
   demoProjectExists: boolean;
   /** True when ~/aidlc-ios-demo already exists. */
   iosDemoProjectExists: boolean;
+  /** True when ~/aidlc-cofofo-weather-demo already exists. */
+  cofofoWeatherDemoProjectExists: boolean;
   /** MCP servers Claude is currently connected to. null = first load is in
    * flight, [] = none configured. */
   mcpServers: McpServerInfo[] | null;
@@ -531,6 +533,22 @@ export type StepHistoryEntry =
       reason?: string;
     }
   | {
+      /** A Canvas verdict bound to the content-addressed review bundle. */
+      kind: 'canvas_verdict';
+      at: string;
+      revision: number;
+      verdict: 'approve' | 'request_changes';
+      reviewer: string;
+      bundleHash: string;
+    }
+  | {
+      /** Human review deferred to an aggregate delivery-level bundle. */
+      kind: 'aggregate_defer';
+      at: string;
+      revision: number;
+      reviewBundleRevision: number;
+    }
+  | {
       // A /annotate-artifact round that edited the .md, merged from the
       // artifacts folder's `.annotation-history.json` at read time.
       kind: 'annotate';
@@ -596,6 +614,9 @@ export interface EpicStepDetailFull {
   autoReviewVerdict?: AutoReviewVerdict;
   stepHasAutoReview: boolean;
   stepHasHumanReview: boolean;
+  /** Content-bound review gate; direct Approve/Reject is intentionally hidden. */
+  reviewMode?: 'canvas';
+  reviewArtifacts?: string[];
   /** Step config: can a human skip this step from awaiting_work (`skippable: true`)? */
   stepSkippable: boolean;
   /** Agent ids this step waits for (DAG edges) — empty for sequential. */

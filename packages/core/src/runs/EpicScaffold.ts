@@ -182,6 +182,8 @@ export interface ScaffoldEpicArgs {
    * sessions and must honor every configured human gate.
    */
   runMode?: 'guided' | 'autonomous';
+  /** Original epic a follow-up bugfix was created from. */
+  relatesTo?: string;
   /**
    * Immutable pre-Epic decision provenance. Only ShapeService supplies this;
    * callers cannot reconstruct it from a free-form description.
@@ -212,6 +214,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraProjects, pipeline,
     enableAutopilot = false,
     runMode = 'guided',
+    relatesTo,
     shapeProvenance,
   } = args;
 
@@ -260,6 +263,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     currentStep: 0,
     status: 'pending' as const,
     runMode,
+    ...(relatesTo ? { relatesTo } : {}),
     createdAt: new Date().toISOString(),
     stepStates: agents.map((a) => ({
       agent: a,
@@ -340,6 +344,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
       runId: epicId,
       pipeline,
       context: { epic: epicId, ...inputs },
+      workspaceRoot,
     });
     RunStateStore.save(workspaceRoot, runState);
     mirrorRunStateToEpic(workspaceRoot, runState, doc);

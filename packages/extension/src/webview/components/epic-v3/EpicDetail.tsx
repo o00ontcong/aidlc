@@ -18,6 +18,7 @@ import { DiffPane } from '../DiffPane';
 import { RejectModal } from '../RejectModal';
 import { RequestUpdateModal } from '../RequestUpdateModal';
 import { RerunModal } from '../RerunModal';
+import { BugReportModal } from '../BugReportModal';
 import { RunWithFeedbackModal } from '../RunWithFeedbackModal';
 import { GateModal } from './GateModal';
 import { FlowCanvas } from './FlowCanvas';
@@ -43,12 +44,17 @@ export function EpicDetail({
   state: WorkspaceState;
 }) {
   const [focusedIdx, setFocusedIdx] = useState(epic.currentStep ?? 0);
+  const [bugReportOpen, setBugReportOpen] = useState(false);
   useEffect(() => { setFocusedIdx(epic.currentStep ?? 0); }, [epic.id, epic.currentStep]);
 
   const steps = epic.stepDetails;
   const focused: EpicStepDetailFull | null = steps[focusedIdx] ?? steps[0] ?? null;
   const badge = BADGE[epic.status];
   const tokenLine = epicTokenLine(epic);
+  const isCofofo = Boolean(epic.runId && (
+    epic.pipeline?.toUpperCase().includes('COFOFO')
+    || epic.stepDetails.some((step) => step.stepName === 'diagnose' || step.stepName === 'test-red')
+  ));
 
   return (
     <div
@@ -72,6 +78,16 @@ export function EpicDetail({
             </div>
             <StatusBadgeV3 icon={badge.icon} label={badge.label} bg={badge.bg} fg={badge.fg} />
             {epic.pipeline && <Chip label={epic.pipeline} mono />}
+            {isCofofo && (
+              <Btn
+                label="Báo lỗi"
+                variant="danger"
+                pad="4px 8px"
+                fs={11}
+                title="Mô tả bạn đã làm gì, thấy gì và mong đợi gì. AIDLC sẽ tự định tuyến qua CoFoFo diagnose."
+                onClick={() => setBugReportOpen(true)}
+              />
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
             <ProgressBar pct={epic.progress} height={6} />
@@ -152,6 +168,12 @@ export function EpicDetail({
 
       {/* ⑪ action bar */}
       <ActionBar epic={epic} />
+      {bugReportOpen && epic.runId && (
+        <BugReportModal
+          onSubmit={(fields) => postMessage({ type: 'reportCofofoBug', runId: epic.runId, fields })}
+          onClose={() => setBugReportOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -547,6 +569,7 @@ function GateBanner({
   const runId = epic.runId;
   const stepName = focused.stepName ?? focused.agent;
   const slashCommand = focused.slashCommand;
+  const canvasGate = focused.reviewMode === 'canvas';
 
   return (
     <div
@@ -559,10 +582,12 @@ function GateBanner({
         <div style={{ fontSize: 14, flex: 'none' }}>🔒</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 700 }}>
-            Human gate · <Mono>{stepName}</Mono>
+            {canvasGate ? 'Canvas gate' : 'Human gate'} · <Mono>{stepName}</Mono>
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--txt2)', marginTop: 2 }}>
-            Step đang chờ bạn duyệt. Approve để đi tiếp, reject để gửi lại.
+            {canvasGate
+              ? 'Mở bundle artifact trong Canvas. Verdict chỉ hợp lệ khi revision và hash nội dung vẫn khớp.'
+              : 'Step đang chờ bạn duyệt. Approve để đi tiếp, reject để gửi lại.'}
           </div>
         </div>
         <StatusBadgeV3 icon="●" label="waiting-for-user" bg="var(--warn-bg)" fg="var(--warn)" />
@@ -575,7 +600,9 @@ function GateBanner({
           border: '1px solid var(--bd)', borderRadius: 6, padding: '11px 12px',
         }}
       >
-        {`Approve chốt ${stepName} và mở step kế tiếp. Reject gửi step về kèm lý do để agent làm lại.`}
+        {canvasGate
+          ? `Canvas duyệt ${focused.reviewArtifacts?.length ?? focused.artifacts?.length ?? 1} artifact như một bundle. Nội dung thay đổi sẽ tự động làm verdict cũ hết hiệu lực.`
+          : `Approve chốt ${stepName} và mở step kế tiếp. Reject gửi step về kèm lý do để agent làm lại.`}
         {focused.autoReviewVerdict && (
           <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--txt3)' }}>
             Auto-review: <Mono>{focused.autoReviewVerdict.decision}</Mono>
@@ -585,22 +612,35 @@ function GateBanner({
       </div>
 
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-        <Btn
-          label="Approve"
-          variant="primary"
-          pad="8px 14px"
-          fs={12.5}
-          title="Chốt step này và mở phase kế. Đây là gate human — không chạy lại agent."
-          onClick={() => setGateOpen(true)}
-        />
-        <Btn
-          label="Reject"
-          variant="danger"
-          pad="8px 13px"
-          fs={12.5}
-          title="Gửi step về trước đó kèm lý do. Agent phải làm lại — không phải xóa epic."
-          onClick={() => setGateOpen(true)}
-        />
+        {canvasGate ? (
+          <Btn
+            label="Review in Canvas"
+            variant="primary"
+            pad="8px 14px"
+            fs={12.5}
+            title="Mở artifact bundle bất biến trong Annotron và chờ verdict content-addressed."
+            onClick={() => postMessage({ type: 'reviewCanvasStep', runId, stepIdx: focusedIdx })}
+          />
+        ) : (
+          <>
+            <Btn
+              label="Approve"
+              variant="primary"
+              pad="8px 14px"
+              fs={12.5}
+              title="Chốt step này và mở phase kế. Đây là gate human — không chạy lại agent."
+              onClick={() => setGateOpen(true)}
+            />
+            <Btn
+              label="Reject"
+              variant="danger"
+              pad="8px 13px"
+              fs={12.5}
+              title="Gửi step về trước đó kèm lý do. Agent phải làm lại — không phải xóa epic."
+              onClick={() => setGateOpen(true)}
+            />
+          </>
+        )}
         <Btn
           label="Chạy lại step"
           pad="8px 13px"
@@ -617,7 +657,7 @@ function GateBanner({
         />
       </div>
 
-      {gateOpen && (
+      {gateOpen && !canvasGate && (
         <GateModal
           runId={runId}
           stepIdx={focusedIdx}
@@ -821,14 +861,23 @@ function StepActions({
         />
       )}
       {status === 'awaiting_review' && (
-        <>
+        step.reviewMode === 'canvas' ? (
           <StepBtn
             kind="primary"
-            label="Approve"
-            onClick={stop(() => postMessage({ type: 'approveStep', runId, stepIdx }))}
+            label="Review in Canvas"
+            title="Mở bundle và chờ verdict được bind với hash nội dung."
+            onClick={stop(() => postMessage({ type: 'reviewCanvasStep', runId, stepIdx }))}
           />
-          <StepBtn kind="danger" label="Reject" onClick={stop(() => setRejectOpen(true))} />
-        </>
+        ) : (
+          <>
+            <StepBtn
+              kind="primary"
+              label="Approve"
+              onClick={stop(() => postMessage({ type: 'approveStep', runId, stepIdx }))}
+            />
+            <StepBtn kind="danger" label="Reject" onClick={stop(() => setRejectOpen(true))} />
+          </>
+        )
       )}
       {status === 'rejected' && (
         <>

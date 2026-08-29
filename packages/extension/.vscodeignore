@@ -16,4 +16,8 @@ scripts/**
 docs/**
 media/demo.mp4
 media/demo.gif
+**/.build/**
+**/.swiftpm/**
+**/DerivedData/**
+**/.DS_Store
 aidlc-*.vsix

@@ -112,27 +112,39 @@ export function assemblePipeline(
 
   const steps = recipe.steps.map((id) => {
     const norm = normalizeStep(byId.get(id)!);
-    const depends_on = resolveDeps(id, new Set([id]));
-    const step: Record<string, unknown> = {
-      agent: norm.agent,
+    // `normalizeStep` is the canonical complete representation of a step.
+    // Reconstructing a hand-picked subset here silently removed policy fields
+    // such as Canvas reviews and machine evidence when a recipe was used.
+    return {
+      ...norm,
       name: norm.name ?? id,
-      ...(norm.model ? { model: norm.model } : {}),
-      enabled: norm.enabled,
-      produces: norm.produces,
-      requires: norm.requires,
-      depends_on,
-      auto_review: norm.auto_review,
-      human_review: norm.human_review,
-    };
-    if (norm.skills && norm.skills.length > 0) { step.skills = norm.skills; }
-    if (norm.auto_review_runner) { step.auto_review_runner = norm.auto_review_runner; }
-    return step as PipelineStepConfig;
+      depends_on: resolveDeps(id, new Set([id])),
+    } as PipelineStepConfig;
   });
+
+  // Keep this check close to the lossy boundary. It is intentionally narrow:
+  // review/evidence gates are security/process invariants, so losing either is
+  // a fatal assembly error rather than a degraded recipe run.
+  for (let index = 0; index < steps.length; index += 1) {
+    const sourceStep = normalizeStep(byId.get(recipe.steps[index]!)!);
+    const assembledStep = normalizeStep(steps[index]!);
+    if (sourceStep.review && !assembledStep.review) {
+      throw new PipelineAssembleError(
+        `Recipe "${recipe.id}" lost the Canvas review gate for step "${recipe.steps[index]}" during assembly.`,
+      );
+    }
+    if (sourceStep.evidence && !assembledStep.evidence) {
+      throw new PipelineAssembleError(
+        `Recipe "${recipe.id}" lost the ${sourceStep.evidence.stage.toUpperCase()} evidence gate for step "${recipe.steps[index]}" during assembly.`,
+      );
+    }
+  }
 
   const assembled: PipelineConfig = {
     id: opts.pipelineId ?? recipe.id,
     steps,
     on_failure: source.on_failure,
+    ...(source.foundation ? { foundation: source.foundation } : {}),
   };
 
   // Fatal cross-ref check, scoped to the pipeline we just built. We splice it

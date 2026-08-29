@@ -26,6 +26,7 @@ import { registerGlobals } from './commands/globals';
 import { setQuiet } from './output';
 import { registerAnalyze } from './commands/analyze';
 import { registerRedesignCommands } from './commands/v3/registerRedesign';
+import { registerCofofo } from './commands/cofofo';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { version } = require('../package.json') as { version: string };
 
@@ -72,6 +73,7 @@ registerGuide(program);
 registerGlobals(program);
 registerAnalyze(program);
 registerRedesignCommands(program);
+registerCofofo(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));

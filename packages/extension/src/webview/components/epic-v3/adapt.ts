@@ -10,7 +10,7 @@
  */
 
 import type { AgentMeta, EpicStepDetailFull, EpicSummary, ProviderConfig } from '@/lib/types';
-import { mapModelForProvider } from '@/lib/providers';
+import { mapModelForProvider } from '../../lib/providers';
 import type { FlowKind, FlowNode } from './flow-layout';
 
 /* dc.html:1458 — const g = 'var(--acc)', am = 'var(--warn)', rd = 'var(--err)', gr = 'var(--track)' */
@@ -314,6 +314,22 @@ export function historyRows(step: EpicStepDetailFull | null): HistoryRowVM[] {
             tone: 'var(--warn)',
             actor: `rev ${e.revision}`,
           };
+        case 'canvas_verdict':
+          return {
+            at,
+            what: e.verdict === 'approve'
+              ? `Canvas approved${e.reviewer ? ` · ${e.reviewer}` : ''}`
+              : `Canvas requested changes${e.reviewer ? ` · ${e.reviewer}` : ''}`,
+            tone: e.verdict === 'approve' ? 'var(--acc-txt)' : 'var(--err)',
+            actor: e.bundleHash ? `bundle ${e.bundleHash.slice(0, 16)}…` : 'Canvas',
+          };
+        case 'aggregate_defer':
+          return {
+            at,
+            what: `Review deferred to delivery bundle (rev ${e.reviewBundleRevision})`,
+            tone: 'var(--warn)',
+            actor: `rev ${e.revision}`,
+          };
         case 'annotate':
           return {
             at,
@@ -321,6 +337,8 @@ export function historyRows(step: EpicStepDetailFull | null): HistoryRowVM[] {
             tone: 'var(--txt2)',
             actor: e.author ? `user:${e.author}` : 'annotron',
           };
+        default:
+          return { at, what: 'Workflow event', tone: 'var(--txt2)', actor: 'system' };
       }
     });
 }

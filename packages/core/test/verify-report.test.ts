@@ -11,6 +11,7 @@ import {
   rerunStep,
   skipStep,
   verifyRun,
+  lostCofofoGateSnapshotIssues,
   renderRunReport,
   type PipelineConfig,
   type RunState,
@@ -117,6 +118,32 @@ describe('verifyRun — post-run drift check', () => {
     const report = verifyRun({ state, pipeline: skippablePipeline, workspaceRoot: root });
     expect(report.checked).toBe(0);
     expect(report.ok).toBe(true);
+  });
+
+  it('flags a legacy CoFoFo snapshot that dropped Canvas and evidence gates', () => {
+    const source: PipelineConfig = {
+      id: 'cofofo-source', on_failure: 'stop',
+      foundation: { mode: 'cofofo', manifest: 'docs/project/foundation/CONTEXT-MANIFEST.json', state: '.aidlc/cofofo/foundation.json' },
+      steps: [{
+        name: 'test-red', agent: 'developer', requires: [], produces: ['RED.md'],
+        human_review: true, review: { mode: 'canvas', artifacts: ['RED.md'] }, evidence: { stage: 'red' },
+      }],
+    };
+    // This test targets snapshot inspection, not Foundation setup. Build the
+    // neutral state first, then substitute the legacy CoFoFo snapshot.
+    const state = startRun({ runId: 'R-legacy', pipeline: { ...source, foundation: undefined }, context: {} });
+    state.pipelineSnapshot!.pipeline = source;
+    const snapshot = JSON.parse(JSON.stringify(state)) as RunState;
+    const unsafe = snapshot.pipelineSnapshot!.pipeline.steps[0] as Record<string, unknown>;
+    delete unsafe.review;
+    delete unsafe.evidence;
+    const report = verifyRun({ state: snapshot, pipeline: snapshot.pipelineSnapshot!.pipeline, sourcePipeline: source, workspaceRoot: root });
+    expect(report.ok).toBe(false);
+    expect(report.snapshotIssues).toEqual(expect.arrayContaining([
+      expect.stringMatching(/Canvas review/i),
+      expect.stringMatching(/RED evidence/i),
+    ]));
+    expect(lostCofofoGateSnapshotIssues({ state: snapshot, sourcePipeline: source })).toHaveLength(2);
   });
 });
 

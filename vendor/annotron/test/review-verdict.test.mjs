@@ -22,13 +22,14 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import test, { after, before } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.join(HERE, '..', 'src', 'server.js');
-const PORT = 7399;
-const BASE = `http://127.0.0.1:${PORT}`;
+let PORT;
+let BASE;
 
 let child;
 let tmp;
@@ -79,6 +80,11 @@ const verdictFor = (abs, body) =>
   call('POST', '/verdict', { file: abs, token: tokens.get(abs), ...body });
 
 before(async () => {
+  const reservation = net.createServer();
+  await new Promise((resolve, reject) => reservation.once('error', reject).listen(0, '127.0.0.1', resolve));
+  PORT = reservation.address().port;
+  BASE = `http://127.0.0.1:${PORT}`;
+  await new Promise((resolve) => reservation.close(resolve));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'annotron-verdict-'));
   child = spawn(process.execPath, [SERVER], {
     env: { ...process.env, ANNOTRON_PORT: String(PORT) },
@@ -286,6 +292,62 @@ test('a second verdict on the same review round is refused', async () => {
   });
   assert.equal(again.status, 409);
   assert.match(again.json.error, /already/i);
+});
+
+test('a multi-file bundle records one verdict across every artifact', async () => {
+  const first = path.join(tmp, 'bundle-a.md');
+  const second = path.join(tmp, 'bundle-b.md');
+  fs.writeFileSync(first, '# A\n');
+  fs.writeFileSync(second, '# B\n');
+  const token = crypto.randomBytes(32).toString('hex');
+  const review = {
+    runId: 'R-BUNDLE', stepIdx: 2, stepRevision: 1, reviewRevision: 1,
+    bundleHash: sha256('bundle'), token,
+    artifacts: [{ path: first, hash: sha256('# A\n') }, { path: second, hash: sha256('# B\n') }],
+  };
+  for (const file of [first, second]) {
+    const opened = await call('POST', '/session', { file, review });
+    assert.equal(opened.status, 200);
+  }
+
+  const decided = await call('POST', '/verdict', { file: first, token, verdict: 'approve', reviewer: 'R' });
+  assert.equal(decided.status, 200);
+  const reflected = await call('GET', `/verdict?file=${encodeURIComponent(second)}`);
+  assert.equal(reflected.json.verdict.verdict, 'approve');
+
+  const conflict = await call('POST', '/verdict', {
+    file: second, token, verdict: 'request-changes', reviewer: 'R', feedback: 'conflict',
+  });
+  assert.equal(conflict.status, 409);
+});
+
+test('two concurrent gates on one artifact remain independently addressable', async () => {
+  const file = path.join(tmp, 'shared-policy.md');
+  const body = '# Shared policy\n';
+  fs.writeFileSync(file, body);
+  const makeReview = (runId) => ({
+    runId, stepIdx: 1, stepRevision: 1, reviewRevision: 1,
+    bundleHash: sha256(`bundle-${runId}`), token: crypto.randomBytes(32).toString('hex'),
+    artifacts: [{ path: file, hash: sha256(body) }],
+  });
+  const first = makeReview('R-CONCURRENT-A');
+  const second = makeReview('R-CONCURRENT-B');
+  const openA = await call('POST', '/session', { file, review: first });
+  const openB = await call('POST', '/session', { file, review: second });
+  assert.equal(openA.status, 200);
+  assert.equal(openB.status, 200);
+
+  const readA = await call('GET', `/verdict?file=${encodeURIComponent(file)}&gate=${encodeURIComponent(first.bundleHash)}`);
+  const readB = await call('GET', `/verdict?file=${encodeURIComponent(file)}&gate=${encodeURIComponent(second.bundleHash)}`);
+  assert.equal(readA.json.review.runId, first.runId);
+  assert.equal(readB.json.review.runId, second.runId);
+
+  const decidedA = await call('POST', '/verdict', { file, gate: first.bundleHash, token: openA.json.token, verdict: 'approve', reviewer: 'A' });
+  assert.equal(decidedA.status, 200);
+  const untouchedB = await call('GET', `/verdict?file=${encodeURIComponent(file)}&gate=${encodeURIComponent(second.bundleHash)}`);
+  assert.equal(untouchedB.json.verdict, null);
+  const decidedB = await call('POST', '/verdict', { file, gate: second.bundleHash, token: openB.json.token, verdict: 'request-changes', reviewer: 'B', feedback: 'Clarify scope.' });
+  assert.equal(decidedB.status, 200);
 });
 
 test('the registered gate metadata is readable back for binding', async () => {

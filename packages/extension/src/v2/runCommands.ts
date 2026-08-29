@@ -25,6 +25,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn } from 'child_process';
 
 import * as vscode from 'vscode';
 
@@ -48,8 +49,12 @@ import {
   AutoReviewerError,
   pipelineForRun,
   stepDagId,
+  openReviewGate,
+  applyTransportVerdict,
+  AnnotronTransport,
+  ANNOTRON_DEFAULT_BASE,
 } from '@aidlc/core';
-import type { PipelineConfig, RunState } from '@aidlc/core';
+import type { PipelineConfig, ReviewGate, RunState } from '@aidlc/core';
 
 import { readYaml } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
@@ -112,6 +117,12 @@ function loadPipeline(root: string, pipelineId: string, state?: RunState): Pipel
   if (!doc) { return undefined; }
   const found = (doc.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
   return state ? pipelineForRun(state, found) ?? undefined : found;
+}
+
+/** Live definition, deliberately separate from the frozen execution snapshot. */
+function loadSourcePipeline(root: string, pipelineId: string): PipelineConfig | undefined {
+  const doc = readYaml(root);
+  return (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
 }
 
 /**
@@ -186,6 +197,7 @@ export async function startPipelineRunInlineCommand(
     runId: rid,
     pipeline,
     context: { work: rid },
+    workspaceRoot: root,
   });
   saveRun(root, state);
 
@@ -253,6 +265,7 @@ export async function startPipelineRunCommand(pipelineIdArg?: string): Promise<v
     runId: runId.trim(),
     pipeline: pickedPipeline.pipeline,
     context: { epic: runId.trim() },
+    workspaceRoot: root,
   });
   saveRun(root, state);
 
@@ -286,13 +299,14 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
     );
     return;
   }
+  const sourcePipeline = loadSourcePipeline(root, state.pipelineId);
 
   const stepIdx = resolveStepIdx(state, stepIdxArg, 'awaiting_work');
 
   // Soft gate-check: surface missing requires as a warning before we attempt
   // markStepDone. The user can still proceed (they may know the requires
   // path is wrong / outdated); we just don't want them to be surprised.
-  const gate = canStartStep({ state, pipeline, workspaceRoot: root, stepIdx });
+  const gate = canStartStep({ state, pipeline, workspaceRoot: root, stepIdx, sourcePipeline });
   if (!gate.ok) {
     const choice = await vscode.window.showWarningMessage(
       `Step "${state.steps[stepIdx].agent}" is missing required upstream artifacts:\n${gate.missing.join(', ')}`,
@@ -304,7 +318,7 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
   }
 
   try {
-    const next = markStepDone({ state, pipeline, workspaceRoot: root, stepIdx });
+    const next = markStepDone({ state, pipeline, workspaceRoot: root, stepIdx, sourcePipeline });
     saveRun(root, next);
     notifyStepTransition(next, stepIdx);
   } catch (err) {
@@ -433,6 +447,145 @@ export async function approveStepCommand(runIdArg?: string, stepIdxArg?: number)
     notifyStepTransition(next, stepIdx);
   } catch (err) {
     surfaceRunError(err);
+  }
+}
+
+// ── Canvas review ────────────────────────────────────────────────────────────────
+
+async function annotronHealthy(baseUrl: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${baseUrl}/health`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureAnnotron(extensionPath: string): Promise<void> {
+  if (await annotronHealthy(ANNOTRON_DEFAULT_BASE)) { return; }
+
+  const server = path.join(extensionPath, 'vendor', 'annotron', 'src', 'server.js');
+  if (!fs.existsSync(server)) {
+    throw new PipelineRunError(
+      `Bundled Annotron server is missing at ${server}. Reinstall the extension or run its copy:annotron build step.`,
+    );
+  }
+
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  const child = spawn(process.execPath, [server], {
+    detached: true,
+    stdio: 'ignore',
+    env,
+  });
+  child.unref();
+
+  const deadline = Date.now() + 6000;
+  while (Date.now() < deadline) {
+    if (await annotronHealthy(ANNOTRON_DEFAULT_BASE)) { return; }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new PipelineRunError(`Annotron did not become healthy at ${ANNOTRON_DEFAULT_BASE}.`);
+}
+
+/**
+ * Open the active content-addressed Canvas bundle, then wait until Annotron
+ * records a verdict. Core performs the final revision/hash/freshness checks;
+ * the extension is only the browser/process coordinator.
+ */
+export async function reviewCanvasStepCommand(
+  extensionPath: string,
+  runIdArg?: string,
+  stepIdxArg?: number,
+): Promise<void> {
+  const root = requireRoot('Review in Canvas');
+  if (!root) { return; }
+  const runId = await resolveRunId(
+    root,
+    runIdArg,
+    (state) => currentStepStatus(state) === 'awaiting_review',
+  );
+  if (!runId) { return; }
+
+  const state = RunStateStore.load(root, runId);
+  if (!state) { return; }
+  const pipeline = loadPipeline(root, state.pipelineId, state);
+  if (!pipeline) {
+    void vscode.window.showErrorMessage(`Pipeline "${state.pipelineId}" is unavailable.`);
+    return;
+  }
+  const stepIdx = resolveStepIdx(state, stepIdxArg, 'awaiting_review');
+
+  try {
+    await ensureAnnotron(extensionPath);
+    const transport = new AnnotronTransport(root, ANNOTRON_DEFAULT_BASE);
+    const gate: ReviewGate = await openReviewGate({
+      workspaceRoot: root,
+      state,
+      pipeline,
+      stepIdx,
+      transport,
+    });
+
+    for (const artifact of gate.bundle.artifacts) {
+      const query = new URLSearchParams({ file: path.join(root, artifact.path), gate: gate.bundle.bundleHash });
+      // Fragments are never sent to the server or logged as query parameters.
+      // Canvas exchanges it via a request header when posting the verdict.
+      const fragment = gate.token ? `#token=${encodeURIComponent(gate.token)}` : '';
+      await vscode.env.openExternal(vscode.Uri.parse(`${ANNOTRON_DEFAULT_BASE}/?${query.toString()}${fragment}`));
+    }
+
+    if (gate.supersededVerdict) {
+      void vscode.window.showWarningMessage(
+        'Canvas reopened because the artifact content changed after the previous verdict. Review the new bundle.',
+      );
+    }
+
+    const next = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `AIDLC: waiting for Canvas verdict · ${runId}`,
+        cancellable: true,
+      },
+      async (_progress, cancel) => {
+        const deadline = Date.now() + 30 * 60_000;
+        while (!cancel.isCancellationRequested && Date.now() < deadline) {
+          const latest = RunStateStore.load(root, runId);
+          if (!latest) throw new PipelineRunError(`Run "${runId}" was deleted while Canvas was open.`);
+          const decided = await applyTransportVerdict({
+            workspaceRoot: root,
+            state: latest,
+            pipeline,
+            stepIdx,
+            gate,
+            transport,
+          });
+          if (decided) { return decided; }
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        return null;
+      },
+    );
+
+    if (!next) {
+      void vscode.window.showInformationMessage(
+        `Canvas gate for "${runId}" remains open. Click Review in Canvas again to resume.`,
+      );
+      return;
+    }
+
+    saveRun(root, next);
+    const verdict = next.steps[stepIdx]?.canvasReview;
+    if (verdict?.verdict === 'approve') {
+      void vscode.window.showInformationMessage(`Canvas approved by ${verdict.reviewer}.`);
+    } else {
+      void vscode.window.showWarningMessage(
+        `Canvas requested changes${verdict?.reviewer ? ` (${verdict.reviewer})` : ''}: ${verdict?.feedback ?? 'No feedback supplied.'}`,
+      );
+    }
+  } catch (error) {
+    surfaceRunError(error);
   }
 }
 
@@ -799,7 +952,7 @@ export async function verifyRunCommand(runIdArg?: string): Promise<void> {
     return;
   }
 
-  const report = verifyRun({ state, pipeline, workspaceRoot: root });
+  const report = verifyRun({ state, pipeline, workspaceRoot: root, sourcePipeline: loadSourcePipeline(root, state.pipelineId) });
   if (report.ok) {
     void vscode.window.showInformationMessage(
       `✅ No drift — ${report.checked} step(s) with artifacts verified for run "${runId}".`,
@@ -807,12 +960,15 @@ export async function verifyRunCommand(runIdArg?: string): Promise<void> {
     return;
   }
 
-  const lines = report.drift.map((d) => {
-    const parts: string[] = [];
-    if (d.missing.length > 0) { parts.push(`missing: ${d.missing.join(', ')}`); }
-    if (d.missingMarkers.length > 0) { parts.push(`content: ${d.missingMarkers.join(', ')}`); }
-    return `• step ${d.stepIdx} (${d.agent}) — ${parts.join('; ')}`;
-  });
+  const lines = [
+    ...report.snapshotIssues.map((issue) => `• ${issue}`),
+    ...report.drift.map((d) => {
+      const parts: string[] = [];
+      if (d.missing.length > 0) { parts.push(`missing: ${d.missing.join(', ')}`); }
+      if (d.missingMarkers.length > 0) { parts.push(`content: ${d.missingMarkers.join(', ')}`); }
+      return `• step ${d.stepIdx} (${d.agent}) — ${parts.join('; ')}`;
+    }),
+  ];
   void vscode.window.showWarningMessage(
     `⚠ Drift in ${report.drift.length} of ${report.checked} step(s) for run "${runId}".`,
     { modal: true, detail: lines.join('\n') },

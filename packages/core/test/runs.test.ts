@@ -323,6 +323,7 @@ describe('PipelineRunner — state machine', () => {
     expect(s.steps[0].feedback).toContain('rate-limit');
     // Step 1 reset to pending (had been approved).
     expect(s.steps[1].status).toBe('pending');
+    expect(s.steps[1].revision).toBe(2);
     expect(s.steps[1].artifactsProduced).toEqual([]);
     // History on step 1 PRESERVED so the UI can mark it "previously done".
     expect((s.steps[1].history ?? []).length).toBeGreaterThan(0);
@@ -377,6 +378,7 @@ describe('PipelineRunner — state machine', () => {
     expect(targetRerun?.feedback).toContain('Rejected at step 2');
     expect(targetRerun?.revision).toBe(2);
     expect(s.steps[0].revision).toBe(2);
+    expect(s.steps[1].revision).toBe(2);
     expect(s.currentStepIdx).toBe(0);
   });
 

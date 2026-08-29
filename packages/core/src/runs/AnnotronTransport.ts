@@ -9,13 +9,9 @@
  *
  * ## What this is not
  *
- * `/verdict` is an unauthenticated loopback HTTP route. Anything that can reach
- * 127.0.0.1 on annotron's port can post a verdict, so the `reviewer` field this
- * carries is *attested by the transport*, not proven. Core treats it as
- * untrusted input for exactly that reason. Closing the gap needs a per-session
- * token in annotron's contract, which is not implemented; until then the honest
- * description of this layer is "the browser tells us who clicked", not "we know
- * a human clicked".
+ * `/verdict` is a loopback HTTP route protected by a per-gate capability token.
+ * The token scopes a decision to the review link that opened the gate, while the
+ * reviewer identity remains user-supplied audit data rather than identity proof.
  */
 import * as crypto from 'crypto';
 
@@ -108,8 +104,9 @@ export class AnnotronTransport implements ReviewTransport {
    * possible — once one lands, the others refuse a second.
    */
   async read(bundle: ReviewBundle): Promise<TransportVerdict | null> {
+    const verdicts: TransportVerdict[] = [];
     for (const artifact of bundle.artifacts) {
-      const url = `${this.baseUrl}/verdict?file=${encodeURIComponent(this.absolute(artifact.path))}`;
+      const url = `${this.baseUrl}/verdict?file=${encodeURIComponent(this.absolute(artifact.path))}&gate=${encodeURIComponent(bundle.bundleHash)}`;
       const res = await this.fetchImpl(url);
       if (!res.ok) {
         throw new AnnotronTransportError(
@@ -118,16 +115,27 @@ export class AnnotronTransport implements ReviewTransport {
         );
       }
       const body = (await res.json()) as {
-        review?: { bundleHash?: string };
+        review?: { runId?: string; stepIdx?: number; stepRevision?: number; reviewRevision?: number; bundleHash?: string };
         verdict?: TransportVerdict | null;
       };
 
       // A verdict recorded against a different bundle belongs to another round.
       // Ignoring it is the safe reading: this gate is simply still undecided.
-      if (body.review?.bundleHash !== bundle.bundleHash) { continue; }
-      if (body.verdict) { return body.verdict; }
+      if (
+        body.review?.runId !== bundle.runId
+        || body.review?.stepIdx !== bundle.stepIdx
+        || body.review?.stepRevision !== bundle.stepRevision
+        || body.review?.reviewRevision !== bundle.reviewRevision
+        || body.review?.bundleHash !== bundle.bundleHash
+      ) { continue; }
+      if (body.verdict) verdicts.push(body.verdict);
     }
-    return null;
+    if (verdicts.length === 0) return null;
+    const canonical = JSON.stringify(verdicts[0]);
+    if (verdicts.some((verdict) => JSON.stringify(verdict) !== canonical)) {
+      throw new AnnotronTransportError('annotron reported conflicting verdicts for artifacts in one review bundle');
+    }
+    return verdicts[0]!;
   }
 
   private absolute(relativePath: string): string {

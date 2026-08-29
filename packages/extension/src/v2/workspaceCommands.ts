@@ -55,6 +55,19 @@ import { registerAskCommand } from './askCommand';
 import { insertDemoEpicCommand } from './demoEpic';
 import { loadDemoProjectCommand } from './demoProject';
 import { loadIosDemoProjectCommand } from './demoIosProject';
+import { loadCofofoWeatherDemoProjectCommand } from './demoCofofoWeatherProject';
+import {
+  activateCofofoFoundationCommand,
+  captureCofofoEvidenceCommand,
+  cofofoDoctorCommand,
+  installCofofoFoundationCommand,
+  prepareCofofoFoundationCommand,
+  publishCofofoContextCommand,
+  rebaseCofofoRunCommand,
+  reportCofofoBugCommand,
+  renderCofofoRulesCommand,
+  showCofofoStatusCommand,
+} from './cofofoCommands';
 import { reconcileValidatorConflictsCommand } from './providerManagedRunCommands';
 import { migrateEpicStateFiles } from './epicsList';
 import {
@@ -62,6 +75,7 @@ import {
   markStepDoneCommand,
   skipStepCommand,
   approveStepCommand,
+  reviewCanvasStepCommand,
   rejectStepCommand,
   rerunStepCommand,
   runAutoReviewCommand,
@@ -389,6 +403,59 @@ export function registerV2WorkspaceCommands(
       ),
   );
 
+  const loadCofofoWeatherDemoProjectCmd = vscode.commands.registerCommand(
+    'aidlc.loadCofofoWeatherDemoProject',
+    (mode?: unknown) =>
+      loadCofofoWeatherDemoProjectCommand(
+        context.extensionPath,
+        mode === 'reseed' || mode === 'open-as-is' ? mode : undefined,
+      ),
+  );
+  const prepareCofofoFoundationCmd = vscode.commands.registerCommand(
+    'aidlc.prepareCofofoFoundation',
+    () => prepareCofofoFoundationCommand(context.extensionPath),
+  );
+  const installCofofoFoundationCmd = vscode.commands.registerCommand(
+    'aidlc.installCofofoFoundation',
+    () => installCofofoFoundationCommand(context.extensionPath),
+  );
+  const publishCofofoContextCmd = vscode.commands.registerCommand(
+    'aidlc.publishCofofoContext',
+    () => publishCofofoContextCommand(context.extensionPath),
+  );
+  const activateCofofoFoundationCmd = vscode.commands.registerCommand(
+    'aidlc.activateCofofoFoundation',
+    () => activateCofofoFoundationCommand(context.extensionPath),
+  );
+  const showCofofoStatusCmd = vscode.commands.registerCommand(
+    'aidlc.showCofofoStatus',
+    () => showCofofoStatusCommand(context.extensionPath),
+  );
+  const renderCofofoRulesCmd = vscode.commands.registerCommand(
+    'aidlc.renderCofofoRules',
+    () => renderCofofoRulesCommand(context.extensionPath),
+  );
+  const rebaseCofofoRunCmd = vscode.commands.registerCommand(
+    'aidlc.rebaseCofofoRun',
+    () => rebaseCofofoRunCommand(),
+  );
+  const captureCofofoEvidenceCmd = vscode.commands.registerCommand(
+    'aidlc.captureCofofoEvidence',
+    () => captureCofofoEvidenceCommand(),
+  );
+  const reportCofofoBugCmd = vscode.commands.registerCommand(
+    'aidlc.reportCofofoBug',
+    (runId?: unknown, fields?: unknown) =>
+      reportCofofoBugCommand(
+        typeof runId === 'string' ? runId : undefined,
+        fields && typeof fields === 'object' ? fields as { did?: string; observed?: string; expected?: string } : undefined,
+      ),
+  );
+  const cofofoDoctorCmd = vscode.commands.registerCommand(
+    'aidlc.cofofoDoctor',
+    () => cofofoDoctorCommand(),
+  );
+
   // Reuses an existing terminal if one is open so the user doesn't end up
   // with a stack of Claude REPLs after multiple clicks.
   //
@@ -487,6 +554,15 @@ export function registerV2WorkspaceCommands(
     (runId?: unknown, stepIdx?: unknown) =>
       approveStepCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
   );
+  const reviewCanvasStepCmd = vscode.commands.registerCommand(
+    'aidlc.reviewCanvasStep',
+    (runId?: unknown, stepIdx?: unknown) =>
+      reviewCanvasStepCommand(
+        context.extensionPath,
+        typeof runId === 'string' ? runId : undefined,
+        toStepIdx(stepIdx),
+      ),
+  );
   const rejectStepCmd = vscode.commands.registerCommand(
     'aidlc.rejectStep',
     (runId?: unknown, stepIdx?: unknown) =>
@@ -562,11 +638,23 @@ export function registerV2WorkspaceCommands(
       insertDemoEpicCmd,
       loadDemoProjectCmd,
       loadIosDemoProjectCmd,
+      loadCofofoWeatherDemoProjectCmd,
+      prepareCofofoFoundationCmd,
+      installCofofoFoundationCmd,
+      publishCofofoContextCmd,
+      activateCofofoFoundationCmd,
+      showCofofoStatusCmd,
+      renderCofofoRulesCmd,
+      rebaseCofofoRunCmd,
+      captureCofofoEvidenceCmd,
+      reportCofofoBugCmd,
+      cofofoDoctorCmd,
       startRunCmd,
       reconcileValidatorConflictsCmd,
       markStepDoneCmd,
       skipStepCmd,
       approveStepCmd,
+      reviewCanvasStepCmd,
       rejectStepCmd,
       rerunStepCmd,
       runAutoReviewCmd,

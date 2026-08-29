@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { COFOFO_EVIDENCE_STAGES } from '../cofofo/contracts';
 
 // ── Skills ─────────────────────────────────────────────────────────
 
@@ -135,6 +136,11 @@ const StepReviewSchema = z.object({
     .min(1, '`review.artifacts` must list at least one artifact'),
 });
 
+/** Machine evidence that must exist in the core-owned hash-chain ledger. */
+const StepEvidenceSchema = z.object({
+  stage: z.enum(['red', 'green', 'refactor', 'verify']),
+}).strict();
+
 const PipelineStepObjectSchema = z
   .object({
     agent: z.string().min(1),
@@ -222,6 +228,8 @@ const PipelineStepObjectSchema = z
      * {@link StepReviewSchema}.
      */
     review: StepReviewSchema.optional(),
+    /** Core-enforced CoFoFo evidence gate; project validators cannot bypass it. */
+    evidence: StepEvidenceSchema.optional(),
   })
   .refine((s) => !s.auto_review || !!s.auto_review_runner, {
     message: 'Step with `auto_review: true` must set `auto_review_runner` (path to a JS/TS validator module).',
@@ -278,11 +286,19 @@ const PipelineBudgetSchema = z.object({
   on_exceed: z.enum(['pause', 'fail']).default('pause'),
 });
 
+const PipelineFoundationGateSchema = z.object({
+  mode: z.literal('cofofo'),
+  manifest: z.string().min(1).default('docs/project/foundation/CONTEXT-MANIFEST.json'),
+  state: z.string().min(1).default('.aidlc/cofofo/foundation.json'),
+}).strict();
+
 const PipelineSchema = z.object({
   id: z.string().min(1),
   steps: z.array(PipelineStepSchema).min(1),
   on_failure: z.enum(['stop', 'continue']).default('stop'),
   budget: PipelineBudgetSchema.optional(),
+  /** Pin and continuously re-check a current CoFoFo foundation revision. */
+  foundation: PipelineFoundationGateSchema.optional(),
 });
 
 // ── Recipes ────────────────────────────────────────────────────────
@@ -346,6 +362,8 @@ export interface NormalizedStep {
    * human gate — see {@link StepReviewSchema}.
    */
   review?: { mode: 'canvas'; artifacts: string[] };
+  /** Core-owned machine evidence required before this step can complete. */
+  evidence?: { stage: 'red' | 'green' | 'refactor' | 'verify' };
 }
 
 /**
@@ -405,10 +423,16 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
           artifacts: (reviewCfg.artifacts as unknown[]).map(String).filter((a) => a.length > 0),
         }
       : undefined;
+  const evidenceCfg = obj.evidence as Record<string, unknown> | undefined;
+  const evidenceStages = COFOFO_EVIDENCE_STAGES.filter((stage) => stage !== 'red-waiver');
+  const evidence = evidenceCfg && evidenceStages.includes(evidenceCfg.stage as 'red' | 'green' | 'refactor' | 'verify')
+    ? { stage: evidenceCfg.stage as 'red' | 'green' | 'refactor' | 'verify' }
+    : undefined;
 
   return {
     agent: typeof obj.agent === 'string' ? obj.agent : '',
     review,
+    evidence,
     name: typeof obj.name === 'string' ? obj.name : undefined,
     model: typeof obj.model === 'string' && obj.model.length > 0 ? obj.model : undefined,
     skills,

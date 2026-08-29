@@ -2140,10 +2140,13 @@ async function postVerdict(verdict, feedback) {
 
   const res = await fetch('/verdict', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     // The gate token comes from this page's own URL — the link is the
     // capability, so whoever was handed it is who may decide.
-    body: JSON.stringify({ file, verdict, reviewer, feedback, token: params.get('token') || '' }),
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Annotron-Gate-Token': new URLSearchParams(location.hash.slice(1)).get('token') || '',
+    },
+    body: JSON.stringify({ file, gate: params.get('gate') || '', verdict, reviewer, feedback }),
   });
   const body = await res.json().catch(() => ({}));
 
@@ -2168,7 +2171,8 @@ async function postVerdict(verdict, feedback) {
 async function loadFormalReview() {
   let payload;
   try {
-    const res = await fetch('/verdict?file=' + encodeURIComponent(file));
+    const gate = params.get('gate') || '';
+    const res = await fetch('/verdict?file=' + encodeURIComponent(file) + (gate ? '&gate=' + encodeURIComponent(gate) : ''));
     if (!res.ok) return;          // freeform session — leave the window as-is
     payload = await res.json();
   } catch { return; }

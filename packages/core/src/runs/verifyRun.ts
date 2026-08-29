@@ -38,6 +38,8 @@ export interface VerifyReport {
   checked: number;
   /** Only steps with at least one missing file or marker. */
   drift: StepDrift[];
+  /** Unsafe legacy snapshot differences detected against the current source. */
+  snapshotIssues: string[];
 }
 
 /**
@@ -49,6 +51,8 @@ export function verifyRun(args: {
   state: RunState;
   pipeline: PipelineConfig;
   workspaceRoot: string;
+  /** Current workspace pipeline, when it is available separately from the frozen run. */
+  sourcePipeline?: PipelineConfig;
 }): VerifyReport {
   const { state, pipeline, workspaceRoot } = args;
   const drift: StepDrift[] = [];
@@ -98,5 +102,23 @@ export function verifyRun(args: {
     }
   }
 
-  return { ok: drift.length === 0, checked, drift };
+  const snapshotIssues: string[] = [];
+  const snapshot = state.pipelineSnapshot?.pipeline;
+  const source = args.sourcePipeline;
+  if (snapshot && source) {
+    const snapshotById = new Map(snapshot.steps.map((step) => [
+      normalizeStep(step).name ?? normalizeStep(step).agent,
+      normalizeStep(step),
+    ]));
+    for (const sourceStep of source.steps) {
+      const current = normalizeStep(sourceStep);
+      const id = current.name ?? current.agent;
+      const frozen = snapshotById.get(id);
+      if (!frozen) continue;
+      if (current.review && !frozen.review) snapshotIssues.push(`step "${id}" lost its Canvas review gate in this run snapshot`);
+      if (current.evidence && !frozen.evidence) snapshotIssues.push(`step "${id}" lost its ${current.evidence.stage.toUpperCase()} evidence gate in this run snapshot`);
+    }
+  }
+
+  return { ok: drift.length === 0 && snapshotIssues.length === 0, checked, drift, snapshotIssues };
 }

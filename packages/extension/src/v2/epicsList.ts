@@ -86,6 +86,10 @@ export interface EpicSummary {
     stepHasAutoReview: boolean;
     /** Step config: does this step opt into human_review in the pipeline yaml? */
     stepHasHumanReview: boolean;
+    /** Content-bound human gate. Plain approve/reject controls must not be used. */
+    reviewMode?: 'canvas';
+    /** Declared artifact templates presented together in the Canvas bundle. */
+    reviewArtifacts?: string[];
     /** Step config: can a human skip this step from awaiting_work (`skippable: true`)? */
     stepSkippable: boolean;
     /** Agent ids this step waits for — DAG edges from the pipeline config. */
@@ -635,14 +639,24 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     const pipelineCfg = pipelineId
       ? (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId)
       : undefined;
-    const stepGateByIdx = new Map<number, { auto: boolean; human: boolean; skippable: boolean }>();
+    const stepGateByIdx = new Map<number, {
+      auto: boolean;
+      human: boolean;
+      skippable: boolean;
+      review?: { mode: 'canvas'; artifacts: string[] };
+    }>();
     const stepDependsByIdx = new Map<number, string[]>();
     const stepNameByIdx = new Map<number, string>();
     const stepArtifactsByIdx = new Map<number, string[]>();
     if (pipelineCfg && Array.isArray(pipelineCfg.steps)) {
       pipelineCfg.steps.forEach((raw, i) => {
         const norm = normalizeStep(raw as PipelineStepConfig);
-        stepGateByIdx.set(i, { auto: norm.auto_review, human: norm.human_review, skippable: norm.skippable });
+        stepGateByIdx.set(i, {
+          auto: norm.auto_review,
+          human: norm.human_review,
+          skippable: norm.skippable,
+          review: norm.review,
+        });
         stepDependsByIdx.set(i, norm.depends_on);
         if (norm.name) { stepNameByIdx.set(i, norm.name); }
         // Keep every declared output. Some phases emit a
@@ -803,6 +817,8 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
         autoReviewVerdict: runVerdictByIdx.get(i),
         stepHasAutoReview: gate.auto,
         stepHasHumanReview: gate.human,
+        reviewMode: gate.review?.mode,
+        reviewArtifacts: gate.review?.artifacts,
         stepSkippable: gate.skippable,
         dependsOn: stepDependsByIdx.get(i) ?? [],
         history,

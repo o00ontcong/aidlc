@@ -9,6 +9,7 @@ import {
   FolderOpen,
   Beaker,
   Smartphone,
+  CloudSun,
   FileCode2,
   X,
   Sparkles,
@@ -31,6 +32,7 @@ import { ConfirmModal } from './ConfirmModal';
 import { ProviderSection } from './ProviderSection';
 import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
+import { BugReportModal } from './BugReportModal';
 import { ThemeToggle } from './ThemeToggle';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 
@@ -56,6 +58,7 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
     ...DEFAULT_COLLAPSED,
     ...(seed.collapsed ?? {}),
   });
+  const [bugReportOpen, setBugReportOpen] = useState(false);
   const persist = useCallback(
     (next: { collapsed?: CollapseState }) => {
       const merged: PersistedUi = {
@@ -114,6 +117,7 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
           <EmptyNoFolder
             demoProjectExists={state.demoProjectExists}
             iosDemoProjectExists={state.iosDemoProjectExists}
+            cofofoWeatherDemoProjectExists={state.cofofoWeatherDemoProjectExists}
           />
         ) : (
           <>
@@ -148,6 +152,23 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                   <Layers className="h-3.5 w-3.5" />
                   <span>Open Workspace</span>
                   <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBugReportOpen(true)}
+                  className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Beaker className="h-3.5 w-3.5" />
+                  <span>Báo lỗi CoFoFo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => postMessage({ type: 'cofofoDoctor' })}
+                  className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span>Kiểm tra &amp; sửa workspace</span>
                 </button>
 
                 <StatsGrid state={state} />
@@ -185,6 +206,12 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
       </div>
 
       <Footer hasFolder={state.hasFolder} />
+      {bugReportOpen && (
+        <BugReportModal
+          onSubmit={(fields) => postMessage({ type: 'reportCofofoBug', fields })}
+          onClose={() => setBugReportOpen(false)}
+        />
+      )}
 
     </aside>
   );
@@ -309,11 +336,13 @@ function ProjectBar({
 function EmptyNoFolder({
   demoProjectExists,
   iosDemoProjectExists,
+  cofofoWeatherDemoProjectExists,
 }: {
   demoProjectExists: boolean;
   iosDemoProjectExists: boolean;
+  cofofoWeatherDemoProjectExists: boolean;
 }) {
-  const [demoModalOpen, setDemoModalOpen] = useState<null | 'generic' | 'ios'>(null);
+  const [demoModalOpen, setDemoModalOpen] = useState<null | 'generic' | 'ios' | 'weather'>(null);
   const onLoadDemo = () => {
     if (demoProjectExists) {
       // Pop the inline picker — replaces the VS Code notification chrome
@@ -329,6 +358,13 @@ function EmptyNoFolder({
       setDemoModalOpen('ios');
     } else {
       postMessage({ type: 'loadIosDemoProject' });
+    }
+  };
+  const onLoadCofofoWeatherDemo = () => {
+    if (cofofoWeatherDemoProjectExists) {
+      setDemoModalOpen('weather');
+    } else {
+      postMessage({ type: 'loadCofofoWeatherDemoProject' });
     }
   };
   return (
@@ -363,12 +399,31 @@ function EmptyNoFolder({
         <Smartphone className="h-3.5 w-3.5" />
         <span>Load iOS Demo (TodoKit)</span>
       </button>
+      <button
+        type="button"
+        onClick={onLoadCofofoWeatherDemo}
+        title="SkyCast — iOS weather app chạy demo CoFoFo foundation + delivery pipeline với Canvas gate và Swift validation thật"
+        className="mt-2 flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <CloudSun className="h-3.5 w-3.5" />
+        <span>Load CoFoFo Weather Demo</span>
+      </button>
       {demoModalOpen && (
         <LoadDemoModal
-          demoDirName={demoModalOpen === 'ios' ? 'aidlc-ios-demo' : 'aidlc-demo-project'}
+          demoDirName={
+            demoModalOpen === 'ios'
+              ? 'aidlc-ios-demo'
+              : demoModalOpen === 'weather'
+                ? 'aidlc-cofofo-weather-demo'
+                : 'aidlc-demo-project'
+          }
           onChoose={(mode) =>
             postMessage({
-              type: demoModalOpen === 'ios' ? 'loadIosDemoProject' : 'loadDemoProject',
+              type: demoModalOpen === 'ios'
+                ? 'loadIosDemoProject'
+                : demoModalOpen === 'weather'
+                  ? 'loadCofofoWeatherDemoProject'
+                  : 'loadDemoProject',
               mode,
             })}
           onClose={() => setDemoModalOpen(null)}

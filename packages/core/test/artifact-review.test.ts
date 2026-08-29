@@ -249,6 +249,20 @@ describe('checkBundleCurrent', () => {
     expect(stale[0].reason).toBe('unreadable');
   });
 
+  it('reports an intermediate directory swapped for a symlink after bundling', () => {
+    const root = makeWorkspace({ [PRD_REL]: '# PRD\n' });
+    const bundle = build(root, [PRD_TEMPLATE]);
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-review-outside-'));
+    fs.mkdirSync(path.join(outside, 'artifacts'), { recursive: true });
+    fs.writeFileSync(path.join(outside, 'artifacts', 'PRD.md'), '# PRD\n');
+    fs.rmSync(path.join(root, 'docs', 'epics', 'EPIC-1'), { recursive: true });
+    fs.symlinkSync(outside, path.join(root, 'docs', 'epics', 'EPIC-1'));
+
+    expect(checkBundleCurrent(root, bundle)).toEqual([
+      { path: PRD_REL, reason: 'unreadable', expectedHash: sha256('# PRD\n') },
+    ]);
+  });
+
   it('lists every stale file, not just the first', () => {
     const root = makeWorkspace({ [PRD_REL]: '# PRD\n', [PLAN_REL]: '# Plan\n' });
     const bundle = build(root, [PRD_TEMPLATE, PLAN_TEMPLATE]);

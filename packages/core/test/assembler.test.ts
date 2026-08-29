@@ -86,6 +86,33 @@ describe('assemblePipeline', () => {
     expect(p.id).toBe('bugfix');
   });
 
+  it('round-trips every normalized step policy through a recipe', () => {
+    const ws = workspace();
+    const source = ws.pipelines[0].steps[0] as Record<string, unknown>;
+    Object.assign(source, {
+      review: { mode: 'canvas', artifacts: ['{epicDir}/PRD.md'] },
+      evidence: { stage: 'red' },
+      produces_contains: ['# PRD'],
+      skippable: true,
+      auto_review_timeout_ms: 1234,
+    });
+    ws.recipes.push({ id: 'all-policies', steps: ['plan'] });
+
+    const assembled = assemblePipeline(ws, { recipeId: 'all-policies' });
+    const step = assembled.steps[0] as Record<string, unknown>;
+    for (const key of [
+      'agent', 'name', 'enabled', 'produces', 'produces_contains', 'requires',
+      'depends_on', 'auto_review', 'auto_review_timeout_ms', 'human_review',
+      'skippable', 'review', 'evidence',
+    ]) {
+      expect(step).toHaveProperty(key);
+    }
+    expect(step.review).toEqual({ mode: 'canvas', artifacts: ['{epicDir}/PRD.md'] });
+    expect(step.evidence).toEqual({ stage: 'red' });
+    expect(step.produces_contains).toEqual(['# PRD']);
+    expect(step.skippable).toBe(true);
+  });
+
   it('throws on an unknown recipe', () => {
     expect(() => assemblePipeline(workspace(), { recipeId: 'nope' })).toThrow(PipelineAssembleError);
   });

@@ -227,6 +227,78 @@
         "category": "AIDLC"
       },
       {
+        "command": "aidlc.loadCofofoWeatherDemoProject",
+        "title": "Load CoFoFo Weather Demo (SkyCast — Canvas + real Swift gates)",
+        "icon": "$(cloud-sun)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.reviewCanvasStep",
+        "title": "Review Current Step in Canvas",
+        "icon": "$(open-preview)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.prepareCofofoFoundation",
+        "title": "CoFoFo: Prepare Foundation",
+        "icon": "$(layers-active)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.installCofofoFoundation",
+        "title": "CoFoFo: Install Reviewed ECC Assets",
+        "icon": "$(package)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.publishCofofoContext",
+        "title": "CoFoFo: Publish Provider Context",
+        "icon": "$(broadcast)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.activateCofofoFoundation",
+        "title": "CoFoFo: Activate Reviewed Foundation",
+        "icon": "$(pass-filled)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.showCofofoStatus",
+        "title": "CoFoFo: Show Foundation Status",
+        "icon": "$(info)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.renderCofofoRules",
+        "title": "CoFoFo: Render Project Rules and Drift",
+        "icon": "$(symbol-ruler)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.rebaseCofofoRun",
+        "title": "CoFoFo: Rebase Delivery Run to Active Foundation",
+        "icon": "$(git-pull-request-go-to-changes)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.captureCofofoEvidence",
+        "title": "CoFoFo: Capture Current RED/GREEN/REFACTOR/VERIFY Evidence",
+        "icon": "$(record-keys)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.reportCofofoBug",
+        "title": "CoFoFo: Báo lỗi",
+        "icon": "$(bug)",
+        "category": "AIDLC"
+      },
+      {
+        "command": "aidlc.cofofoDoctor",
+        "title": "CoFoFo: Kiểm tra & sửa workspace",
+        "icon": "$(heart-pulse)",
+        "category": "AIDLC"
+      },
+      {
         "command": "aidlc.showTokenUsage",
         "title": "Show Claude Token Usage",
         "icon": "$(graph)",

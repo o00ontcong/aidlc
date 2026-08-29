@@ -20,6 +20,8 @@ packages/*/bin/
 !/docs/DISCOVERY_SHAPE_WORKFLOW.md
 !/docs/COFOFO_WORKFLOW_PROPOSAL.html
 !/docs/COFOFO_WORKFLOW_CHECKLIST.md
+!/docs/COFOFO_FIX_BACKLOG.md
+!/docs/COFOFO_FIX_PLAN.md
 # Hand-written design docs, same exception as the guide above — everything else
 # under docs/ is generated epic output.
 !/docs/JIRA-SPRINT-PLAN.md
@@ -34,6 +36,8 @@ packages/*/bin/
 # package-specific build artifacts already covered by out/ + dist/
 packages/extension/scripts/demo/out/
 packages/extension/scripts/demo/out-agents/
+# SwiftPM products inside a packaged fixture are local, host-specific output.
+packages/extension/media/**/.build/
 # templates: single source of truth is packages/core/templates; the extension
 # build copies them in via `pnpm copy:templates`.
 packages/extension/templates/

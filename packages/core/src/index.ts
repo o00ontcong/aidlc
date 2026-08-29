@@ -27,6 +27,7 @@ export * from './packs';
 export * from './validators';
 export * from './release';
 export * from './integrations';
+export * from './cofofo';
 export {
   EpicSchema as UnifiedEpicSchema,
   EpicProfileSchema,
@@ -213,6 +214,9 @@ export {
   submitAutoReviewVerdict,
   applyArtifactReviewVerdict,
   auditCanvasApprovals,
+  cofofoFoundationIssues,
+  lostCofofoGateSnapshotIssues,
+  rebaseRunToCurrentFoundation,
   PipelineRunError,
 } from './runs/PipelineRunner';
 export type { CanvasVerdict, CanvasApprovalIssue } from './runs/PipelineRunner';

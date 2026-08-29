@@ -56,6 +56,9 @@ const HOST = process.env.ANNOTRON_HOST || '127.0.0.1';
 
 // --- State ---
 const sessions = new Map();   // filePath -> { hash, watchers, sseClients, pollWaiters, agentReplies }
+// Formal review gates are keyed by both artifact and bundle. A single Markdown
+// file can legitimately be reviewed by multiple in-flight workflow runs.
+const formalSessions = new Map(); // `${file}\0${bundleHash}` -> { review }
 const allowList = new Set();  // registered canonical paths
 
 function getSession(file) {
@@ -133,7 +136,53 @@ const FORMAL_REFUSAL =
 
 /** The review metadata for a formal session, or `null` for a freeform one. */
 function formalReview(file) {
-  return sessions.get(file)?.review ?? null;
+  if (sessions.get(file)?.review) return sessions.get(file).review;
+  return [...formalSessions.entries()]
+    .find(([key, session]) => key.startsWith(`${file}\0`) && session.review)?.[1]?.review ?? null;
+}
+
+function formalSessionKey(file, bundleHash) {
+  return `${file}\0${bundleHash}`;
+}
+
+function getFormalSession(file, bundleHash) {
+  const key = formalSessionKey(file, bundleHash);
+  if (!formalSessions.has(key)) formalSessions.set(key, {});
+  return formalSessions.get(key);
+}
+
+function formalReviewForGate(file, bundleHash) {
+  if (bundleHash) return formalSessions.get(formalSessionKey(file, bundleHash))?.review ?? null;
+  // Legacy single-gate clients did not send `gate`. Keep them working only
+  // when there is no ambiguity; concurrent gates must name their bundle.
+  const matches = [...formalSessions.entries()]
+    .filter(([key]) => key.startsWith(`${file}\0`))
+    .map(([, session]) => session.review)
+    .filter(Boolean);
+  // Compatibility only: modern callers must pass gate. Choose the most
+  // recently registered formal session so reopening a file shows its new
+  // round instead of a stale prior verdict.
+  return matches.at(-1) ?? formalReview(file);
+}
+
+function sameReviewGate(left, right) {
+  return !!left && !!right
+    && left.runId === right.runId
+    && left.stepIdx === right.stepIdx
+    && left.stepRevision === right.stepRevision
+    && left.reviewRevision === right.reviewRevision
+    && left.bundleHash === right.bundleHash;
+}
+
+function gateSessions(review) {
+  const matches = [];
+  for (const [key, session] of formalSessions) {
+    if (sameReviewGate(session.review, review)) {
+      const file = key.slice(0, key.lastIndexOf('\0'));
+      matches.push([file, session]);
+    }
+  }
+  return matches;
 }
 
 /**
@@ -183,6 +232,10 @@ function persistReview(file, review) {
   // hand it to anything that can read the workspace, which is exactly the reach
   // it is meant to narrow.
   const { token, ...withoutToken } = review;
+  sidecar.reviews = sidecar.reviews && typeof sidecar.reviews === 'object' ? sidecar.reviews : {};
+  sidecar.reviews[review.bundleHash] = withoutToken;
+  // Keep a representative legacy field for freeform/older consumers. Formal
+  // reads use reviews[bundleHash], so one gate never overwrites another.
   sidecar.review = withoutToken;
   writeSidecar(file, sidecar);
 }
@@ -318,7 +371,7 @@ async function handler(req, res) {
   const pathname = u.pathname;
 
   // CORS preflight
-  if (method === 'OPTIONS') { res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST', 'Access-Control-Allow-Headers': 'Content-Type' }); res.end(); return; }
+  if (method === 'OPTIONS') { res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST', 'Access-Control-Allow-Headers': 'Content-Type, X-Annotron-Gate-Token' }); res.end(); return; }
 
   if (pathname === '/health' && method === 'GET') {
     return send(res, 200, { ok: true });
@@ -332,6 +385,7 @@ async function handler(req, res) {
     if (!abs.endsWith('.html') && !isMarkdown(abs)) return send(res, 400, { error: 'must be .html or .md' });
     allowList.add(abs);
     const sess = getSession(abs);
+    let formal = null;
     /** A verdict this registration discarded because the bundle moved on. */
     let superseded = null;
     // Opt into formal review mode. Absent = the freeform preview/annotate
@@ -343,32 +397,56 @@ async function handler(req, res) {
       // sidecar is consulted too, so a verdict also survives a restart of this
       // server. A different `bundleHash` is a genuinely different round, and
       // there the verdict *must* be cleared — it was given for other bytes.
-      const prior = sess.review ?? readSidecar(abs).review ?? null;
-      const sameGate = prior && prior.bundleHash === review.bundleHash;
-      sess.review = {
+      if (typeof review.bundleHash !== 'string' || !review.bundleHash) {
+        return send(res, 400, { error: 'formal review requires bundleHash' });
+      }
+      // A newer rendering of the *same* workflow gate supersedes its previous
+      // bundle. Separate runs retain distinct formal sessions even for the
+      // same file, which is the concurrency boundary this map exists for.
+      for (const [key, candidate] of formalSessions) {
+        if (!key.startsWith(`${abs}\0`) || !candidate.review) continue;
+        const priorGate = candidate.review;
+        if (
+          priorGate.bundleHash !== review.bundleHash
+          && priorGate.runId === review.runId
+          && priorGate.stepIdx === review.stepIdx
+          && priorGate.stepRevision === review.stepRevision
+          && priorGate.reviewRevision === review.reviewRevision
+        ) {
+          formalSessions.delete(key);
+        }
+      }
+      formal = getFormalSession(abs, review.bundleHash);
+      const sidecar = readSidecar(abs);
+      const persisted = sidecar.reviews?.[review.bundleHash] ?? sidecar.review ?? null;
+      const prior = formal.review ?? (sameReviewGate(persisted, review) ? persisted : null);
+      const liveGate = gateSessions(review).find(([file]) => file !== abs)?.[1]?.review ?? null;
+      const sameGate = sameReviewGate(prior, review);
+      const shared = liveGate ?? (sameGate ? prior : null);
+      formal.review = {
         ...review,
-        verdict: sameGate ? (prior.verdict ?? null) : null,
+        verdict: shared?.verdict ?? null,
         // Keep the token across a re-register of the same gate, so a browser tab
         // already holding it keeps working — reopening a gate to check on it must
         // not lock out the person reviewing.
-        token: (sameGate && prior.token) ? prior.token : (review.token ?? null),
+        token: shared?.token ?? (review.token ?? null),
       };
       // Report a discarded verdict rather than dropping it silently. This is the
       // "you approved it, then the content changed" case, and a caller that
       // cannot tell it apart from "nobody has decided yet" will show the user a
       // timeout for what is really a superseded decision.
       superseded = !sameGate && prior?.verdict ? prior.verdict : null;
-      persistReview(abs, sess.review);
+      persistReview(abs, formal.review);
     }
     watchFile(abs);
     return send(res, 200, {
       ok: true,
       file: abs,
-      formal: !!sess.review,
+      formal: !!formal?.review,
       supersededVerdict: superseded,
       // The effective token, which may be one kept from an earlier register
       // rather than the one just offered.
-      token: sess.review?.token ?? null,
+      token: formal?.review?.token ?? null,
     });
   }
 
@@ -379,7 +457,7 @@ async function handler(req, res) {
     const abs = path.resolve(body.file);
     if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
 
-    const review = formalReview(abs);
+    const review = formalReviewForGate(abs, typeof body.gate === 'string' ? body.gate : '');
     if (!review) {
       return send(res, 400, {
         error: 'not a formal review session — register with `review` metadata to open an approval gate',
@@ -387,14 +465,16 @@ async function handler(req, res) {
     }
     // Checked before anything else: an unauthorised caller should learn nothing
     // about the gate's state, not even whether it is already decided.
-    if (!verdictTokenOk(review, body.token)) {
+    if (!verdictTokenOk(review, body.token ?? req.headers['x-annotron-gate-token'])) {
       return send(res, 401, {
         error: 'missing or invalid gate token — a verdict may only be posted from the review link that opened this gate',
       });
     }
-    if (review.verdict) {
+    const siblings = gateSessions(review);
+    const existingVerdict = siblings.map(([, session]) => session.review?.verdict).find(Boolean);
+    if (existingVerdict) {
       return send(res, 409, {
-        error: `a "${review.verdict.verdict}" verdict has already been given for review revision `
+        error: `a "${existingVerdict.verdict}" verdict has already been given for review revision `
           + `${review.reviewRevision} — reopen a new round to decide again`,
       });
     }
@@ -425,15 +505,21 @@ async function handler(req, res) {
       }
     }
 
-    review.verdict = {
+    const decided = {
       verdict: body.verdict,
       reviewer,
       at: new Date().toISOString(),
       ...(feedback ? { feedback } : {}),
     };
-    persistReview(abs, review);
-    broadcastSSE(abs, 'verdict', JSON.stringify(review.verdict));
-    return send(res, 200, { ok: true, verdict: review.verdict });
+    // A bundle is one gate even when it renders several files. Persist the
+    // decision to every registered artifact atomically in this event loop so
+    // a second window cannot record a contradictory verdict.
+    for (const [file, session] of siblings) {
+      session.review.verdict = decided;
+      persistReview(file, session.review);
+      broadcastSSE(file, 'verdict', JSON.stringify(decided));
+    }
+    return send(res, 200, { ok: true, verdict: decided });
   }
 
   // Read the gate back: its identity (so the caller can bind the verdict to run
@@ -443,7 +529,7 @@ async function handler(req, res) {
     if (!file) return send(res, 400, { error: 'missing file' });
     const abs = path.resolve(file);
     if (!allowList.has(abs)) return send(res, 403, { error: 'not registered' });
-    const review = formalReview(abs);
+    const review = formalReviewForGate(abs, u.searchParams.get('gate') ?? '');
     if (!review) return send(res, 400, { error: 'not a formal review session' });
     // Never hand the token back. Reading the gate is open to anything that knows
     // the path; if that also yielded the token, holding one would mean nothing
