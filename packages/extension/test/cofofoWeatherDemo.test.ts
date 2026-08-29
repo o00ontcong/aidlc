@@ -110,7 +110,7 @@ describe('CoFoFo SkyCast demo seed', () => {
     expect(bugfix.recipeId).toBe('cofofo-bugfix');
     expect(feature.status).toBe('done');
     expect(feature.stepDetails.every((step) => step.status === 'done' && step.runStatus === 'approved')).toBe(true);
-    expect(feature.existingArtifacts).toContain('IMPROVEMENT-PROPOSAL.md');
+    expect(feature.existingArtifacts).toContain('VERIFY.md');
     expect(feature.stepDetails.some((step) => step.reviewMode === 'canvas' && step.reviewArtifacts?.length)).toBe(true);
 
     expect(bugfix.status).toBe('done');
@@ -131,25 +131,30 @@ describe('CoFoFo SkyCast demo seed', () => {
     const stale = epics.find((epic) => epic.id === 'COFOFO-WEATHER-009-STALE-REBASE')!;
     const improvement = epics.find((epic) => epic.id === 'COFOFO-WEATHER-010-RULE-IMPROVEMENT')!;
 
-    expect(diagnosis.stepDetails[1]).toMatchObject({
+    const diagnoseStep = diagnosis.stepDetails.find((step) => step.name === 'diagnose');
+    expect(diagnoseStep).toMatchObject({
       name: 'diagnose',
       runStatus: 'awaiting_review',
       reviewMode: 'canvas',
       artifact: 'ROOT-CAUSE.md',
     });
-    expect(waiver.stepDetails[3]).toMatchObject({ name: 'test-red', runStatus: 'awaiting_review' });
+    const waiverStep = waiver.stepDetails.find((step) => step.name === 'reproduce');
+    expect(waiverStep).toMatchObject({ name: 'reproduce', runStatus: 'awaiting_review' });
     expect(readEvidenceLedger(root, waiver.id)[0]).toMatchObject({
       stage: 'red-waiver',
       accepted: true,
       waiver: { reviewer: 'On-call Reviewer' },
     });
     expect(stale.status).toBe('failed');
-    expect(stale.stepDetails[5].feedback).toMatch(/Foundation revision changed/i);
-    expect(improvement.stepDetails[8]).toMatchObject({
-      name: 'improve',
+    const staleStep = stale.stepDetails.find((step) => step.name === 'implement');
+    expect(staleStep?.feedback).toMatch(/Foundation revision changed/i);
+    const improvementStep = improvement.stepDetails.find((step) => step.isCurrentRunStep);
+    expect(improvementStep).toMatchObject({
+      name: 'test',
       runStatus: 'awaiting_review',
-      artifact: 'IMPROVEMENT-PROPOSAL.md',
+      reviewMode: 'canvas',
     });
+    expect(improvementStep?.artifacts).toEqual(expect.arrayContaining(['VERIFY.md', 'TEST-REPORT.md', 'REVIEW.md']));
   });
 
   // Asserting a seeded *state* is not the same as asserting the demo is

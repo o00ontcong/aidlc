@@ -235,16 +235,19 @@ export function registerCofofo(program: Command): void {
         const pipeline = state.pipelineSnapshot?.pipeline ?? WorkspaceLoader.load(root).config.pipelines.find((item) => item.id === state.pipelineId);
         if (!pipeline) throw new Error(`Pipeline "${state.pipelineId}" does not exist.`);
         const stageRevisions = evidenceStageRevisionsForRun(state, pipeline);
-        const redIdx = pipeline.steps.findIndex((step) => step && 'object' === typeof step && (step as { evidence?: { stage?: string } }).evidence?.stage === 'red');
+        const redIdx = pipeline.steps.findIndex((step) => {
+          const norm = normalizeStep(step);
+          return norm.evidence?.stage === 'red' || norm.name === 'reproduce' || norm.name === 'implement';
+        });
         if (redIdx < 0 || state.currentStepIdx !== redIdx || state.steps[redIdx]?.status !== 'awaiting_work') {
-          throw new Error('A RED waiver may only be recorded while the current test-red step is awaiting work.');
+          throw new Error('A RED waiver may only be recorded while the current reproduce/implement step is awaiting work.');
         }
         const record = recordRedWaiver({ workspaceRoot: root, runId, reviewer: opts.reviewer, reason: opts.reason, alternativeEvidence: opts.evidence, stepRevision: stageRevisions.red, stageRevisions });
         const outputs = pipeline.steps[redIdx] && typeof pipeline.steps[redIdx] === 'object'
           ? (pipeline.steps[redIdx] as { produces?: string[] }).produces ?? []
           : [];
         const evidencePath = outputs.find((item) => /RED-EVIDENCE\.md$/i.test(item));
-        if (!evidencePath) throw new Error('test-red does not declare RED-EVIDENCE.md.');
+        if (!evidencePath) throw new Error('reproduce/implement does not declare RED-EVIDENCE.md.');
         const relative = resolveArtifactPath(evidencePath, state.context, activeEpicsDir(root));
         const absolute = path.isAbsolute(relative) ? relative : path.join(root, relative);
         fs.mkdirSync(path.dirname(absolute), { recursive: true });

@@ -36,12 +36,10 @@ cofofo-foundation (một lần / mỗi foundation revision)
                                       │
                                       ▼
 cofofo-feature recipe (materialized from provider-neutral cofofo-delivery, mỗi feature)
-  requirement → create-plan → test-red → implement-green → refactor
-              → fresh-review → verify → remember → improve
+  requirement → create-plan → implement → test
 
 cofofo-bugfix recipe (mỗi bug)
-  requirement → diagnose [Canvas] → create-plan → test-red → implement-green
-              → refactor → fresh-review → verify → remember → improve
+  diagnose [Canvas] → reproduce → implement → test
 ```
 
 - Foundation tạo `STACK-PROFILE.json`, policy JSON + view có source hash,

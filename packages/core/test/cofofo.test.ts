@@ -127,7 +127,7 @@ describe('CoFoFo stack detection and policy', () => {
       .toEqual(['select-ecc-catalog', 'install-ecc-assets', 'publish-context']);
     const delivery = workspace.pipelines.find((item) => item.id === 'cofofo-delivery')!;
     const requirement = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'requirement') as { human_review?: boolean; review?: { artifacts: string[] } };
-    const red = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'test-red') as { human_review?: boolean; review?: { artifacts: string[] } };
+    const red = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'reproduce') as { human_review?: boolean; review?: { artifacts: string[] } };
     const diagnose = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'diagnose') as { requires?: string[]; produces_contains?: string[] };
     expect(requirement).toMatchObject({ human_review: true, review: { artifacts: [
       'docs/epics/{epic}/artifacts/INTENT.md',

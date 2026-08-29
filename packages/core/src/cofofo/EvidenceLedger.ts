@@ -16,23 +16,46 @@ import type { RunState } from '../runs/RunState';
 
 export type EvidenceStageRevisions = Record<'red' | 'green' | 'refactor' | 'verify', number>;
 
+function stepIndexByName(pipeline: PipelineConfig, name: string): number {
+  return pipeline.steps.findIndex((raw) => normalizeStep(raw).name === name);
+}
+
+function stepRevisionAt(state: RunState, index: number): number {
+  const record = state.steps[index];
+  if (!record) {
+    throw new CofofoEvidenceError(`Run "${state.runId}" has no step at index ${index}.`);
+  }
+  return record.revision;
+}
+
 /** Derive the evidence revision map exclusively from immutable run state. */
 export function evidenceStageRevisionsForRun(
   state: RunState,
   pipeline: PipelineConfig,
 ): EvidenceStageRevisions {
-  const revisions: Partial<EvidenceStageRevisions> = {};
+  const byDeclaredStage: Partial<EvidenceStageRevisions> = {};
   for (let index = 0; index < pipeline.steps.length; index += 1) {
     const stage = normalizeStep(pipeline.steps[index]!).evidence?.stage;
     const record = state.steps[index];
-    if (stage && record) revisions[stage] = record.revision;
+    if (stage && record) byDeclaredStage[stage] = record.revision;
   }
-  for (const stage of ['red', 'green', 'refactor', 'verify'] as const) {
-    if (!revisions[stage]) {
-      throw new CofofoEvidenceError(`Run "${state.runId}" has no ${stage.toUpperCase()} evidence-owning step.`);
-    }
+
+  const reproduceIdx = stepIndexByName(pipeline, 'reproduce');
+  const implementIdx = stepIndexByName(pipeline, 'implement');
+  const testIdx = stepIndexByName(pipeline, 'test');
+
+  const red = byDeclaredStage.red
+    ?? (reproduceIdx >= 0 ? stepRevisionAt(state, reproduceIdx) : implementIdx >= 0 ? stepRevisionAt(state, implementIdx) : undefined);
+  const green = byDeclaredStage.green
+    ?? (implementIdx >= 0 ? stepRevisionAt(state, implementIdx) : undefined);
+  const refactor = byDeclaredStage.refactor ?? green;
+  const verify = byDeclaredStage.verify
+    ?? (testIdx >= 0 ? stepRevisionAt(state, testIdx) : undefined);
+
+  if (!red || !green || !refactor || !verify) {
+    throw new CofofoEvidenceError(`Run "${state.runId}" is missing an evidence-owning delivery phase.`);
   }
-  return revisions as EvidenceStageRevisions;
+  return { red, green, refactor, verify };
 }
 
 const PREVIEW_BYTES = 16 * 1024;
@@ -239,7 +262,7 @@ export function recordRedWaiver(args: {
   reviewer: string;
   reason: string;
   alternativeEvidence: string;
-  /** Revision of the test-red step currently receiving the waiver. */
+  /** Revision of the reproduce/implement step currently receiving the waiver. */
   stepRevision: number;
   /** Current revisions of every evidence-owning phase in the run. */
   stageRevisions: EvidenceStageRevisions;
@@ -248,7 +271,7 @@ export function recordRedWaiver(args: {
   const root = fs.realpathSync(path.resolve(args.workspaceRoot));
   const records = readEvidenceLedger(root, args.runId);
   if (args.stageRevisions.red !== args.stepRevision) {
-    throw new CofofoEvidenceError('RED waiver revision does not match the live test-red step.');
+    throw new CofofoEvidenceError('RED waiver revision does not match the live reproduce/implement step.');
   }
   assertStageOrder(records, 'red-waiver', args.stageRevisions);
   if (records.some((record) => record.accepted && record.stage === 'red' && record.stepRevision === args.stepRevision)) {

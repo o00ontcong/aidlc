@@ -122,8 +122,8 @@ const DEMO_EPICS: DemoEpicSpec[] = [
   },
   {
     id: 'COFOFO-WEATHER-003-RED',
-    title: 'CoFoFo: RED trước production mutation',
-    description: 'Tạo test `testHighTemperatureAlertRequiresThreshold`, chạy `/test-red`, rồi để validator xác nhận test thật sự đỏ trước khi implement.',
+    title: 'CoFoFo: implement — RED trước production mutation',
+    description: 'Tạo test `testHighTemperatureAlertRequiresThreshold`, capture RED trong phase implement, rồi để validator xác nhận test thật sự đỏ trước khi sửa production code.',
     pipeline: FEATURE_RECIPE,
     currentStepIdx: 2,
     currentStatus: 'awaiting_work',
@@ -146,9 +146,9 @@ const DEMO_EPICS: DemoEpicSpec[] = [
   {
     id: 'COFOFO-WEATHER-005-COMPLETED',
     title: 'CoFoFo: feature đã ship thành công',
-    description: 'Run hoàn tất đủ requirement → plan → RED → GREEN → refactor → fresh review → VERIFY → memory → improvement. Mở History để thấy Canvas verdict và machine evidence của từng boundary.',
+    description: 'Run hoàn tất requirement → plan → implement → test. Mở History để thấy Canvas verdict và machine evidence.',
     pipeline: FEATURE_RECIPE,
-    currentStepIdx: 8,
+    currentStepIdx: 3,
     currentStatus: 'approved',
     completed: true,
     createdHoursAgo: 72,
@@ -159,20 +159,20 @@ const DEMO_EPICS: DemoEpicSpec[] = [
     title: 'CoFoFo: bugfix đã hoàn tất sau rework',
     description: 'Bug production về forecast cũ sau khi đổi timezone đã được chẩn đoán, tái hiện, sửa và verify. Step implement từng bị Request changes vì thiếu regression test; audit history vẫn giữ nguyên sau rerun.',
     pipeline: BUGFIX_RECIPE,
-    currentStepIdx: 9,
+    currentStepIdx: 3,
     currentStatus: 'approved',
     completed: true,
     createdHoursAgo: 96,
     inputs: { brief: 'Forecast hiển thị dữ liệu của ngày hôm qua sau khi người dùng đổi timezone.' },
     history: {
-      1: [
+      0: [
         { kind: 'bug_report', revision: 1, report: 'Current: forecast cũ sau timezone change; expected: ngày hiện tại theo timezone mới.' },
         { kind: 'canvas_verdict', revision: 1, verdict: 'approve', reviewer: 'Demo Reviewer', bundleHash: 'demo-bug-root-cause-v1' },
         { kind: 'approve', revision: 1 },
       ],
-      4: [
+      2: [
         { kind: 'auto_review', revision: 1, decision: 'pass', reason: 'GREEN test pass nhưng chưa có regression coverage cho cache key.', runner: '.aidlc/validators/green-weather-alert.mjs' },
-        { kind: 'reject', revision: 1, reason: 'Bổ sung regression test cho cache key theo timezone.', sentBackToIdx: 4 },
+        { kind: 'reject', revision: 1, reason: 'Bổ sung regression test cho cache key theo timezone.', sentBackToIdx: 2 },
         { kind: 'rerun', revision: 2, feedback: 'Đã thêm test đổi timezone và cache invalidation.' },
         { kind: 'auto_review', revision: 2, decision: 'pass', reason: 'Regression test pass; output nằm đúng layer Data.', runner: '.aidlc/validators/green-weather-alert.mjs' },
         { kind: 'canvas_verdict', revision: 2, verdict: 'approve', reviewer: 'Demo Reviewer', bundleHash: 'demo-bug-green-v2' },
@@ -185,7 +185,7 @@ const DEMO_EPICS: DemoEpicSpec[] = [
     title: 'CoFoFo: incident production chờ duyệt nguyên nhân',
     description: 'Bug chỉ xảy ra trên thiết bị thật khi API trả 429. ROOT-CAUSE.md đã ghi causal chain và failure oracle; phải duyệt Canvas diagnosis trước khi được viết test hoặc chạm production code.',
     pipeline: BUGFIX_RECIPE,
-    currentStepIdx: 1,
+    currentStepIdx: 0,
     currentStatus: 'awaiting_review',
     createdHoursAgo: 18,
     inputs: { brief: 'Weather API trả 429 khiến màn hình giữ forecast cũ nhưng không báo trạng thái degraded.' },
@@ -195,7 +195,7 @@ const DEMO_EPICS: DemoEpicSpec[] = [
     title: 'CoFoFo: RED waiver cho lỗi không ổn định',
     description: 'Race condition chỉ tái hiện trên production nên simulator không tạo được RED assertion ổn định. Đây là điểm demo đường miễn trừ có reviewer, lý do, evidence thay thế và secret screening — không phải một ô tick tự động.',
     pipeline: BUGFIX_RECIPE,
-    currentStepIdx: 3,
+    currentStepIdx: 1,
     currentStatus: 'awaiting_review',
     createdHoursAgo: 42,
     inputs: { brief: 'Đôi lúc refresh đồng thời làm mất trạng thái loading và hiển thị dữ liệu nửa cũ nửa mới.' },
@@ -205,24 +205,24 @@ const DEMO_EPICS: DemoEpicSpec[] = [
     title: 'CoFoFo: delivery bị dừng vì Foundation đổi',
     description: 'Run đã qua verify nhưng Foundation revision mới thay đổi rule về ownership/cache. Không được tiếp tục trên policy cũ; phải dùng Rebase Delivery Run để replay các phase dưới manifest mới.',
     pipeline: FEATURE_RECIPE,
-    currentStepIdx: 5,
+    currentStepIdx: 2,
     currentStatus: 'rejected',
     createdHoursAgo: 150,
     updatedHoursAgo: 54,
-    feedback: 'Foundation revision changed from 1 to 2; rebase is mandatory before fresh-review can continue.',
+    feedback: 'Foundation revision changed from 1 to 2; rebase is mandatory before implement can continue.',
     inputs: { brief: 'Thêm cảnh báo mưa lớn theo forecast 6 giờ tới.' },
     history: {
-      5: [
+      2: [
         { kind: 'auto_review', revision: 1, decision: 'reject', runner: 'cofofo-foundation-guard', reason: 'Foundation revision changed; approved work must be replayed.', hoursAgo: 54 },
       ],
     },
   },
   {
     id: 'COFOFO-WEATHER-010-RULE-IMPROVEMENT',
-    title: 'CoFoFo: improvement proposal chờ quyết định',
-    description: 'Nhiều epic lặp lại lỗi cache key nên improvement proposal đề xuất rule machine-checkable mới. Proposal chỉ là proposed — not active; muốn áp dụng phải đi qua route update-rules và Canvas riêng.',
+    title: 'CoFoFo: verification chờ duyệt cuối',
+    description: 'Epic chờ Canvas duyệt TEST-REPORT và VERIFY sau khi implement hoàn tất — minh họa gate test cuối pipeline 4 bước.',
     pipeline: FEATURE_RECIPE,
-    currentStepIdx: 8,
+    currentStepIdx: 3,
     currentStatus: 'awaiting_review',
     createdHoursAgo: 84,
     inputs: { brief: 'Chuẩn hóa cache key theo city + timezone cho mọi weather provider.' },
@@ -643,27 +643,31 @@ function demoArtifact(
     // phase name. These bugs are diagnosed before any code was written, so the
     // run resumes at the next phase rather than rewinding.
     case 'diagnose':
-      return `${common}# Root Cause — ${spec.id}\n\n## Reproduction\nExercise the deterministic fixture with a timezone/API-response transition.\n\n## Causal Chain\nInput transition → stale state ownership → presentation reads an old snapshot.\n\n## Failure Oracle\nThe next refresh must expose the current city/timezone state instead of the stale snapshot.\n\n## Resume From\ncreate-plan\n`;
+      return `${common}# Root Cause — ${spec.id}\n\n## Reproduction\nExercise the deterministic fixture with a timezone/API-response transition.\n\n## Causal Chain\nInput transition → stale state ownership → presentation reads an old snapshot.\n\n## Failure Oracle\nThe next refresh must expose the current city/timezone state instead of the stale snapshot.\n\n## Resume From\nreproduce\n`;
     // Every currently-blocking ruleId must appear verbatim, or `markStepDone`
     // refuses the phase. The list is passed in from the rules this seed wrote
     // rather than hard-coded, so adding a blocking rule cannot silently strand
     // the demo's rerun scenario again.
     case 'create-plan':
       return `${common}# Task Plan — ${spec.id}\n\n## RED / GREEN Contract\nRED asserts the missing weather behavior before production mutation; GREEN changes the smallest Data/Presentation seam; VERIFY runs build, targeted tests, and the full SwiftPM suite.\n\n## Rule Bindings\n${blockingRuleIds.map((ruleId) => `- ${ruleId}: honored by keeping the change inside the SwiftPM targets, out of Domain→SwiftUI imports, and green under the pinned build/test commands.`).join('\n')}\n\n## Files and Tests\n- Sources/SkyCast/Data/ForecastStore.swift\n- Sources/SkyCast/Presentation/WeatherDashboardView.swift\n- Tests/SkyCastTests/ForecastStoreTests.swift\n`;
-    case 'test-red':
+    case 'reproduce':
       return `${common}# RED Evidence — ${spec.id}\n\n## Expected Failure\nThe targeted assertion reports the missing behavior for this scenario (for example: 'heat alert missing' or 'stale snapshot after timezone change').\n\nCommand: 'swift test --filter SkyCastTests'\nOracle: failure is behavioral, not a compile/import/syntax error.\n`;
-    case 'implement-green':
+    case 'implement':
+      if (filename === 'RED-EVIDENCE.md') {
+        return `${common}# RED Evidence — ${spec.id}\n\n## Expected Failure\nThe targeted assertion reports the missing behavior for this scenario.\n\nCommand: 'swift test --filter SkyCastTests'\nOracle: failure is behavioral, not a compile/import/syntax error.\n`;
+      }
+      if (filename === 'REFACTOR-EVIDENCE.md') {
+        return `${common}# Refactor Evidence — ${spec.id}\n\n## Refactor Evidence\nNames and ownership were clarified without changing observable behavior.\n`;
+      }
       return `${common}# Implementation Summary — ${spec.id}\n\n## Green Evidence\nThe smallest production change satisfies the RED assertion while preserving deterministic provider injection.\n\n## Scope\nOnly the weather domain/data/presentation seams named in the approved plan were changed.\n\n## Verification\n'swift build' and 'swift test' pass for the SwiftPM package.\n`;
-    case 'refactor':
-      return `${common}# Refactor Evidence — ${spec.id}\n\n## Refactor Evidence\nNames and ownership were clarified without changing observable behavior. The full suite remains the regression oracle.\n\n## Structural Check\nData owns snapshots; Presentation renders state; tests inject a deterministic provider.\n`;
-    case 'fresh-review':
-      return `${common}# Fresh Review — ${spec.id}\n\n## Findings\n- P0: none.\n- P1: none.\n- P2: verify the regression test remains deterministic when the device timezone changes.\n\n## Decision\nThe implementation stays within the reviewed scope and has no network-only behavior.\n`;
-    case 'verify':
+    case 'test':
+      if (filename === 'REVIEW.md') {
+        return `${common}# Fresh Review — ${spec.id}\n\n## Findings\n- P0: none.\n- P1: none.\n- P2: verify the regression test remains deterministic when the device timezone changes.\n\n## Decision\nThe implementation stays within the reviewed scope.\n`;
+      }
+      if (filename === 'TEST-REPORT.md') {
+        return `${common}# Test Report — ${spec.id}\n\n- swift test: pass\n- swift build: pass\n`;
+      }
       return `${common}# Verification — ${spec.id}\n\n## Final Verification\n- 'swift test': pass (4 XCTest baseline plus the scenario regression)\n- Project rules: pass\n- Canvas artifacts: content-addressed and reviewed as one bundle\n\n## Limitations\nThe fixture is offline; live provider credentials and production telemetry are not part of this demo.\n`;
-    case 'remember':
-      return `${common}# Memory Handoff — ${spec.id}\n\nStatus: unreviewed\n\n## Evidence\n- ${filename}\n- SwiftPM test output\n\n## Learned\nWeather state must remain deterministic and cache identity must include the user-visible timezone. This note cannot modify policy.\n`;
-    case 'improve':
-      return `${common}# Improvement Proposal — ${spec.id}\n\n## Promotion Decision\nproposed — not active\n\n## Proposal\nAdd a machine-checkable rule requiring cache keys to include city and timezone. Apply it only through 'update-rules' and a new Canvas policy review.\n\n## Evidence\nRepeated cache-key regressions were found in completed and incident scenarios.\n`;
     default:
       return `${common}# ${phase} — ${spec.id}\n\nProduced by the deterministic CoFoFo weather fixture (step ${idx + 1}).\n`;
   }
@@ -817,7 +821,19 @@ function seedEvidenceLedger(root: string, spec: DemoEpicSpec, pipeline: Pipeline
   for (let index = 0; index < stages.length; index += 1) {
     const stage = stages[index]!;
     const evidenceStage = stage === 'red-waiver' ? 'red' : stage;
-    const phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).evidence?.stage === evidenceStage);
+    let phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).evidence?.stage === evidenceStage);
+    if (phaseIdx < 0 && evidenceStage === 'red') {
+      phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).name === 'reproduce');
+      if (phaseIdx < 0) {
+        phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).name === 'implement');
+      }
+    }
+    if (phaseIdx < 0 && (evidenceStage === 'green' || evidenceStage === 'refactor')) {
+      phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).name === 'implement');
+    }
+    if (phaseIdx < 0 && evidenceStage === 'verify') {
+      phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).name === 'test');
+    }
     if (phaseIdx < 0) throw new Error(`Demo recipe "${pipeline.id}" has no ${evidenceStage} evidence phase.`);
     const stepRevision = Math.max(1, ...(spec.history?.[phaseIdx] ?? []).map((event) => event.revision));
     const sequence = index + 1;

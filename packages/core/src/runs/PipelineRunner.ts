@@ -41,7 +41,6 @@ import { persistCofofoBugReportArtifact } from '../cofofo/bugReport';
 import { requireAcceptedEvidence } from '../cofofo/EvidenceLedger';
 import { ProjectRulesSchema, StackProfileSchema } from '../cofofo/contracts';
 import {
-  validateMemoryHandoff,
   validatePlanRuleReferences,
   validateProjectRules,
 } from '../cofofo/RuleEngine';
@@ -480,7 +479,7 @@ export function markStepDone(args: {
         const issues = validatePlanRuleReferences(rules, plan);
         if (issues.length) throw new PipelineRunError('Task plan does not bind its scope to the active project rules.', issues);
       }
-      if (['implement-green', 'refactor', 'verify'].includes(phase)) {
+      if (phase === 'implement' || phase === 'test') {
         const rules = ProjectRulesSchema.parse(JSON.parse(
           fs.readFileSync(path.join(workspaceRoot, 'docs/project/foundation/PROJECT-RULES.json'), 'utf8'),
         ));
@@ -491,13 +490,6 @@ export function markStepDone(args: {
           .filter((issue) => issue.severity === 'block')
           .map((issue) => `${issue.ruleId} · ${issue.path}: ${issue.message}`);
         if (issues.length) throw new PipelineRunError('Project rules reject the current implementation.', issues);
-      }
-      if (phase === 'remember') {
-        const issues = resolvedProduces.flatMap((item) => {
-          const absolute = path.isAbsolute(item) ? item : path.join(workspaceRoot, item);
-          return validateMemoryHandoff(fs.readFileSync(absolute, 'utf8'));
-        });
-        if (issues.length) throw new PipelineRunError('Memory handoff is unsafe or unbounded.', issues);
       }
     } catch (error) {
       if (error instanceof PipelineRunError) throw error;
