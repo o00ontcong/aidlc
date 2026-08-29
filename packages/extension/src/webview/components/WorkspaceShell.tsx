@@ -11,9 +11,9 @@ import { TestAgentView } from './TestAgentView';
 import { ArchitectureStudio } from './architecture/ArchitectureStudio';
 import { ProjectOverview } from './ProjectOverview';
 import { SprintView } from './SprintView';
-import { DiscoveryView } from './DiscoveryView';
+import { IdeasView } from './IdeasView';
 import { onHostMessage, postMessage } from '@/lib/bridge';
-import { discoveryCopy, type DiscoveryLanguage } from '@/lib/discoveryI18n';
+import { ideasCopy, type IdeasLanguage } from '@/lib/ideasI18n';
 
 const VIEWS: WorkspaceView[] = [
   'project', 'discovery', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
@@ -25,7 +25,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   const [startEpicOpen, setStartEpicOpen] = useState(false);
   const [epicPrefill, setEpicPrefill] = useState<StartEpicPrefill | undefined>();
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
-  const [selectedShapeId, setSelectedShapeId] = useState<string | undefined>();
+  const [selectedIdeaId, setSelectedIdeaId] = useState<string | undefined>();
   const seededView = useRef(Boolean(state?.initialView));
   // Sprint data arrives on its own channel: the host fetches it asynchronously,
   // so it cannot ride along in the synchronous `state` push. The snapshot in
@@ -55,10 +55,10 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
         const epicId = String(msg.epicId ?? '');
         if (epicId) { setSelectedTaskId(epicId); }
       }
-      if (msg.type === 'selectShape') {
-        const shapeId = String(msg.shapeId ?? '');
-        if (shapeId) {
-          setSelectedShapeId(shapeId);
+      if (msg.type === 'selectIdea') {
+        const ideaId = String(msg.ideaId ?? '');
+        if (ideaId) {
+          setSelectedIdeaId(ideaId);
           setView('discovery');
           seededView.current = true;
         }
@@ -165,7 +165,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
         </main>
       ) : view === 'discovery' ? (
         <main className="flex-1 overflow-y-auto">
-          <DiscoveryView state={state} selectedShapeId={selectedShapeId} onSelectShape={setSelectedShapeId} />
+          <IdeasView state={state} selectedIdeaId={selectedIdeaId} onSelectIdea={setSelectedIdeaId} />
         </main>
       ) : view === 'sprint' ? (
         // Reading a sprint needs no workspace.yaml — it only needs Jira
@@ -247,19 +247,19 @@ function TopBar({
   view: WorkspaceView;
   onView: (v: WorkspaceView) => void;
   workspaceName: string;
-  language: DiscoveryLanguage;
+  language: IdeasLanguage;
 }) {
   const nav = language === 'vi'
     ? { project: 'Dự án', epics: 'Công việc', sprint: 'Sprint', builder: 'Thiết lập', architecture: 'Kiến trúc', analyze: 'Phân tích', tests: 'Kiểm thử', projectTag: 'DỰ ÁN' }
     : { project: 'Project', epics: 'Tasks', sprint: 'Sprint', builder: 'Builder', architecture: 'Architecture', analyze: 'Analyze', tests: 'Tests', projectTag: 'PROJECT' };
-  const discovery = discoveryCopy(language);
+  const ideas = ideasCopy(language);
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/80 px-6 py-2.5 backdrop-blur-sm">
       <PillButton active={view === 'project'} onClick={() => onView('project')}>
         {nav.project}
       </PillButton>
       <PillButton active={view === 'discovery'} onClick={() => onView('discovery')}>
-        {discovery.tab}
+        {ideas.tab}
       </PillButton>
       <PillButton active={view === 'epics'} onClick={() => onView('epics')}>
         {nav.epics}
@@ -288,7 +288,7 @@ function TopBar({
         <button
           type="button"
           onClick={() => postMessage({ type: 'openSettings' })}
-          title={discovery.languageSettings}
+          title={ideas.languageSettings}
           className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-secondary/50 px-2 text-[10px] font-bold text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <Globe2 className="h-3 w-3" /> {language.toUpperCase()}

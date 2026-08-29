@@ -734,47 +734,96 @@ export interface ProjectWorkspaceSummary {
   documents: ProjectDocumentSummary[];
 }
 
-export interface FoundationSummary {
-  status: 'incomplete' | 'ready' | 'stale';
-  revision?: number;
-  contentHash?: string;
-  sourceCommit?: string;
-  publishedAt?: string;
-  reason?: string;
+export interface IdeaQuestionOption {
+  id: string;
+  label: string;
+  recommended: boolean;
 }
 
-export interface ShapeOption {
+export interface IdeaQuestion {
   id: string;
-  title: string;
-  summary: string;
-  tradeoffs: string[];
+  text: string;
+  options: IdeaQuestionOption[];
+  reason: string;
+  highImpact: boolean;
+  dependsOn: string[];
 }
 
-export interface ShapeSummary {
-  id: string;
-  title: string;
-  status: 'draft' | 'exploring' | 'ready' | 'accepted' | 'converted' | 'shelved';
-  revision: number;
-  problem: string;
-  desiredOutcome: string;
-  appetite: string;
-  constraints: string[];
-  options: ShapeOption[];
-  selectedApproach: string;
+export interface IdeaSelfAnswered {
+  question: string;
+  answer: string;
+  source: string;
+  flagged: boolean;
+}
+
+export interface IdeaPrep {
+  status: 'idle' | 'running' | 'done' | 'failed';
+  jobId?: string;
+  selfAnswered: IdeaSelfAnswered[];
+  questions: IdeaQuestion[];
+  error?: string;
+}
+
+export interface IdeaRouteStep {
+  recipeId: 'cofofo-bootstrap' | 'cofofo-refresh-context' | 'cofofo-update-rules' | 'cofofo-repin-bundle' | 'cofofo-feature' | 'cofofo-bugfix';
+  epicTitle: string;
   rationale: string;
-  risks: string[];
-  noGos: string[];
-  acceptanceCriteria: string[];
-  architectureImpact: string;
-  openQuestions: string[];
-  foundationRevision: number;
-  foundationHash: string;
-  acceptedAt?: string;
-  convertedEpicId?: string;
-  readinessBlockers: string[];
+  epicId?: string;
+}
+
+export interface IdeaRouteDraft {
+  outcome: 'epics' | 'close';
+  steps: IdeaRouteStep[];
+  evidence?: string;
+}
+
+export interface IdeaAssumption {
+  id: string;
+  label: string;
+  source: 'agent' | 'human';
+}
+
+export interface IdeaChild {
+  epicId: string;
+  recipeId: IdeaRouteStep['recipeId'];
+  runStatus: string;
+}
+
+export interface IdeaInDelivery {
+  epicId: string;
+  runId: string;
+  stepRevision: number;
+  reviewRound?: number;
+}
+
+/**
+ * One sentence in, an agent-assisted question batch, then a routed handoff
+ * into one of the six CoFoFo recipes (or a clean close with no epic).
+ * Every resume/undo/inbox question the UI needs answers from this field set —
+ * see docs/design/ideas-tab/ideas-tab-audit.canvas.tsx.
+ */
+export interface IdeaSummary {
+  id: string;
+  checkpoint: 'captured' | 'preparing' | 'awaiting_human' | 'intent_drafted' | 'route_proposed' | 'in_delivery' | 'closed' | 'completed' | 'shelved';
+  ideaRevision: number;
+  seedSentence: string;
+  title: string;
+  outputLanguage: 'en' | 'vi';
+  foundationHashAtCapture: { revision: number; manifestPath: string; manifestHash: string; capturedAt: string } | null;
+  answers: Record<string, string>;
+  batchIndex: number;
+  batchSubmitted: boolean;
+  prep: IdeaPrep;
+  routeDraft?: IdeaRouteDraft;
+  routeConfirmed: boolean;
+  assumptions: IdeaAssumption[];
+  inDelivery?: IdeaInDelivery;
+  children: IdeaChild[];
+  blockedReason?: string;
+  saveStatus: 'saved' | 'saving' | 'failed';
+  dirty: boolean;
+  createdAt: string;
   updatedAt: string;
-  /** Revision-bound agent recommendation saved for review but not yet applied. */
-  proposalDraft?: Record<string, unknown>;
 }
 
 export interface WorkspaceState {
@@ -783,10 +832,8 @@ export interface WorkspaceState {
   configExists: boolean;
   /** Shared, durable project memory used by every task. */
   projectWorkspace?: ProjectWorkspaceSummary;
-  /** Published project rules and architecture revision pinned by each Shape. */
-  foundation?: FoundationSummary;
-  /** Pre-Epic discovery records; only accepted records can become tasks. */
-  shapes: ShapeSummary[];
+  /** Pre-Epic intake records; routing hands each one to exactly one CoFoFo recipe, or closes it with no epic. */
+  ideas: IdeaSummary[];
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];

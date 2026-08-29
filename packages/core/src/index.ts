@@ -16,6 +16,7 @@ export * from './guide';
 export * from './capabilities';
 export * from './project';
 export * from './shape';
+export * from './idea';
 export * from './workflows';
 export * from './application';
 export * from './migration';
@@ -52,6 +53,9 @@ export {
   type Shape,
   type ShapeStatus,
   type ShapeOption,
+  type Idea,
+  type IdeaCheckpoint,
+  type IdeaFoundationSnapshot,
   type ArtifactPolicy,
   type Capability,
 } from './contracts';

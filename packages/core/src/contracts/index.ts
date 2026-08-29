@@ -23,5 +23,6 @@ export * from './command';
 export * from './project';
 export * from './foundation';
 export * from './shape';
+export * from './idea';
 export * from './artifact';
 export * from './capability';
