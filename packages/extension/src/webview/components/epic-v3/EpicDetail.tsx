@@ -12,10 +12,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { postMessage } from '@/lib/bridge';
 import { runStepButtonLabel, isRunStepDisabled, runStepDisabledHint } from '@/lib/providers';
 import type { AgentMeta, EpicStepDetailFull, EpicSummary, ProviderConfig, StepStatus, WorkspaceState } from '@/lib/types';
-import { DeleteEpicModal } from '../DeleteEpicModal';
 import { EpicVisualsCard } from './EpicVisuals';
 import { DiffPane } from '../DiffPane';
-import { RejectModal } from '../RejectModal';
 import { RequestUpdateModal } from '../RequestUpdateModal';
 import { RerunModal } from '../RerunModal';
 import { BugReportModal } from '../BugReportModal';
@@ -24,8 +22,8 @@ import { GateModal } from './GateModal';
 import { FlowCanvas } from './FlowCanvas';
 import { DEFAULT_LOOP, type FlowLoop } from './flow-layout';
 import {
-  BADGE, ROW_DOT, configRows, epicTokenLine, flowNodes, historyRows,
-  stepDetailRows, stepRows,
+  BADGE, configRows, epicTokenLine, flowNodes, historyRows,
+  stepDetailRows,
 } from './adapt';
 import { isCodeHumanReviewStep, runStatusUi } from './epic-logic';
 import { humanInterventionTooltip } from './human-intervention';
@@ -36,6 +34,28 @@ import {
 } from './primitives';
 
 const GAP = 14;
+
+function recipeDisplayName(recipeId: string): string {
+  switch (recipeId) {
+    case 'cofofo-bootstrap':
+    case 'cofofo-refresh-context':
+    case 'cofofo-update-rules':
+    case 'cofofo-repin-bundle':
+      return 'CoFoFo Foundation';
+    case 'cofofo-feature':
+      return 'CoFoFo Feature';
+    case 'cofofo-bugfix':
+      return 'CoFoFo Bugfix';
+    default:
+      return recipeId;
+  }
+}
+
+/** Never expose a per-task snapshot id (for example `…-PIPELINE`) as UX. */
+function displayWorkflowLabel(epic: EpicSummary): string | null {
+  if (epic.recipeId) { return `Recipe: ${recipeDisplayName(epic.recipeId)}`; }
+  return epic.pipeline;
+}
 
 export function EpicDetail({
   epic, state,
@@ -52,9 +72,12 @@ export function EpicDetail({
   const badge = BADGE[epic.status];
   const tokenLine = epicTokenLine(epic);
   const isCofofo = Boolean(epic.runId && (
+    epic.recipeId?.startsWith('cofofo-')
+    ||
     epic.pipeline?.toUpperCase().includes('COFOFO')
     || epic.stepDetails.some((step) => step.stepName === 'diagnose' || step.stepName === 'test-red')
   ));
+  const workflowLabel = displayWorkflowLabel(epic);
 
   return (
     <div
@@ -77,7 +100,7 @@ export function EpicDetail({
               {epic.title}
             </div>
             <StatusBadgeV3 icon={badge.icon} label={badge.label} bg={badge.bg} fg={badge.fg} />
-            {epic.pipeline && <Chip label={epic.pipeline} mono />}
+            {workflowLabel && <Chip label={workflowLabel} mono={!epic.recipeId} />}
             {isCofofo && (
               <Btn
                 label="Báo lỗi"
@@ -118,22 +141,17 @@ export function EpicDetail({
 
       <EpicVisualsCard epic={epic} />
 
-      {/* ④ parallel epics */}
-      <ParallelEpicsCard epics={state.epics} currentId={epic.id} />
-
       {/* ⑤ flow */}
       {steps.length > 0 && (
         <FlowCard
           epic={epic}
           focused={focused}
+          focusedIdx={focusedIdx}
           onNodeClick={setFocusedIdx}
         />
       )}
 
-      {/* ⑥ epic config */}
-      <EpicConfigCard epic={epic} />
-
-      {/* ⑦ gate banner */}
+      {/* gate banner — trước chi tiết step đang focus */}
       {focused && (
         <GateBanner
           epic={epic}
@@ -143,28 +161,22 @@ export function EpicDetail({
         />
       )}
 
-      {/* ⑧ step list */}
-      {steps.length > 0 && (
-        <StepListCard
-          epic={epic}
-          focusedIdx={focusedIdx}
-          onFocus={setFocusedIdx}
-          providerConfig={state.providerConfig}
-        />
-      )}
-
-      {/* ⑨ step detail + history */}
+      {/* step detail + history — ngay dưới flow */}
       {focused && (
         <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: GAP, flex: 'none' }}>
           <StepDetailCard
             epic={epic}
             step={focused}
+            focusedIdx={focusedIdx}
             agentMeta={state.agentMeta}
             providerConfig={state.providerConfig}
           />
           <HistoryCard step={focused} />
         </div>
       )}
+
+      {/* epic config */}
+      <EpicConfigCard epic={epic} />
 
       {/* ⑪ action bar */}
       <ActionBar epic={epic} />
@@ -318,66 +330,14 @@ function RequestField({ label, value }: { label: string; value: string }) {
   );
 }
 
-/* ── ④ dc.html:724-749 ──────────────────────────────────────────────────── */
-
-function ParallelEpicsCard({ epics, currentId }: { epics: EpicSummary[]; currentId: string }) {
-  const siblings = epics.filter((e) => e.id !== currentId && e.status === 'in_progress');
-  if (siblings.length === 0) { return null; }
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Feature epic đang chạy song song</CardTitle>
-        <CardNote>mỗi epic một terminal Claude, một branch, một PR</CardNote>
-        <Spacer />
-      </CardHeader>
-      {siblings.map((e) => {
-        const dot = ROW_DOT[e.status];
-        const branch = e.inputs?.branch || '—';
-        const pr = '—';
-        return (
-          <div
-            key={e.id}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px',
-              borderBottom: '1px solid var(--bd2)',
-            }}
-          >
-            <div style={{ fontSize: 11, color: dot, flex: 'none' }}>●</div>
-            <Mono
-              style={{
-                width: 130, flex: 'none', fontSize: 11.5, color: 'var(--txt)',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}
-            >
-              {e.id}
-            </Mono>
-            <Ellipsis style={{ fontSize: 12, color: 'var(--txt2)' }}>{e.title}</Ellipsis>
-            <Mono style={{ fontSize: 11, color: 'var(--txt3)', flex: 'none' }}>{branch}</Mono>
-            <Mono style={{ fontSize: 11, color: 'var(--txt3)', width: 52, textAlign: 'right', flex: 'none' }}>
-              {pr}
-            </Mono>
-            <Mono style={{ fontSize: 11, color: dot, width: 98, textAlign: 'right', flex: 'none' }}>
-              {e.progress}%
-            </Mono>
-          </div>
-        );
-      })}
-    </Card>
-  );
-}
-
-function prNumber(url: string): string {
-  const m = /\/(?:pull|pull-requests|merge_requests)\/(\d+)/.exec(url);
-  return m ? `#${m[1]}` : 'PR';
-}
-
 /* ── ⑤ dc.html:751-818 ──────────────────────────────────────────────────── */
 
 function FlowCard({
-  epic, focused, onNodeClick,
+  epic, focused, focusedIdx, onNodeClick,
 }: {
   epic: EpicSummary;
   focused: EpicStepDetailFull | null;
+  focusedIdx: number;
   onNodeClick: (idx: number) => void;
 }) {
   const nodes = useMemo(() => flowNodes(epic), [epic]);
@@ -396,8 +356,8 @@ function FlowCard({
   return (
     <Card>
       <CardHeader pad="10px 14px" wrap>
-        <CardTitle>Flow của Feature Epic</CardTitle>
-        <Chip label={`${epic.pipeline ?? epic.agent ?? 'no pipeline'} · ${nodes.length} step`} mono />
+        <CardTitle>{epic.recipeId ? `Flow ${recipeDisplayName(epic.recipeId)}` : 'Flow của Feature Epic'}</CardTitle>
+        <Mono style={{ fontSize: 11, color: 'var(--txt3)', flex: 'none' }}>{flowNote}</Mono>
         <div
           style={{
             flex: 'none', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5,
@@ -418,7 +378,7 @@ function FlowCard({
       <FlowCanvas
         nodes={nodes}
         loop={loop}
-        flowNote={flowNote}
+        focusedIdx={focusedIdx}
         nodeTitles={epic.stepDetails.map(humanInterventionTooltip)}
         onNodeClick={onNodeClick}
       />
@@ -698,93 +658,6 @@ function GateBanner({
   );
 }
 
-/* ── ⑧ dc.html:872-904 ──────────────────────────────────────────────────── */
-
-function StepListCard({
-  epic, focusedIdx, onFocus, providerConfig,
-}: {
-  epic: EpicSummary;
-  focusedIdx: number;
-  onFocus: (idx: number) => void;
-  providerConfig?: ProviderConfig;
-}) {
-  const rows = useMemo(() => stepRows(epic), [epic]);
-  const runAgainHint = runStepButtonLabel(providerConfig, 'again');
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Step của epic</CardTitle>
-        <Spacer />
-        <CardNote>
-          lệnh agent có thể fail hoặc đóng — {runAgainHint} mở lại đúng slash command và run id
-        </CardNote>
-      </CardHeader>
-      {rows.map((r) => {
-        const step = epic.stepDetails[r.idx];
-        const isFocused = r.idx === focusedIdx;
-        return (
-          <div
-            key={`${step.agent}-${r.idx}`}
-            onClick={() => onFocus(r.idx)}
-            title={humanInterventionTooltip(step)}
-            aria-label={`${r.name}. ${humanInterventionTooltip(step)}`}
-            style={{
-              display: 'flex', flexDirection: 'column', gap: 7, padding: '10px 14px',
-              borderBottom: '1px solid var(--bd2)', background: r.rowBg, cursor: 'pointer',
-              boxShadow: isFocused ? 'inset 2px 0 0 0 var(--acc)' : undefined,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 18, flex: 'none', textAlign: 'center', fontSize: 12, color: r.tone }}>
-                {r.icon}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 12.5, color: 'var(--txt)', whiteSpace: 'nowrap',
-                    overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}
-                >
-                  {r.name}
-                </div>
-                <Mono
-                  style={{
-                    display: 'block', fontSize: 11, color: 'var(--txt3)', whiteSpace: 'nowrap',
-                    overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}
-                >
-                  {r.meta}
-                </Mono>
-              </div>
-              <StepActions
-                epic={epic}
-                step={step}
-                stepIdx={r.idx}
-                providerConfig={providerConfig}
-              />
-            </div>
-            {r.error && (
-              <Mono
-                style={{
-                  fontSize: 11.5, color: 'var(--err)', lineHeight: 1.55, paddingLeft: 28,
-                  display: 'block',
-                }}
-              >
-                {r.error}
-              </Mono>
-            )}
-          </div>
-        );
-      })}
-      <StepListFooter
-        epic={epic}
-        focusedIdx={focusedIdx}
-        providerConfig={providerConfig}
-      />
-    </Card>
-  );
-}
-
 /**
  * Per-step buttons. This is EpicCard's RunGate action set, unchanged: same
  * conditions, same message types, same payloads.
@@ -797,7 +670,6 @@ function StepActions({
   stepIdx: number;
   providerConfig?: ProviderConfig;
 }) {
-  const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
 
@@ -860,25 +732,6 @@ function StepActions({
           onClick={stop(() => postMessage({ type: 'runAutoReview', runId, stepIdx }))}
         />
       )}
-      {status === 'awaiting_review' && (
-        step.reviewMode === 'canvas' ? (
-          <StepBtn
-            kind="primary"
-            label="Review in Canvas"
-            title="Mở bundle và chờ verdict được bind với hash nội dung."
-            onClick={stop(() => postMessage({ type: 'reviewCanvasStep', runId, stepIdx }))}
-          />
-        ) : (
-          <>
-            <StepBtn
-              kind="primary"
-              label="Approve"
-              onClick={stop(() => postMessage({ type: 'approveStep', runId, stepIdx }))}
-            />
-            <StepBtn kind="danger" label="Reject" onClick={stop(() => setRejectOpen(true))} />
-          </>
-        )
-      )}
       {status === 'rejected' && (
         <>
           {slashCommand && (
@@ -907,14 +760,6 @@ function StepActions({
         </>
       )}
 
-      {rejectOpen && (
-        <RejectModal
-          runId={runId}
-          currentStepIdx={stepIdx}
-          stepAgents={epic.stepDetails.map((d) => d.agent)}
-          onClose={() => setRejectOpen(false)}
-        />
-      )}
       {rerunOpen && (
         <RerunModal
           runId={runId}
@@ -1043,16 +888,19 @@ function StepListFooter({
 /* ── ⑨ dc.html:906-938 ─────────────────────────────────────────────────── */
 
 function StepDetailCard({
-  epic, step, agentMeta, providerConfig,
+  epic, step, focusedIdx, agentMeta, providerConfig,
 }: {
   epic: EpicSummary;
   step: EpicStepDetailFull;
+  focusedIdx: number;
   agentMeta: Record<string, AgentMeta>;
   providerConfig?: ProviderConfig;
 }) {
   const [updateOpen, setUpdateOpen] = useState(false);
   const rows = stepDetailRows(step, agentMeta[step.agent], providerConfig);
   const name = step.stepName ?? step.agent;
+  const stepError = step.rejectReason || step.feedback || '';
+  const runAgainHint = runStepButtonLabel(providerConfig, 'again');
   const fallbackArtifact = step.artifact || agentMeta[step.agent]?.artifact || '';
   const artifactNames = step.artifacts?.length
     ? step.artifacts
@@ -1084,6 +932,29 @@ function StepDetailCard({
           </Mono>
         )}
       </CardHeader>
+      <div
+        style={{
+          display: 'flex', flexDirection: 'column', gap: 7, padding: '10px 13px',
+          borderBottom: '1px solid var(--bd2)',
+        }}
+      >
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+          <StepActions
+            epic={epic}
+            step={step}
+            stepIdx={stepIdx}
+            providerConfig={providerConfig}
+          />
+        </div>
+        {stepError && (
+          <Mono style={{ fontSize: 11.5, color: 'var(--err)', lineHeight: 1.55, display: 'block' }}>
+            {stepError}
+          </Mono>
+        )}
+        <CardNote>
+          lệnh agent có thể fail hoặc đóng — {runAgainHint} mở lại đúng slash command và run id
+        </CardNote>
+      </div>
       {rows.map((d) => (
         <div
           key={d.k}
@@ -1131,6 +1002,11 @@ function StepDetailCard({
           onClose={() => setUpdateOpen(false)}
         />
       )}
+      <StepListFooter
+        epic={epic}
+        focusedIdx={focusedIdx}
+        providerConfig={providerConfig}
+      />
     </Card>
   );
 }
@@ -1199,41 +1075,15 @@ function HistoryCard({ step }: { step: EpicStepDetailFull }) {
 /* ── ⑪ dc.html:954-958 ─────────────────────────────────────────────────── */
 
 function ActionBar({ epic }: { epic: EpicSummary }) {
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const hasInputs = Object.keys(epic.inputs || {}).length > 0;
   return (
     <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', paddingBottom: 6, flex: 'none' }}>
-      {epic.runId && (
-        <>
-          <Btn
-            label="Kiểm tra artifact"
-            pad="8px 13px"
-            fs={12}
-            title="Verify: kiểm tra file artifact của run còn trên disk và pass assertion. Không chạy lại agent, không Approve."
-            onClick={() => postMessage({ type: 'verifyRun', runId: epic.runId! })}
-          />
-          <Btn
-            label="Xuất báo cáo"
-            pad="8px 13px"
-            fs={12}
-            title="Report: render history run thành Markdown (đọc, không sửa state). Không phải báo bug."
-            onClick={() => postMessage({ type: 'runReport', runId: epic.runId! })}
-          />
-        </>
-      )}
       <Btn
         label="Mở thư mục artifact"
         pad="8px 13px"
         fs={12}
         title="Reveal artifacts: mở Finder/Explorer tại docs/epics/<id>/artifacts. Không phải xem graph."
         onClick={() => postMessage({ type: 'revealArtifacts', epicDir: epic.epicDir })}
-      />
-      <Btn
-        label="Xem memory"
-        pad="8px 13px"
-        fs={12}
-        title="Epic memory: digest decisions/constraints/reflections để lần sau nạp rẻ token. Khác nút Tự nạp memory trên header list."
-        onClick={() => postMessage({ type: 'openEpicMemory', epicDir: epic.epicDir })}
       />
       {hasInputs && (
         <Btn
@@ -1242,31 +1092,6 @@ function ActionBar({ epic }: { epic: EpicSummary }) {
           fs={12}
           title="File brief lúc tạo epic (Jira, Figma, scope)."
           onClick={() => postMessage({ type: 'openInputsJson', epicDir: epic.epicDir })}
-        />
-      )}
-      <Btn
-        label="Xóa epic"
-        variant="danger"
-        pad="8px 13px"
-        fs={12}
-        title="Xóa epic khỏi list (có thể kèm folder). Không phải xóa step."
-        onClick={() => setDeleteOpen(true)}
-      />
-      {deleteOpen && (
-        <DeleteEpicModal
-          epicId={epic.id}
-          epicDir={epic.epicDir}
-          hasRun={!!epic.runId}
-          onConfirm={(deleteFolder) =>
-            postMessage({
-              type: 'deleteEpic',
-              epicId: epic.id,
-              runId: epic.runId ?? undefined,
-              deleteFolder,
-              confirmed: true,
-            })
-          }
-          onClose={() => setDeleteOpen(false)}
         />
       )}
     </div>

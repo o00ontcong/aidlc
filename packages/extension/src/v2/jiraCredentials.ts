@@ -150,9 +150,12 @@ export async function verifyAndStoreJiraCredentials(
   }
 
   // Site and email are not secrets; the token never goes near settings.json.
+  // Written at Workspace scope: which Jira site/account this repo talks to is a
+  // property of this project, not of the user's machine — matches boardId /
+  // transitions.* / subtasks.* below.
   const config = vscode.workspace.getConfiguration('aidlc.jira');
-  await config.update('site', site, vscode.ConfigurationTarget.Global);
-  await config.update('email', email, vscode.ConfigurationTarget.Global);
+  await config.update('site', site, vscode.ConfigurationTarget.Workspace);
+  await config.update('email', email, vscode.ConfigurationTarget.Workspace);
   await jiraCredentials.setToken(apiToken);
 
   return { ok: true, account };

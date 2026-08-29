@@ -74,6 +74,19 @@ describe('CoFoFo stack detection and policy', () => {
     expect(profile.fallback?.pipelineId).toBe('aidlc-workflow-full');
   });
 
+  it('ignores an AI provider tool directory bootstrapping its own package.json', () => {
+    const root = swiftFixture();
+    // `opencode` (like `.cursor`/`.codex`/`.claude`) can install its own local
+    // node_modules for a repo it's active in. That is provider tooling, not a
+    // second project stack, so it must not trip multi-stack detection.
+    write(root, '.opencode/package.json', '{"name":"opencode-local","dependencies":{"zod":"^4.0.0"}}\n');
+    write(root, '.opencode/node_modules/zod/package.json', '{"name":"zod"}\n');
+    const profile = detectStack(root);
+    expect(profile.mode).toBe('cofofo');
+    expect(profile.repositoryKind).toBe('single-stack');
+    expect(profile.stack?.id).toBe('ios-swift');
+  });
+
   it('does not guess an unaudited Xcode command bundle', () => {
     const root = temporary();
     write(root, 'Demo.xcodeproj/project.pbxproj', '// !$*UTF8*$!\n');

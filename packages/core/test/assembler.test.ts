@@ -56,6 +56,7 @@ describe('assemblePipeline', () => {
   it('selects the recipe steps in order', () => {
     const p = assemblePipeline(workspace(), { recipeId: 'large-feature', pipelineId: 'epic-1' });
     expect(p.id).toBe('epic-1');
+    expect(p.materialized_from_recipe).toBe('large-feature');
     expect(p.steps.map((s) => (s as { name: string }).name)).toEqual([
       'plan', 'design', 'test-plan', 'implement', 'test-report',
     ]);

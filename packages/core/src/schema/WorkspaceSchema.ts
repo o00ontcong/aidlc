@@ -296,6 +296,12 @@ const PipelineSchema = z.object({
   id: z.string().min(1),
   steps: z.array(PipelineStepSchema).min(1),
   on_failure: z.enum(['stop', 'continue']).default('stop'),
+  /**
+   * Recipe that assembled this per-task pipeline. This is runtime metadata,
+   * not a workflow definition: Builder and the sidebar keep it out of the
+   * user's workflow list while RunState retains the immutable snapshot.
+   */
+  materialized_from_recipe: z.string().min(1).optional(),
   budget: PipelineBudgetSchema.optional(),
   /** Pin and continuously re-check a current CoFoFo foundation revision. */
   foundation: PipelineFoundationGateSchema.optional(),

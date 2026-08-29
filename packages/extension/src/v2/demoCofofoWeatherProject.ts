@@ -235,9 +235,11 @@ export async function loadCofofoWeatherDemoProjectCommand(
 ): Promise<void> {
   const demoRoot = path.join(os.homedir(), DEMO_DIR_NAME);
   const exists = fs.existsSync(demoRoot);
+  const isAlreadyOpen = (vscode.workspace.workspaceFolders ?? [])
+    .some((folder) => path.resolve(folder.uri.fsPath) === path.resolve(demoRoot));
+  let action: 'reseed' | 'open-as-is' = 'open-as-is';
 
   if (exists) {
-    let action: 'reseed' | 'open-as-is';
     if (mode) {
       action = mode;
     } else {
@@ -252,11 +254,37 @@ export async function loadCofofoWeatherDemoProjectCommand(
       action = choice === 'Re-seed and open' ? 'reseed' : 'open-as-is';
     }
     if (action === 'reseed') {
-      wipeDemo(demoRoot);
-      seedCofofoWeatherDemo(demoRoot, extensionPath);
+      try {
+        wipeDemo(demoRoot);
+        seedCofofoWeatherDemo(demoRoot, extensionPath);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(`Không thể tạo lại CoFoFo Weather demo: ${message}`);
+        return;
+      }
     }
   } else {
-    seedCofofoWeatherDemo(demoRoot, extensionPath);
+    try {
+      seedCofofoWeatherDemo(demoRoot, extensionPath);
+      action = 'reseed';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Không thể tạo CoFoFo Weather demo: ${message}`);
+      return;
+    }
+  }
+
+  // Opening the folder that is already active is intentionally a no-op in VS
+  // Code. Say so explicitly; otherwise a successful Re-seed looks like the
+  // button failed even though its files were just replaced.
+  if (isAlreadyOpen) {
+    await vscode.commands.executeCommand('aidlc.refreshSidebar');
+    void vscode.window.showInformationMessage(
+      action === 'reseed'
+        ? 'CoFoFo Weather demo đã được tạo lại và đang mở.'
+        : 'CoFoFo Weather demo đang mở sẵn.',
+    );
+    return;
   }
 
   await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(demoRoot), false);
@@ -309,8 +337,7 @@ export function seedCofofoWeatherDemo(root: string, extensionPath: string): void
   }
   writeYaml(root, {
     ...generated,
-    description: 'Workspace SwiftPM đơn stack để kiểm thử CoFoFo end-to-end bằng pipeline được assemble từ recipe.',
-    pipelines: [...generated.pipelines, ...materialized.values()] as unknown as Array<Record<string, unknown>>,
+    description: 'Built-in CoFoFo workflow set: Foundation source + Delivery source with Feature/Bugfix recipes. Demo scenarios live only as immutable run snapshots.',
   } as unknown as YamlDocument);
 
   const activeFoundation = seedActiveFoundation(root, extensionPath);

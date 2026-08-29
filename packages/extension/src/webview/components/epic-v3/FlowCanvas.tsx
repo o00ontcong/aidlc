@@ -27,11 +27,11 @@ function styleFor(kind: FlowKindEx) {
 }
 
 export function FlowCanvas({
-  nodes, loop, flowNote, nodeTitles, onNodeClick,
+  nodes, loop, focusedIdx, nodeTitles, onNodeClick,
 }: {
   nodes: Node[];
   loop?: FlowLoop;
-  flowNote: string;
+  focusedIdx?: number;
   /** Same recovery advice as the step list, supplied by the Epic screen. */
   nodeTitles?: string[];
   onNodeClick?: (idx: number) => void;
@@ -85,6 +85,7 @@ export function FlowCanvas({
         {nodes.map((n, i) => {
           const pos = nodePosition(i);
           const s = styleFor(n.kind);
+          const isFocused = focusedIdx === i;
           return (
             <div
               key={`${n.name}-${i}`}
@@ -101,6 +102,7 @@ export function FlowCanvas({
                 borderRadius: 7,
                 border: s.border,
                 background: s.bg,
+                boxShadow: isFocused ? 'inset 0 0 0 2px var(--acc)' : undefined,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -159,19 +161,16 @@ export function FlowCanvas({
             top: 6,
             display: 'flex',
             alignItems: 'center',
-            gap: 14,
+            gap: 12,
             fontSize: 13.5,
             color: 'var(--txt3)',
             whiteSpace: 'nowrap',
           }}
         >
-          <div>{flowNote}</div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div>✓ xong</div>
-            <div style={{ color: 'var(--warn)' }}>● đang chạy</div>
-            <div>○ chưa tới</div>
-            <div>🔒 human gate</div>
-          </div>
+          <div>✓ xong</div>
+          <div style={{ color: 'var(--warn)' }}>● đang chạy</div>
+          <div>○ chưa tới</div>
+          <div>🔒 human gate</div>
         </div>
       </div>
     </div>

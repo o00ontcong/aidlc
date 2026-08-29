@@ -142,6 +142,7 @@ export function assemblePipeline(
 
   const assembled: PipelineConfig = {
     id: opts.pipelineId ?? recipe.id,
+    materialized_from_recipe: recipe.id,
     steps,
     on_failure: source.on_failure,
     ...(source.foundation ? { foundation: source.foundation } : {}),

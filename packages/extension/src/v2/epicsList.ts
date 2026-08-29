@@ -44,6 +44,8 @@ export interface EpicSummary {
   status: EpicStatus;
   createdAt: string;
   pipeline: string | null;
+  /** Recipe that created this task's immutable pipeline snapshot, when any. */
+  recipeId?: string;
   agent: string | null;
   agents: string[];
   currentStep: number;
@@ -633,12 +635,14 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
     }
     const runCurrentStepIdx = runState ? runState.currentStepIdx : undefined;
 
-    // Look up the pipeline definition from workspace.yaml so we can surface
-    // each step's configured gates (auto_review / human_review) on the panel.
+    // A run snapshot is authoritative: recipe-created pipelines are runtime
+    // instances and need not remain in workspace.yaml. Fall back to the live
+    // workspace definition only for legacy runs that predate snapshots.
     const pipelineId = typeof parsed.pipeline === 'string' ? parsed.pipeline : null;
-    const pipelineCfg = pipelineId
-      ? (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId)
-      : undefined;
+    const pipelineCfg = runState?.pipelineSnapshot?.pipeline
+      ?? (pipelineId
+        ? (doc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId)
+        : undefined);
     const stepGateByIdx = new Map<number, {
       auto: boolean;
       human: boolean;
@@ -860,6 +864,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       : (typeof parsed.currentStep === 'number' ? parsed.currentStep : 0);
 
     const pipeline = typeof parsed.pipeline === 'string' ? parsed.pipeline : null;
+    const recipeId = pipelineCfg?.materialized_from_recipe;
     epics.push({
       id: epicId,
       title: typeof parsed.title === 'string' ? parsed.title : '',
@@ -867,6 +872,7 @@ export function listEpics(workspaceRoot: string, doc: YamlDocument | null): Epic
       status: epicStatus,
       createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
       pipeline,
+      ...(recipeId ? { recipeId } : {}),
       agent: typeof parsed.agent === 'string' ? parsed.agent : null,
       agents: Array.isArray(parsed.agents) ? (parsed.agents as unknown[]).map(String) : [],
       currentStep,

@@ -654,6 +654,8 @@ export interface EpicSummary {
   stepDetails: EpicStepDetailFull[];
   currentStep: number;
   pipeline: string | null;
+  /** Recipe that materialized this task's immutable execution snapshot. */
+  recipeId?: string;
   agent: string | null;
   runId: string | null;
   runMode: 'guided' | 'autonomous';

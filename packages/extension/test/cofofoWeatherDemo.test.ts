@@ -41,17 +41,15 @@ describe('CoFoFo SkyCast demo seed', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('uses generated CoFoFo source pipelines and materializes every scenario from a recipe', () => {
+  it('keeps the demo workspace to the CoFoFo workflow set and materializes every scenario only in run state', () => {
     const doc = readYaml(root)!;
     const ids = doc.pipelines.map((pipeline) => pipeline.id);
-    expect(ids).toContain('cofofo-foundation');
-    expect(ids).toContain('cofofo-delivery');
-    expect(ids).not.toContain('cofofo-feature');
-    expect(ids).not.toContain('cofofo-bugfix');
+    expect(ids).toEqual(['cofofo-foundation', 'cofofo-delivery']);
     const recipes = (doc.recipes as Array<{ id: string; from: string }>);
     expect(recipes.find((recipe) => recipe.id === 'cofofo-feature')?.from).toBe('cofofo-delivery');
     expect(recipes.find((recipe) => recipe.id === 'cofofo-bugfix')?.from).toBe('cofofo-delivery');
     const bugfix = RunStateStore.load(root, 'COFOFO-WEATHER-006-BUGFIX-COMPLETED')!.pipelineSnapshot!.pipeline;
+    expect(bugfix.materialized_from_recipe).toBe('cofofo-bugfix');
     expect((bugfix.steps as Array<{ name?: string }>).map((step) => step.name)).toContain('diagnose');
     expect((bugfix.steps as Array<{ review?: unknown; evidence?: unknown }>).some((step) => step.review && step.evidence)).toBe(true);
   });
@@ -76,7 +74,7 @@ describe('CoFoFo SkyCast demo seed', () => {
 
     const stale = RunStateStore.load(root, 'COFOFO-WEATHER-009-STALE-REBASE')!;
     expect(stale.cofofoFoundation?.revision).toBe(1);
-    const feature = doc.pipelines.find((pipeline) => pipeline.id === stale.pipelineId) as PipelineConfig;
+    const feature = stale.pipelineSnapshot!.pipeline as PipelineConfig;
     expect(cofofoFoundationIssues({ state: stale, pipeline: feature, workspaceRoot: root }))
       .toContain('foundation revision changed from 1 to 2');
   });
@@ -108,6 +106,8 @@ describe('CoFoFo SkyCast demo seed', () => {
     const feature = epics.find((epic) => epic.id === 'COFOFO-WEATHER-005-COMPLETED')!;
     const bugfix = epics.find((epic) => epic.id === 'COFOFO-WEATHER-006-BUGFIX-COMPLETED')!;
 
+    expect(feature.recipeId).toBe('cofofo-feature');
+    expect(bugfix.recipeId).toBe('cofofo-bugfix');
     expect(feature.status).toBe('done');
     expect(feature.stepDetails.every((step) => step.status === 'done' && step.runStatus === 'approved')).toBe(true);
     expect(feature.existingArtifacts).toContain('IMPROVEMENT-PROPOSAL.md');

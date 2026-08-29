@@ -9,7 +9,7 @@
  * with what the host believes it fetched.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Loader2, RefreshCw, Search, Settings2 } from 'lucide-react';
 
 import { onHostMessage, postMessage } from '@/lib/bridge';
@@ -65,6 +65,9 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
   const [subtaskPlan, setSubtaskPlan] = useState<SubtaskPlan | null>(null);
   const [subtaskResult, setSubtaskResult] = useState<SubtaskCreateOutcome | null>(null);
   const [subtaskBusy, setSubtaskBusy] = useState(false);
+  // The host-message effect below registers once ([] deps), so it would close
+  // over subtaskFor's mount-time value. A ref keeps it reading the live ticket.
+  const subtaskForRef = useRef<string | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
   const [connectBusy, setConnectBusy] = useState(false);
   const [connectResult, setConnectResult] = useState<JiraConnectResult | null>(null);
@@ -79,8 +82,13 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
   // never builds a Jira payload, it only says which domains the user ticked.
   useEffect(() => onHostMessage((msg) => {
     if (msg.type === 'subtaskDrafts') {
-      setSubtaskPlan(msg as unknown as SubtaskPlan);
-      setSubtaskBusy(false);
+      const ticketKey = (msg as { ticketKey?: string }).ticketKey;
+      // Ignore a response for a ticket whose panel is no longer open — the
+      // user may have switched tickets while this request was in flight.
+      if (ticketKey === subtaskForRef.current) {
+        setSubtaskPlan(msg as unknown as SubtaskPlan);
+        setSubtaskBusy(false);
+      }
     }
     if (msg.type === 'sprintConnectResult') {
       const result = msg as unknown as JiraConnectResult;
@@ -91,10 +99,13 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
       if (result.ok) { setTimeout(() => setConnectOpen(false), 900); }
     }
     if (msg.type === 'subtaskCreateResult') {
-      setSubtaskResult(msg as unknown as SubtaskCreateOutcome);
-      setSubtaskBusy(false);
-      // Re-plan so created drafts flip to their "already on Jira" state.
-      postMessage({ type: 'sprintPlanSubtasks', key: (msg as { ticketKey?: string }).ticketKey });
+      const ticketKey = (msg as { ticketKey?: string }).ticketKey;
+      if (ticketKey === subtaskForRef.current) {
+        setSubtaskResult(msg as unknown as SubtaskCreateOutcome);
+        setSubtaskBusy(false);
+        // Re-plan so created drafts flip to their "already on Jira" state.
+        postMessage({ type: 'sprintPlanSubtasks', key: ticketKey });
+      }
     }
   }), []);
 
@@ -105,6 +116,7 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
   };
 
   const openSubtaskPanel = (key: string) => {
+    subtaskForRef.current = key;
     setSubtaskFor(key);
     setSubtaskPlan(null);
     setSubtaskResult(null);
@@ -190,7 +202,13 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
           onEnable={() => postMessage({ type: 'sprintSetSubtasksEnabled', enabled: true })}
           onImportTemplate={() => postMessage({ type: 'sprintImportTemplate' })}
           onOpenExternal={(key) => postMessage({ type: 'sprintOpenIssue', key })}
-          onClose={() => { setSubtaskFor(null); setSubtaskPlan(null); setSubtaskResult(null); }}
+          onClose={() => {
+            subtaskForRef.current = null;
+            setSubtaskFor(null);
+            setSubtaskPlan(null);
+            setSubtaskResult(null);
+            setSubtaskBusy(false);
+          }}
         />
       )}
       <SprintHeader

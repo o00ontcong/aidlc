@@ -879,11 +879,22 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const agents = mergeAgents(doc, root, discovered.agents);
   const skills = mergeSkills(doc, root, discovered.skills);
   const pipelines: PipelineSummary[] = doc.pipelines
-    .filter((p) => !isCofofoSourcePipelineId(String(p.id)))
+    // A recipe materializes an immutable per-task pipeline for RunState. It
+    // is not another workflow in Builder; show its source workflow instead.
+    .filter((p) => !p.materialized_from_recipe)
     .map((p) => ({
     id: String(p.id),
     on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
-    builtin: BUILTIN_WORKFLOWS.some((w) => w.pipelineId === String(p.id)),
+    // CoFoFo is a generated built-in: its source pipelines become available
+    // after stack detection/Foundation preparation, unlike static template
+    // presets in BUILTIN_WORKFLOWS.
+    builtin: isCofofoSourcePipelineId(String(p.id))
+      || BUILTIN_WORKFLOWS.some((w) => w.pipelineId === String(p.id)),
+    name: String(p.id) === 'cofofo-foundation'
+      ? 'CoFoFo Foundation'
+      : String(p.id) === 'cofofo-delivery'
+        ? 'CoFoFo Delivery (Feature / Bugfix recipes)'
+        : undefined,
     steps: Array.isArray(p.steps)
       ? (p.steps as PipelineStepConfig[]).map((raw) => {
           const norm = normalizeStep(raw);
@@ -2646,13 +2657,33 @@ export class WorkspaceWebview {
         return;
       }
 
-      case 'sprintPlanSubtasks':
-        await jiraSubtaskService.planAndPost(String(msg.key ?? ''));
+      case 'sprintPlanSubtasks': {
+        const key = String(msg.key ?? '');
+        try {
+          await jiraSubtaskService.planAndPost(key);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          void this.panel.webview.postMessage({
+            type: 'subtaskDrafts', ticketKey: key, drafts: [], notices: [], error: detail,
+          });
+        }
         return;
+      }
 
       case 'sprintCreateSubtasks': {
+        const key = String(msg.key ?? '');
         const domains = Array.isArray(msg.domains) ? msg.domains.map(String) : [];
-        await jiraSubtaskService.createAndPost(String(msg.key ?? ''), domains);
+        try {
+          await jiraSubtaskService.createAndPost(key, domains);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          void this.panel.webview.postMessage({
+            type: 'subtaskCreateResult',
+            ticketKey: key,
+            created: [],
+            failed: [{ domain: '', message: detail }],
+          });
+        }
         return;
       }
 

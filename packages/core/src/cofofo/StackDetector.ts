@@ -100,7 +100,14 @@ const DEFINITIONS: StackDefinition[] = [
   },
 ];
 
-const IGNORED = new Set(['.git', '.aidlc', '.build', 'node_modules', 'vendor', 'dist', 'build', 'DerivedData']);
+// AI provider tool directories: each can bootstrap its own local toolchain
+// (e.g. `.opencode/package.json` + `node_modules`) that is provider config,
+// never the project's own stack — a real repo keeps these alongside its
+// actual manifest, and counting them would falsely detect multi-stack.
+const IGNORED = new Set([
+  '.git', '.aidlc', '.build', 'node_modules', 'vendor', 'dist', 'build', 'DerivedData',
+  '.claude', '.cursor', '.codex', '.opencode',
+]);
 
 function walk(root: string, maxDepth = 3): string[] {
   const files: string[] = [];

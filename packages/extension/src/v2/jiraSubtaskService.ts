@@ -122,83 +122,87 @@ class JiraSubtaskServiceImpl {
     const empty = (error: string): SubtaskPlanResult =>
       ({ ticketKey, drafts: [], error, notices });
 
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!root) { return empty('Chưa mở project — cần workspace để đọc mẫu subtask.'); }
-
-    const ticket = jiraSprintService.cachedTicket(ticketKey);
-    if (!ticket) {
-      return empty(`Không tìm thấy ${ticketKey} trong bản sprint đang có. Bấm Refresh rồi thử lại.`);
-    }
-    if (ticket.isSubtask) {
-      return empty(`${ticket.key} bản thân là subtask — Jira không cho subtask lồng nhau.`);
-    }
-
-    let template: SubtaskTemplate;
     try {
-      template = this.loadTemplate(root);
-    } catch (err) {
-      return empty(err instanceof Error ? err.message : String(err));
-    }
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) { return empty('Chưa mở project — cần workspace để đọc mẫu subtask.'); }
 
-    const projectKey = projectKeyFromIssueKey(ticket.key);
-    if (!projectKey) { return empty(`Không suy ra được project key từ "${ticket.key}".`); }
-
-    // createmeta tells us the subtask type id and what the project requires.
-    let issueTypeId = '';
-    let issueTypeName = '';
-    let missingFields: string[] = [];
-    const client = await jiraCredentials.client();
-    if (!client) {
-      notices.push('Chưa cấu hình Jira — chỉ xem trước được, chưa tạo được.');
-    } else {
-      try {
-        const configured = vscode.workspace.getConfiguration('aidlc.jira')
-          .get<string>('subtasks.issueTypeName', 'auto');
-        const types = await client.createMetaIssueTypes(projectKey);
-        const resolved = resolveSubtaskIssueType(types, configured);
-        if (!resolved.issueType) {
-          return empty(
-            resolved.requestedNameMissing
-              ? `Project ${projectKey} không có issue type subtask tên "${resolved.requestedNameMissing}". `
-                + `Đang có: ${resolved.candidates.map((c) => c.name).join(', ') || '(không có)'}.`
-              : `Project ${projectKey} không có issue type subtask nào.`,
-          );
-        }
-        issueTypeId = resolved.issueType.id;
-        issueTypeName = resolved.issueType.name;
-        if (resolved.candidates.length > 1) {
-          notices.push(
-            `Project có ${resolved.candidates.length} loại subtask — đang dùng "${issueTypeName}". `
-            + 'Đổi bằng `aidlc.jira.subtasks.issueTypeName`.',
-          );
-        }
-        missingFields = missingRequiredFields(
-          await client.createMetaFields(projectKey, issueTypeId),
-          SUPPLIED_SUBTASK_FIELDS,
-        );
-      } catch (err) {
-        // Without createmeta we cannot promise the create will work, so the
-        // drafts are shown but flagged rather than silently optimistic.
-        notices.push(`Không đọc được createmeta: ${describeSprintError(err).errorMessage}`);
+      const ticket = jiraSprintService.cachedTicket(ticketKey);
+      if (!ticket) {
+        return empty(`Không tìm thấy ${ticketKey} trong bản sprint đang có. Bấm Refresh rồi thử lại.`);
       }
+      if (ticket.isSubtask) {
+        return empty(`${ticket.key} bản thân là subtask — Jira không cho subtask lồng nhau.`);
+      }
+
+      let template: SubtaskTemplate;
+      try {
+        template = this.loadTemplate(root);
+      } catch (err) {
+        return empty(err instanceof Error ? err.message : String(err));
+      }
+
+      const projectKey = projectKeyFromIssueKey(ticket.key);
+      if (!projectKey) { return empty(`Không suy ra được project key từ "${ticket.key}".`); }
+
+      // createmeta tells us the subtask type id and what the project requires.
+      let issueTypeId = '';
+      let issueTypeName = '';
+      let missingFields: string[] = [];
+      const client = await jiraCredentials.client();
+      if (!client) {
+        notices.push('Chưa cấu hình Jira — chỉ xem trước được, chưa tạo được.');
+      } else {
+        try {
+          const configured = vscode.workspace.getConfiguration('aidlc.jira')
+            .get<string>('subtasks.issueTypeName', 'auto');
+          const types = await client.createMetaIssueTypes(projectKey);
+          const resolved = resolveSubtaskIssueType(types, configured);
+          if (!resolved.issueType) {
+            return empty(
+              resolved.requestedNameMissing
+                ? `Project ${projectKey} không có issue type subtask tên "${resolved.requestedNameMissing}". `
+                  + `Đang có: ${resolved.candidates.map((c) => c.name).join(', ') || '(không có)'}.`
+                : `Project ${projectKey} không có issue type subtask nào.`,
+            );
+          }
+          issueTypeId = resolved.issueType.id;
+          issueTypeName = resolved.issueType.name;
+          if (resolved.candidates.length > 1) {
+            notices.push(
+              `Project có ${resolved.candidates.length} loại subtask — đang dùng "${issueTypeName}". `
+              + 'Đổi bằng `aidlc.jira.subtasks.issueTypeName`.',
+            );
+          }
+          missingFields = missingRequiredFields(
+            await client.createMetaFields(projectKey, issueTypeId),
+            SUPPLIED_SUBTASK_FIELDS,
+          );
+        } catch (err) {
+          // Without createmeta we cannot promise the create will work, so the
+          // drafts are shown but flagged rather than silently optimistic.
+          notices.push(`Không đọc được createmeta: ${describeSprintError(err).errorMessage}`);
+        }
+      }
+
+      const epic = this.findEpic(root, ticket.key);
+      const { steps, reviewGateStepIds, pipelineId } = this.pipelineSteps(root, epic?.dir);
+      if (pipelineId) { notices.push(`Checklist theo pipeline \`${pipelineId}\`.`); }
+
+      const ledger = this.readLedger(root, ticket.key);
+      const drafts = planSubtasks({
+        template,
+        ticket,
+        steps,
+        reviewGateStepIds,
+        ledger: ledger.subtasks.map((entry) => ({ domain: entry.domain, key: entry.key })),
+        missingRequiredFields: missingFields,
+        ...(epic ? { task: { id: epic.epicId } } : {}),
+      });
+
+      return { ticketKey: ticket.key, drafts, notices, issueTypeId, issueTypeName };
+    } catch (err) {
+      return empty(describeSprintError(err).errorMessage);
     }
-
-    const epic = this.findEpic(root, ticket.key);
-    const { steps, reviewGateStepIds, pipelineId } = this.pipelineSteps(root, epic?.dir);
-    if (pipelineId) { notices.push(`Checklist theo pipeline \`${pipelineId}\`.`); }
-
-    const ledger = this.readLedger(root, ticket.key);
-    const drafts = planSubtasks({
-      template,
-      ticket,
-      steps,
-      reviewGateStepIds,
-      ledger: ledger.subtasks.map((entry) => ({ domain: entry.domain, key: entry.key })),
-      missingRequiredFields: missingFields,
-      ...(epic ? { task: { id: epic.epicId } } : {}),
-    });
-
-    return { ticketKey: ticket.key, drafts, notices, issueTypeId, issueTypeName };
   }
 
   // ─── create ───────────────────────────────────────────────────────────────
@@ -222,80 +226,85 @@ class JiraSubtaskServiceImpl {
     const fail = (message: string): SubtaskCreateResult =>
       ({ ticketKey, created: [], failed: [{ domain: '', message }] });
 
-    if (!vscode.workspace.getConfiguration('aidlc.jira').get<boolean>('subtasks.enabled', false)) {
-      return fail('Tạo subtask đang tắt — bật `aidlc.jira.subtasks.enabled` trước.');
-    }
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!root) { return fail('Chưa mở project.'); }
-
-    const plan = await this.plan(ticketKey);
-    if (plan.error) { return fail(plan.error); }
-    if (!plan.issueTypeId) { return fail('Chưa resolve được issue type subtask.'); }
-
-    const selected = selectableDrafts(plan.drafts, domains);
-    if (selected.length === 0) { return fail('Không có subtask nào tạo được trong lựa chọn.'); }
-
-    const client = await jiraCredentials.client();
-    if (!client) { return fail('Chưa cấu hình Jira.'); }
-
-    const ticket = jiraSprintService.cachedTicket(ticketKey)!;
-    const template = this.loadTemplate(root);
-    const assignTome = vscode.workspace.getConfiguration('aidlc.jira')
-      .get<boolean>('subtasks.assignToMe', true);
-    let assigneeAccountId: string | null = null;
-    if (assignTome && template.fields.assignee === 'currentUser') {
-      try {
-        assigneeAccountId = (await client.myself()).accountId || null;
-      } catch {
-        // Not worth failing the create over — the subtask lands unassigned.
-        assigneeAccountId = null;
-      }
-    }
-
-    const payloads = selected.map((draft) => buildSubtaskPayload({
-      parentKey: ticket.key,
-      projectKey: projectKeyFromIssueKey(ticket.key),
-      issueTypeId: plan.issueTypeId!,
-      summary: draft.summary,
-      sections: draft.sections,
-      labels: draft.labels,
-      assigneeAccountId,
-      separator: template.body.separator === 'rule',
-    }).fields);
-
-    const created: SubtaskCreateResult['created'] = [];
-    const failed: SubtaskCreateResult['failed'] = [];
     try {
-      const outcomes = await client.createIssuesBulk(payloads);
-      let ledger = this.readLedger(root, ticket.key);
-      const templateHash = template.source.contentHash || hashTemplateSource(JSON.stringify(template));
-      for (const outcome of outcomes) {
-        const draft = selected[outcome.index];
-        if (!draft) { continue; }
-        if (outcome.error || !outcome.key) {
-          failed.push({ domain: draft.domain, message: outcome.error ?? 'Jira không trả issue.' });
-          this.log(`[jira] subtask [${draft.domain}] LỖI: ${outcome.error ?? 'không rõ'}`);
-          continue;
-        }
-        created.push({ domain: draft.domain, key: outcome.key });
-        // Written per element, not at the end: a retry after a partial failure
-        // must not duplicate what already landed.
-        ledger = appendSubtask(ledger, {
-          domain: draft.domain,
-          key: outcome.key,
-          createdAt: new Date().toISOString(),
-          templateHash,
-        });
-        this.writeLedger(root, ticket.key, ledger);
-        this.log(`[jira] subtask [${draft.domain}] → ${outcome.key}`);
+      if (!vscode.workspace.getConfiguration('aidlc.jira').get<boolean>('subtasks.enabled', false)) {
+        return fail('Tạo subtask đang tắt — bật `aidlc.jira.subtasks.enabled` trước.');
       }
-    } catch (err) {
-      const message = describeSprintError(err).errorMessage;
-      this.log(`[jira] bulk create LỖI: ${message}`);
-      return { ticketKey, created, failed: [{ domain: '', message }] };
-    }
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) { return fail('Chưa mở project.'); }
 
-    return { ticketKey, created, failed };
+      const plan = await this.plan(ticketKey);
+      if (plan.error) { return fail(plan.error); }
+      if (!plan.issueTypeId) { return fail('Chưa resolve được issue type subtask.'); }
+
+      const selected = selectableDrafts(plan.drafts, domains);
+      if (selected.length === 0) { return fail('Không có subtask nào tạo được trong lựa chọn.'); }
+
+      const client = await jiraCredentials.client();
+      if (!client) { return fail('Chưa cấu hình Jira.'); }
+
+      const ticket = jiraSprintService.cachedTicket(ticketKey);
+      if (!ticket) { return fail(`Không tìm thấy ${ticketKey} trong bản sprint đang có.`); }
+      const template = this.loadTemplate(root);
+      const assignTome = vscode.workspace.getConfiguration('aidlc.jira')
+        .get<boolean>('subtasks.assignToMe', true);
+      let assigneeAccountId: string | null = null;
+      if (assignTome && template.fields.assignee === 'currentUser') {
+        try {
+          assigneeAccountId = (await client.myself()).accountId || null;
+        } catch {
+          // Not worth failing the create over — the subtask lands unassigned.
+          assigneeAccountId = null;
+        }
+      }
+
+      const payloads = selected.map((draft) => buildSubtaskPayload({
+        parentKey: ticket.key,
+        projectKey: projectKeyFromIssueKey(ticket.key),
+        issueTypeId: plan.issueTypeId!,
+        summary: draft.summary,
+        sections: draft.sections,
+        labels: draft.labels,
+        assigneeAccountId,
+        separator: template.body.separator === 'rule',
+      }).fields);
+
+      const created: SubtaskCreateResult['created'] = [];
+      const failed: SubtaskCreateResult['failed'] = [];
+      try {
+        const outcomes = await client.createIssuesBulk(payloads);
+        let ledger = this.readLedger(root, ticket.key);
+        const templateHash = template.source.contentHash || hashTemplateSource(JSON.stringify(template));
+        for (const outcome of outcomes) {
+          const draft = selected[outcome.index];
+          if (!draft) { continue; }
+          if (outcome.error || !outcome.key) {
+            failed.push({ domain: draft.domain, message: outcome.error ?? 'Jira không trả issue.' });
+            this.log(`[jira] subtask [${draft.domain}] LỖI: ${outcome.error ?? 'không rõ'}`);
+            continue;
+          }
+          created.push({ domain: draft.domain, key: outcome.key });
+          // Written per element, not at the end: a retry after a partial failure
+          // must not duplicate what already landed.
+          ledger = appendSubtask(ledger, {
+            domain: draft.domain,
+            key: outcome.key,
+            createdAt: new Date().toISOString(),
+            templateHash,
+          });
+          this.writeLedger(root, ticket.key, ledger);
+          this.log(`[jira] subtask [${draft.domain}] → ${outcome.key}`);
+        }
+      } catch (err) {
+        const message = describeSprintError(err).errorMessage;
+        this.log(`[jira] bulk create LỖI: ${message}`);
+        return { ticketKey, created, failed: [{ domain: '', message }] };
+      }
+
+      return { ticketKey, created, failed };
+    } catch (err) {
+      return fail(describeSprintError(err).errorMessage);
+    }
   }
 
   // ─── template ─────────────────────────────────────────────────────────────

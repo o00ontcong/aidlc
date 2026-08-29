@@ -1,17 +1,31 @@
 # SkyCast — CoFoFo Weather Demo
 
-SkyCast là weather app SwiftUI nhỏ, chạy offline với dữ liệu xác định,
-dùng để trình diễn CoFoFo trên repository SwiftPM/iOS đơn stack.
+## CoFoFo workflow set
 
-```bash
-cd src
-swift run SkyCastDemoApp   # mở app SwiftUI trên macOS
-swift build
-swift test                # 4 XCTest baseline
-```
+Demo này hiển thị đúng workflow set built-in của CoFoFo, không phải một danh
+sách pipeline theo từng task mẫu:
 
-`WeatherDashboardView` target iOS 16+ và macOS 13+. Executable host giúp demo
-chạy ngay trên máy; view có thể được nhúng nguyên trạng vào iOS app target.
+- `cofofo-foundation` — pipeline dựng và publish nền tảng.
+- `cofofo-delivery` — pipeline nguồn cho hai recipe `cofofo-feature` và
+  `cofofo-bugfix`.
+
+Mỗi scenario Weather có một pipeline snapshot bất biến trong run state để mô
+phỏng đúng thời điểm nó bắt đầu. Snapshot đó là lịch sử thực thi, không phải
+workflow trong `.aidlc/workspace.yaml`, nên Builder chỉ hiển thị workflow set
+trên.
+
+SkyCast là weather app SwiftUI nhỏ dùng để trình diễn CoFoFo trên repository
+SwiftPM/iOS đơn stack — nhưng demo này **không đóng gói code thật**. `src/`
+chỉ có `Package.swift` (manifest tối thiểu, để stack detector nhận ra một
+SwiftPM stack thật) và `AGENTS.md`; không có `Sources/` hay `Tests/`, nên
+`swift build`/`swift test` sẽ không chạy được.
+
+Mọi artifact Foundation/delivery (STACK-PROFILE, PROJECT-RULES,
+ARCHITECTURE-MAP, TASK-PLAN, evidence log, …) vẫn trích dẫn đường dẫn thật như
+`Sources/SkyCast/Data/ForecastStore.swift` hay
+`Sources/SkyCast/Presentation/WeatherDashboardView.swift` — nhưng chỉ ở mức
+văn bản, để tài liệu đọc thật (realistic ở mức documentation) mà không cần
+mang theo toàn bộ ứng dụng.
 
 ## Pipeline thật đang được kiểm thử
 

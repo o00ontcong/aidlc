@@ -68,6 +68,18 @@ interface TemplateRef {
   hasGuide?: boolean;
 }
 
+/**
+ * CoFoFo is a built-in generated workflow, not a static preset: it first
+ * inspects the repository's stack, then writes its Foundation and Delivery
+ * source pipelines. Keep it beside the other built-ins, but route activation
+ * to Foundation preparation rather than the static-preset installer.
+ */
+const COFOFO_BUILTIN_TEMPLATE: TemplateRef = {
+  id: 'cofofo-workflow',
+  name: 'CoFoFo Workflow',
+  description: 'Stack-aware Foundation + Feature/Bugfix recipes. Prepare Foundation first.',
+};
+
 /** Resolved artifact path with existence check, surfaced in the run card. */
 interface ArtifactPath {
   /** Path relative to workspace root, with placeholders substituted. */
@@ -273,7 +285,11 @@ function buildState(
 
   const visibleAgents = doc.agents;
   const visibleSkills = doc.skills;
-  const visiblePipelines = doc.pipelines as PipelineConfig[];
+  // Recipe assembly creates a pipeline snapshot for each task. Those are
+  // runtime state, not user-authored workflows, so never count or offer them
+  // in the sidebar's workflow picker.
+  const visiblePipelines = (doc.pipelines as PipelineConfig[])
+    .filter((pipeline) => !pipeline.materialized_from_recipe);
   const pipelines: PipelineRef[] = visiblePipelines.map((p) => ({
     id: String(p.id),
     stepCount: Array.isArray(p.steps) ? p.steps.length : 0,
@@ -357,7 +373,9 @@ function listActiveRuns(root: string): ActiveRun[] {
       .filter((r) => r.status === 'running')
       .map((r) => {
         const step = r.steps[r.currentStepIdx];
-        const pipeline = pipelinesById.get(r.pipelineId);
+        // Recipe-created runs carry an immutable pipeline snapshot and do not
+        // need a duplicate workflow definition in workspace.yaml.
+        const pipeline = r.pipelineSnapshot?.pipeline ?? pipelinesById.get(r.pipelineId);
         const stepConfig = pipeline?.steps?.[r.currentStepIdx];
         const norm = stepConfig ? normalizeStep(stepConfig) : null;
         const agent = step?.agent ?? '';
@@ -406,7 +424,7 @@ function listTemplates(
   store: PresetStore | null,
   root: string,
 ): { builtinTemplates: TemplateRef[]; projectTemplates: TemplateRef[] } {
-  if (!store) { return { builtinTemplates: [], projectTemplates: [] }; }
+  if (!store) { return { builtinTemplates: [COFOFO_BUILTIN_TEMPLATE], projectTemplates: [] }; }
   try {
     const all = store.list(root);
     const builtinTemplates: TemplateRef[] = [];
@@ -420,9 +438,12 @@ function listTemplates(
       };
       if (p.builtin) { builtinTemplates.push(ref); } else { projectTemplates.push(ref); }
     }
+    // Static presets arrive from PresetStore. CoFoFo is added here because
+    // its stack-specific assets only exist after Foundation preparation.
+    builtinTemplates.push(COFOFO_BUILTIN_TEMPLATE);
     return { builtinTemplates, projectTemplates };
   } catch {
-    return { builtinTemplates: [], projectTemplates: [] };
+    return { builtinTemplates: [COFOFO_BUILTIN_TEMPLATE], projectTemplates: [] };
   }
 }
 
@@ -623,6 +644,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'applyTemplate': {
         const id = String(msg.id ?? '');
         if (!id) { return; }
+        if (id === COFOFO_BUILTIN_TEMPLATE.id) {
+          await vscode.commands.executeCommand('aidlc.prepareCofofoFoundation');
+          return;
+        }
         await vscode.commands.executeCommand(
           'aidlc.applyPreset',
           id,
