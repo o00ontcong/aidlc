@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Lightbulb, Plus, RotateCcw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Flag, Lightbulb, Loader2, Plus, RotateCcw } from 'lucide-react';
 
-import type { IdeaSummary, WorkspaceState } from '@/lib/types';
+import type { IdeaQuestion, IdeaSelfAnswered, IdeaSummary, WorkspaceState } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { postMessage } from '@/lib/bridge';
 import { ideasCopy, type IdeasCheckpoint, type IdeasLanguage } from '@/lib/ideasI18n';
@@ -213,9 +213,24 @@ function IdeaDetail({ idea, language }: { idea: IdeaSummary; language: IdeasLang
       </div>
 
       {idea.checkpoint === 'captured' && (
+        <PrepPanel state="starting" idea={idea} language={language} />
+      )}
+
+      {idea.checkpoint === 'preparing' && (
+        <PrepPanel state={idea.prep.status === 'failed' ? 'failed' : 'running'} idea={idea} language={language} />
+      )}
+
+      {idea.checkpoint === 'awaiting_human' && (
+        <>
+          {idea.prep.selfAnswered.length > 0 && <SelfAnsweredList idea={idea} language={language} />}
+          <BatchQuestions idea={idea} language={language} />
+        </>
+      )}
+
+      {idea.checkpoint === 'intent_drafted' && (
         <div className="rounded-lg border border-dashed border-border bg-background/60 p-4">
-          <div className="text-xs font-semibold text-foreground">{copy.prepPending.title}</div>
-          <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">{copy.prepPending.body}</p>
+          <div className="text-xs font-semibold text-foreground">{copy.intentPending.title}</div>
+          <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">{copy.intentPending.body}</p>
         </div>
       )}
 
@@ -261,6 +276,222 @@ function IdeaDetail({ idea, language }: { idea: IdeaSummary; language: IdeasLang
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PrepPanel({
+  state,
+  idea,
+  language,
+}: {
+  state: 'starting' | 'running' | 'failed';
+  idea: IdeaSummary;
+  language: IdeasLanguage;
+}) {
+  const copy = ideasCopy(language);
+  return (
+    <div
+      className={cn(
+        'rounded-lg border p-4',
+        state === 'failed' ? 'border-destructive/40 bg-destructive/5' : 'border-dashed border-border bg-background/60',
+      )}
+    >
+      <div className="flex items-center gap-2">
+        {state !== 'failed' && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />}
+        <div className="text-xs font-semibold text-foreground">
+          {state === 'starting' ? copy.prep.startingTitle : state === 'failed' ? copy.prep.failedTitle : copy.prep.runningTitle}
+        </div>
+      </div>
+      {state === 'running' && (
+        <p className="mt-1.5 text-[10.5px] leading-relaxed text-muted-foreground">{copy.prep.runningBody}</p>
+      )}
+      {state === 'failed' && (
+        <>
+          {idea.prep.error && <p className="mt-1.5 text-[10.5px] leading-relaxed text-destructive">{idea.prep.error}</p>}
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'retryIdeaPrep', ideaId: idea.id })}
+            className="mt-2 rounded-md bg-primary px-3 py-1.5 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            {copy.prep.retry}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SelfAnsweredList({ idea, language }: { idea: IdeaSummary; language: IdeasLanguage }) {
+  const copy = ideasCopy(language);
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="rounded-lg border border-border bg-background/60">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+      >
+        <div>
+          <div className="text-xs font-semibold text-foreground">{copy.prep.selfAnsweredHeader(idea.prep.selfAnswered.length)}</div>
+          {!expanded && <p className="mt-0.5 text-[10px] text-muted-foreground">{copy.prep.selfAnsweredCaption}</p>}
+        </div>
+        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', expanded && 'rotate-180')} />
+      </button>
+      {expanded && (
+        <div className="space-y-1 border-t border-border px-3 py-2">
+          {idea.prep.selfAnswered.map((entry, index) => (
+            <SelfAnsweredRow key={`${entry.question}-${index}`} ideaId={idea.id} revision={idea.ideaRevision} entry={entry} index={index} language={language} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SelfAnsweredRow({
+  ideaId,
+  revision,
+  entry,
+  index,
+  language,
+}: {
+  ideaId: string;
+  revision: number;
+  entry: IdeaSelfAnswered;
+  index: number;
+  language: IdeasLanguage;
+}) {
+  const copy = ideasCopy(language);
+  return (
+    <div className={cn('rounded-md px-2 py-2', entry.flagged && 'bg-destructive/5')}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium text-foreground">{entry.question}</div>
+          <div className="mt-0.5 text-[10.5px] text-muted-foreground">{entry.answer}</div>
+        </div>
+        <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 font-mono text-[9px] text-secondary-foreground">{entry.source}</span>
+      </div>
+      {entry.flagged ? (
+        <div className="mt-1 flex items-center gap-1 text-[10px] text-destructive">
+          <Flag className="h-3 w-3" /> {copy.prep.flagged}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'flagIdeaSelfAnswer', ideaId, revision, index })}
+          className="mt-1 text-[10px] text-muted-foreground underline decoration-dotted hover:text-destructive"
+        >
+          {copy.prep.flagWrong}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function BatchQuestions({ idea, language }: { idea: IdeaSummary; language: IdeasLanguage }) {
+  const copy = ideasCopy(language);
+  const [confirmingDecideRest, setConfirmingDecideRest] = useState(false);
+  // Mirrors IdeaService's private eligibleQuestions(): a question only enters
+  // the visible batch once every id in its dependsOn already has an answer.
+  const eligible = idea.prep.questions.filter((question) => question.dependsOn.every((dep) => Boolean(idea.answers[dep])));
+  const answeredCount = eligible.filter((question) => idea.answers[question.id]).length;
+  const allAnswered = eligible.length > 0 && answeredCount === eligible.length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10.5px] font-medium text-muted-foreground">{copy.batch.progress(answeredCount, eligible.length)}</span>
+        <button
+          type="button"
+          onClick={() => setConfirmingDecideRest(true)}
+          className="rounded-md border border-border bg-background px-2.5 py-1 text-[10px] text-muted-foreground hover:bg-accent"
+        >
+          {copy.batch.decideRest}
+        </button>
+      </div>
+      <div className="h-1 overflow-hidden rounded-full bg-secondary">
+        <div
+          className="h-full bg-primary transition-all"
+          style={{ width: `${eligible.length ? (answeredCount / eligible.length) * 100 : 0}%` }}
+        />
+      </div>
+
+      {eligible.map((question) => (
+        <QuestionCard key={question.id} ideaId={idea.id} revision={idea.ideaRevision} question={question} selected={idea.answers[question.id]} language={language} />
+      ))}
+
+      <button
+        type="button"
+        disabled={!allAnswered}
+        onClick={() => postMessage({ type: 'submitIdeaBatch', ideaId: idea.id, revision: idea.ideaRevision })}
+        className="rounded-md bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {copy.batch.submit}
+      </button>
+
+      {confirmingDecideRest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 shadow-xl">
+            <div className="text-sm font-bold text-foreground">{copy.batch.decideRestConfirmTitle}</div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{copy.batch.decideRestConfirmBody}</p>
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirmingDecideRest(false)} className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent">
+                {copy.resume.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  postMessage({ type: 'decideIdeaRest', ideaId: idea.id, revision: idea.ideaRevision });
+                  setConfirmingDecideRest(false);
+                }}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+              >
+                {copy.batch.decideRestConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuestionCard({
+  ideaId,
+  revision,
+  question,
+  selected,
+  language,
+}: {
+  ideaId: string;
+  revision: number;
+  question: IdeaQuestion;
+  selected: string | undefined;
+  language: IdeasLanguage;
+}) {
+  const copy = ideasCopy(language);
+  return (
+    <div className="rounded-lg border border-border bg-background/60 p-3">
+      <div className="text-[11.5px] font-semibold text-foreground">{question.text}</div>
+      <div className="mt-2 space-y-1.5">
+        {question.options.map((option) => (
+          <label key={option.id} className="flex cursor-pointer items-center gap-2 text-[11px] text-foreground">
+            <input
+              type="radio"
+              name={question.id}
+              checked={selected === option.id}
+              onChange={() => postMessage({ type: 'saveIdeaAnswer', ideaId, revision, questionId: question.id, choiceId: option.id })}
+              className="h-3.5 w-3.5 accent-primary"
+            />
+            {option.label}
+            {option.recommended && (
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[8.5px] font-bold text-primary">{copy.batch.recommended}</span>
+            )}
+          </label>
+        ))}
+      </div>
+      <p className="mt-2 text-[10px] italic text-muted-foreground">{question.reason}</p>
     </div>
   );
 }

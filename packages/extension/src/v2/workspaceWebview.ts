@@ -13,6 +13,7 @@
  */
 
 import * as vscode from 'vscode';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -280,7 +281,10 @@ import { syncBuiltinPipelineCommands } from './presetWizards';
 import { buildProviderConfigUi, getProviderConfigStore, type ProviderConfigUi } from './providerConfig';
 import {
   runSlashCommandWithProvider,
+  buildIdeaPrepPrompt,
+  buildHeadlessAnalysisInvocation,
 } from './providerRunService';
+import { extractJsonObject, readIdeaPrepResult } from './ideaPrepResult';
 import type {
   PipelineStepConfig,
   AssetScope,
@@ -2092,6 +2096,69 @@ export class WorkspaceWebview {
     await vscode.commands.executeCommand('markdown.showPreview', doc.uri);
   }
 
+  /**
+   * Run the Idea prep agent: read-only research + self-answering, gated and
+   * batched per docs/design/ideas-tab/ideas-tab-flow-graph.canvas.tsx. Called
+   * right after `createIdea` (fire-and-forget) and again from `runIdeaPrep`
+   * for the R02 retry path — same logic either way, since a failed prep
+   * leaves the Idea at `checkpoint: 'preparing', prep.status: 'failed'` and
+   * `startPrep` accepts being called again from `captured` only, not from a
+   * failed `preparing` state, so retries go through `completePrep`'s sibling
+   * entry point instead: re-running the same job id.
+   */
+  private async runIdeaPrep(root: string, ideaId: string): Promise<void> {
+    const ideas = new IdeaService(root);
+    let idea = ideas.get(ideaId);
+    if (!idea) return;
+
+    // Retry (F02/R02): `preparing` + `failed` means a previous attempt died
+    // mid-flight. Re-enter directly rather than calling startPrep again,
+    // since startPrep only accepts the `captured` checkpoint.
+    if (idea.checkpoint === 'captured') {
+      try {
+        idea = ideas.startPrep(ideaId, idea.ideaRevision, crypto.randomUUID(), { kind: 'agent', id: 'idea-prep-agent' });
+        this.refresh();
+      } catch (error) {
+        void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+    }
+    if (idea.checkpoint !== 'preparing') return;
+
+    const language = resolveDisplayLanguage();
+    const excludeAnswers = idea.prep.selfAnswered.filter((entry) => entry.flagged).map((entry) => entry.question);
+    try {
+      const store = getProviderConfigStore(root);
+      const config = store.loadOrDefault();
+      const providerId = config.defaultProvider;
+      const prompt = buildIdeaPrepPrompt({ ideaId, seedSentence: idea.seedSentence, language, excludeAnswers });
+      const invocation = buildHeadlessAnalysisInvocation({
+        providerId,
+        cli: store.cliFor(providerId, config),
+        model: store.modelFor(providerId, undefined, config),
+        prompt,
+      });
+      const stdout = await runHeadlessProvider(invocation.command, invocation.args, { cwd: root, timeoutMs: 180_000 });
+      const result = readIdeaPrepResult(extractJsonObject(stdout));
+      const current = ideas.require(ideaId);
+      if (current.checkpoint !== 'preparing') return; // superseded by a restart/patchSeed while the agent was running
+      ideas.completePrep(ideaId, current.ideaRevision, {
+        selfAnswered: result.selfAnswered.map((entry) => ({ ...entry, flagged: false })),
+        questions: result.questions,
+      }, { kind: 'agent', id: 'idea-prep-agent' });
+    } catch (error) {
+      try {
+        const current = ideas.require(ideaId);
+        if (current.checkpoint === 'preparing') {
+          ideas.failPrep(ideaId, current.ideaRevision, describeExecError(error), { kind: 'agent', id: 'idea-prep-agent' });
+        }
+      } catch {
+        // The Idea was deleted/restarted concurrently — nothing left to mark failed.
+      }
+    }
+    this.refresh();
+  }
+
   // ── Message routing ─────────────────────────────────────────────────────
 
   private async handleMessage(msg: { type: string; [k: string]: unknown }): Promise<void> {
@@ -2199,6 +2266,10 @@ export class WorkspaceWebview {
           });
           this.refresh();
           void this.panel.webview.postMessage({ type: 'selectIdea', ideaId: idea.id });
+          // Fire-and-forget: screen 3's own copy tells the human this happens
+          // automatically. A crash here still leaves the Idea safely at
+          // `captured` — nothing is lost, only unstarted.
+          void this.runIdeaPrep(root, idea.id);
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -2211,8 +2282,11 @@ export class WorkspaceWebview {
         const revision = Number(msg.revision);
         if (!root || !id || !Number.isInteger(revision)) return;
         try {
-          new IdeaService(root).patchSeed(id, revision, typeof msg.seedSentence === 'string' ? msg.seedSentence : '', { kind: 'user', id: 'vscode-user' });
+          const patched = new IdeaService(root).patchSeed(id, revision, typeof msg.seedSentence === 'string' ? msg.seedSentence : '', { kind: 'user', id: 'vscode-user' });
           this.refresh();
+          // E03: editing after prep already ran resets to `captured` so prep
+          // reruns against the new sentence — same auto-trigger as capture.
+          if (patched.checkpoint === 'captured' && patched.prep.status === 'idle') void this.runIdeaPrep(root, id);
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -2278,6 +2352,14 @@ export class WorkspaceWebview {
         return;
       }
 
+      case 'retryIdeaPrep': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        if (!root || !id) return;
+        void this.runIdeaPrep(root, id);
+        return;
+      }
+
       case 'shelveIdea':
       case 'reopenIdea':
       case 'restartIdea': {
@@ -2292,6 +2374,8 @@ export class WorkspaceWebview {
           if (msg.type === 'reopenIdea') service.reopen(id, revision, human);
           if (msg.type === 'restartIdea') service.restart(id, revision, human);
           this.refresh();
+          // Restart lands back at `captured` — same auto-prep as a fresh capture.
+          if (msg.type === 'restartIdea') void this.runIdeaPrep(root, id);
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }

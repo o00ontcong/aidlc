@@ -27,7 +27,31 @@ interface IdeasCopy {
     restartConfirm: string;
     cancel: string;
   };
-  prepPending: { title: string; body: string };
+  prep: {
+    startingTitle: string;
+    runningTitle: string;
+    runningBody: string;
+    failedTitle: string;
+    retry: string;
+    selfAnsweredHeader: (count: number) => string;
+    selfAnsweredCaption: string;
+    flagWrong: string;
+    flagged: string;
+  };
+  intentPending: { title: string; body: string };
+  batch: {
+    progress: (answered: number, total: number) => string;
+    decideRest: string;
+    decideRestConfirmTitle: string;
+    decideRestConfirmBody: string;
+    decideRestConfirm: string;
+    recommended: string;
+    submit: string;
+    saved: string;
+    saving: string;
+    saveFailed: string;
+    retrySave: string;
+  };
   actions: { shelve: string; reopen: string };
   languageSettings: string;
 }
@@ -80,9 +104,33 @@ const en: IdeasCopy = {
     restartConfirm: 'Start over',
     cancel: 'Cancel',
   },
-  prepPending: {
-    title: 'Question preparation is not wired up yet',
-    body: 'Your sentence is saved and safe. The self-answering + question batch is landing in a follow-up pass.',
+  prep: {
+    startingTitle: 'Saved. Preparing your questions…',
+    runningTitle: 'Reading the project before asking anything',
+    runningBody: 'The agent is reading AGENTS.md, PROJECT-RULES.json, ARCHITECTURE-MAP.md and the code — it will only ask what actually changes the outcome.',
+    failedTitle: 'Preparation could not finish',
+    retry: 'Retry',
+    selfAnsweredHeader: (count) => `${count} question${count === 1 ? '' : 's'} the agent answered itself`,
+    selfAnsweredCaption: 'Open one to check it against its source. A question it could have answered but still asks is a bug.',
+    flagWrong: 'This is wrong',
+    flagged: 'Flagged — will be asked instead next time',
+  },
+  intentPending: {
+    title: 'Preparing the route',
+    body: 'Your answers are saved. Routing to a recipe is landing in a follow-up pass.',
+  },
+  batch: {
+    progress: (answered, total) => `${answered}/${total} answered`,
+    decideRest: 'You decide the rest',
+    decideRestConfirmTitle: 'Use the recommended answer for everything left?',
+    decideRestConfirmBody: 'Unanswered questions become labeled assumptions, reviewed once where the plan itself is reviewed — not lost, not silent.',
+    decideRestConfirm: 'Use recommendations',
+    recommended: 'RECOMMENDED',
+    submit: 'Done',
+    saved: 'Saved',
+    saving: 'Saving…',
+    saveFailed: 'Could not save — try again before closing this tab.',
+    retrySave: 'Retry',
   },
   actions: { shelve: 'Set aside', reopen: 'Reopen' },
   languageSettings: 'Display language',
@@ -136,9 +184,33 @@ const vi: IdeasCopy = {
     restartConfirm: 'Bắt đầu lại',
     cancel: 'Huỷ',
   },
-  prepPending: {
-    title: 'Bước chuẩn bị câu hỏi chưa được nối dây',
-    body: 'Câu ý tưởng của bạn đã được lưu an toàn. Phần agent tự trả lời + lô câu hỏi sẽ có trong một đợt cập nhật kế tiếp.',
+  prep: {
+    startingTitle: 'Đã lưu. Đang chuẩn bị câu hỏi cho bạn…',
+    runningTitle: 'Đang đọc dự án trước khi hỏi bất cứ điều gì',
+    runningBody: 'Agent đang đọc AGENTS.md, PROJECT-RULES.json, ARCHITECTURE-MAP.md và code — chỉ hỏi những gì thật sự làm thay đổi kết quả.',
+    failedTitle: 'Chuẩn bị chưa xong được',
+    retry: 'Thử lại',
+    selfAnsweredHeader: (count) => `${count} câu agent đã tự trả lời`,
+    selfAnsweredCaption: 'Mở ra xem để kiểm tra so với nguồn. Câu nào tra được mà vẫn hỏi là bug.',
+    flagWrong: 'Câu này sai',
+    flagged: 'Đã gắn cờ — lần sau sẽ hỏi lại câu này',
+  },
+  intentPending: {
+    title: 'Đang chuẩn bị tuyến',
+    body: 'Câu trả lời của bạn đã được lưu. Phần định tuyến sang recipe sẽ có trong một đợt cập nhật kế tiếp.',
+  },
+  batch: {
+    progress: (answered, total) => `${answered}/${total} đã trả lời`,
+    decideRest: 'Bạn quyết hết',
+    decideRestConfirmTitle: 'Dùng khuyến nghị cho mọi câu còn lại?',
+    decideRestConfirmBody: 'Câu chưa trả lời sẽ thành giả định có nhãn, được duyệt một lần ở chỗ review kế hoạch — không mất, không âm thầm.',
+    decideRestConfirm: 'Dùng khuyến nghị',
+    recommended: 'KHUYẾN NGHỊ',
+    submit: 'Xong',
+    saved: 'Đã lưu',
+    saving: 'Đang lưu…',
+    saveFailed: 'Không lưu được — thử lại trước khi đóng tab này.',
+    retrySave: 'Thử lại',
   },
   actions: { shelve: 'Gác lại', reopen: 'Mở lại' },
   languageSettings: 'Ngôn ngữ hiển thị',

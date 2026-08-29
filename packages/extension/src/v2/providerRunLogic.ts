@@ -12,60 +12,70 @@ export function terminalNameForProvider(displayName: string): string {
   return `AIDLC · ${displayName}`;
 }
 
-export function buildShapeDiscussionPrompt(opts: {
-  shapeId: string;
-  title: string;
+/**
+ * The Idea prep agent's prompt: read first, ask only what changes the
+ * outcome. Encodes the eight cost-cutting mechanisms from
+ * docs/design/ideas-tab/ideas-tab-flow-graph.canvas.tsx in prompt form,
+ * since the gate/filter/batch logic cannot be verified mechanically the way
+ * `discovery-gate.md`'s ≥3-or-high-impact threshold is re-checked in
+ * `IdeaService.completePrep` — this prompt is what gets the agent to that
+ * threshold honestly instead of padding or truncating its own question list.
+ */
+export function buildIdeaPrepPrompt(opts: {
+  ideaId: string;
+  seedSentence: string;
   language: 'en' | 'vi';
-  proposal?: string;
-}): string {
-  const conversationLanguage = opts.language === 'vi' ? 'Vietnamese' : 'English';
-  const prompt = [
-    `You are discussing AIDLC Shape ${opts.shapeId}: ${opts.title}.`,
-    'This is discovery only. Do not edit source files, run write commands, create an Epic, or start a delivery workflow.',
-    `Read AGENTS.md, PROJECT.md, STATUS.md, DECISIONS.md, .aidlc/shapes/${opts.shapeId}/state.json, and relevant source code when useful.`,
-    `Speak with the human in ${conversationLanguage}. Use plain, non-technical language unless the human asks for technical detail.`,
-    'Guide the discussion one question at a time. Offer two or three concrete choices with simple tradeoffs, include a recommended choice, and let the human say they are unsure.',
-    'Challenge assumptions while keeping the human in control of scope and the final decision.',
-    'When the human is satisfied, return a short plain-language summary.',
-    'Never ask the human to copy or paste JSON. The extension handles structured plan updates itself.',
-    'Do not claim the plan is approved. Only the human can approve it in AIDLC.',
-  ];
-  if (opts.proposal) {
-    prompt.push(
-      'The extension has prepared the proposed plan below. Treat it as a draft: explain it, question weak assumptions, and help the human compare alternatives. Start with a short plain-language summary, then ask what part they want to discuss first.',
-      `Current proposed plan:\n${opts.proposal}`,
-      'Do not ask the human to restate this proposal. If the human wants changes, summarize the agreed changes in plain language so the extension can prepare a revised proposal later.',
-    );
-  }
-  return prompt.join('\n\n');
-}
-
-export function buildShapeProposalPrompt(opts: {
-  shapeId: string;
-  title: string;
-  language: 'en' | 'vi';
-  currentShape: string;
+  /** Questions previously flagged wrong (F02) — do not repeat this mistake. */
+  excludeAnswers?: string[];
 }): string {
   const outputLanguage = opts.language === 'vi' ? 'Vietnamese' : 'English';
-  return [
-    `Complete the decision plan for AIDLC idea ${opts.shapeId}: ${opts.title}.`,
-    'This is analysis only. Do not edit files, run write commands, create tasks, or start delivery.',
-    'Use the project context and read relevant source files only when they materially improve the recommendation.',
-    'Recommend a practical approach for the stated problem and outcome. Keep the scope proportional to the chosen effort.',
-    'Populate options, selectedApproach, rationale, risks, noGos, acceptanceCriteria, architectureImpact, and openQuestions.',
-    'Preserve the human-authored problem, desiredOutcome, appetite, and constraints. Do not invent business facts.',
-    'If an important choice cannot be inferred safely, put a concise question in openQuestions instead of guessing.',
-    `Write every human-readable string value in ${outputLanguage}, using plain language for a non-technical reader.`,
-    'Return ONLY one JSON object. Do not use Markdown fences, commentary, or a shape-update wrapper.',
-    'Allowed keys: title, problem, desiredOutcome, appetite, constraints, options, selectedApproach, rationale, risks, noGos, acceptanceCriteria, architectureImpact, openQuestions.',
-    'Each option must contain id, title, summary, and tradeoffs.',
+  const lines = [
+    `A person filed one sentence describing something they want changed: "${opts.seedSentence}"`,
+    'This is intake, not implementation. Do not edit files, run write commands, create tasks, or start delivery.',
     '',
-    'Current idea:',
-    opts.currentShape,
-  ].join('\n');
+    'Step 1 — read before asking. Read AGENTS.md, docs/project/foundation/PROJECT-RULES.json, '
+      + 'docs/project/foundation/ARCHITECTURE-MAP.md, docs/project/foundation/CONTEXT-MANIFEST.json, and DECISIONS.md '
+      + 'if they exist, plus whatever source files are relevant to the sentence above. '
+      + 'Draft the raw list of questions a careful engineer would ask, then answer as many as you honestly can '
+      + 'from what you just read — cite the exact file (or file:line) each answer came from. '
+      + 'A question you could have answered from a file you did not read is a mistake, not a safe default.',
+    '',
+    'Step 2 — filter by impact. Drop any remaining question where a different answer would NOT change scope, '
+      + 'the implementation approach, or an acceptance criterion. Use a sensible default for those instead of asking.',
+    '',
+    'Step 3 — apply the gate. Only keep asking if at least 3 questions survive step 2, or one of them is genuinely '
+      + 'high-impact (changes scope, architecture, or acceptance criteria on its own). Otherwise return zero questions — '
+      + 'the sentence is clear enough already.',
+    '',
+    'Step 4 — batch, do not chain. Every surviving question goes in one batch of at most 5, ordered so independent '
+      + 'questions come first. If a question only makes sense after another is answered, set its `dependsOn` to that '
+      + "question's id instead of implying an order in the text.",
+    '',
+    'Step 5 — give every question a pre-selected default. Each question needs 2-4 concrete options; mark exactly one '
+      + '`recommended: true` and give a one-line `reason` grounded in the sentence above, so a person who accepts every '
+      + 'default still gets a coherent, defensible result.',
+    opts.excludeAnswers?.length
+      ? `\nThese self-answers were already flagged wrong by a human — do not repeat them, and ask about them instead:\n${opts.excludeAnswers.map((q) => `- ${q}`).join('\n')}`
+      : '',
+    '',
+    `Write every human-readable string in ${outputLanguage}, in plain language for a non-technical reader.`,
+    'Return ONLY one JSON object, no Markdown fences, no commentary, matching exactly this shape:',
+    '{',
+    '  "selfAnswered": [{ "question": string, "answer": string, "source": string }],',
+    '  "questions": [{ "id": string, "text": string, "reason": string, "highImpact": boolean, "dependsOn": string[],',
+    '    "options": [{ "id": string, "label": string, "recommended": boolean }] }]',
+    '}',
+  ];
+  return lines.filter(Boolean).join('\n');
 }
 
-export function buildHeadlessShapeProposalInvocation(opts: {
+/**
+ * A read-only, non-interactive invocation for a supported provider CLI.
+ * Provider-agnostic — used for any prompt that only needs to read and
+ * reason, never to write (Idea prep, Idea routing; formerly Shape's
+ * proposal generation).
+ */
+export function buildHeadlessAnalysisInvocation(opts: {
   providerId: string;
   cli: string;
   model?: string;
@@ -91,7 +101,7 @@ export function buildHeadlessShapeProposalInvocation(opts: {
         args: ['exec', ...modelArgs, '--sandbox', 'read-only', opts.prompt],
       };
     default:
-      throw new Error(`Provider ${opts.providerId} does not have a verified read-only headless Discovery mode.`);
+      throw new Error(`Provider ${opts.providerId} does not have a verified read-only headless analysis mode.`);
   }
 }
 

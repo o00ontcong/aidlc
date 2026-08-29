@@ -11,9 +11,8 @@ import {
   buildCodexRunPrompt,
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
-  buildHeadlessShapeProposalInvocation,
-  buildShapeProposalPrompt,
-  buildShapeDiscussionPrompt,
+  buildHeadlessAnalysisInvocation,
+  buildIdeaPrepPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   resolveRunnableModel,
@@ -29,9 +28,8 @@ export {
   buildCodexRunPrompt,
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
-  buildHeadlessShapeProposalInvocation,
-  buildShapeProposalPrompt,
-  buildShapeDiscussionPrompt,
+  buildHeadlessAnalysisInvocation,
+  buildIdeaPrepPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   resolveRunnableModel,
@@ -221,64 +219,6 @@ export function openAgentTerminal(providerId?: string): void {
     replCommand: cli,
     terminalName: terminalNameForProvider(adapter.displayName),
     cwd,
-  });
-}
-
-/**
- * Open the provider's native chat for a pre-Epic Shape. Unlike a task run,
- * this always requests the adapter's verified read-only discovery profile.
- * Unsupported providers are rejected instead of receiving an unsafe fallback.
- */
-export function openShapeDiscussion(opts: {
-  root: string;
-  shapeId: string;
-  title: string;
-  providerId?: string;
-  proposal?: string;
-}): void {
-  const terminalName = opts.proposal
-    ? `AIDLC · Proposal · ${opts.shapeId}`
-    : `AIDLC · Discovery · ${opts.shapeId}`;
-  const existing = vscode.window.terminals.find((terminal) => terminal.name === terminalName);
-  if (existing) {
-    // A live provider terminal is the durable chat surface for this Shape.
-    // Focus it rather than injecting another process command into its shell.
-    existing.show(false);
-    return;
-  }
-  const store = getProviderConfigStore(opts.root);
-  const config = store.loadOrDefault();
-  const id = opts.providerId ?? config.defaultProvider;
-  const adapter = getCommandProviderAdapter(id);
-  const cli = store.cliFor(id, config);
-  const model = mappedOrFallbackModel({
-    providerId: id,
-    cli,
-    root: opts.root,
-    mappedModel: store.modelFor(id, undefined, config),
-    defaultModel: store.modelFor(id, undefined, config),
-  });
-  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
-  const prompt = buildShapeDiscussionPrompt({
-    shapeId: opts.shapeId,
-    title: opts.title,
-    language: resolveAidlcLanguage(configured, vscode.env.language),
-    proposal: opts.proposal,
-  });
-  const invocation = adapter.buildDiscoveryInvocation({ prompt, mappedModel: model, cwd: opts.root, cliBinary: cli });
-  if (!invocation) {
-    void vscode.window.showWarningMessage(
-      resolveAidlcLanguage(configured, vscode.env.language) === 'vi'
-        ? `Không thể thảo luận ý tưởng bằng ${adapter.displayName}: chế độ chỉ đọc của công cụ này chưa được xác thực. Hãy chọn Claude, Cursor hoặc Codex.`
-        : `AIDLC Discovery is unavailable for ${adapter.displayName}: its read-only CLI profile has not been validated. Choose Claude, Cursor, or Codex.`,
-    );
-    return;
-  }
-  spawnTerminalOneShot({
-    oneShot: invocation.shellOneLiner ?? invocation.argv.join(' '),
-    terminalName,
-    cwd: opts.root,
-    fresh: true,
   });
 }
 
