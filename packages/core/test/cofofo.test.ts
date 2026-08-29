@@ -29,6 +29,12 @@ import {
   validateRulesMarkdown,
   validateMemoryHandoff,
   validateStackProfile,
+  ContextManifestV2Schema,
+  COFOFO_BUNDLE_BINDING_PATH,
+  diagnoseCofofoBinding,
+  renderProviderContext,
+  buildBundleBinding,
+  selectCatalog,
   type PipelineConfig,
   type RunState,
 } from '../src';
@@ -293,5 +299,142 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     expect(rebased.foundationRebases).toHaveLength(1);
     expect(rebased.steps[0]?.status).toBe('awaiting_work');
     expect(rebased.steps.slice(1).every((step) => step.status === 'pending')).toBe(true);
+  });
+
+  it('publish writes BUNDLE-BINDING.json and CONTEXT-MANIFEST v2 with bindingHash (C0 — until C3)', () => {
+    const root = swiftFixture();
+    const service = new CofofoFoundationService(root);
+    service.prepare();
+    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
+    let state = startRun({ runId: 'FOUNDATION-BIND', pipeline: foundation, context: {}, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    RunStateStore.save(root, state);
+    service.install('FOUNDATION-BIND');
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    RunStateStore.save(root, state);
+    const manifest = service.publish('FOUNDATION-BIND');
+    const bindingPath = path.join(root, COFOFO_BUNDLE_BINDING_PATH);
+    expect(fs.existsSync(bindingPath)).toBe(true);
+    const parsed = ContextManifestV2Schema.parse(manifest);
+    expect(parsed.bindingPath).toBe(COFOFO_BUNDLE_BINDING_PATH);
+    expect(parsed.bindingHash).toBe(hashFile(bindingPath));
+  });
+
+  it('inspect is ready only when workspace agents match bundle binding (C0 — until C4 doctor)', () => {
+    const root = swiftFixture();
+    const service = new CofofoFoundationService(root);
+    service.prepare();
+    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
+    let state = startRun({ runId: 'FOUNDATION-DOCTOR', pipeline: foundation, context: {}, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    RunStateStore.save(root, state);
+    service.install('FOUNDATION-DOCTOR');
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    RunStateStore.save(root, state);
+    service.publish('FOUNDATION-DOCTOR');
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    RunStateStore.save(root, state);
+    service.activate('FOUNDATION-DOCTOR');
+    expect(service.inspect().status).toBe('ready');
+
+    const workspacePath = path.join(root, '.aidlc/workspace.yaml');
+    const tampered = fs.readFileSync(workspacePath, 'utf8').replace(
+      'ecc-tdd-workflow',
+      'ecc-not-installed-skill',
+    );
+    fs.writeFileSync(workspacePath, tampered, 'utf8');
+    expect(service.inspect().status).not.toBe('ready');
+  });
+});
+
+describe('CoFoFo C4 — provider context + doctor', () => {
+  it('renderProviderContext includes role, phase, registry, and command tables', () => {
+    const root = swiftFixture();
+    const profile = detectStack(root);
+    const selection = selectCatalog(profile)!;
+    const installed = installCatalog({ workspaceRoot: root, profile, foundationRevision: 1 });
+    const binding = buildBundleBinding({ selection, installed, foundationRevision: 1 });
+    const rendered = renderProviderContext({
+      foundationRevision: 1,
+      stackId: profile.stack!.id,
+      catalogRevision: installed.catalogRevision,
+      binding,
+    });
+    expect(rendered).toContain('## Role → ECC skills');
+    expect(rendered).toContain('## Phase → ECC skills');
+    expect(rendered).toContain('## Installed skill registry');
+    expect(rendered).toContain('## Command allow-list');
+    expect(rendered).toContain('cofofo-developer');
+    expect(rendered).toContain('ecc-tdd-workflow');
+    expect(rendered).toContain('swift.test');
+  });
+
+  it('diagnoseCofofoBinding flags tampered ecc skills with Vietnamese repair copy', () => {
+    const root = swiftFixture();
+    const service = new CofofoFoundationService(root);
+    service.prepare();
+    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
+    let state = startRun({ runId: 'DOCTOR-TAMPER', pipeline: foundation, context: {}, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    RunStateStore.save(root, state);
+    service.install('DOCTOR-TAMPER');
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    RunStateStore.save(root, state);
+    service.publish('DOCTOR-TAMPER');
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    RunStateStore.save(root, state);
+    service.activate('DOCTOR-TAMPER');
+
+    const workspacePath = path.join(root, '.aidlc/workspace.yaml');
+    fs.writeFileSync(
+      workspacePath,
+      fs.readFileSync(workspacePath, 'utf8').replace('ecc-tdd-workflow', 'ecc-not-installed-skill'),
+      'utf8',
+    );
+
+    const doctorIssues = diagnoseCofofoBinding(root);
+    expect(doctorIssues.some((issue) => issue.kind === 'skill-not-installed')).toBe(true);
+    expect(doctorIssues.some((issue) => issue.userMessageVi.includes('INSTALLED-ASSETS'))).toBe(true);
+
+    const inspection = service.inspect();
+    expect(inspection.status).not.toBe('ready');
+    expect(inspection.doctorIssues?.length).toBeGreaterThan(0);
+  });
+
+  it('diagnoseCofofoBinding reports workspace-not-composed after install before publish', () => {
+    const root = swiftFixture();
+    const service = new CofofoFoundationService(root);
+    service.prepare();
+    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
+    let state = startRun({ runId: 'DOCTOR-COMPOSE', pipeline: foundation, context: {}, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    state = approveCurrentCanvas(root, state, foundation);
+    RunStateStore.save(root, state);
+    service.install('DOCTOR-COMPOSE');
+
+    const issues = diagnoseCofofoBinding(root);
+    expect(issues.some((issue) => issue.kind === 'workspace-not-composed')).toBe(true);
+    expect(issues.some((issue) => issue.userMessageVi.includes('publish-context'))).toBe(true);
   });
 });

@@ -75,6 +75,26 @@ branch has been merged, published, or manually signed off for release.
 - [x] Add extension commands for prepare, rule render, install, publish,
   activate and status, so the lifecycle does not require a global CLI install.
 
+### Stack bundle → workspace binding
+
+Foundation selects and installs an audited ECC text bundle per stack; delivery
+must consume that bundle through `workspace.yaml`, not hardcoded generator
+extras. See `docs/COFOFO_BUNDLE_BINDING_PLAN.md` for the milestone design.
+
+- [x] At `publish-context`, build `docs/project/foundation/BUNDLE-BINDING.json`
+  deterministically from the catalog selection and `INSTALLED-ASSETS.json`.
+- [x] `composeWorkspaceFromBundle()` merges ECC skill registry entries onto
+  CoFoFo agents and `cofofo-delivery` step `skills`; remove Swift ECC hardcode
+  from `WorkflowGenerator.agents()`.
+- [x] `CONTEXT-MANIFEST.json` schema v2 records `bindingPath` and
+  `bindingHash`; schema v1 manifests remain readable.
+- [x] Render `PROVIDER-CONTEXT.md` from the binding (role→skills, phase→skills,
+  installed registry, command allow-list) before the publish Canvas gate.
+- [x] `diagnoseCofofoBinding()` flags workspace drift; `aidlc cofofo doctor` and
+  `inspect()` surface Vietnamese repair hints for unbound or stale bindings.
+- [x] SkyCast demo composes workspace from binding; tests prove implement-step
+  dry-run loads ECC vendor skill text, not only the phase contract skill.
+
 ### Generated delivery runtime
 
 - [x] Generate provider-neutral `cofofo-delivery` plus `cofofo-feature` and
@@ -139,7 +159,8 @@ branch has been merged, published, or manually signed off for release.
 
 - [x] Core suite passes, including lifecycle, route slicing, successful stale
   run rebase, rule binding, evidence order/oracle/redaction/tamper checks,
-  installer drift/rollback and path-safety tests.
+  installer drift/rollback, bundle-binding compose/doctor tests and path-safety
+  tests.
 - [x] Extension typecheck passes and 19 test files / 211 tests pass.
 - [x] Annotron 22/22 tests pass, including multi-file verdict atomicity and
   independent concurrent gates on one artifact.

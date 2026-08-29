@@ -19,13 +19,16 @@ import {
   RunStateStore,
   applyArtifactReviewVerdict,
   buildReviewBundle,
+  BundleBindingSchema,
   cofofoFoundationIssues,
   markStepDone,
   normalizeStep,
   readEvidenceLedger,
   rerunStep,
   resolveArtifactPath,
+  runExecLoop,
   stepDagId,
+  COFOFO_BUNDLE_BINDING_PATH,
   type PipelineConfig,
 } from '@aidlc/core';
 
@@ -77,6 +80,46 @@ describe('CoFoFo SkyCast demo seed', () => {
     const feature = stale.pipelineSnapshot!.pipeline as PipelineConfig;
     expect(cofofoFoundationIssues({ state: stale, pipeline: feature, workspaceRoot: root }))
       .toContain('foundation revision changed from 1 to 2');
+  });
+
+  it('composes workspace agents and implement step skills from BUNDLE-BINDING.json', () => {
+    const binding = BundleBindingSchema.parse(JSON.parse(
+      fs.readFileSync(path.join(root, COFOFO_BUNDLE_BINDING_PATH), 'utf8'),
+    ));
+    const doc = readYaml(root)!;
+
+    for (const [role, skillIds] of Object.entries(binding.roles)) {
+      const agent = doc.agents.find((entry) => entry.id === `cofofo-${role}`);
+      expect(agent, `missing cofofo-${role}`).toBeDefined();
+      for (const skillId of skillIds) {
+        expect(agent!.skills as string[]).toContain(skillId);
+      }
+    }
+
+    const delivery = doc.pipelines.find((pipeline) => pipeline.id === 'cofofo-delivery')!;
+    const implement = delivery.steps.find((step) => (step as { name?: string }).name === 'implement')!;
+    const implementSkills = (implement as { skills?: string[] }).skills ?? [];
+    expect(implementSkills.length).toBeGreaterThanOrEqual(2);
+    expect(implementSkills[0]).toBe('cofofo-implement');
+    for (const skillId of binding.phases.implement ?? []) {
+      expect(implementSkills).toContain(skillId);
+    }
+
+    const redRun = RunStateStore.load(root, 'COFOFO-WEATHER-003-RED')!;
+    const snapshotImplement = (redRun.pipelineSnapshot!.pipeline as PipelineConfig).steps
+      .find((step) => normalizeStep(step).name === 'implement')!;
+    expect(normalizeStep(snapshotImplement).skills?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('dry-run preview for implement loads ECC skill text from the bundle', async () => {
+    let preview: { skills: string; skillText: string } | undefined;
+    const outcome = await runExecLoop(root, 'COFOFO-WEATHER-003-RED', { dryRun: true }, {
+      onDryRunPreview: (event) => { preview = event; },
+    });
+    expect(outcome.kind).toBe('dry_run');
+    expect(preview?.skills).toContain('ecc-tdd-workflow');
+    expect(preview?.skills).toContain('ecc-swift-protocol-di-testing');
+    expect(preview?.skillText.length).toBeGreaterThan(100);
   });
 
   it('remains ready after a byte-identical clone assigns fresh mtimes', () => {

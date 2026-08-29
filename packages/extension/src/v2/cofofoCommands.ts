@@ -404,14 +404,20 @@ export async function cofofoDoctorCommand(): Promise<void> {
     return lostCofofoGateSnapshotIssues({ state: run, sourcePipeline: current })
       .map((issue) => `${run.runId}: ${issue} — start a new CoFoFo run; this snapshot predates a workflow gate upgrade`);
   });
-  const issues = [...inspection.issues, ...snapshotIssues];
+  const bindingIssues = inspection.doctorIssues ?? [];
+  const issues = [
+    ...bindingIssues.map((issue) => issue.userMessageVi),
+    ...inspection.issues.filter((issue) => !bindingIssues.some((doctor) => doctor.detail === issue)),
+    ...snapshotIssues,
+  ];
   if (issues.length === 0 && inspection.status === 'ready') {
     void vscode.window.showInformationMessage('CoFoFo workspace khỏe mạnh; không cần sửa gì.');
     return;
   }
-  const repair = snapshotIssues.length > 0
-    ? 'Các run bị ảnh hưởng cần epic/recipe mới — snapshot cũ không có gate Canvas/evidence mới.'
-    : (inspection.nextAction || 'Mở một run mới nếu snapshot cũ đã mất gate.');
+  const repair = bindingIssues[0]?.userMessageVi
+    ?? (snapshotIssues.length > 0
+      ? 'Các run bị ảnh hưởng cần epic/recipe mới — snapshot cũ không có gate Canvas/evidence mới.'
+      : (inspection.nextAction || 'Mở một run mới nếu snapshot cũ đã mất gate.'));
   void vscode.window.showWarningMessage(
     `CoFoFo doctor: ${issues.length || 1} vấn đề. ${repair}`,
     { modal: true, detail: issues.map((issue) => `• ${issue}`).join('\n') || 'Foundation chưa sẵn sàng.' },

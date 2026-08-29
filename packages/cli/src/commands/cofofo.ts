@@ -117,16 +117,21 @@ export function registerCofofo(program: Command): void {
           const pipeline = source.find((item) => item.id === run.pipelineId);
           return lostCofofoGateSnapshotIssues({ state: run, sourcePipeline: pipeline });
         });
+        const bindingIssues = inspection.doctorIssues ?? [];
         const result = {
-          ok: inspection.status === 'ready' && snapshotIssues.length === 0,
+          ok: inspection.status === 'ready' && snapshotIssues.length === 0 && bindingIssues.length === 0,
           inspection,
+          bindingIssues,
           snapshotIssues,
-          repair: inspection.status === 'ready' ? undefined : inspection.nextAction,
+          repair: inspection.status === 'ready' && bindingIssues.length === 0
+            ? undefined
+            : bindingIssues[0]?.userMessageVi ?? inspection.nextAction,
         };
         if (opts.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
           printInspection(service);
+          for (const issue of bindingIssues) console.log(chalk.red(`  ✘ ${issue.detail}`));
           for (const issue of snapshotIssues) console.log(chalk.red(`  ✘ ${issue}; start a new run`));
           if (result.ok) console.log(chalk.green('✔') + ' CoFoFo workspace is ready. No repair is needed.');
           else if (result.repair) console.log(chalk.yellow(`Repair: ${result.repair}`));

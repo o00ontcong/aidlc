@@ -6,6 +6,7 @@ import type { WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep } from '../schema/WorkspaceSchema';
 import { RunStateStore } from '../runs/RunStateStore';
 import {
+  BundleBindingSchema,
   CofofoFoundationStateSchema,
   ContextManifestSchema,
   InstalledAssetsManifestSchema,
@@ -14,10 +15,15 @@ import {
   type CofofoFoundationSnapshot,
   type CofofoFoundationState,
   type ContextManifest,
+  type ContextManifestV2,
   type ProjectRules,
   type StackProfile,
 } from './contracts';
+import { buildBundleBinding, COFOFO_BUNDLE_BINDING_PATH } from './BundleBinding';
 import { builtinCofofoCatalogRoot, selectCatalog } from './Catalog';
+import { diagnoseCofofoBinding, type CofofoDoctorIssue } from './CofofoDoctor';
+import { renderProviderContext } from './ProviderContext';
+import { composeWorkspaceFromBundle } from './WorkspaceComposer';
 import { detectStack, validateStackProfile } from './StackDetector';
 import {
   createDefaultRules,
@@ -47,6 +53,7 @@ const FILES = {
   architecture: `${COFOFO_FOUNDATION_DIR}/ARCHITECTURE-MAP.md`,
   selection: `${COFOFO_FOUNDATION_DIR}/ECC-CATALOG-SELECTION.md`,
   installed: `${COFOFO_FOUNDATION_DIR}/INSTALLED-ASSETS.json`,
+  bundleBinding: COFOFO_BUNDLE_BINDING_PATH,
   providerContext: `${COFOFO_FOUNDATION_DIR}/PROVIDER-CONTEXT.md`,
   context: COFOFO_CONTEXT_MANIFEST_PATH,
 } as const;
@@ -61,6 +68,8 @@ export interface CofofoFoundationInspection {
   issues: string[];
   /** Classifies each issue so callers never recommend an ineffective repair. */
   issueDetails?: Array<{ kind: 'content-drift' | 'foundation-invalid'; detail: string }>;
+  /** Workspace ↔ bundle binding drift with Vietnamese user-facing copy for the extension. */
+  doctorIssues?: CofofoDoctorIssue[];
   nextAction: string;
   snapshot?: CofofoFoundationSnapshot;
 }
@@ -205,6 +214,28 @@ function validateContext(root: string, manifest: ContextManifest): string[] {
     if (installed.catalogRevision !== manifest.catalogRevision) issues.push('installed catalog revision does not match context');
     issues.push(...verifyInstalledAssets(root, installed));
   }
+  if (manifest.schemaVersion === 2) {
+    try {
+      const bindingAbsolute = resolveInside(root, manifest.bindingPath, true);
+      if (hashFile(bindingAbsolute) !== manifest.bindingHash) {
+        issues.push(`${manifest.bindingPath}: binding hash mismatch`);
+      }
+      const binding = BundleBindingSchema.parse(JSON.parse(fs.readFileSync(bindingAbsolute, 'utf8')));
+      for (const skill of binding.skills) {
+        try {
+          const absolute = resolveInside(root, skill.path, true);
+          if (hashFile(absolute) !== skill.sha256) issues.push(`${skill.path}: binding skill hash mismatch`);
+        } catch { issues.push(`${skill.path}: missing or unsafe`); }
+      }
+      if (binding.foundationRevision !== manifest.foundationRevision) {
+        issues.push('bundle binding foundation revision does not match context manifest');
+      }
+      if (binding.catalogRevision !== manifest.catalogRevision) {
+        issues.push('bundle binding catalog revision does not match context manifest');
+      }
+      issues.push(...diagnoseCofofoBinding(root).map((issue) => issue.detail));
+    } catch { issues.push(`${manifest.bindingPath}: missing or invalid`); }
+  }
   return issues;
 }
 
@@ -348,29 +379,64 @@ export class CofofoFoundationService {
       ...verifyInstalledAssets(this.workspaceRoot, installed),
     ];
     if (issues.length) throw new CofofoFoundationError('Foundation validation failed; context was not published.', issues);
-    const providerContext = [
-      '# CoFoFo Provider Context', '',
-      `Foundation revision: ${state.revision}`,
-      `Canonical policy: ${FILES.rulesJson}`,
-      `Architecture map: ${FILES.architecture}`,
-      `Stack profile: ${FILES.stackJson}`,
-      '',
-      'Every plan cites applicable blocking ruleId values. Production mutation requires accepted RED evidence; delivery requires GREEN, REFACTOR, fresh review, and VERIFY.',
-    ].join('\n');
+
+    const selection = selectCatalog(profile);
+    if (!selection) {
+      throw new CofofoFoundationError('No audited catalog selection is available for this stack.');
+    }
+    const binding = buildBundleBinding({
+      selection,
+      installed,
+      foundationRevision: state.revision,
+    });
+    writeJson(this.workspaceRoot, FILES.bundleBinding, binding);
+
+    const workspacePath = resolveInside(this.workspaceRoot, '.aidlc/workspace.yaml');
+    let current: Partial<WorkspaceConfig> | undefined;
+    if (fs.existsSync(workspacePath)) {
+      current = yaml.load(fs.readFileSync(workspacePath, 'utf8')) as Partial<WorkspaceConfig>;
+    }
+    const skeleton = generatedCofofoWorkspace(current);
+    const workspace = composeWorkspaceFromBundle({
+      workspaceRoot: this.workspaceRoot,
+      skeleton,
+      binding,
+      installed,
+    });
+    writeAtomic(workspacePath, yaml.dump(workspace, { lineWidth: -1, noRefs: true, sortKeys: false }));
+
+    const bindingHash = hashFile(resolveInside(this.workspaceRoot, FILES.bundleBinding, true));
+    const providerContext = renderProviderContext({
+      foundationRevision: state.revision,
+      stackId: profile.stack.id,
+      catalogRevision: installed.catalogRevision,
+      binding,
+      rulesJsonPath: FILES.rulesJson,
+      architecturePath: FILES.architecture,
+      stackProfilePath: FILES.stackJson,
+      bundleBindingPath: FILES.bundleBinding,
+    });
     // Provider files are installation targets, not review artifacts: other
     // tools may update them while a Canvas gate is open. Review this rendered,
     // immutable source instead and install it only after approval in activate().
     writeAtomic(resolveInside(this.workspaceRoot, FILES.providerContext), `${providerContext}\n`);
-    const artifacts = [FILES.stackJson, FILES.rulesJson, FILES.architecture, FILES.installed, FILES.providerContext]
-      .map((relative) => ({ path: relative, sha256: hashFile(resolveInside(this.workspaceRoot, relative, true)) }));
-    const draft: Omit<ContextManifest, 'contentHash'> = {
-      schemaVersion: 1, foundationRevision: state.revision, catalogRevision: installed.catalogRevision,
-      stackId: profile.stack.id, generatedAt: now, artifacts,
+    const artifacts = [
+      FILES.stackJson, FILES.rulesJson, FILES.architecture, FILES.installed,
+      FILES.bundleBinding, FILES.providerContext,
+    ].map((relative) => ({ path: relative, sha256: hashFile(resolveInside(this.workspaceRoot, relative, true)) }));
+    const draft: Omit<ContextManifestV2, 'contentHash'> = {
+      schemaVersion: 2,
+      bindingPath: FILES.bundleBinding,
+      bindingHash,
+      foundationRevision: state.revision,
+      catalogRevision: installed.catalogRevision,
+      stackId: profile.stack.id,
+      generatedAt: now,
+      artifacts,
       providers: ['claude', 'cursor', 'codex', 'opencode'],
     };
     const manifest = ContextManifestSchema.parse({ ...draft, contentHash: contextHash(draft) });
     writeJson(this.workspaceRoot, FILES.context, manifest);
-    const workspace = yaml.load(fs.readFileSync(resolveInside(this.workspaceRoot, '.aidlc/workspace.yaml', true), 'utf8')) as WorkspaceConfig;
     installCofofoProviderCommands(this.workspaceRoot, workspace, manifest.contentHash);
     const docsReadme = resolveInside(this.workspaceRoot, 'docs/README.md');
     const existingDocs = fs.existsSync(docsReadme) ? fs.readFileSync(docsReadme, 'utf8') : '# Project Documentation\n';
@@ -423,6 +489,10 @@ export class CofofoFoundationService {
     if (state.status === 'fallback') return { status: 'fallback', state, profile, manifest: null, issues: [profile?.fallback?.reason ?? 'Unsupported repository.'], nextAction: 'Use aidlc-workflow-full.' };
     if (!manifest || state.status === 'pending-review') return { status: 'pending-review', state, profile, manifest, issues: manifest ? [] : ['Context has not been published.'], nextAction: manifest ? 'Approve publish-context in Canvas and activate.' : 'Complete the foundation pipeline and publish context.' };
     const issues = validateContext(this.workspaceRoot, manifest);
+    const doctorIssues = diagnoseCofofoBinding(this.workspaceRoot);
+    for (const issue of doctorIssues) {
+      if (!issues.includes(issue.detail)) issues.push(issue.detail);
+    }
     const fileHash = hashFile(resolveInside(this.workspaceRoot, FILES.context, true));
     if (state.contextManifestHash !== fileHash) issues.push('foundation state points to a different manifest hash');
     if (state.revision !== manifest.foundationRevision) issues.push('foundation revision does not match context manifest');
@@ -431,14 +501,14 @@ export class CofofoFoundationService {
       const issueDetails = classifyInspectionIssues(issues);
       const onlyContentDrift = issueDetails.every((issue) => issue.kind === 'content-drift');
       return {
-        status: 'stale', state, profile, manifest, issues, issueDetails,
+        status: 'stale', state, profile, manifest, issues, issueDetails, doctorIssues,
         nextAction: onlyContentDrift
           ? 'Foundation content drifted; prepare the appropriate refresh/update/repin route, review, and reactivate.'
           : 'Foundation is invalid; run `aidlc cofofo prepare --route refresh-context`, review, publish, and activate.',
       };
     }
     return {
-      status: 'ready', state, profile, manifest, issues: [], nextAction: 'Start a cofofo-feature or cofofo-bugfix recipe.',
+      status: 'ready', state, profile, manifest, issues: [], doctorIssues: [], nextAction: 'Start a cofofo-feature or cofofo-bugfix recipe.',
       snapshot: { revision: state.revision, manifestPath: FILES.context, manifestHash: fileHash, capturedAt: new Date().toISOString() },
     };
   }

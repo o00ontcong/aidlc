@@ -17,7 +17,9 @@ import {
   CofofoFoundationService,
   WorkspaceLoader,
   assemblePipeline,
+  buildBundleBinding,
   buildReviewBundle,
+  composeWorkspaceFromBundle,
   createDefaultRules,
   detectStack,
   hashFile,
@@ -27,13 +29,17 @@ import {
   installCofofoProviderCommands,
   normalizeStep,
   renderProjectRules,
+  renderProviderContext,
   ProjectRulesSchema,
   resolveArtifactPath,
+  selectCatalog,
   sha256,
   snapshotPipeline,
   generatedCofofoWorkspace,
+  COFOFO_BUNDLE_BINDING_PATH,
   type CofofoFoundationSnapshot,
   type PipelineConfig,
+  type WorkspaceConfig,
 } from '@aidlc/core';
 import { writeYaml, type YamlDocument } from './yamlIO';
 
@@ -321,26 +327,23 @@ export function seedCofofoWeatherDemo(root: string, extensionPath: string): void
 
   // Do not inherit the historical hand-written demo pipelines. The demo is a
   // regression harness for recipe assembly, so every visible run must start
-  // from exactly the generator production workspaces use.
+  // from exactly the generator production workspaces use, then overlay the
+  // audited ECC bundle binding the way publish-context does in production.
   const generated = generatedCofofoWorkspace({
     version: '1.0',
     name: 'SkyCast CoFoFo Weather Demo',
     environment: {},
   });
   installCofofoPhaseSkills(root);
+  const activeFoundation = seedActiveFoundation(root, extensionPath, generated);
+  const composed = WorkspaceLoader.load(root).config;
   const materialized = new Map<string, PipelineConfig>();
   for (const spec of DEMO_EPICS) {
-    materialized.set(spec.id, assemblePipeline(generated, {
+    materialized.set(spec.id, assemblePipeline(composed, {
       recipeId: spec.pipeline,
       pipelineId: `${spec.id}-PIPELINE`,
     }));
   }
-  writeYaml(root, {
-    ...generated,
-    description: 'Built-in CoFoFo workflow set: Foundation source + Delivery source with Feature/Bugfix recipes. Demo scenarios live only as immutable run snapshots.',
-  } as unknown as YamlDocument);
-
-  const activeFoundation = seedActiveFoundation(root, extensionPath);
   // Derived, never hard-coded: `create-plan` is gated on citing every *current*
   // blocking ruleId, so a fixture that lists invented ids dead-ends the moment
   // a human reruns the phase. Reading them back from the rules this seed just
@@ -367,7 +370,11 @@ export function seedCofofoWeatherDemo(root: string, extensionPath: string): void
  * runtime validates. Delivery examples can therefore pin a context that
  * genuinely exists instead of depending on an unfinished demo Epic.
  */
-function seedActiveFoundation(root: string, extensionPath: string): CofofoFoundationSnapshot {
+function seedActiveFoundation(
+  root: string,
+  extensionPath: string,
+  skeleton: WorkspaceConfig,
+): CofofoFoundationSnapshot {
   const revision = 2;
   const detectedAt = isoOffset(-119.9);
   const rulesAt = isoOffset(-119.4);
@@ -380,6 +387,7 @@ function seedActiveFoundation(root: string, extensionPath: string): CofofoFounda
   const rulesJson = path.join(foundationDir, 'PROJECT-RULES.json');
   const architecturePath = path.join(foundationDir, 'ARCHITECTURE-MAP.md');
   const installedPath = path.join(foundationDir, 'INSTALLED-ASSETS.json');
+  const bundleBindingPath = path.join(foundationDir, 'BUNDLE-BINDING.json');
   const providerContextPath = path.join(foundationDir, 'PROVIDER-CONTEXT.md');
   const contextPath = path.join(foundationDir, 'CONTEXT-MANIFEST.json');
 
@@ -434,23 +442,46 @@ function seedActiveFoundation(root: string, extensionPath: string): CofofoFounda
     '', 'Only audited Markdown agents/skills are installed; executable assets and runtime network fetches are rejected.', '',
   ].join('\n'));
 
-  const managed = [
-    '<!-- aidlc:cofofo-context start -->',
-    `Foundation revision: ${revision}`,
-    'Canonical policy: docs/project/foundation/PROJECT-RULES.json',
-    'Architecture map: docs/project/foundation/ARCHITECTURE-MAP.md',
-    'Stack profile: docs/project/foundation/STACK-PROFILE.json',
-    '',
-    'Every delivery run pins this revision and manifest hash before requirement work begins.',
-    '<!-- aidlc:cofofo-context end -->',
-  ].join('\n');
-  writeFile(providerContextPath, `# CoFoFo Provider Context\n\n${managed}\n`);
+  const selection = selectCatalog(profile);
+  if (!selection) {
+    throw new Error('SkyCast demo requires an audited Swift catalog selection.');
+  }
+  const binding = buildBundleBinding({ selection, installed, foundationRevision: revision });
+  writeJson(bundleBindingPath, binding);
+
+  const workspace = composeWorkspaceFromBundle({
+    workspaceRoot: root,
+    skeleton: {
+      ...skeleton,
+      description: 'Built-in CoFoFo workflow set: Foundation source + Delivery source with Feature/Bugfix recipes. Demo scenarios live only as immutable run snapshots.',
+    },
+    binding,
+    installed,
+  });
+  writeYaml(root, workspace as unknown as YamlDocument);
+
+  const bindingHash = hashFile(bundleBindingPath);
+  const providerContext = renderProviderContext({
+    foundationRevision: revision,
+    stackId: profile.stack.id,
+    catalogRevision: installed.catalogRevision,
+    binding,
+    rulesJsonPath: 'docs/project/foundation/PROJECT-RULES.json',
+    architecturePath: 'docs/project/foundation/ARCHITECTURE-MAP.md',
+    stackProfilePath: 'docs/project/foundation/STACK-PROFILE.json',
+    bundleBindingPath: COFOFO_BUNDLE_BINDING_PATH,
+  });
+  writeFile(providerContextPath, `${providerContext}\n`);
 
   // The context manifest trusts bytes, not filesystem timestamps. A clone
   // assigns fresh mtimes even when every canonical artifact is unchanged.
-  const contextArtifacts = [stackJson, rulesJson, architecturePath, installedPath, providerContextPath];
+  const contextArtifacts = [
+    stackJson, rulesJson, architecturePath, installedPath, bundleBindingPath, providerContextPath,
+  ];
   const draft = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
+    bindingPath: COFOFO_BUNDLE_BINDING_PATH,
+    bindingHash,
     foundationRevision: revision,
     catalogRevision: installed.catalogRevision,
     stackId: profile.stack.id,
@@ -475,23 +506,25 @@ function seedActiveFoundation(root: string, extensionPath: string): CofofoFounda
     publishedAt,
   });
 
-  const activatedManaged = managed.replace(
-    'Canonical policy:',
-    `Context hash: ${manifest.contentHash}\nCanonical policy:`,
-  );
-  writeManagedContext(path.join(root, 'CLAUDE.md'), activatedManaged);
-  writeManagedContext(path.join(root, 'AGENTS.md'), activatedManaged);
-  writeManagedContext(path.join(root, '.cursor', 'rules', 'cofofo.md'), activatedManaged);
-  writeManagedContext(path.join(root, '.opencode', 'instructions', 'cofofo.md'), activatedManaged);
+  const managedBlock = [
+    '<!-- aidlc:cofofo-context start -->',
+    providerContext,
+    '<!-- aidlc:cofofo-context end -->',
+  ].join('\n');
+  writeManagedContext(path.join(root, 'CLAUDE.md'), managedBlock);
+  writeManagedContext(path.join(root, 'AGENTS.md'), managedBlock);
+  writeManagedContext(path.join(root, '.cursor', 'rules', 'cofofo.md'), managedBlock);
+  writeManagedContext(path.join(root, '.opencode', 'instructions', 'cofofo.md'), managedBlock);
   writeFile(path.join(root, 'docs', 'README.md'), [
-    '# Project Documentation', '', activatedManaged, '',
+    '# Project Documentation', '', managedBlock, '',
     'Reading order:',
     '1. `docs/project/foundation/CONTEXT-MANIFEST.json`',
     '2. `docs/project/foundation/PROJECT-RULES.md`',
     '3. `docs/project/foundation/ARCHITECTURE-MAP.md`',
+    '4. `docs/project/foundation/BUNDLE-BINDING.json`',
     '',
   ].join('\n'));
-  installCofofoProviderCommands(root, WorkspaceLoader.load(root).config, manifest.contentHash);
+  installCofofoProviderCommands(root, workspace, manifest.contentHash);
 
   const inspected = new CofofoFoundationService(root).requireReady();
   return { ...inspected, capturedAt: activatedAt };

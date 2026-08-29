@@ -63,6 +63,51 @@ export function selectCatalog(profile: StackProfile): CofofoCatalogSelection | n
   };
 }
 
+export interface CofofoBindingTemplate {
+  roles: Record<string, string[]>;
+  phases: Record<string, string[]>;
+}
+
+const IOS_SWIFT_BINDING: CofofoBindingTemplate = {
+  roles: {
+    developer: ['ecc-tdd-workflow', 'ecc-swift-protocol-di-testing', 'ecc-tdd-guide'],
+    'fresh-reviewer': ['ecc-security-review', 'ecc-swift-reviewer'],
+  },
+  phases: {
+    reproduce: ['ecc-tdd-workflow'],
+    implement: ['ecc-tdd-workflow', 'ecc-swift-protocol-di-testing'],
+    test: ['ecc-security-review'],
+  },
+};
+
+const BINDING_BY_STACK: Partial<Record<CofofoStackId, CofofoBindingTemplate>> = {
+  'ios-swift': IOS_SWIFT_BINDING,
+};
+
+/**
+ * Phase/role ECC skill map for a catalog selection. Agent markdown assets are
+ * attached to CoFoFo roles as skill ids; pipeline steps still call cofofo-* agents.
+ */
+export function bindingForSelection(selection: CofofoCatalogSelection): CofofoBindingTemplate {
+  const template = BINDING_BY_STACK[selection.stackId];
+  if (!template) {
+    throw new Error(`No bundle binding map is defined for stack "${selection.stackId}".`);
+  }
+  const allowed = new Set(selection.assets.map((asset) => asset.id));
+  const filter = (ids: string[]) => ids.filter((id) => allowed.has(id));
+  const roles: Record<string, string[]> = {};
+  for (const [role, ids] of Object.entries(template.roles)) {
+    const filtered = filter(ids);
+    if (filtered.length) roles[role] = filtered;
+  }
+  const phases: Record<string, string[]> = {};
+  for (const [phase, ids] of Object.entries(template.phases)) {
+    const filtered = filter(ids);
+    if (filtered.length) phases[phase] = filtered;
+  }
+  return { roles, phases };
+}
+
 export function commandSpec(selection: CofofoCatalogSelection, commandId: string): CofofoCommandSpec {
   const found = selection.commands.find((command) => command.id === commandId);
   if (!found) {

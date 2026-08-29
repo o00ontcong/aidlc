@@ -134,8 +134,7 @@ export const ContextArtifactSchema = z.object({
   sha256: Sha256Schema,
 }).strict();
 
-export const ContextManifestSchema = z.object({
-  schemaVersion: z.literal(1),
+const ContextManifestBaseSchema = {
   foundationRevision: z.number().int().positive(),
   catalogRevision: z.string().regex(/^[a-f0-9]{40}$/),
   stackId: CofofoStackIdSchema,
@@ -143,8 +142,52 @@ export const ContextManifestSchema = z.object({
   artifacts: z.array(ContextArtifactSchema).min(4),
   providers: z.array(z.enum(['claude', 'cursor', 'codex', 'opencode'])).min(1),
   contentHash: Sha256Schema,
+};
+
+export const ContextManifestV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  ...ContextManifestBaseSchema,
 }).strict();
+
+export const ContextManifestV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  bindingPath: RelativePathSchema,
+  bindingHash: Sha256Schema,
+  ...ContextManifestBaseSchema,
+}).strict();
+
+/** Accepts v1 manifests from earlier milestones and v2 with bundle binding metadata. */
+export const ContextManifestSchema = z.discriminatedUnion('schemaVersion', [
+  ContextManifestV1Schema,
+  ContextManifestV2Schema,
+]);
 export type ContextManifest = z.infer<typeof ContextManifestSchema>;
+export type ContextManifestV1 = z.infer<typeof ContextManifestV1Schema>;
+export type ContextManifestV2 = z.infer<typeof ContextManifestV2Schema>;
+
+export const BundleBindingSkillSchema = z.object({
+  id: z.string().min(1),
+  path: RelativePathSchema,
+  sha256: Sha256Schema,
+}).strict();
+
+export const BundleBindingCommandSchema = z.object({
+  id: z.string().min(1),
+  executable: z.string().min(1),
+  args: z.array(z.string()),
+}).strict();
+
+export const BundleBindingSchema = z.object({
+  schemaVersion: z.literal(1),
+  foundationRevision: z.number().int().positive(),
+  stackId: CofofoStackIdSchema,
+  catalogRevision: z.string().regex(/^[a-f0-9]{40}$/),
+  roles: z.record(z.string().min(1), z.array(z.string().min(1))),
+  phases: z.record(z.string().min(1), z.array(z.string().min(1))),
+  skills: z.array(BundleBindingSkillSchema).min(1),
+  commands: z.array(BundleBindingCommandSchema).min(1),
+}).strict();
+export type BundleBinding = z.infer<typeof BundleBindingSchema>;
 
 export const CofofoFoundationStateSchema = z.object({
   schemaVersion: z.literal(1),

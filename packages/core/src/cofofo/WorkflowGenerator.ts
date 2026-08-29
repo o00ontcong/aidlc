@@ -118,15 +118,10 @@ function agents(): WorkspaceConfig['agents'] {
   const roles = [...new Set(Object.values(ROLE_BY_PHASE))];
   return roles.map((role) => {
     const rolePhases = PHASES.filter((phase) => ROLE_BY_PHASE[phase] === role);
-    const extra = role === 'developer'
-      ? ['ecc-tdd-workflow', 'ecc-swift-protocol-di-testing']
-      : role === 'fresh-reviewer'
-        ? ['ecc-security-review']
-        : [];
     return {
       id: `cofofo-${role}`,
       name: role.split('-').map((part) => part[0]!.toUpperCase() + part.slice(1)).join(' '),
-      skills: [...rolePhases.map(skillId), ...extra],
+      skills: rolePhases.map(skillId),
       model: role.includes('review') || role.includes('architect') ? 'claude-opus-5' : 'claude-sonnet-5',
       runner: 'default' as const,
       capabilities: ['files'],
@@ -148,11 +143,6 @@ function step(phase: Phase, value: Record<string, unknown>): WorkspaceConfig['pi
 
 export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): WorkspaceConfig {
   const generatedSkills: WorkspaceConfig['skills'] = PHASES.map((phase) => ({ id: skillId(phase), path: skillPath(phase) }));
-  generatedSkills.push(
-    { id: 'ecc-tdd-workflow', path: '.aidlc/cofofo/vendor/ecc/skills/tdd-workflow.md' },
-    { id: 'ecc-swift-protocol-di-testing', path: '.aidlc/cofofo/vendor/ecc/skills/swift-protocol-di-testing.md' },
-    { id: 'ecc-security-review', path: '.aidlc/cofofo/vendor/ecc/skills/security-review.md' },
-  );
 
   const foundation = {
     id: 'cofofo-foundation', on_failure: 'stop' as const,
@@ -162,7 +152,7 @@ export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): Wo
       step('map-system', { requires: [`${FOUNDATION}/STACK-PROFILE.json`, `${FOUNDATION}/PROJECT-RULES.json`], produces: [`${FOUNDATION}/ARCHITECTURE-MAP.md`], produces_contains: ['## Layer Map'], depends_on: ['define-rules'] }),
       step('select-ecc-catalog', { requires: [`${FOUNDATION}/STACK-PROFILE.json`], produces: [`${FOUNDATION}/ECC-CATALOG-SELECTION.md`], produces_contains: ['## Approved Text Assets'], human_review: true, review: { mode: 'canvas', artifacts: [`${FOUNDATION}/ECC-CATALOG-SELECTION.md`] }, depends_on: ['map-system'] }),
       step('install-ecc-assets', { requires: [`${FOUNDATION}/ECC-CATALOG-SELECTION.md`, `${FOUNDATION}/PROJECT-RULES.json`], produces: [`${FOUNDATION}/INSTALLED-ASSETS.json`], produces_contains: ['catalogRevision'], depends_on: ['select-ecc-catalog'] }),
-      step('publish-context', { requires: [`${FOUNDATION}/ARCHITECTURE-MAP.md`, `${FOUNDATION}/PROJECT-RULES.json`, `${FOUNDATION}/INSTALLED-ASSETS.json`], produces: [`${FOUNDATION}/CONTEXT-MANIFEST.json`, 'docs/README.md', `${FOUNDATION}/PROVIDER-CONTEXT.md`], produces_contains: ['foundationRevision', 'CoFoFo Provider Context'], human_review: true, review: { mode: 'canvas', artifacts: ['docs/README.md', `${FOUNDATION}/PROVIDER-CONTEXT.md`] }, depends_on: ['install-ecc-assets'] }),
+      step('publish-context', { requires: [`${FOUNDATION}/ARCHITECTURE-MAP.md`, `${FOUNDATION}/PROJECT-RULES.json`, `${FOUNDATION}/INSTALLED-ASSETS.json`], produces: [`${FOUNDATION}/CONTEXT-MANIFEST.json`, `${FOUNDATION}/BUNDLE-BINDING.json`, 'docs/README.md', `${FOUNDATION}/PROVIDER-CONTEXT.md`], produces_contains: ['foundationRevision', 'CoFoFo Provider Context'], human_review: true, review: { mode: 'canvas', artifacts: ['docs/README.md', `${FOUNDATION}/PROVIDER-CONTEXT.md`] }, depends_on: ['install-ecc-assets'] }),
     ],
   };
 

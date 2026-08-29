@@ -129,6 +129,8 @@ export function installCatalog(args: {
   force?: boolean;
   catalogRoot?: string;
   now?: string;
+  /** Optional post-install hook; publish composes workspace from the binding. */
+  onInstalled?: (manifest: InstalledAssetsManifest) => void;
 }): InstalledAssetsManifest {
   const root = fs.realpathSync(path.resolve(args.workspaceRoot));
   const preview = previewCatalogInstall({
@@ -143,11 +145,13 @@ export function installCatalog(args: {
   if (!selection) {
     throw new CofofoInstallError(`No audited CoFoFo catalog is available for ${args.profile.stack?.id ?? 'this repository'}.`);
   }
-  return installSelection(root, selection, args.foundationRevision, {
+  const manifest = installSelection(root, selection, args.foundationRevision, {
     force: args.force,
     catalogRoot: args.catalogRoot ?? builtinCofofoCatalogRoot(),
     now: args.now ?? new Date().toISOString(),
   });
+  args.onInstalled?.(manifest);
+  return manifest;
 }
 
 function installSelection(
