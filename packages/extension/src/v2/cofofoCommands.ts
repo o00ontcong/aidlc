@@ -20,6 +20,8 @@ import {
   recordBugReport,
   scaffoldEpic,
   startRun,
+  formatCofofoBugReport,
+  COFOFO_BUG_REPORT_FILENAME,
   type FoundationRoute,
   type PipelineConfig,
   type RunState,
@@ -308,15 +310,6 @@ export async function captureCofofoEvidenceCommand(): Promise<void> {
 
 type BugReportFields = { did: string; observed: string; expected: string };
 
-function formatBugReport(fields: BugReportFields): string {
-  return [
-    '# Bug Report', '',
-    '## What I Did', '', fields.did.trim(), '',
-    '## What I Observed', '', fields.observed.trim(), '',
-    '## What I Expected', '', fields.expected.trim(), '',
-  ].join('\n');
-}
-
 async function promptBugReport(): Promise<BugReportFields | undefined> {
   const did = await vscode.window.showInputBox({ prompt: 'Báo lỗi — bạn đã làm gì?', ignoreFocusOut: true });
   if (did === undefined || !did.trim()) return undefined;
@@ -349,11 +342,11 @@ export async function reportCofofoBugCommand(
     ? supplied as BugReportFields
     : await promptBugReport();
   if (!fields) return;
-  const report = formatBugReport(fields);
+  const report = formatCofofoBugReport(fields);
 
   try {
     if (state.status !== 'completed') {
-      const next = recordBugReport({ state, report });
+      const next = recordBugReport({ state, report, workspaceRoot: root, pipeline });
       RunStateStore.save(root, next);
       const doc = readYaml(root);
       if (doc) mirrorRunStateToEpic(root, next, doc);
@@ -387,7 +380,7 @@ export async function reportCofofoBugCommand(
       pipeline: bugfix,
       relatesTo,
     });
-    fs.writeFileSync(path.join(result.artifactsDir, 'BUG-REPORT.md'), report, 'utf8');
+    fs.writeFileSync(path.join(result.artifactsDir, COFOFO_BUG_REPORT_FILENAME), report, 'utf8');
     if (result.runState) {
       const next = { ...result.runState, relatesTo };
       RunStateStore.save(root, next);
@@ -409,14 +402,16 @@ export async function cofofoDoctorCommand(): Promise<void> {
   const snapshotIssues = RunStateStore.list(root).flatMap((run) => {
     const current = source?.find((pipeline) => pipeline.id === run.pipelineId);
     return lostCofofoGateSnapshotIssues({ state: run, sourcePipeline: current })
-      .map((issue) => `${run.runId}: ${issue}`);
+      .map((issue) => `${run.runId}: ${issue} — start a new CoFoFo run; this snapshot predates a workflow gate upgrade`);
   });
   const issues = [...inspection.issues, ...snapshotIssues];
   if (issues.length === 0 && inspection.status === 'ready') {
     void vscode.window.showInformationMessage('CoFoFo workspace khỏe mạnh; không cần sửa gì.');
     return;
   }
-  const repair = inspection.nextAction || 'Mở một run mới nếu snapshot cũ đã mất gate.';
+  const repair = snapshotIssues.length > 0
+    ? 'Các run bị ảnh hưởng cần epic/recipe mới — snapshot cũ không có gate Canvas/evidence mới.'
+    : (inspection.nextAction || 'Mở một run mới nếu snapshot cũ đã mất gate.');
   void vscode.window.showWarningMessage(
     `CoFoFo doctor: ${issues.length || 1} vấn đề. ${repair}`,
     { modal: true, detail: issues.map((issue) => `• ${issue}`).join('\n') || 'Foundation chưa sẵn sàng.' },

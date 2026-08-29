@@ -37,6 +37,7 @@ import type { ReviewBundle } from './ArtifactReview';
 import { checkBundleCurrent } from './ArtifactReview';
 import { snapshotPipeline } from './PipelineSnapshot';
 import { CofofoFoundationService } from '../cofofo/FoundationService';
+import { persistCofofoBugReportArtifact } from '../cofofo/bugReport';
 import { requireAcceptedEvidence } from '../cofofo/EvidenceLedger';
 import { ProjectRulesSchema, StackProfileSchema } from '../cofofo/contracts';
 import {
@@ -309,7 +310,7 @@ export function canStartStep(args: {
   const epicsDir = activeEpicsDir(workspaceRoot);
   const missing: string[] = [];
   for (const issue of lostCofofoGateSnapshotIssues({ state, sourcePipeline: args.sourcePipeline })) {
-    missing.push(`(unsafe CoFoFo snapshot) ${issue}; start a new run`);
+    missing.push(`(unsafe CoFoFo snapshot) ${issue}; start a new CoFoFo run — this snapshot predates a workflow gate upgrade`);
   }
   for (const issue of cofofoFoundationIssues({ state, pipeline, workspaceRoot })) {
     missing.push(foundationRecovery(issue) === 'rebase'
@@ -1160,6 +1161,9 @@ export function recordBugReport(args: {
   report: string;
   /** Step receiving the report. Defaults to `state.currentStepIdx`. */
   stepIdx?: number;
+  /** When set with `pipeline`, mirrors the report to BUG-REPORT.md for diagnose. */
+  workspaceRoot?: string;
+  pipeline?: PipelineConfig;
 }): RunState {
   const report = args.report.trim();
   if (!report) {
@@ -1201,6 +1205,14 @@ export function recordBugReport(args: {
   };
   next.currentStepIdx = idx;
   next.status = 'running';
+  if (args.workspaceRoot && args.pipeline) {
+    persistCofofoBugReportArtifact({
+      workspaceRoot: args.workspaceRoot,
+      state: next,
+      pipeline: args.pipeline,
+      report,
+    });
+  }
   return next;
 }
 

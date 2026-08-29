@@ -238,6 +238,7 @@ import {
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
+  isCofofoSourcePipelineId,
 } from '@aidlc/core';
 import { jiraCredentials, verifyAndStoreJiraCredentials } from './jiraCredentials';
 import { jiraSprintService } from './jiraSprintService';
@@ -878,6 +879,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const agents = mergeAgents(doc, root, discovered.agents);
   const skills = mergeSkills(doc, root, discovered.skills);
   const pipelines: PipelineSummary[] = doc.pipelines
+    .filter((p) => !isCofofoSourcePipelineId(String(p.id)))
     .map((p) => ({
     id: String(p.id),
     on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
@@ -4409,6 +4411,12 @@ export class WorkspaceWebview {
     // Auto-scaffold agents/skills/workspace.yaml when a built-in pipeline is
     // selected — covers SDLC plus the 7 stack-specialized workflows.
     if (targetKind === 'pipeline') {
+      if (isCofofoSourcePipelineId(targetId)) {
+        void vscode.window.showErrorMessage(
+          `AIDLC: pipeline "${targetId}" is a CoFoFo template. Start a cofofo-feature or cofofo-bugfix recipe instead.`,
+        );
+        return;
+      }
       const builtinWorkflow = getBuiltinWorkflowByPipelineId(targetId);
       if (builtinWorkflow) { this.ensureBuiltinInWorkspace(root, builtinWorkflow); }
     }

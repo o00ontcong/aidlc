@@ -24,6 +24,7 @@ import { startRun } from './PipelineRunner';
 import { RunStateStore } from './RunStateStore';
 import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
+import { formatCofofoBugReportFromEpic, pipelineIncludesDiagnose, writeCofofoBugReportFile } from '../cofofo/bugReport';
 import type { FoundationSnapshot } from '../contracts/foundation';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
@@ -233,6 +234,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   fs.mkdirSync(epicDir, { recursive: true });
   const artifactsDir = path.join(epicDir, 'artifacts');
   fs.mkdirSync(artifactsDir, { recursive: true });
+  const resolvedDescription = description;
 
   // Seed artifacts/ from .aidlc/aidlc-templates/<pipelineId>/ so the agents
   // have a structured starting point.
@@ -249,9 +251,13 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
       }
     }
 
+    if (pipeline && pipelineIncludesDiagnose(pipeline)) {
+      writeCofofoBugReportFile(
+        artifactsDir,
+        formatCofofoBugReportFromEpic({ title, description: resolvedDescription }),
+      );
+    }
   }
-
-  const resolvedDescription = description;
 
   const initialState = {
     id: epicId,

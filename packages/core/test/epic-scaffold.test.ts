@@ -8,6 +8,7 @@ import {
   recipePipelineId,
   slugEpicId,
   RunStateStore,
+  COFOFO_BUG_REPORT_FILENAME,
   type PipelineConfig,
 } from '../src';
 
@@ -170,6 +171,32 @@ describe('scaffoldEpic — on-disk layout', () => {
       inputs: {},
       pipeline: PIPELINE,
     })).toThrow(/already exists/);
+  });
+
+  it('seeds BUG-REPORT.md when scaffolding a pipeline that includes diagnose', () => {
+    const root = tmpRoot();
+    const bugfixLike: PipelineConfig = {
+      id: 'bugfix-like',
+      on_failure: 'stop',
+      steps: [
+        { agent: 'po', name: 'requirement', requires: [], produces: [], depends_on: [], human_review: false, auto_review: false, enabled: true },
+        { agent: 'dev', name: 'diagnose', requires: [], produces: [], depends_on: ['requirement'], human_review: true, auto_review: false, enabled: true },
+      ],
+    };
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: { state: { root: 'docs/epics' } },
+      epicId: 'BUG-1',
+      title: 'Stale forecast after timezone change',
+      description: 'Forecast shows yesterday after switching timezone.',
+      target: { kind: 'pipeline', id: 'bugfix-like' },
+      agents: ['po', 'dev'],
+      inputs: {},
+      pipeline: bugfixLike,
+    });
+    const reportPath = path.join(root, 'docs/epics', 'BUG-1', 'artifacts', COFOFO_BUG_REPORT_FILENAME);
+    expect(fs.existsSync(reportPath)).toBe(true);
+    expect(fs.readFileSync(reportPath, 'utf8')).toContain('timezone');
   });
 
 });

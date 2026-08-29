@@ -4,7 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 
 import {
-  FoundationNotReadyError,
   ProjectFoundationService,
   ShapeService,
   type PipelineConfig,
@@ -26,15 +25,17 @@ const PIPELINE: PipelineConfig = {
 };
 
 describe('Discovery Foundation and Shape lifecycle', () => {
-  it('requires a published, current Foundation before a Shape can exist', () => {
+  it('allows capturing a Shape before Foundation is ready but blocks readiness until context is published', () => {
     const rootDir = root();
     const foundation = new ProjectFoundationService(rootDir, () => '2026-08-24T00:00:00.000Z', () => 'commit-a');
     const shapes = new ShapeService(rootDir, { clock: () => '2026-08-24T00:00:00.000Z', foundation });
-    expect(() => shapes.create({ title: 'Improve onboarding', problem: 'Users get lost.' })).toThrow(FoundationNotReadyError);
+    const created = shapes.create({ title: 'Improve onboarding', problem: 'Users get lost.' });
+    expect(created.foundation.revision).toBe(0);
+    expect(shapes.readiness(created).ready).toBe(false);
 
     writeFoundation(rootDir);
-    const published = foundation.publish();
-    expect(published.revision).toBe(0);
+    foundation.publish();
+    expect(shapes.readiness(created).blockers.some((item) => /Project Foundation changed/i.test(item))).toBe(true);
     expect(foundation.inspect().status).toBe('ready');
     fs.appendFileSync(path.join(rootDir, 'DECISIONS.md'), 'Changed\n');
     expect(foundation.inspect().status).toBe('stale');

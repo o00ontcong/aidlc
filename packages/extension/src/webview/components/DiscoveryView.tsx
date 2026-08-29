@@ -67,8 +67,7 @@ export function DiscoveryView({ state, selectedShapeId, onSelectShape }: Props) 
             <button
               type="button"
               onClick={() => setCreating(true)}
-              disabled={state.foundation?.status !== 'ready'}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
             >
               <Plus className="h-3.5 w-3.5" /> {copy.startIdea}
             </button>
@@ -101,8 +100,7 @@ export function DiscoveryView({ state, selectedShapeId, onSelectShape }: Props) 
               <button
                 type="button"
                 onClick={() => setCreating(true)}
-                disabled={state.foundation?.status !== 'ready'}
-                className="mt-3 rounded-md bg-primary px-3 py-2 text-[10.5px] font-semibold text-primary-foreground disabled:opacity-50"
+                className="mt-3 rounded-md bg-primary px-3 py-2 text-[10.5px] font-semibold text-primary-foreground"
               >
                 {copy.startIdea}
               </button>

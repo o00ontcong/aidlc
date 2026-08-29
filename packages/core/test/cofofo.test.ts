@@ -8,6 +8,7 @@ import {
   RunStateStore,
   WorkspaceLoader,
   applyArtifactReviewVerdict,
+  assemblePipeline,
   buildReviewBundle,
   canStartStep,
   detectStack,
@@ -16,6 +17,7 @@ import {
   hashFile,
   installCatalog,
   markStepDone,
+  normalizeStep,
   previewCatalogInstall,
   rebaseRunToCurrentFoundation,
   resolveInside,
@@ -111,11 +113,16 @@ describe('CoFoFo stack detection and policy', () => {
     expect(foundationPipelineForRoute(pipeline, 'repin-bundle').steps.map((step) => typeof step === 'string' ? step : step.name))
       .toEqual(['select-ecc-catalog', 'install-ecc-assets', 'publish-context']);
     const delivery = workspace.pipelines.find((item) => item.id === 'cofofo-delivery')!;
+    const requirement = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'requirement') as { human_review?: boolean; review?: { artifacts: string[] } };
     const red = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'test-red') as { human_review?: boolean; review?: { artifacts: string[] } };
     const diagnose = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'diagnose') as { requires?: string[]; produces_contains?: string[] };
+    expect(requirement).toMatchObject({ human_review: true, review: { artifacts: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'] } });
     expect(red).toMatchObject({ human_review: true, review: { artifacts: ['docs/epics/{epic}/artifacts/RED-EVIDENCE.md'] } });
     expect(diagnose.requires).toContain('docs/epics/{epic}/artifacts/BUG-REPORT.md');
     expect(diagnose.produces_contains).toContain('## Resume From');
+    const feature = assemblePipeline(workspace, { recipeId: 'cofofo-feature', pipelineId: 'FEATURE-1' });
+    const assembledRequirement = feature.steps.find((step) => normalizeStep(step).name === 'requirement');
+    expect(normalizeStep(assembledRequirement!).review?.artifacts).toContain('docs/epics/{epic}/artifacts/REQUIREMENT.md');
   });
 
   it('previews installs without writing, detects drift, and restores a rollback backup', () => {

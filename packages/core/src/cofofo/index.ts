@@ -8,4 +8,5 @@ export * from './RuleEngine';
 export * from './EvidenceLedger';
 export * from './WorkflowGenerator';
 export * from './FoundationService';
+export * from './bugReport';
 

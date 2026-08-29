@@ -106,6 +106,19 @@ export class ShapeService {
   }
   private readonly clock: () => string;
 
+  /** Bind a ready Foundation when available; otherwise record an unbound placeholder. */
+  private captureFoundationSnapshot(): FoundationSnapshot {
+    const inspection = this.foundation.inspect();
+    if (inspection.status === 'ready' && inspection.foundation) {
+      return inspection.foundation;
+    }
+    return {
+      revision: 0,
+      contentHash: '0'.repeat(64),
+      publishedAt: this.clock(),
+    };
+  }
+
   list(): Shape[] { return this.store.list(); }
   get(id: string): Shape | null { return this.store.load(id); }
   require(id: string): Shape { return this.store.require(id); }
@@ -116,7 +129,7 @@ export class ShapeService {
   }
 
   create(input: CreateShapeInput): Shape {
-    const foundation = this.foundation.requireReady();
+    const foundation = this.captureFoundationSnapshot();
     const id = input.id?.trim() || this.nextId();
     if (!/^SHAPE-\d{3,}$/.test(id)) throw new ShapeStateError('Shape id must use SHAPE-nnn format.');
     if (this.store.load(id)) throw new ShapeStateError(`Shape ${id} already exists.`);
