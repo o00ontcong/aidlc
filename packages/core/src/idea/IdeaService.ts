@@ -12,6 +12,7 @@ import {
   type IdeaFoundationSnapshot,
   type IdeaQuestion,
   type IdeaRouteDraft,
+  type IdeaRouteStep,
   type IdeaSelfAnswered,
 } from '../contracts/idea';
 import { epicsRoot, scaffoldEpic, type ScaffoldEpicArgs, type ScaffoldEpicResult } from '../runs/EpicScaffold';
@@ -46,7 +47,7 @@ export interface ResolvedRouteStep {
   epicId: string;
   epicTitle: string;
   pipeline: PipelineConfig;
-  scaffold: Omit<ScaffoldEpicArgs, 'workspaceRoot' | 'epicId' | 'title' | 'description' | 'target' | 'pipeline' | 'ideaProvenance'>;
+  scaffold: Omit<ScaffoldEpicArgs, 'workspaceRoot' | 'epicId' | 'title' | 'description' | 'target' | 'pipeline' | 'ideaProvenance' | 'doc'>;
 }
 
 export class IdeaStateError extends Error {
@@ -401,11 +402,34 @@ export class IdeaService {
     }
 
     if (routeDraft.steps.length === 0) throw new IdeaStateError('An epics-outcome route needs at least one step.');
-    const next: Idea = { ...current, routeDraft, checkpoint: 'route_proposed', routeConfirmed: false, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+    // Whether CONTEXT-MANIFEST.json is still current is a fact, not a
+    // judgment call — checked here deterministically rather than trusted
+    // from the routing agent's own read of the file, so a bootstrap
+    // requirement can never be argued or hallucinated away (flow graph's
+    // `fcheck` decision node, downstream of the agent's `route` step).
+    const draftWithBootstrap = this.withBootstrapIfStale(current, routeDraft);
+    const next: Idea = { ...current, routeDraft: draftWithBootstrap, checkpoint: 'route_proposed', routeConfirmed: false, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
     this.store.save(next, current.ideaRevision);
     writeFileAtomic(path.join(docsIdeaDir(this.workspaceRoot, id), 'ROUTE.md'), renderRouteMarkdown(next));
     this.record(next, 'route_generated', actor);
     return next;
+  }
+
+  private withBootstrapIfStale(idea: Idea, routeDraft: IdeaRouteDraft): IdeaRouteDraft {
+    if (routeDraft.steps[0]?.recipeId === 'cofofo-bootstrap') return routeDraft;
+    const inspection = this.foundation.inspect();
+    const current = inspection.status === 'ready' ? inspection.snapshot : undefined;
+    const stale = !current
+      || !idea.foundationHashAtCapture
+      || current.revision !== idea.foundationHashAtCapture.revision
+      || current.manifestHash !== idea.foundationHashAtCapture.manifestHash;
+    if (!stale) return routeDraft;
+    const bootstrap: IdeaRouteStep = {
+      recipeId: 'cofofo-bootstrap',
+      epicTitle: 'CoFoFo Foundation bootstrap',
+      rationale: 'CONTEXT-MANIFEST.json is missing or out of date — every other step in this route requires it.',
+    };
+    return { ...routeDraft, steps: [bootstrap, ...routeDraft.steps] };
   }
 
   /**
@@ -480,6 +504,31 @@ export class IdeaService {
     };
     this.store.save(next, reloaded.ideaRevision);
     this.record(next, 'scaffolded', actor, children.map((c) => c.epicId).join(', '));
+    return next;
+  }
+
+  /**
+   * Records that something outside the checkpoint state machine needs
+   * attention — today, only a routing-agent failure (there is no `preparing`-
+   * style sub-status for routing to fail into). Rule 4 of the audit: blocked
+   * is never deleted, and a retry clears it the same way a successful
+   * `generateRoute` call does — by simply not being blocked anymore.
+   */
+  setBlocked(id: string, expectedRevision: number, reason: string, actor: ActorRef): Idea {
+    const current = this.require(id);
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    const next: Idea = { ...current, blockedReason: reason, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+    this.store.save(next, current.ideaRevision);
+    this.record(next, 'route_failed', actor, reason);
+    return next;
+  }
+
+  clearBlocked(id: string, expectedRevision: number, actor: ActorRef): Idea {
+    const current = this.require(id);
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    if (!current.blockedReason) return current;
+    const next: Idea = { ...current, blockedReason: undefined, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+    this.store.save(next, current.ideaRevision);
     return next;
   }
 

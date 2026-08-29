@@ -282,9 +282,11 @@ import { buildProviderConfigUi, getProviderConfigStore, type ProviderConfigUi } 
 import {
   runSlashCommandWithProvider,
   buildIdeaPrepPrompt,
+  buildIdeaRoutePrompt,
   buildHeadlessAnalysisInvocation,
 } from './providerRunService';
 import { extractJsonObject, readIdeaPrepResult } from './ideaPrepResult';
+import { readIdeaRouteResult } from './ideaRouteResult';
 import type {
   PipelineStepConfig,
   AssetScope,
@@ -295,6 +297,7 @@ import type {
   StepStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
+  ResolvedRouteStep,
 } from '@aidlc/core';
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
@@ -2142,10 +2145,15 @@ export class WorkspaceWebview {
       const result = readIdeaPrepResult(extractJsonObject(stdout));
       const current = ideas.require(ideaId);
       if (current.checkpoint !== 'preparing') return; // superseded by a restart/patchSeed while the agent was running
-      ideas.completePrep(ideaId, current.ideaRevision, {
+      const done = ideas.completePrep(ideaId, current.ideaRevision, {
         selfAnswered: result.selfAnswered.map((entry) => ({ ...entry, flagged: false })),
         questions: result.questions,
       }, { kind: 'agent', id: 'idea-prep-agent' });
+      this.refresh();
+      // Zero surviving questions (the gate rule skipped the batch entirely) —
+      // straight through to routing, same as after a human submits a batch.
+      if (done.checkpoint === 'intent_drafted') void this.runIdeaRoute(root, ideaId);
+      return;
     } catch (error) {
       try {
         const current = ideas.require(ideaId);
@@ -2154,6 +2162,57 @@ export class WorkspaceWebview {
         }
       } catch {
         // The Idea was deleted/restarted concurrently — nothing left to mark failed.
+      }
+    }
+    this.refresh();
+  }
+
+  /**
+   * Run the Idea routing agent: classify the confirmed intent into one of
+   * the six CoFoFo recipes (or a clean close), per
+   * docs/design/ideas-tab/ideas-redesign-cofofo.canvas.tsx. Whether
+   * `cofofo-bootstrap` needs to be prepended is decided deterministically
+   * inside `IdeaService.generateRoute`, never by this agent.
+   */
+  private async runIdeaRoute(root: string, ideaId: string): Promise<void> {
+    const ideas = new IdeaService(root);
+    const idea = ideas.get(ideaId);
+    if (!idea || idea.checkpoint !== 'intent_drafted') return;
+
+    const language = resolveDisplayLanguage();
+    const intentPath = path.join(root, 'docs', 'ideas', ideaId, 'INTENT.md');
+    let intentBrief: string;
+    try {
+      intentBrief = fs.readFileSync(intentPath, 'utf8');
+    } catch {
+      void vscode.window.showWarningMessage(`AIDLC Ideas: INTENT.md is missing for ${ideaId} — cannot route.`);
+      return;
+    }
+
+    try {
+      const store = getProviderConfigStore(root);
+      const config = store.loadOrDefault();
+      const providerId = config.defaultProvider;
+      const prompt = buildIdeaRoutePrompt({ ideaId, intentBrief, language });
+      const invocation = buildHeadlessAnalysisInvocation({
+        providerId,
+        cli: store.cliFor(providerId, config),
+        model: store.modelFor(providerId, undefined, config),
+        prompt,
+      });
+      const stdout = await runHeadlessProvider(invocation.command, invocation.args, { cwd: root, timeoutMs: 180_000 });
+      const result = readIdeaRouteResult(extractJsonObject(stdout));
+      const current = ideas.require(ideaId);
+      if (current.checkpoint !== 'intent_drafted') return; // superseded while the agent was running
+      ideas.generateRoute(ideaId, current.ideaRevision, result, { kind: 'agent', id: 'idea-route-agent' });
+    } catch (error) {
+      try {
+        const current = ideas.require(ideaId);
+        if (current.checkpoint === 'intent_drafted') {
+          ideas.setBlocked(ideaId, current.ideaRevision, describeExecError(error), { kind: 'agent', id: 'idea-route-agent' });
+        }
+      } catch {
+        // The Idea was deleted/restarted concurrently — nothing left to block.
       }
     }
     this.refresh();
@@ -2315,8 +2374,9 @@ export class WorkspaceWebview {
         const revision = Number(msg.revision);
         if (!root || !id || !Number.isInteger(revision)) return;
         try {
-          new IdeaService(root).submitBatch(id, revision, { kind: 'user', id: 'vscode-user' });
+          const submitted = new IdeaService(root).submitBatch(id, revision, { kind: 'user', id: 'vscode-user' });
           this.refresh();
+          if (submitted.checkpoint === 'intent_drafted') void this.runIdeaRoute(root, id);
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -2329,8 +2389,9 @@ export class WorkspaceWebview {
         const revision = Number(msg.revision);
         if (!root || !id || !Number.isInteger(revision)) return;
         try {
-          new IdeaService(root).decideRest(id, revision, { kind: 'user', id: 'vscode-user' });
+          const decided = new IdeaService(root).decideRest(id, revision, { kind: 'user', id: 'vscode-user' });
           this.refresh();
+          if (decided.checkpoint === 'intent_drafted') void this.runIdeaRoute(root, id);
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -2357,6 +2418,60 @@ export class WorkspaceWebview {
         const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
         if (!root || !id) return;
         void this.runIdeaPrep(root, id);
+        return;
+      }
+
+      case 'retryIdeaRoute': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const revision = Number(msg.revision);
+        if (!root || !id) return;
+        try {
+          if (Number.isInteger(revision)) {
+            const current = new IdeaService(root).get(id);
+            if (current?.blockedReason) new IdeaService(root).clearBlocked(id, revision, { kind: 'agent', id: 'idea-route-agent' });
+          }
+        } catch { /* best-effort clear; runIdeaRoute re-blocks on a second failure anyway */ }
+        void this.runIdeaRoute(root, id);
+        return;
+      }
+
+      case 'confirmIdeaRoute': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const revision = Number(msg.revision);
+        if (!root || !id || !Number.isInteger(revision)) return;
+        try {
+          const ideas = new IdeaService(root);
+          const idea = ideas.require(id);
+          if (idea.checkpoint !== 'route_proposed' || !idea.routeDraft) {
+            throw new Error(`Cannot confirm: checkpoint is "${idea.checkpoint}".`);
+          }
+          const doc = readYaml(root);
+          if (!doc) { void vscode.window.showWarningMessage('AIDLC: no workspace.yaml — initialize first.'); return; }
+          let nextIds = listEpicIdsFromDir(root, path.relative(root, epicsRoot(root, doc)) || 'docs/epics');
+          const resolved: ResolvedRouteStep[] = [];
+          for (const step of idea.routeDraft.steps) {
+            const epicId = suggestNextEpicId(nextIds);
+            nextIds = [...nextIds, epicId];
+            const pipelineId = this.assembleRecipeForEpic(root, step.recipeId, epicId);
+            if (!pipelineId) return; // assembleRecipeForEpic already surfaced why
+            const freshDoc = readYaml(root);
+            const pipeline = (freshDoc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
+            if (!pipeline) { void vscode.window.showErrorMessage(`AIDLC Ideas: generated pipeline "${pipelineId}" is missing.`); return; }
+            resolved.push({
+              recipeId: step.recipeId,
+              epicId,
+              epicTitle: step.epicTitle,
+              pipeline,
+              scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} },
+            });
+          }
+          ideas.confirmRouteAndScaffold(id, revision, resolved, readYaml(root), { kind: 'user', id: 'vscode-user' });
+          this.refresh();
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
         return;
       }
 

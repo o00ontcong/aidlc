@@ -534,6 +534,16 @@ function seedProducedArtifacts(
     if (!fs.existsSync(report)) writeFile(report, demoBugReport(spec));
   }
 
+  // INTENT.md is likewise an input, not an output: a real epic gets it
+  // snapshotted by IdeaService.confirmRouteAndScaffold at scaffold time, so
+  // no cofofo-delivery step's `produces` ever writes it — but `requirement`
+  // now `requires` it (see WorkflowGenerator.ts), so every feature/bugfix
+  // demo epic needs one on disk from the start, not just completed ones.
+  if (!isFoundationRecipe(spec)) {
+    const intent = path.join(root, `docs/epics/${spec.id}/artifacts/INTENT.md`);
+    if (!fs.existsSync(intent)) writeFile(intent, demoIntent(spec));
+  }
+
   if (shouldHaveThrough < 0) return;
 
   for (let idx = 0; idx <= shouldHaveThrough; idx += 1) {
@@ -572,6 +582,19 @@ function demoBugReport(spec: DemoEpicSpec): string {
     '',
     '## What I expected',
     'The forecast surface reflects the current city and timezone state after every refresh.',
+    '',
+  ].join('\n');
+}
+
+function demoIntent(spec: DemoEpicSpec): string {
+  const brief = spec.inputs?.brief ?? 'Weather behavior for the SkyCast demo.';
+  return [
+    `<!-- CoFoFo demo fixture: Ideas-tab intake snapshot for ${spec.id}. -->`,
+    '',
+    `# Intent — ${spec.id}`,
+    '',
+    '## Seed',
+    brief,
     '',
   ].join('\n');
 }

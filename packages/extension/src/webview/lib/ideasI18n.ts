@@ -52,6 +52,22 @@ interface IdeasCopy {
     saveFailed: string;
     retrySave: string;
   };
+  route: {
+    title: string;
+    bootstrapBanner: string;
+    assumptionsHeader: (count: number) => string;
+    footerNote: string;
+    confirm: string;
+    blockedTitle: string;
+    retry: string;
+  };
+  delivery: {
+    title: (recipeId: string) => string;
+    openCanvas: string;
+    childStatus: string;
+  };
+  closed: { title: string };
+  completed: { title: string };
   actions: { shelve: string; reopen: string };
   languageSettings: string;
 }
@@ -132,6 +148,22 @@ const en: IdeasCopy = {
     saveFailed: 'Could not save — try again before closing this tab.',
     retrySave: 'Retry',
   },
+  route: {
+    title: 'Proposed route',
+    bootstrapBanner: 'CONTEXT-MANIFEST.json is missing or out of date — cofofo-bootstrap is queued first, ahead of everything else.',
+    assumptionsHeader: (count) => `${count} assumption${count === 1 ? '' : 's'} — reviewed once at the plan canvas`,
+    footerNote: 'This is an operational confirmation. The content itself is reviewed once, at the plan canvas for the first step.',
+    confirm: 'Confirm & run',
+    blockedTitle: 'Routing could not finish',
+    retry: 'Retry',
+  },
+  delivery: {
+    title: (recipeId) => `Running ${recipeId}`,
+    openCanvas: 'Open plan canvas',
+    childStatus: 'Status',
+  },
+  closed: { title: 'Closed — no build was needed' },
+  completed: { title: 'Completed' },
   actions: { shelve: 'Set aside', reopen: 'Reopen' },
   languageSettings: 'Display language',
 };
@@ -212,6 +244,22 @@ const vi: IdeasCopy = {
     saveFailed: 'Không lưu được — thử lại trước khi đóng tab này.',
     retrySave: 'Thử lại',
   },
+  route: {
+    title: 'Tuyến đề xuất',
+    bootstrapBanner: 'CONTEXT-MANIFEST.json hết hiệu lực hoặc chưa có — cofofo-bootstrap được xếp chạy trước, trước mọi việc khác.',
+    assumptionsHeader: (count) => `${count} giả định — sẽ được duyệt một lần ở plan canvas`,
+    footerNote: 'Đây là xác nhận thao tác. Nội dung được review một lần ở plan canvas của bước đầu tiên.',
+    confirm: 'Xác nhận & chạy',
+    blockedTitle: 'Định tuyến chưa xong được',
+    retry: 'Thử lại',
+  },
+  delivery: {
+    title: (recipeId) => `Đang chạy ${recipeId}`,
+    openCanvas: 'Mở plan canvas',
+    childStatus: 'Trạng thái',
+  },
+  closed: { title: 'Đã đóng — không cần xây gì' },
+  completed: { title: 'Đã hoàn tất' },
   actions: { shelve: 'Gác lại', reopen: 'Mở lại' },
   languageSettings: 'Ngôn ngữ hiển thị',
 };

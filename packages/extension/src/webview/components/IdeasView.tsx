@@ -228,9 +228,43 @@ function IdeaDetail({ idea, language }: { idea: IdeaSummary; language: IdeasLang
       )}
 
       {idea.checkpoint === 'intent_drafted' && (
-        <div className="rounded-lg border border-dashed border-border bg-background/60 p-4">
-          <div className="text-xs font-semibold text-foreground">{copy.intentPending.title}</div>
-          <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">{copy.intentPending.body}</p>
+        idea.blockedReason ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+            <div className="text-xs font-semibold text-foreground">{copy.route.blockedTitle}</div>
+            <p className="mt-1.5 text-[10.5px] leading-relaxed text-destructive">{idea.blockedReason}</p>
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'retryIdeaRoute', ideaId: idea.id, revision: idea.ideaRevision })}
+              className="mt-2 rounded-md bg-primary px-3 py-1.5 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              {copy.route.retry}
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border bg-background/60 p-4">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            <div className="mt-1.5 text-xs font-semibold text-foreground">{copy.intentPending.title}</div>
+            <p className="mt-1 text-[10.5px] leading-relaxed text-muted-foreground">{copy.intentPending.body}</p>
+          </div>
+        )
+      )}
+
+      {idea.checkpoint === 'route_proposed' && <RoutePanel idea={idea} language={language} />}
+
+      {idea.checkpoint === 'in_delivery' && <DeliveryPanel idea={idea} language={language} />}
+
+      {idea.checkpoint === 'closed' && (
+        <div className="rounded-lg border border-border bg-background/60 p-4">
+          <div className="text-xs font-semibold text-foreground">{copy.closed.title}</div>
+          {idea.routeDraft?.evidence && (
+            <p className="mt-1.5 whitespace-pre-wrap text-[10.5px] leading-relaxed text-muted-foreground">{idea.routeDraft.evidence}</p>
+          )}
+        </div>
+      )}
+
+      {idea.checkpoint === 'completed' && (
+        <div className="rounded-lg border border-border bg-background/60 p-4">
+          <div className="text-xs font-semibold text-foreground">{copy.completed.title}</div>
         </div>
       )}
 
@@ -492,6 +526,109 @@ function QuestionCard({
         ))}
       </div>
       <p className="mt-2 text-[10px] italic text-muted-foreground">{question.reason}</p>
+    </div>
+  );
+}
+
+function RoutePanel({ idea, language }: { idea: IdeaSummary; language: IdeasLanguage }) {
+  const copy = ideasCopy(language);
+  const [confirming, setConfirming] = useState(false);
+  const steps = idea.routeDraft?.steps ?? [];
+  const hasBootstrap = steps[0]?.recipeId === 'cofofo-bootstrap';
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs font-semibold text-foreground">{copy.route.title}</div>
+      {hasBootstrap && (
+        <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+          <p className="text-[10.5px] leading-relaxed text-foreground">{copy.route.bootstrapBanner}</p>
+        </div>
+      )}
+      <div className="space-y-2">
+        {steps.map((step, i) => (
+          <div key={`${step.recipeId}-${i}`} className="rounded-lg border border-border bg-background/60 p-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[11px] font-bold text-primary">{i + 1}</span>
+              <span className="text-[11.5px] font-semibold text-foreground">{step.recipeId}</span>
+              <span className="text-[10.5px] text-muted-foreground">· {step.epicTitle}</span>
+            </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">{step.rationale}</p>
+          </div>
+        ))}
+      </div>
+      {idea.assumptions.length > 0 && (
+        <div className="rounded-lg border border-border bg-background/60 p-3">
+          <div className="text-[10.5px] font-semibold text-foreground">{copy.route.assumptionsHeader(idea.assumptions.length)}</div>
+          <div className="mt-1.5 space-y-1">
+            {idea.assumptions.map((assumption) => (
+              <div key={assumption.id} className="text-[10.5px] text-muted-foreground">
+                <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[8.5px] font-mono text-secondary-foreground">assumption</span>{' '}
+                {assumption.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="text-[10px] text-muted-foreground">{copy.route.footerNote}</p>
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="rounded-md bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+      >
+        {copy.route.confirm}
+      </button>
+
+      {confirming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-lg border border-border bg-card p-4 shadow-xl">
+            <div className="text-sm font-bold text-foreground">{copy.route.confirm}?</div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{copy.route.footerNote}</p>
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirming(false)} className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent">
+                {copy.resume.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  postMessage({ type: 'confirmIdeaRoute', ideaId: idea.id, revision: idea.ideaRevision });
+                  setConfirming(false);
+                }}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+              >
+                {copy.route.confirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DeliveryPanel({ idea, language }: { idea: IdeaSummary; language: IdeasLanguage }) {
+  const copy = ideasCopy(language);
+  return (
+    <div className="space-y-2">
+      {idea.children.map((child) => (
+        <div key={child.epicId} className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-[11.5px] font-semibold text-foreground">{copy.delivery.title(child.recipeId)}</div>
+              <div className="mt-0.5 text-[10px] text-muted-foreground">
+                {child.epicId} · {copy.delivery.childStatus}: {child.runStatus}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'reviewCanvasStep', runId: child.epicId, stepIdx: 0 })}
+              className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              {copy.delivery.openCanvas}
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

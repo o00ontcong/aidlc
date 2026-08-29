@@ -116,7 +116,12 @@ describe('CoFoFo stack detection and policy', () => {
     const requirement = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'requirement') as { human_review?: boolean; review?: { artifacts: string[] } };
     const red = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'test-red') as { human_review?: boolean; review?: { artifacts: string[] } };
     const diagnose = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'diagnose') as { requires?: string[]; produces_contains?: string[] };
-    expect(requirement).toMatchObject({ human_review: true, review: { artifacts: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'] } });
+    expect(requirement).toMatchObject({ human_review: true, review: { artifacts: [
+      'docs/epics/{epic}/artifacts/INTENT.md',
+      'docs/epics/{epic}/artifacts/EVIDENCE.md',
+      'docs/epics/{epic}/artifacts/OPTIONS.md',
+      'docs/epics/{epic}/artifacts/REQUIREMENT.md',
+    ] } });
     expect(red).toMatchObject({ human_review: true, review: { artifacts: ['docs/epics/{epic}/artifacts/RED-EVIDENCE.md'] } });
     expect(diagnose.requires).toContain('docs/epics/{epic}/artifacts/BUG-REPORT.md');
     expect(diagnose.produces_contains).toContain('## Resume From');
@@ -240,6 +245,11 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     const delivery = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-delivery')!;
     const run = startRun({ runId: 'FEATURE-1', pipeline: delivery, context: { epic: 'FEATURE-1' }, workspaceRoot: root });
     expect(run.cofofoFoundation?.revision).toBe(1);
+    // `requirement` requires INTENT.md — normally snapshotted by Idea routing
+    // (IdeaService.confirmRouteAndScaffold); this run was started directly,
+    // so the test stands in for that provenance the same way a manually
+    // authored epic would.
+    write(root, 'docs/epics/FEATURE-1/artifacts/INTENT.md', '# Intent\n\nAdd a heat alert.\n');
     expect(canStartStep({ state: run, pipeline: delivery, workspaceRoot: root })).toEqual({ ok: true });
 
     service.prepare({ route: 'refresh-context' });

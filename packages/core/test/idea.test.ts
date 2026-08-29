@@ -193,6 +193,50 @@ describe('Idea routing and close', () => {
     expect(fs.readFileSync(path.join(root, 'docs/ideas', closed.id, 'EVIDENCE.md'), 'utf8')).toContain('Findings');
   });
 
+  it('prepends cofofo-bootstrap when Foundation was never captured, regardless of what the routing agent proposed', () => {
+    const root = temporary(); // no CoFoFo Foundation exists at all
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'Add a heat alert.' });
+    expect(created.foundationHashAtCapture).toBeNull();
+    const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const drafted = ideas.completePrep(prepping.id, prepping.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
+    const proposed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
+      outcome: 'epics',
+      steps: [{ recipeId: 'cofofo-feature', epicTitle: 'Heat alert', rationale: 'New behavior.' }],
+    }, AGENT);
+    expect(proposed.routeDraft?.steps.map((s) => s.recipeId)).toEqual(['cofofo-bootstrap', 'cofofo-feature']);
+  });
+
+  it('does not double-prepend bootstrap when the agent already put it first', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'Add a heat alert.' });
+    const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const drafted = ideas.completePrep(prepping.id, prepping.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
+    const proposed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
+      outcome: 'epics',
+      steps: [
+        { recipeId: 'cofofo-bootstrap', epicTitle: 'Bootstrap', rationale: 'No Foundation yet.' },
+        { recipeId: 'cofofo-feature', epicTitle: 'Heat alert', rationale: 'New behavior.' },
+      ],
+    }, AGENT);
+    expect(proposed.routeDraft?.steps.map((s) => s.recipeId)).toEqual(['cofofo-bootstrap', 'cofofo-feature']);
+  });
+
+  it('does not prepend bootstrap when the captured Foundation snapshot is still current', () => {
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'Add a heat alert.' });
+    const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const drafted = ideas.completePrep(prepping.id, prepping.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
+    const proposed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
+      outcome: 'epics',
+      steps: [{ recipeId: 'cofofo-feature', epicTitle: 'Heat alert', rationale: 'New behavior.' }],
+    }, AGENT);
+    expect(proposed.routeDraft?.steps.map((s) => s.recipeId)).toEqual(['cofofo-feature']);
+  });
+
   it('route_proposed requires a confirm before anything scaffolds, and confirm is user-only', () => {
     const root = swiftFixture();
     readyCofofoFoundation(root);
@@ -243,6 +287,28 @@ describe('Idea routing and close', () => {
   });
 });
 
+describe('Idea blocked state', () => {
+  it('sets and clears blockedReason without touching checkpoint', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    const blocked = ideas.setBlocked(created.id, created.ideaRevision, 'The routing agent could not run.', AGENT);
+    expect(blocked.blockedReason).toBe('The routing agent could not run.');
+    expect(blocked.checkpoint).toBe(created.checkpoint);
+    expect(ideas.inboxBucket(blocked)).toBe('blocked');
+    const cleared = ideas.clearBlocked(blocked.id, blocked.ideaRevision, AGENT);
+    expect(cleared.blockedReason).toBeUndefined();
+  });
+
+  it('clearBlocked is a no-op when nothing is blocked', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    const result = ideas.clearBlocked(created.id, created.ideaRevision, AGENT);
+    expect(result).toEqual(created);
+  });
+});
+
 describe('Idea shelve / reopen / restart', () => {
   it('shelve hides it from the default inbox bucket; reopen resumes at captured', () => {
     const root = temporary();
@@ -273,5 +339,61 @@ describe('Idea shelve / reopen / restart', () => {
     const created = ideas.create({ seedSentence: 'x' });
     ideas.patchSeed(created.id, created.ideaRevision, 'edited', USER);
     expect(() => ideas.patchSeed(created.id, created.ideaRevision, 'stale write', USER)).toThrow(IdeaRevisionConflictError);
+  });
+});
+
+describe('Idea to CoFoFo delivery, end to end', () => {
+  it('an Idea-originated epic reaches a real, approvable requirement Canvas gate with all four artifacts', () => {
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const ideas = new IdeaService(root);
+
+    const created = ideas.create({ seedSentence: 'Add a heat alert when it gets dangerously hot.' });
+    const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const drafted = ideas.completePrep(prepping.id, prepping.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
+    const proposed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
+      outcome: 'epics',
+      steps: [{ recipeId: 'cofofo-feature', epicTitle: 'Heat alert', rationale: 'New behavior, never worked before.' }],
+    }, AGENT);
+    expect(proposed.routeDraft?.steps.map((s) => s.recipeId)).toEqual(['cofofo-feature']); // Foundation is ready — no bootstrap
+
+    const cfg = generatedCofofoWorkspace({ version: '1.0', name: 'x', environment: {} });
+    const pipeline = assemblePipeline(cfg, { recipeId: 'cofofo-feature', pipelineId: 'EPIC-200-PIPELINE' });
+    const scaffolded = ideas.confirmRouteAndScaffold(proposed.id, proposed.ideaRevision, [
+      { recipeId: 'cofofo-feature', epicId: 'EPIC-200', epicTitle: 'Heat alert', pipeline, scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} } },
+    ], null, USER);
+    expect(scaffolded.checkpoint).toBe('in_delivery');
+
+    // INTENT.md was snapshotted by scaffold; simulate the requirement-phase
+    // agent producing the other three artifacts the widened Canvas bundle needs.
+    const artifactsDir = path.join(root, 'docs/epics/EPIC-200/artifacts');
+    expect(fs.readFileSync(path.join(artifactsDir, 'INTENT.md'), 'utf8')).toContain('heat alert');
+    fs.writeFileSync(path.join(artifactsDir, 'EVIDENCE.md'), '## Findings\n\nNo existing alert type. Source: Domain/WeatherSnapshot.swift.\n', 'utf8');
+    fs.writeFileSync(path.join(artifactsDir, 'OPTIONS.md'), '## Options\n\n## Open Decisions\n\n1. Threshold — recommend 38C.\n', 'utf8');
+    fs.writeFileSync(path.join(artifactsDir, 'REQUIREMENT.md'), '# Requirement\n\n## Acceptance Criteria\n\n1. Alert shows above 38C.\n', 'utf8');
+
+    let run = RunStateStore.load(root, 'EPIC-200')!;
+    run = markStepDone({ state: run, pipeline, workspaceRoot: root }); // requirement -> awaiting_review
+    expect(run.steps[0]!.status).toBe('awaiting_review');
+
+    const bundle = buildReviewBundle({
+      workspaceRoot: root, runId: run.runId, stepIdx: 0, stepRevision: run.steps[0]!.revision,
+      reviewRevision: 1,
+      artifacts: ['docs/epics/{epic}/artifacts/INTENT.md', 'docs/epics/{epic}/artifacts/EVIDENCE.md', 'docs/epics/{epic}/artifacts/OPTIONS.md', 'docs/epics/{epic}/artifacts/REQUIREMENT.md'],
+      context: run.context,
+    });
+    expect(bundle.artifacts.map((a) => a.path)).toEqual([
+      'docs/epics/EPIC-200/artifacts/INTENT.md',
+      'docs/epics/EPIC-200/artifacts/EVIDENCE.md',
+      'docs/epics/EPIC-200/artifacts/OPTIONS.md',
+      'docs/epics/EPIC-200/artifacts/REQUIREMENT.md',
+    ]);
+
+    const approved = applyArtifactReviewVerdict({
+      workspaceRoot: root, state: run, pipeline, bundle,
+      verdict: { verdict: 'approve', reviewer: 'Reviewer <r@example.test>' },
+    });
+    expect(approved.steps[0]!.status).toBe('approved');
+    expect(approved.currentStepIdx).toBe(1); // advanced to create-plan
   });
 });

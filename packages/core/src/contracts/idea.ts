@@ -216,6 +216,7 @@ export const IdeaEventSchema = z.object({
     'answer_saved',
     'batch_submitted',
     'decided_rest',
+    'route_failed',
     'route_generated',
     'route_confirmed',
     'scaffolded',

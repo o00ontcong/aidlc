@@ -70,6 +70,54 @@ export function buildIdeaPrepPrompt(opts: {
 }
 
 /**
+ * The Idea routing agent's prompt: classify one intent into exactly one of
+ * the six CoFoFo recipes (or a clean close), per the decision table in
+ * docs/design/ideas-tab/ideas-redesign-cofofo.canvas.tsx. Deliberately never
+ * asks the agent to decide whether `cofofo-bootstrap` is needed — Foundation
+ * freshness is a fact `IdeaService.generateRoute` checks deterministically,
+ * not a judgment call to leave to a prompt.
+ */
+export function buildIdeaRoutePrompt(opts: {
+  ideaId: string;
+  intentBrief: string;
+  language: 'en' | 'vi';
+}): string {
+  const outputLanguage = opts.language === 'vi' ? 'Vietnamese' : 'English';
+  return [
+    'Route this Idea to exactly the CoFoFo work it needs. This is classification and light research only — '
+      + 'do not edit files, run write commands, create tasks, or start delivery.',
+    '',
+    'The Idea (its confirmed intent):',
+    opts.intentBrief,
+    '',
+    'Read whatever you need to classify correctly: docs/project/foundation/PROJECT-RULES.json, '
+      + 'docs/project/foundation/ARCHITECTURE-MAP.md, docs/project/foundation/ECC-CATALOG-SELECTION.md, and the codebase.',
+    '',
+    'Choose ONE of these outcomes:',
+    '- Changes a project-wide rule (naming, layering, dependency direction, test policy) -> one step, recipeId "cofofo-update-rules".',
+    '- Changes the stack, adds a large module, or changes dependency direction the architecture map does not already show -> '
+      + 'one step, recipeId "cofofo-refresh-context".',
+    '- Needs a kind of asset not already in the pinned ECC catalog -> one step, recipeId "cofofo-repin-bundle".',
+    '- A new behavior that has never worked correctly before, with no existing defect -> one step, recipeId "cofofo-feature".',
+    '- The person is reporting something wrong, slow, or erroring in behavior that used to work -> one step, recipeId "cofofo-bugfix".',
+    '- A large idea covering several independent behaviors -> multiple steps, each its own "cofofo-feature" or "cofofo-bugfix", '
+      + 'each one reducible on its own to the smallest possible RED test. Do not bundle unrelated behaviors into one step.',
+    '- The Idea turns out to only be a question, with nothing that needs building -> outcome "close" with `evidence`: '
+      + 'a short Markdown write-up of what you found and why no build is needed.',
+    '',
+    'Do not ever propose "cofofo-bootstrap" yourself — the extension inserts it automatically when required, based on '
+      + 'the actual Foundation state, not on your judgment.',
+    '',
+    `Write every human-readable string in ${outputLanguage}, in plain language for a non-technical reader.`,
+    'Return ONLY one JSON object, no Markdown fences, no commentary, matching exactly this shape:',
+    '{ "outcome": "epics" | "close",',
+    '  "steps": [{ "recipeId": string, "epicTitle": string, "rationale": string }],',
+    '  "evidence": string }',
+    '`steps` is required and non-empty when outcome is "epics"; `evidence` is required when outcome is "close".',
+  ].join('\n');
+}
+
+/**
  * A read-only, non-interactive invocation for a supported provider CLI.
  * Provider-agnostic — used for any prompt that only needs to read and
  * reason, never to write (Idea prep, Idea routing; formerly Shape's
