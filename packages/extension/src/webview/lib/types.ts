@@ -819,6 +819,8 @@ export interface IdeaSummary {
   prep: IdeaPrep;
   routeDraft?: IdeaRouteDraft;
   routeConfirmed: boolean;
+  /** F22 — Canvas verdict on the routing decision; absent means the gate is still open. */
+  routeApproval?: { reviewer: string; at: string; bundleHash: string };
   assumptions: IdeaAssumption[];
   inDelivery?: IdeaInDelivery;
   children: IdeaChild[];

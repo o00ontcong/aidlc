@@ -381,6 +381,8 @@ interface IdeaUi {
   prep: IdeaPrepUi;
   routeDraft?: IdeaRouteDraftUi;
   routeConfirmed: boolean;
+  /** F22 — Canvas verdict on the routing decision; absent means the gate is still open. */
+  routeApproval?: { reviewer: string; at: string; bundleHash: string };
   assumptions: IdeaAssumptionUi[];
   inDelivery?: IdeaInDeliveryUi;
   children: IdeaChildUi[];
@@ -2423,6 +2425,15 @@ export class WorkspaceWebview {
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
+        return;
+      }
+
+      // F22 — Canvas gate on the routing decision (ROUTE.md/EVIDENCE.md).
+      case 'openIdeaRouteReview': {
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        if (!id) return;
+        await vscode.commands.executeCommand('aidlc.openIdeaRouteReview', id);
+        this.refresh();
         return;
       }
 

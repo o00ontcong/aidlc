@@ -680,6 +680,8 @@ export const WorkspaceSchema = z.object({
   version: z.string().min(1),
   /** Human-readable workspace name. Shown in the sidebar header. */
   name: z.string().min(1),
+  /** Optional human-readable summary of what this workspace's pipelines/recipes are for. */
+  description: z.string().optional(),
 
   /**
    * The active SDLC compliance profile (GH-69). Selects, in one value, the

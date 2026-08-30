@@ -12,17 +12,28 @@ import {
   type IdeaEvent,
   type IdeaFoundationSnapshot,
   type IdeaQuestion,
+  type IdeaRouteApproval,
   type IdeaRouteDraft,
   type IdeaRouteStep,
   type IdeaSelfAnswered,
 } from '../contracts/idea';
 import { epicsRoot, scaffoldEpic, type ScaffoldEpicArgs, type ScaffoldEpicResult } from '../runs/EpicScaffold';
 import { RunStateStore } from '../runs/RunStateStore';
+import { buildReviewBundle, checkBundleCurrent, type ReviewBundle } from '../runs/ArtifactReview';
 import { CofofoFoundationService } from '../cofofo/FoundationService';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { renderIdeaBrief } from './renderIdeaBrief';
 import { IdeaRevisionConflictError, IdeaStore } from './IdeaStore';
 import { writeFileAtomic } from '../epic/EpicStore';
+
+/**
+ * `stepIdx` slot `buildRouteReviewBundle` uses when building a `ReviewBundle`
+ * for the routing decision. `ReviewBundle` was designed for a pipeline step's
+ * Canvas gate (`runId + stepIdx + stepRevision`); an Idea's routing decision
+ * has no pipeline step, so this is a fixed sentinel, not an ordinal — it only
+ * has to be stable across a bundle's build and its verdict.
+ */
+const ROUTE_REVIEW_STEP_IDX = 1;
 
 /** Batch size cap from the flow graph's "ngân sách hiển thị" mechanism. */
 const MAX_BATCH_SIZE = 5;
@@ -472,6 +483,7 @@ export class IdeaService {
       batchSubmitted: false,
       routeDraft: undefined,
       routeConfirmed: false,
+      routeApproval: undefined,
       blockedReason: undefined,
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
@@ -489,10 +501,13 @@ export class IdeaService {
   }
 
   /**
-   * The routing agent's light research produced a decision. `outcome: 'close'`
-   * finalizes immediately with no human confirmation — the flow graph routes
-   * `kind → close` directly, bypassing the confirm screen entirely, because
-   * there is no epic and no irreversible action to confirm.
+   * The routing agent's light research produced a decision. Both outcomes
+   * land at `route_proposed` and wait for a Canvas verdict on the decision
+   * itself (F22/`applyRouteReviewVerdict`) — `outcome: 'close'` no longer
+   * finalizes on the spot; approving `EVIDENCE.md` in Canvas is what closes
+   * the Idea. This is the only human checkpoint on the routing decision:
+   * the Idea flow deliberately does not gate `INTENT.md`/assumptions a second
+   * time here (see `IdeaAssumptionSchema`) — only the recipe/close choice.
    */
   generateRoute(id: string, expectedRevision: number, routeDraft: IdeaRouteDraft, actor: ActorRef): Idea {
     const current = this.require(id);
@@ -503,11 +518,11 @@ export class IdeaService {
 
     if (routeDraft.outcome === 'close') {
       if (!routeDraft.evidence?.trim()) throw new IdeaStateError('A close outcome requires research evidence to write as EVIDENCE.md.');
-      const closed: Idea = { ...current, routeDraft, checkpoint: 'closed', updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-      this.store.save(closed, current.ideaRevision);
+      const next: Idea = { ...current, routeDraft, checkpoint: 'route_proposed', routeConfirmed: false, routeApproval: undefined, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+      this.store.save(next, current.ideaRevision);
       writeFileAtomic(path.join(docsIdeaDir(this.workspaceRoot, id), 'EVIDENCE.md'), `${routeDraft.evidence.trim()}\n`);
-      this.record(closed, 'closed', actor, 'Routing found no build was needed.');
-      return closed;
+      this.record(next, 'route_generated', actor, 'close');
+      return next;
     }
 
     if (routeDraft.steps.length === 0) throw new IdeaStateError('An epics-outcome route needs at least one step.');
@@ -517,10 +532,91 @@ export class IdeaService {
     // requirement can never be argued or hallucinated away (flow graph's
     // `fcheck` decision node, downstream of the agent's `route` step).
     const draftWithBootstrap = this.withBootstrapIfStale(current, routeDraft);
-    const next: Idea = { ...current, routeDraft: draftWithBootstrap, checkpoint: 'route_proposed', routeConfirmed: false, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+    const next: Idea = { ...current, routeDraft: draftWithBootstrap, checkpoint: 'route_proposed', routeConfirmed: false, routeApproval: undefined, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
     this.store.save(next, current.ideaRevision);
     writeFileAtomic(path.join(docsIdeaDir(this.workspaceRoot, id), 'ROUTE.md'), renderRouteMarkdown(next));
     this.record(next, 'route_generated', actor);
+    return next;
+  }
+
+  /**
+   * Canvas gate on the routing decision itself (F22) — `ROUTE.md` for an
+   * epics outcome, `EVIDENCE.md` for `close`. Mirrors
+   * `applyArtifactReviewVerdict` (`runs/PipelineRunner.ts`) but applies to
+   * `Idea` state instead of `RunState`, since this decision is made before
+   * any run exists. `bundle` must come from `buildRouteReviewBundle` built
+   * against the *current* revision — a stale or foreign bundle is rejected
+   * the same way a foreign step bundle is there.
+   */
+  applyRouteReviewVerdict(
+    id: string,
+    expectedRevision: number,
+    bundle: ReviewBundle,
+    verdict: { decision: 'approve' | 'request_changes'; reviewer: string; feedback?: string; at?: string },
+    actor: ActorRef,
+  ): Idea {
+    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may decide a Canvas verdict.');
+    const current = this.require(id);
+    if (current.checkpoint !== 'route_proposed' || !current.routeDraft) {
+      throw new IdeaStateError(`Cannot apply a route review verdict: checkpoint is "${current.checkpoint}", expected "route_proposed".`);
+    }
+    if (current.routeApproval) {
+      throw new IdeaStateError('This route was already approved in Canvas; a verdict cannot be replayed.');
+    }
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+
+    const reviewer = verdict.reviewer.trim();
+    if (!reviewer) throw new IdeaStateError('A Canvas verdict must carry a reviewer identity.');
+
+    if (bundle.runId !== current.id || bundle.stepIdx !== ROUTE_REVIEW_STEP_IDX || bundle.stepRevision !== current.ideaRevision) {
+      throw new IdeaStateError(
+        `Canvas verdict for ${id} was issued against a different gate `
+        + `(bundle "${bundle.runId}"@${bundle.stepRevision} != "${current.id}"@${current.ideaRevision}).`,
+      );
+    }
+
+    const at = verdict.at ?? this.clock();
+
+    if (verdict.decision === 'request_changes') {
+      const feedback = verdict.feedback?.trim();
+      if (!feedback) throw new IdeaStateError('A "request_changes" verdict must carry feedback saying what to change.');
+      // Same target every time: the routing decision is the only thing this
+      // gate reviews, so "wrong" always means "redo the route", never a
+      // partial/cascading reject the way a pipeline step's gate can need.
+      const next: Idea = {
+        ...current,
+        checkpoint: 'intent_drafted',
+        routeDraft: undefined,
+        routeConfirmed: false,
+        routeApproval: undefined,
+        updatedAt: this.clock(),
+        ideaRevision: current.ideaRevision + 1,
+      };
+      this.store.save(next, current.ideaRevision);
+      this.record(next, 'route_changes_requested', actor, feedback);
+      return next;
+    }
+
+    const stale = checkBundleCurrent(this.workspaceRoot, bundle);
+    if (stale.length > 0) {
+      throw new IdeaStateError(
+        `Canvas approval is stale — reviewed content changed after it was shown: `
+        + stale.map((s) => `${s.path} (${s.reason})`).join(', '),
+      );
+    }
+
+    const approval: IdeaRouteApproval = { reviewer, at, bundleHash: bundle.bundleHash };
+
+    if (current.routeDraft.outcome === 'close') {
+      const closed: Idea = { ...current, routeApproval: approval, checkpoint: 'closed', updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+      this.store.save(closed, current.ideaRevision);
+      this.record(closed, 'closed', actor, 'Routing found no build was needed.');
+      return closed;
+    }
+
+    const next: Idea = { ...current, routeApproval: approval, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+    this.store.save(next, current.ideaRevision);
+    this.record(next, 'route_reviewed', actor);
     return next;
   }
 
@@ -554,6 +650,9 @@ export class IdeaService {
     let current = this.require(id);
     if (current.checkpoint !== 'route_proposed' || !current.routeDraft) {
       throw new IdeaStateError(`Cannot confirm a route: checkpoint is "${current.checkpoint}", expected "route_proposed".`);
+    }
+    if (!current.routeApproval) {
+      throw new IdeaStateError('This route has not been approved in Canvas yet (F22) — open the Canvas gate on ROUTE.md before confirming.');
     }
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
     if (resolved.length !== current.routeDraft.steps.length) {
@@ -833,4 +932,27 @@ function renderRouteMarkdown(idea: Idea): string {
     lines.push('## Assumptions', '', ...idea.assumptions.map((a) => `- ${a.label} (${a.source})`), '');
   }
   return `${lines.join('\n').trimEnd()}\n`;
+}
+
+/**
+ * Build the `ReviewBundle` for the F22 Canvas gate on an Idea's routing
+ * decision. Reviews `EVIDENCE.md` for a `close` outcome, `ROUTE.md`
+ * otherwise — whichever `generateRoute` just wrote. Callers (extension) build
+ * this fresh each time they open or verify the gate; nothing about it is
+ * persisted on `Idea` beyond `routeApproval` once a verdict lands.
+ */
+export function buildRouteReviewBundle(workspaceRoot: string, idea: Idea): ReviewBundle {
+  if (idea.checkpoint !== 'route_proposed' || !idea.routeDraft) {
+    throw new IdeaStateError(`Cannot build a route review bundle: checkpoint is "${idea.checkpoint}", expected "route_proposed".`);
+  }
+  const file = idea.routeDraft.outcome === 'close' ? 'EVIDENCE.md' : 'ROUTE.md';
+  return buildReviewBundle({
+    workspaceRoot,
+    runId: idea.id,
+    stepIdx: ROUTE_REVIEW_STEP_IDX,
+    stepRevision: idea.ideaRevision,
+    reviewRevision: 1,
+    artifacts: [`docs/ideas/{id}/${file}`],
+    context: { id: idea.id },
+  });
 }

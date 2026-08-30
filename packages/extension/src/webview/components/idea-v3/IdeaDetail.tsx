@@ -354,7 +354,12 @@ function RouteStationDetail({ idea, language }: { idea: IdeaSummary; language: I
   const copy = ideasCopy(language);
   if (BEFORE_ROUTE.has(idea.checkpoint)) return <NotReachedCard language={language} />;
 
-  if (idea.checkpoint === 'route_proposed') return <RoutePanel idea={idea} language={language} />;
+  if (idea.checkpoint === 'route_proposed') {
+    // F22 — the routing decision itself waits for a Canvas verdict before it
+    // can be confirmed (epics outcome) or finalized (close outcome).
+    if (!idea.routeApproval) return <RouteReviewGateCard idea={idea} language={language} />;
+    return <RoutePanel idea={idea} language={language} />;
+  }
 
   // Past — routing already resolved, either to a close or to a confirmed epics route.
   if (idea.routeDraft?.outcome === 'close') {
@@ -568,6 +573,35 @@ function SelfAnsweredRow({
   );
 }
 
+/**
+ * F22 — Canvas gate on the routing decision itself: `ROUTE.md` for an epics
+ * outcome, `EVIDENCE.md` for `close`. Neither `RoutePanel`'s confirm nor the
+ * `close` finalize can happen until this gate approves.
+ */
+function RouteReviewGateCard({ idea, language }: { idea: IdeaSummary; language: IdeasLanguage }) {
+  const copy = ideasCopy(language);
+  const isClose = idea.routeDraft?.outcome === 'close';
+  return (
+    <Card>
+      <CardHeader><CardTitle>{copy.route.reviewGateTitle}</CardTitle></CardHeader>
+      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <CardNote>{isClose ? copy.route.reviewGateBodyClose : copy.route.reviewGateBodyEpics}</CardNote>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <Btn
+            label={copy.delivery.openCanvas}
+            variant="primary"
+            onClick={() => postMessage({ type: 'openIdeaRouteReview', ideaId: idea.id })}
+          />
+          <Btn
+            label={isClose ? copy.closed.viewEvidence : copy.route.viewRoute}
+            onClick={() => postMessage({ type: 'openIdeaArtifact', ideaId: idea.id, file: isClose ? 'EVIDENCE.md' : 'ROUTE.md' })}
+          />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function RoutePanel({ idea, language }: { idea: IdeaSummary; language: IdeasLanguage }) {
   const copy = ideasCopy(language);
   const [confirming, setConfirming] = useState(false);
@@ -577,6 +611,7 @@ function RoutePanel({ idea, language }: { idea: IdeaSummary; language: IdeasLang
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <SectionLabel>{copy.route.title}</SectionLabel>
+      {idea.routeApproval && <CardNote>{copy.route.approvedNote(idea.routeApproval.reviewer)}</CardNote>}
       {hasBootstrap && <V3Callout tone="acc">{copy.route.bootstrapBanner}</V3Callout>}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

@@ -276,6 +276,147 @@ trạng thái mà runtime không tạo ra được và những record mà runtim
 
 ---
 
+## Bổ sung (2026-08-30) — phát hiện từ phiên phân tích Ideas tab routing
+
+Mục dưới đây không nằm trong đợt reproduce trên workspace SwiftPM ngày
+2026-08-29 ở trên; nó đến từ việc đọc code sau khi phân tích riêng vì sao
+`IDEA-001` route tới `close` mà không có cách nào trỏ máy-đọc-được tới
+`SHAPE-001`. Đánh số tiếp `F22` để không đụng thứ tự F1–F21 đã reproduce, chưa
+gắn vào batch nào trong `COFOFO_FIX_PLAN.md`.
+
+### F22. Cả hai điểm tổng hợp của Idea flow đều không đi qua Canvas gate
+
+Rà lại toàn bộ `IdeaService.ts` (không chỉ nhánh `close`): flow có đúng hai chỗ
+tổng hợp nội dung tự do thành một artifact chốt, và **cả hai** đều không có
+Canvas gate — chỉ có Canvas ở các bước rất muộn, bên trong pipeline của epic
+con, sau khi resource đã bị commit.
+
+- **`INTENT.md`** ([renderIdeaBrief.ts:15](../packages/core/src/idea/renderIdeaBrief.ts),
+  ghi tại [IdeaService.ts:487](../packages/core/src/idea/IdeaService.ts)) — bản
+  tổng hợp seed + câu trả lời đã confirm + assumption, hội tụ ở cuối
+  `awaiting_human`/`decideRest`. Comment của chính file gọi nó là "the
+  compressed INTENT.md the flow graph's 'intent' node writes once the question
+  batch... converges" — đúng định nghĩa một synthesis artifact. Không có gate
+  nào ở đây. Nó chỉ được Canvas "mượn" lại rất muộn, gộp chung với
+  `REQUIREMENT.md` ở bước `requirement` của epic con
+  ([WorkflowGenerator.ts:163](../packages/core/src/cofofo/WorkflowGenerator.ts))
+  — và hoàn toàn không được review nếu route là `close`.
+- **`ROUTE.md`/`EVIDENCE.md`** ([IdeaService.ts:826](../packages/core/src/idea/IdeaService.ts))
+  — bản tổng hợp quyết định `kind` (đóng, hay tạo N epic theo recipe nào,
+  kèm rationale). Đây là quyết định tốn tài nguyên nhất trong toàn bộ flow,
+  nhưng review duy nhất là một modal "Confirm?" tĩnh (`RoutePanel` trong
+  [IdeaDetail.tsx:571](../packages/extension/src/webview/components/idea-v3/IdeaDetail.tsx))
+  — không hash-binding, không annotate, không request-changes, không phân
+  biệt với thao tác vận hành thông thường.
+
+#### F22a. Nhánh `close` của Idea routing không đi qua Canvas gate nào
+
+`IdeaService.generateRoute()` ([IdeaService.ts:497-511](../packages/core/src/idea/IdeaService.ts))
+áp dụng outcome `close` ngay lập tức: ghi `EVIDENCE.md`, chuyển `checkpoint`
+sang `closed`, và trả về — không có bước duyệt nào ở giữa. Đây là chủ đích, có
+ghi rõ trong comment ngay phía trên
+([IdeaService.ts:491-495](../packages/core/src/idea/IdeaService.ts)):
+
+> `outcome: 'close'` finalizes immediately with no human confirmation — the
+> flow graph routes `kind → close` directly, bypassing the confirm screen
+> entirely, because there is no epic and no irreversible action to confirm.
+
+Lý do đó đúng cho *hành động* (không mutate code, không tạo epic), nhưng không
+đúng cho *nội dung quyết định*: khi lý do đóng idea là "tiếp tục công việc đã
+có" (như IDEA-001 tham chiếu `SHAPE-001`), rationale đó chỉ là văn bản tự do
+trong `EVIDENCE.md` — không ai xác nhận nó đúng trước khi `closed` trở thành
+trạng thái cuối. Nếu agent định tuyến sai — ví dụ đóng nhầm một idea lẽ ra cần
+epic riêng — không có gate nào chặn lại; người dùng chỉ phát hiện được bằng
+cách tự đọc `EVIDENCE.md` sau đó.
+
+So sánh với nhánh `split`: `confirmRouteAndScaffold`
+([IdeaService.ts:552](../packages/core/src/idea/IdeaService.ts)) bắt buộc
+`actor.kind === 'user'`, và về sau `resolvePlanCanvasStepIndex`
+([ideaDeliverySync.ts:34](../packages/core/src/idea/ideaDeliverySync.ts)) mở
+Plan Canvas ở bước `requirement` của epic con — nhưng đó là review nội dung
+epic, không phải review quyết định định tuyến. Cả hai nhánh outcome đều không
+có gate nào xác nhận riêng bản thân quyết định `kind`/`close`/`split`.
+
+Câu hỏi cần bàn:
+
+- Canvas gate ở đây nên review đúng cái gì: bản thân `ROUTE.md`/`EVIDENCE.md`
+  (rationale của agent), hay một artifact tường minh hơn buộc agent phải trả
+  lời "outcome này có nối tới Shape/epic có sẵn nào không" thay vì để lẫn
+  trong văn xuôi tự do?
+- Gate này có nên bắt buộc cho mọi outcome `close`, hay chỉ khi rationale nhắc
+  tới một Shape/epic có sẵn (tức là có rủi ro đóng nhầm việc lẽ ra cần định
+  tuyến lại)?
+- Cơ chế bundle content-addressed đang thiết kế trong
+  `.claude/plans/ecc-evidence-and-artifact-review-canvas.plan.md`
+  (`ArtifactReview.ts`, Task 3) bind bundle vào
+  `runId + stepIdx + stepRevision + reviewRevision` — tất cả đều thuộc một
+  pipeline run. Quyết định `generateRoute()` xảy ra **trước khi có run nào**,
+  nên gate này cần một binding key khác (`ideaId + ideaRevision`?) hay nên đợi
+  `ArtifactReview` tổng quát hoá trước?
+- Có nên coi đây là một dạng của F6 (Canvas `request_changes` không trả việc
+  ngược lên trên) — tức route sai thì "request changes" quay lại đúng bước
+  `route` để agent định tuyến lại — thay vì chỉ approve/reject nhị phân?
+
+#### F22b. `INTENT.md` — bản tổng hợp intake — không đi qua Canvas gate nào
+
+`advanceToIntentDrafted()` ([IdeaService.ts:484-489](../packages/core/src/idea/IdeaService.ts))
+ghi `INTENT.md` ngay khi câu hỏi cuối cùng hội tụ (0 câu hỏi cần hỏi, batch
+`submitBatch` xong, hoặc `decideRest`) và trả về idea ở checkpoint
+`intent_drafted` — không có bước duyệt nào chen giữa. Đây là artifact mà
+routing agent, rồi (nếu ra epic) agent `requirement`, đều dùng làm input gốc —
+sai một giả định ở đây thì sai xuyên suốt phần còn lại của Idea, kể cả khi mọi
+Canvas gate phía sau đều approve đúng quy trình, vì chúng chỉ review nội dung
+*dựa trên* INTENT.md, không review lại chính INTENT.md.
+
+Riêng batch answer (`saveAnswer`/`submitBatch`) đã có review implicit — người
+dùng tự tay chọn từng câu trả lời. Nhưng **assumption tự động** (câu hỏi
+không kịp trả lời trong `MAX_BATCH_ROUNDS` vòng, hoặc `decideRest`) thì không
+— `assumptionsFor()` ([IdeaService.ts:424](../packages/core/src/idea/IdeaService.ts))
+áp option `recommended` mà không ai xác nhận, và assumption đó nằm nguyên
+trong `INTENT.md` đi tiếp xuống routing.
+
+---
+
+## Đề xuất cụ thể cho F22 — một Canvas gate trước khi resource bị commit
+
+**Quyết định (2026-08-30): chỉ làm Gate 2, không làm Gate 1.** Lý do: F22b đề
+xuất ban đầu gate cả `INTENT.md` trước khi routing chạy, nhưng đó vi phạm
+trực tiếp quyết định đã ghi ở `IdeaAssumptionSchema`
+([contracts/idea.ts:116-118](../packages/core/src/contracts/idea.ts)) —
+assumption "reviewed once at the `requirement` Canvas gate... never a second
+review surface inside Ideas". Giữ nguyên quyết định đó; F22b coi như đóng,
+không implement Gate 1.
+
+**Gate 2 — thay thế `RoutePanel`'s modal tĩnh, cho cả hai outcome.** Review
+`ROUTE.md` (outcome tạo epic) hoặc `EVIDENCE.md` (outcome `close`) như một
+Canvas artifact thật — hash-bound, annotate được, `request_changes` quay lại
+đúng bước `route` để routing agent chạy lại (trả lời câu hỏi mở "coi đây là
+dạng F6" ở trên: có, dùng lại cùng semantics). `close` không còn finalize
+ngay; `confirmRouteAndScaffold` cho outcome epic không còn chỉ check
+`actor.kind === 'user'` mà check luôn verdict `approve` khớp hash.
+
+Dư âm chấp nhận được: assumption của một idea route tới `close` vẫn không
+bao giờ được review (không có bước `requirement` nào cho outcome đó) — nhưng
+rủi ro thật của outcome `close` nằm ở rationale đóng (được Gate 2 cover qua
+`EVIDENCE.md`), không phải ở assumption riêng lẻ.
+
+Binding key: vì cả hai gate này xảy ra **trước khi có `runId`** (khác mọi
+Canvas gate khác trong hệ thống, vốn bind theo `runId + stepIdx + stepRevision`),
+chúng cần `ArtifactReview` core nhận thêm một binding key độc lập với run —
+đề xuất `ideaId + ideaRevision`, cùng dạng optimistic-concurrency mà
+`IdeaService` đã dùng ở mọi method khác (`expectedRevision`). Đây là việc cần
+làm trong `ArtifactReview.ts` (Task 3 của
+`.claude/plans/ecc-evidence-and-artifact-review-canvas.plan.md`) trước khi
+B8 có thể implement — không phải một thiết kế riêng, không phải chờ Task 3
+"tổng quát hoá" một cách mơ hồ.
+
+Cố ý **không** đề xuất: gate cho mỗi câu trả lời riêng lẻ trong batch (đã có
+review implicit qua UI chọn đáp án); gate cho `close` chỉ khi rationale nhắc
+Shape/epic có sẵn (phân biệt đó cần agent tự nhận diện được, chưa kiểm chứng —
+áp dụng gate cho **mọi** outcome đơn giản và an toàn hơn).
+
+---
+
 ## Đề xuất — người dùng làm gì khi deliverable của `cofofo-feature` có bug
 
 Viết cho đúng đối tượng mà ta nên thiết kế hướng tới: người mô tả được triệu

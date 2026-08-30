@@ -156,6 +156,22 @@ export const IdeaSaveStatusSchema = z.enum(['saved', 'saving', 'failed']);
 export type IdeaSaveStatus = z.infer<typeof IdeaSaveStatusSchema>;
 
 /**
+ * A human Canvas verdict on the routing decision itself (`ROUTE.md` for an
+ * epics outcome, `EVIDENCE.md` for a `close` outcome) — presence means
+ * approved. Absent while `checkpoint === 'route_proposed'` means the gate is
+ * still open, including for an idea persisted before this field existed
+ * (F22): an old `route_proposed` idea with no `routeApproval` simply re-opens
+ * the same gate rather than failing validation.
+ */
+export const IdeaRouteApprovalSchema = z.object({
+  reviewer: z.string().min(1),
+  at: IsoTimestampSchema,
+  /** `bundleHash` of the `ReviewBundle` this verdict was issued against. */
+  bundleHash: z.string().min(1),
+});
+export type IdeaRouteApproval = z.infer<typeof IdeaRouteApprovalSchema>;
+
+/**
  * A person-owned intake record: one sentence in, an agent-assisted question
  * batch, then a routed handoff into exactly one of the six CoFoFo recipes (or
  * a clean close with no epic). Every field here answers a resume/undo/inbox
@@ -179,6 +195,8 @@ export const IdeaSchema = z.object({
   prep: IdeaPrepSchema,
   routeDraft: IdeaRouteDraftSchema.optional(),
   routeConfirmed: z.boolean(),
+  /** Canvas verdict on the routing decision — see {@link IdeaRouteApprovalSchema}. */
+  routeApproval: IdeaRouteApprovalSchema.optional(),
   assumptions: z.array(IdeaAssumptionSchema),
   inDelivery: IdeaInDeliverySchema.optional(),
   children: z.array(IdeaChildSchema),
@@ -224,6 +242,8 @@ export const IdeaEventSchema = z.object({
     'route_failed',
     'route_stopped',
     'route_generated',
+    'route_reviewed',
+    'route_changes_requested',
     'route_confirmed',
     'scaffolded',
     'closed',

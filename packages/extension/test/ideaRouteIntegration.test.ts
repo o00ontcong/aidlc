@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { IdeaService, providerManagedIdeaCommandBody } from '@aidlc/core';
+import { IdeaService, buildRouteReviewBundle, providerManagedIdeaCommandBody } from '@aidlc/core';
 
 function root(): string { return fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-idea-route-')); }
 
@@ -43,17 +43,27 @@ describe('provider-managed Idea routing', () => {
       .toContain('Heat alert');
   });
 
-  it('persists a no-build answer as a closed Idea with evidence', () => {
+  it('persists a no-build answer as EVIDENCE.md, waiting at route_proposed for a Canvas verdict (F22)', () => {
     const workspaceRoot = root();
     const { ideas, drafted } = draftedIdea(workspaceRoot);
-    const closed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
+    const proposed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
       outcome: 'close',
       steps: [],
       evidence: '## Findings\n\nThe current library already supports the requested behavior.',
     }, AGENT);
 
-    expect(closed.checkpoint).toBe('closed');
-    expect(fs.readFileSync(path.join(workspaceRoot, 'docs', 'ideas', closed.id, 'EVIDENCE.md'), 'utf8'))
+    // The provider agent's job ends at route_proposed — it never sets
+    // checkpoint to closed itself (see ProviderManagedIdeaCommand.ts).
+    expect(proposed.checkpoint).toBe('route_proposed');
+    expect(fs.readFileSync(path.join(workspaceRoot, 'docs', 'ideas', proposed.id, 'EVIDENCE.md'), 'utf8'))
       .toContain('Findings');
+
+    const bundle = buildRouteReviewBundle(workspaceRoot, proposed);
+    const closed = ideas.applyRouteReviewVerdict(
+      proposed.id, proposed.ideaRevision, bundle,
+      { decision: 'approve', reviewer: 'Reviewer <r@example.test>' },
+      { kind: 'user', id: 'owner' },
+    );
+    expect(closed.checkpoint).toBe('closed');
   });
 });

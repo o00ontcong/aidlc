@@ -12,6 +12,7 @@ import {
   applyArtifactReviewVerdict,
   assemblePipeline,
   buildReviewBundle,
+  buildRouteReviewBundle,
   createDefaultRules,
   detectStack,
   generatedCofofoWorkspace,
@@ -19,6 +20,7 @@ import {
   renderProjectRules,
   startRun,
   syncAllIdeaDeliveries,
+  type Idea,
   type PipelineConfig,
   type RunState,
 } from '../src';
@@ -37,6 +39,12 @@ function swiftFixture(): string {
   write(root, 'src/Sources/Demo/Domain/City.swift', 'public struct City {}\n');
   write(root, 'src/Tests/DemoTests/CityTests.swift', 'import XCTest\n');
   return root;
+}
+
+/** F22 — approve the Canvas gate on an Idea's routing decision (ROUTE.md/EVIDENCE.md). */
+function approveRouteReview(root: string, ideas: IdeaService, idea: Idea, reviewer = 'Reviewer <r@example.test>'): Idea {
+  const bundle = buildRouteReviewBundle(root, idea);
+  return ideas.applyRouteReviewVerdict(idea.id, idea.ideaRevision, bundle, { decision: 'approve', reviewer }, USER);
 }
 
 function approveCurrentCanvas(root: string, state: RunState, pipeline: PipelineConfig): RunState {
@@ -209,12 +217,18 @@ describe('Idea routing and close', () => {
     const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
     const drafted = ideas.completePrep(prepping.id, prepping.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
     expect(drafted.checkpoint).toBe('intent_drafted');
-    const closed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
+    const proposed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
       outcome: 'close', steps: [], evidence: '## Findings\n\nCurrent library already supports the needed transition; no migration required.',
     }, AGENT);
+    // F22 — a close outcome now waits at the same Canvas gate an epics
+    // outcome does; it does not finalize until EVIDENCE.md is approved.
+    expect(proposed.checkpoint).toBe('route_proposed');
+    expect(fs.readFileSync(path.join(root, 'docs/ideas', proposed.id, 'EVIDENCE.md'), 'utf8')).toContain('Findings');
+
+    const closed = approveRouteReview(root, ideas, proposed);
     expect(closed.checkpoint).toBe('closed');
-    expect(closed.routeConfirmed).toBe(false); // never asked — the flow bypasses confirm entirely
-    expect(fs.readFileSync(path.join(root, 'docs/ideas', closed.id, 'EVIDENCE.md'), 'utf8')).toContain('Findings');
+    expect(closed.routeConfirmed).toBe(false); // never asked — no epic, nothing to scaffold
+    expect(closed.routeApproval?.reviewer).toContain('Reviewer');
   });
 
   it('prepends cofofo-bootstrap when Foundation was never captured, regardless of what the routing agent proposed', () => {
@@ -282,7 +296,13 @@ describe('Idea routing and close', () => {
       { recipeId: 'cofofo-feature', epicId: 'EPIC-101', epicTitle: 'Heat alert', pipeline, scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} } },
     ], null, AGENT)).toThrow(/human user/i);
 
-    const scaffolded = ideas.confirmRouteAndScaffold(proposed.id, proposed.ideaRevision, [
+    // F22 — confirming without a Canvas approval on ROUTE.md is refused too.
+    expect(() => ideas.confirmRouteAndScaffold(proposed.id, proposed.ideaRevision, [
+      { recipeId: 'cofofo-feature', epicId: 'EPIC-101', epicTitle: 'Heat alert', pipeline, scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} } },
+    ], null, USER)).toThrow(/approved in Canvas/i);
+    const approved = approveRouteReview(root, ideas, proposed);
+
+    const scaffolded = ideas.confirmRouteAndScaffold(approved.id, approved.ideaRevision, [
       { recipeId: 'cofofo-feature', epicId: 'EPIC-101', epicTitle: 'Heat alert', pipeline, scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} } },
     ], null, USER);
     expect(scaffolded.checkpoint).toBe('in_delivery');
@@ -308,6 +328,114 @@ describe('Idea routing and close', () => {
     expect(recovered.children.map((c) => ({ epicId: c.epicId, recipeId: c.recipeId }))).toEqual(
       scaffolded.children.map((c) => ({ epicId: c.epicId, recipeId: c.recipeId })),
     );
+  });
+});
+
+describe('F22 — Canvas gate on the routing decision', () => {
+  function proposeEpicsRoute(root: string) {
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'Add a heat alert.' });
+    const prepping = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const drafted = ideas.completePrep(prepping.id, prepping.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
+    const proposed = ideas.generateRoute(drafted.id, drafted.ideaRevision, {
+      outcome: 'epics',
+      steps: [{ recipeId: 'cofofo-feature', epicTitle: 'Heat alert', rationale: 'New behavior.' }],
+    }, AGENT);
+    return { ideas, proposed };
+  }
+
+  it('only a human user may decide the verdict', () => {
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const { ideas, proposed } = proposeEpicsRoute(root);
+    const bundle = buildRouteReviewBundle(root, proposed);
+    expect(() => ideas.applyRouteReviewVerdict(
+      proposed.id, proposed.ideaRevision, bundle, { decision: 'approve', reviewer: 'x' }, AGENT,
+    )).toThrow(/human user/i);
+  });
+
+  it('rejects a bundle built against a different idea revision', () => {
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const { ideas, proposed } = proposeEpicsRoute(root);
+    const bundle = buildRouteReviewBundle(root, proposed);
+    // Content changes after the bundle was built (revision bumps) — same
+    // shape of drift `checkBundleCurrent` guards against for pipeline steps.
+    const rewritten = ideas.store.load(proposed.id)!;
+    ideas.store.save({ ...rewritten, ideaRevision: rewritten.ideaRevision + 1 }, rewritten.ideaRevision);
+    expect(() => ideas.applyRouteReviewVerdict(
+      proposed.id, proposed.ideaRevision + 1, bundle, { decision: 'approve', reviewer: 'Reviewer' }, USER,
+    )).toThrow(/different gate/i);
+  });
+
+  it('rejects a stale approval when ROUTE.md changed after the bundle was built', () => {
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const { ideas, proposed } = proposeEpicsRoute(root);
+    const bundle = buildRouteReviewBundle(root, proposed);
+    fs.writeFileSync(path.join(root, 'docs/ideas', proposed.id, 'ROUTE.md'), '# tampered\n', 'utf8');
+    expect(() => ideas.applyRouteReviewVerdict(
+      proposed.id, proposed.ideaRevision, bundle, { decision: 'approve', reviewer: 'Reviewer' }, USER,
+    )).toThrow(/stale/i);
+  });
+
+  it('request_changes requires feedback and sends routing back to intent_drafted for a redo', () => {
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const { ideas, proposed } = proposeEpicsRoute(root);
+    const bundle = buildRouteReviewBundle(root, proposed);
+    expect(() => ideas.applyRouteReviewVerdict(
+      proposed.id, proposed.ideaRevision, bundle, { decision: 'request_changes', reviewer: 'Reviewer' }, USER,
+    )).toThrow(/feedback/i);
+
+    const sentBack = ideas.applyRouteReviewVerdict(
+      proposed.id, proposed.ideaRevision, bundle,
+      { decision: 'request_changes', reviewer: 'Reviewer', feedback: 'Wrong recipe — this is a bugfix, not a feature.' },
+      USER,
+    );
+    expect(sentBack.checkpoint).toBe('intent_drafted');
+    expect(sentBack.routeDraft).toBeUndefined();
+    expect(sentBack.routeApproval).toBeUndefined();
+
+    // Routing can be redone immediately — INTENT.md's own review boundary
+    // (never added — see F22b) isn't reopened, only the routing decision.
+    const redone = ideas.generateRoute(sentBack.id, sentBack.ideaRevision, {
+      outcome: 'epics',
+      steps: [{ recipeId: 'cofofo-bugfix', epicTitle: 'Heat alert bug', rationale: 'Existing behavior is broken.' }],
+    }, AGENT);
+    expect(redone.checkpoint).toBe('route_proposed');
+    expect(redone.routeDraft?.steps[0]!.recipeId).toBe('cofofo-bugfix');
+  });
+
+  it('a verdict cannot be replayed once the gate is already approved', () => {
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const { ideas, proposed } = proposeEpicsRoute(root);
+    const approved = approveRouteReview(root, ideas, proposed);
+    const bundle = buildRouteReviewBundle(root, { ...approved, checkpoint: 'route_proposed' });
+    expect(() => ideas.applyRouteReviewVerdict(
+      approved.id, approved.ideaRevision, bundle, { decision: 'approve', reviewer: 'Reviewer' }, USER,
+    )).toThrow(/already approved|expected "route_proposed"/i);
+  });
+
+  it('an Idea persisted before routeApproval existed still opens the same gate', () => {
+    // Backward compatibility: a route_proposed Idea written by an older
+    // version has no `routeApproval` field at all — must behave exactly
+    // like a freshly-generated one, not fail validation or get stuck.
+    const root = swiftFixture();
+    readyCofofoFoundation(root);
+    const { ideas, proposed } = proposeEpicsRoute(root);
+    const legacy = { ...proposed } as Record<string, unknown>;
+    delete legacy.routeApproval;
+    fs.writeFileSync(
+      path.join(root, '.aidlc/ideas', proposed.id, 'state.json'),
+      `${JSON.stringify(legacy, null, 2)}\n`,
+      'utf8',
+    );
+    const reloaded = ideas.store.load(proposed.id)!;
+    expect(reloaded.routeApproval).toBeUndefined();
+    const approved = approveRouteReview(root, ideas, reloaded);
+    expect(approved.routeApproval).toBeDefined();
   });
 });
 
@@ -528,10 +656,11 @@ describe('Idea to CoFoFo delivery, end to end', () => {
       steps: [{ recipeId: 'cofofo-feature', epicTitle: 'Heat alert', rationale: 'New behavior, never worked before.' }],
     }, AGENT);
     expect(proposed.routeDraft?.steps.map((s) => s.recipeId)).toEqual(['cofofo-feature']); // Foundation is ready — no bootstrap
+    const approved = approveRouteReview(root, ideas, proposed);
 
     const cfg = generatedCofofoWorkspace({ version: '1.0', name: 'x', environment: {} });
     const pipeline = assemblePipeline(cfg, { recipeId: 'cofofo-feature', pipelineId: 'EPIC-200-PIPELINE' });
-    const scaffolded = ideas.confirmRouteAndScaffold(proposed.id, proposed.ideaRevision, [
+    const scaffolded = ideas.confirmRouteAndScaffold(approved.id, approved.ideaRevision, [
       { recipeId: 'cofofo-feature', epicId: 'EPIC-200', epicTitle: 'Heat alert', pipeline, scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} } },
     ], null, USER);
     expect(scaffolded.checkpoint).toBe('in_delivery');
@@ -561,12 +690,12 @@ describe('Idea to CoFoFo delivery, end to end', () => {
       'docs/epics/EPIC-200/artifacts/REQUIREMENT.md',
     ]);
 
-    const approved = applyArtifactReviewVerdict({
+    const approvedRun = applyArtifactReviewVerdict({
       workspaceRoot: root, state: run, pipeline, bundle,
       verdict: { verdict: 'approve', reviewer: 'Reviewer <r@example.test>' },
     });
-    expect(approved.steps[0]!.status).toBe('approved');
-    expect(approved.currentStepIdx).toBe(1); // advanced to create-plan
+    expect(approvedRun.steps[0]!.status).toBe('approved');
+    expect(approvedRun.currentStepIdx).toBe(1); // advanced to create-plan
   });
 
   it('syncAllIdeaDeliveries marks the Idea completed when every child run finishes', () => {
@@ -580,9 +709,10 @@ describe('Idea to CoFoFo delivery, end to end', () => {
       outcome: 'epics',
       steps: [{ recipeId: 'cofofo-feature', epicTitle: 'Heat alert', rationale: 'New behavior.' }],
     }, AGENT);
+    const approved = approveRouteReview(root, ideas, proposed);
     const cfg = generatedCofofoWorkspace({ version: '1.0', name: 'x', environment: {} });
     const pipeline = assemblePipeline(cfg, { recipeId: 'cofofo-feature', pipelineId: 'EPIC-201-PIPELINE' });
-    ideas.confirmRouteAndScaffold(proposed.id, proposed.ideaRevision, [
+    ideas.confirmRouteAndScaffold(approved.id, approved.ideaRevision, [
       { recipeId: 'cofofo-feature', epicId: 'EPIC-201', epicTitle: 'Heat alert', pipeline, scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} } },
     ], null, USER);
 

@@ -62,10 +62,18 @@ complete, paste, or confirm a terminal result.
 
 1. From \`intent_drafted\`, read the Intent artifact and classify it into the
    appropriate CoFoFo route. Do not create Epics or implement code.
-2. Persist either a \`route_proposed\` state plus \`docs/ideas/$ARGUMENTS/ROUTE.md\`,
-   or a \`closed\` state plus \`EVIDENCE.md\` for a non-build outcome.
+2. Persist a \`route_proposed\` state plus either \`docs/ideas/$ARGUMENTS/ROUTE.md\`
+   (an epics outcome) or \`EVIDENCE.md\` (a non-build outcome) — **both**
+   outcomes land at \`route_proposed\`, never at \`closed\` directly (F22: the
+   routing decision itself waits for a human Canvas verdict on whichever file
+   you just wrote, the same way an epics outcome always has).
 3. Insert no bootstrap step based on judgment; use the Foundation freshness
    rules already recorded by the Idea state.
+4. Never set \`checkpoint\` to \`closed\` yourself, and never write a
+   \`routeApproval\` object — those belong to the extension applying the
+   human's Canvas verdict (\`route_reviewed\`/\`route_changes_requested\`/
+   \`closed\` events are extension-only for the same reason \`scaffolded\` and
+   \`in_delivery\` already are). Your job ends at \`route_proposed\`.
 
 ## Exact field shapes — copy these keys verbatim, never invent alternatives
 
@@ -131,9 +139,10 @@ complete, paste, or confirm a terminal result.
 \`"steps": []\`, and a top-level sibling \`"evidence": "<the EVIDENCE.md body>"\`
 instead.
 
-Never set \`checkpoint\` to \`"in_delivery"\` or \`"completed"\`, and never write
-an \`inDelivery\` object yourself — the extension owns the scaffold step that
-follows the human confirming a route in the Ideas tab.
+Never set \`checkpoint\` to \`"in_delivery"\`, \`"completed"\`, or \`"closed"\`, and
+never write an \`inDelivery\` or \`routeApproval\` object yourself — the
+extension owns the scaffold step that follows the human confirming a route,
+and the Canvas verdict that closes or approves one, in the Ideas tab.
 
 ## Event log — \`events.ndjson\`
 
@@ -143,13 +152,17 @@ valid \`type\` values are: \`created\`, \`seed_edited\`, \`prep_started\`,
 \`prep_rerun\`, \`prep_completed\`, \`prep_failed\`, \`prep_stopped\`,
 \`self_answer_flagged\`, \`answer_saved\`, \`answers_reopened\`, \`batch_submitted\`,
 \`decided_rest\`, \`route_failed\`, \`route_stopped\`, \`route_generated\`,
-\`route_confirmed\`, \`scaffolded\`, \`closed\`, \`completed\`, \`shelved\`,
-\`reopened\`, \`restarted\`. Use \`prep_completed\` for the event that ends
-preparation (whether it lands on \`awaiting_human\` or skips straight to
-\`intent_drafted\` because zero questions survived) and \`route_generated\` for
-the event that writes \`routeDraft\` (whether the checkpoint becomes
-\`route_proposed\` or \`closed\`). Each event needs a fresh \`id\` (uuid), \`at\`
-(ISO timestamp), \`actor\`, and the Idea's new \`revision\` — append one line of
+\`route_reviewed\`, \`route_changes_requested\`, \`route_confirmed\`,
+\`scaffolded\`, \`closed\`, \`completed\`, \`shelved\`, \`reopened\`, \`restarted\`.
+Use \`prep_completed\` for the event that ends preparation (whether it lands on
+\`awaiting_human\` or skips straight to \`intent_drafted\` because zero
+questions survived) and \`route_generated\` for the event that writes
+\`routeDraft\` (checkpoint always becomes \`route_proposed\` — never write this
+event with \`closed\`). \`route_reviewed\`, \`route_changes_requested\`, and
+\`closed\` are written only by the extension applying a Canvas verdict — you
+will never append one of these three yourself. Each event needs a fresh \`id\`
+(uuid), \`at\` (ISO timestamp), \`actor\`, and the Idea's new \`revision\` —
+append one line of
 JSON, never rewrite an existing line.
 
 ## State-writing rules

@@ -96,6 +96,11 @@ interface IdeasCopy {
     stopConfirmTitle: string;
     stopConfirmBody: string;
     stopConfirm: string;
+    /** F22 — Canvas gate on the routing decision, before it can be confirmed or (for a close outcome) finalized. */
+    reviewGateTitle: string;
+    reviewGateBodyEpics: string;
+    reviewGateBodyClose: string;
+    approvedNote: (reviewer: string) => string;
   };
   delivery: {
     title: (recipeId: string) => string;
@@ -251,7 +256,7 @@ const en: IdeasCopy = {
     title: 'Proposed route',
     bootstrapBanner: 'CONTEXT-MANIFEST.json is missing or out of date — cofofo-bootstrap is queued first, ahead of everything else.',
     assumptionsHeader: (count) => `${count} assumption${count === 1 ? '' : 's'} — reviewed once at the plan canvas`,
-    footerNote: 'This is an operational confirmation. The content itself is reviewed once, at the plan canvas for the first step.',
+    footerNote: 'ROUTE.md was approved in Canvas. Confirming now scaffolds the epic(s) below.',
     confirm: 'Confirm & run',
     viewRoute: 'View ROUTE.md',
     blockedTitle: 'Routing could not finish',
@@ -262,6 +267,10 @@ const en: IdeasCopy = {
     stopConfirmTitle: 'Stop routing?',
     stopConfirmBody: 'The agent process will be cancelled. Your answers stay saved and you can re-run routing later.',
     stopConfirm: 'Stop routing',
+    reviewGateTitle: 'Awaiting Canvas review',
+    reviewGateBodyEpics: 'Review ROUTE.md in Canvas before this route can be confirmed. Request changes to send routing back for a redo.',
+    reviewGateBodyClose: 'Review EVIDENCE.md in Canvas — approving it closes this idea; request changes to send routing back for a redo.',
+    approvedNote: (reviewer) => `Approved by ${reviewer}.`,
   },
   delivery: {
     title: (recipeId) => `Running ${recipeId}`,
@@ -416,7 +425,7 @@ const vi: IdeasCopy = {
     title: 'Tuyến đề xuất',
     bootstrapBanner: 'CONTEXT-MANIFEST.json hết hiệu lực hoặc chưa có — cofofo-bootstrap được xếp chạy trước, trước mọi việc khác.',
     assumptionsHeader: (count) => `${count} giả định — sẽ được duyệt một lần ở plan canvas`,
-    footerNote: 'Đây là xác nhận thao tác. Nội dung được review một lần ở plan canvas của bước đầu tiên.',
+    footerNote: 'ROUTE.md đã được duyệt ở Canvas. Xác nhận bây giờ sẽ scaffold (các) epic bên dưới.',
     confirm: 'Xác nhận & chạy',
     viewRoute: 'Xem ROUTE.md',
     blockedTitle: 'Định tuyến chưa xong được',
@@ -427,6 +436,10 @@ const vi: IdeasCopy = {
     stopConfirmTitle: 'Dừng định tuyến?',
     stopConfirmBody: 'Tiến trình agent sẽ bị huỷ. Câu trả lời vẫn được lưu và bạn có thể chạy lại định tuyến sau.',
     stopConfirm: 'Dừng định tuyến',
+    reviewGateTitle: 'Đang chờ review ở Canvas',
+    reviewGateBodyEpics: 'Review ROUTE.md ở Canvas trước khi tuyến này được xác nhận. Request changes để trả việc định tuyến lại cho agent làm lại.',
+    reviewGateBodyClose: 'Review EVIDENCE.md ở Canvas — duyệt sẽ đóng idea này; request changes để trả việc định tuyến lại cho agent làm lại.',
+    approvedNote: (reviewer) => `Đã duyệt bởi ${reviewer}.`,
   },
   delivery: {
     title: (recipeId) => `Đang chạy ${recipeId}`,

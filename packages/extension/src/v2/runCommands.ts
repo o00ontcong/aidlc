@@ -53,7 +53,11 @@ import {
   applyTransportVerdict,
   AnnotronTransport,
   ANNOTRON_DEFAULT_BASE,
+  CANVAS_VERDICT_WIRE,
   syncIdeasForRun,
+  IdeaService,
+  IdeaStateError,
+  buildRouteReviewBundle,
 } from '@aidlc/core';
 import type { PipelineConfig, ReviewGate, RunState } from '@aidlc/core';
 
@@ -477,22 +481,49 @@ async function ensureAnnotron(extensionPath: string): Promise<void> {
     );
   }
 
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
+  // `process.execPath` in an Extension Development Host is the Electron/VS
+  // Code binary itself, not a plain `node` executable. Without
+  // ELECTRON_RUN_AS_NODE=1, spawning it boots a full Electron app instance
+  // (observed: "Unable to find helper app" / crashpad FATAL errors, exits
+  // immediately) instead of running `server.js` as a script. NODE_OPTIONS is
+  // still stripped — a value VS Code sets for its own child processes
+  // (e.g. a `--require` pointing at internal bootstrap paths) would apply to
+  // this child too and can crash or slow it down the same way.
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  env.ELECTRON_RUN_AS_NODE = '1';
   delete env.NODE_OPTIONS;
+  // `stdio` is captured (not 'ignore') so a startup failure — wrong node
+  // binary, port already bound by something that never answers /health,
+  // a crash inside server.js — surfaces in the thrown error instead of a
+  // bare "did not become healthy" timeout with no way to tell why.
   const child = spawn(process.execPath, [server], {
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env,
   });
   child.unref();
+  let output = '';
+  child.stdout?.on('data', (chunk) => { output += String(chunk); });
+  child.stderr?.on('data', (chunk) => { output += String(chunk); });
+  let spawnError: Error | null = null;
+  child.once('error', (err) => { spawnError = err; });
 
   const deadline = Date.now() + 6000;
   while (Date.now() < deadline) {
     if (await annotronHealthy(ANNOTRON_DEFAULT_BASE)) { return; }
+    if (spawnError) {
+      throw new PipelineRunError(`Annotron failed to start: ${(spawnError as Error).message}`);
+    }
+    if (child.exitCode !== null) {
+      throw new PipelineRunError(
+        `Annotron exited during startup (code ${child.exitCode}).${output.trim() ? ` Output: ${output.trim().slice(-2000)}` : ''}`,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  throw new PipelineRunError(`Annotron did not become healthy at ${ANNOTRON_DEFAULT_BASE}.`);
+  throw new PipelineRunError(
+    `Annotron did not become healthy at ${ANNOTRON_DEFAULT_BASE}.${output.trim() ? ` Output so far: ${output.trim().slice(-2000)}` : ' No output was produced.'}`,
+  );
 }
 
 /**
@@ -589,6 +620,98 @@ export async function reviewCanvasStepCommand(
       void vscode.window.showWarningMessage(
         `Canvas requested changes${verdict?.reviewer ? ` (${verdict.reviewer})` : ''}: ${verdict?.feedback ?? 'No feedback supplied.'}`,
       );
+    }
+  } catch (error) {
+    surfaceRunError(error);
+  }
+}
+
+// ── openIdeaRouteReview (F22) ────────────────────────────────────────────
+
+/**
+ * Open the Canvas gate on an Idea's routing decision (`ROUTE.md` for an
+ * epics outcome, `EVIDENCE.md` for `close`) and wait for a verdict, exactly
+ * like {@link reviewCanvasStepCommand} does for a pipeline step's gate —
+ * except the bundle is bound to `idea.id`/`idea.ideaRevision` instead of a
+ * `RunState`, since this decision is made before any run exists.
+ */
+export async function openIdeaRouteReviewCommand(extensionPath: string, ideaId: string): Promise<void> {
+  const root = requireRoot('Review in Canvas');
+  if (!root) { return; }
+  const ideas = new IdeaService(root);
+  let idea;
+  try {
+    idea = ideas.require(ideaId);
+  } catch (error) {
+    surfaceRunError(error);
+    return;
+  }
+  if (idea.checkpoint !== 'route_proposed' || idea.routeApproval) {
+    void vscode.window.showInformationMessage(`AIDLC Ideas: no open Canvas gate for ${ideaId}.`);
+    return;
+  }
+
+  try {
+    const bundle = buildRouteReviewBundle(root, idea);
+    await ensureAnnotron(extensionPath);
+    const transport = new AnnotronTransport(root, ANNOTRON_DEFAULT_BASE);
+    const opened = await transport.open(bundle);
+
+    for (const artifact of bundle.artifacts) {
+      const query = new URLSearchParams({ file: path.join(root, artifact.path), gate: bundle.bundleHash });
+      const fragment = opened.token ? `#token=${encodeURIComponent(opened.token)}` : '';
+      await vscode.env.openExternal(vscode.Uri.parse(`${ANNOTRON_DEFAULT_BASE}/?${query.toString()}${fragment}`));
+    }
+
+    if (opened.supersededVerdict) {
+      void vscode.window.showWarningMessage(
+        'Canvas reopened because the artifact content changed after the previous verdict. Review the new bundle.',
+      );
+    }
+
+    const next = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `AIDLC: waiting for Canvas verdict · ${ideaId}`,
+        cancellable: true,
+      },
+      async (_progress, cancel) => {
+        const deadline = Date.now() + 30 * 60_000;
+        while (!cancel.isCancellationRequested && Date.now() < deadline) {
+          const reported = await transport.read(bundle);
+          if (reported) {
+            const wire = CANVAS_VERDICT_WIRE[reported.verdict];
+            if (!wire) {
+              throw new IdeaStateError(`Review transport reported an unknown verdict "${reported.verdict}".`);
+            }
+            const latest = ideas.require(ideaId);
+            return ideas.applyRouteReviewVerdict(
+              ideaId,
+              latest.ideaRevision,
+              bundle,
+              { decision: wire, reviewer: reported.reviewer, feedback: reported.feedback, at: reported.at },
+              { kind: 'user', id: 'vscode-user' },
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        return null;
+      },
+    );
+
+    if (!next) {
+      void vscode.window.showInformationMessage(
+        `Canvas gate for "${ideaId}" remains open. Click Open plan canvas again to resume.`,
+      );
+      return;
+    }
+
+    if (next.checkpoint === 'closed') {
+      void vscode.window.showInformationMessage(`AIDLC Ideas: ${ideaId} closed — routing decided no build was needed.`);
+    } else if (next.routeApproval) {
+      void vscode.window.showInformationMessage(`AIDLC Ideas: route approved by ${next.routeApproval.reviewer}.`);
+    } else {
+      void vscode.window.showWarningMessage('AIDLC Ideas: Canvas requested changes on the route — redo routing.');
     }
   } catch (error) {
     surfaceRunError(error);

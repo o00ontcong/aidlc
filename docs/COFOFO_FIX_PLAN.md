@@ -355,3 +355,50 @@ Hiện thực phần Đề xuất trong backlog.
    delivery run đang chạy sẽ có thêm một gate giữa chừng. Cộng với quyết định ở
    B1 là không migrate, điều này cho thấy nên xong B1–B4 trước khi có ai bắt đầu
    việc thật trên branch này.
+
+---
+
+## B8 (đã implement 2026-08-30) — F22: Canvas gate cho quyết định routing của Idea
+
+Xong: `IdeaService.applyRouteReviewVerdict` + `buildRouteReviewBundle`
+(`packages/core/src/idea/IdeaService.ts`), `Idea.routeApproval` schema field
+(`packages/core/src/contracts/idea.ts`), `aidlc.openIdeaRouteReview` command
+(`packages/extension/src/v2/runCommands.ts` + `workspaceCommands.ts`),
+webview wiring (`workspaceWebview.ts`'s `openIdeaRouteReview` case,
+`IdeaDetail.tsx`'s `RouteReviewGateCard`, `ideasI18n.ts`), và
+`ProviderManagedIdeaCommand.ts` cập nhật để agent provider-managed không còn
+tự set `checkpoint: closed` hay ghi `routeApproval`. 6 test mới trong
+`packages/core/test/idea.test.ts` (describe `F22 — Canvas gate on the routing
+decision`) cover approve/request_changes/stale/foreign-bundle/replay/backward-
+compat; test cũ cập nhật theo hành vi mới. Core (985 test) + extension (215
+test) đều pass; webview + main tsc typecheck sạch (một lỗi tsc tiền hữu ở
+`demoCofofoWeatherProject.ts:456` không liên quan, đã tách task riêng).
+
+Chưa làm, cố ý để mở: gate cho `INTENT.md` (F22b) — xem quyết định đã chốt ở
+`COFOFO_FIX_BACKLOG.md`.
+
+### Ghi chú lịch sử trước khi implement
+
+Cập nhật 2026-08-30: chỉ làm **Gate 2** (`ROUTE.md`/`EVIDENCE.md`, trước
+`confirmRouteAndScaffold`/finalize `close`). Gate 1 (`INTENT.md`) bị loại bỏ —
+vi phạm quyết định đã ghi ở `IdeaAssumptionSchema`
+([contracts/idea.ts:116-118](../packages/core/src/contracts/idea.ts)): "never
+a second review surface inside Ideas" cho assumption. Xem "Đề xuất cụ thể cho
+F22" trong `COFOFO_FIX_BACKLOG.md`.
+
+- Gate trên `ROUTE.md` (outcome tạo epic) hoặc `EVIDENCE.md` (outcome
+  `close`), thay modal `Confirm?` tĩnh của `RoutePanel` — áp dụng cho cả hai
+  outcome. `request_changes` quay lại bước `route` để routing agent chạy lại
+  (cùng cơ chế reject-to-target mà F6 cần).
+- Binding key: `idea.id` làm `runId` của `ReviewBundle`, `stepIdx: 1` (hằng
+  số, không có ý nghĩa thứ tự — chỉ để tái dùng shape có sẵn), `stepRevision:
+  idea.ideaRevision` (đã là optimistic-concurrency field sẵn có, không cần
+  counter mới), `reviewRevision: 1` (không đổi — request_changes luôn bump
+  `ideaRevision` nên tự nhiên vô hiệu hoá bundle cũ, không cần round riêng).
+- `buildReviewBundle`/`checkBundleCurrent` ([ArtifactReview.ts](../packages/core/src/runs/ArtifactReview.ts))
+  tái dùng nguyên vẹn, không sửa — chúng vốn chỉ cần path+hash, không phụ
+  thuộc `RunState`. Phần cần viết mới là tương đương
+  `applyArtifactReviewVerdict` nhưng áp lên `Idea` thay vì `RunState`.
+
+Không phụ thuộc B1–B7 và không nằm trên đường tới hạn B1 → B2 → B5; có thể bàn
+song song bất cứ lúc nào.
