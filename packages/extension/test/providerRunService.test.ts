@@ -8,7 +8,6 @@ import { getCommandProviderAdapter } from '@aidlc/core';
 import {
   buildCodexRunPrompt,
   buildHeadlessAnalysisInvocation,
-  buildIdeaPrepPrompt,
   buildOpenCodeRunPrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
@@ -32,26 +31,6 @@ describe('providerRunService', () => {
 
   it('names terminal after provider display name', () => {
     expect(terminalNameForProvider('Cursor Agent')).toBe('AIDLC · Cursor Agent');
-  });
-
-  it('builds the Idea prep prompt with self-answer-first instructions and a strict JSON contract', () => {
-    const prompt = buildIdeaPrepPrompt({ ideaId: 'IDEA-001', seedSentence: 'The list never refreshes.', language: 'vi' });
-    expect(prompt).toContain('The list never refreshes.');
-    expect(prompt).toContain('read before asking');
-    expect(prompt).toContain('at least 3 questions survive');
-    expect(prompt).toContain('dependsOn');
-    expect(prompt).toContain('Write every human-readable string in Vietnamese');
-    expect(prompt).toContain('"selfAnswered"');
-    expect(prompt).not.toContain('undefined');
-  });
-
-  it('tells the prep agent not to repeat a self-answer a human already flagged wrong', () => {
-    const prompt = buildIdeaPrepPrompt({
-      ideaId: 'IDEA-001', seedSentence: 'x', language: 'en',
-      excludeAnswers: ['Which nav library does this app use?'],
-    });
-    expect(prompt).toContain('already flagged wrong');
-    expect(prompt).toContain('Which nav library does this app use?');
   });
 
   it('uses verified read-only headless modes for supported analysis providers', () => {

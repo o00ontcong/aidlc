@@ -13,13 +13,11 @@ import {
   WorkspaceLoader,
   captureEvidence,
   evidenceStageRevisionsForRun,
-  foundationPipelineForRoute,
   markStepDone,
   normalizeStep,
   rebaseRunToCurrentFoundation,
   recordBugReport,
   scaffoldEpic,
-  startRun,
   formatCofofoBugReport,
   COFOFO_BUG_REPORT_FILENAME,
   type FoundationRoute,
@@ -119,20 +117,13 @@ export async function prepareCofofoFoundationCommand(extensionPath: string): Pro
     const generated = WorkspaceLoader.load(root).config.pipelines
       .find((pipeline) => pipeline.id === 'cofofo-foundation');
     if (!generated || !inspection.state) throw new Error('Generated CoFoFo foundation pipeline is missing.');
-    const pipeline = foundationPipelineForRoute(generated, choice.route);
-    const baseRunId = `COFOFO-FOUNDATION-R${inspection.state.revision}`;
-    let runId = baseRunId;
-    let suffix = 2;
-    while (RunStateStore.load(root, runId)) runId = `${baseRunId}-${suffix++}`;
-    const state = startRun({
-      runId,
-      pipeline,
-      context: { foundation: String(inspection.state.revision) },
-      workspaceRoot: root,
-    });
-    saveAndRefresh(root, state);
+    // Registers the recipes/pipelines and detects the stack — it does not
+    // start a run itself. Starting one here (bypassing scaffoldEpic) used to
+    // create a run with no docs/epics/<id> folder, invisible in the Epics
+    // tab. Running cofofo-foundation for real now always goes through a
+    // normal "New Epic" — the same path every other pipeline uses.
     void vscode.window.showInformationMessage(
-      `CoFoFo revision ${inspection.state.revision} prepared. Started ${runId}; current phase: ${currentPhase(state, pipeline)}.`,
+      `CoFoFo revision ${inspection.state.revision} registered — cofofo-foundation/cofofo-delivery pipelines and recipes are ready. Start a New Epic with the CoFoFo Foundation pipeline to run it.`,
     );
   } catch (error) {
     const value = error as Error & { issues?: string[] };

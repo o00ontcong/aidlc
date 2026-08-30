@@ -26,7 +26,6 @@ import { renderProviderContext } from './ProviderContext';
 import { composeWorkspaceFromBundle } from './WorkspaceComposer';
 import { detectStack, validateStackProfile } from './StackDetector';
 import {
-  createDefaultRules,
   renderProjectRules,
   validateProjectRules,
   validateRulesMarkdown,
@@ -98,43 +97,6 @@ function profileMarkdown(profile: StackProfile): string {
   }
   if (profile.fallback) lines.push('', '## Fallback', '', `${profile.fallback.reason} Use ${profile.fallback.pipelineId}.`);
   lines.push('', '## Machine Evidence', '', ...profile.evidence.map((item) => `- ${item.path} — ${item.observed} — ${item.sha256}`), '');
-  return lines.join('\n');
-}
-
-function sourceFiles(root: string): string[] {
-  const ignored = new Set(['.git', '.aidlc', '.build', 'node_modules', 'dist', 'build', 'DerivedData']);
-  const output: string[] = [];
-  const visit = (directory: string, depth: number): void => {
-    if (depth > 5 || output.length >= 200) return;
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (ignored.has(entry.name) || entry.isSymbolicLink()) continue;
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(absolute, depth + 1);
-      else if (entry.isFile()) output.push(path.relative(root, absolute).split(path.sep).join('/'));
-    }
-  };
-  visit(root, 0);
-  return output.sort();
-}
-
-function architectureMap(root: string, profile: StackProfile): string {
-  const files = sourceFiles(root).filter((file) => /(?:Sources|Tests|src|test|Package\.swift)/.test(file));
-  const layers = new Map<string, string[]>();
-  for (const file of files) {
-    const layer = file.includes('/Presentation/') ? 'Presentation'
-      : file.includes('/Domain/') ? 'Domain'
-        : file.includes('/Data/') ? 'Data'
-          : file.includes('/Tests/') || file.includes('/test') ? 'Tests'
-            : 'Project';
-    const values = layers.get(layer) ?? [];
-    values.push(file);
-    layers.set(layer, values);
-  }
-  const lines = ['# Architecture Map', '', `Stack: **${profile.stack?.id ?? 'fallback'}**`, '', '## Layer Map', ''];
-  for (const [layer, values] of layers) {
-    lines.push(`### ${layer}`, '', ...values.slice(0, 40).map((file) => `- ${file}`), '');
-  }
-  lines.push('## Dependency Direction', '', 'Presentation → Data → Domain. Domain must not import presentation frameworks.', '', '## Test Seams', '', 'External data is accessed behind protocols and replaced by deterministic fakes.', '');
   return lines.join('\n');
 }
 
@@ -288,19 +250,17 @@ export class CofofoFoundationService {
       return { status: 'fallback', state: fallbackState, profile: fallbackProfile, manifest: null, issues: [fallbackProfile.fallback!.reason], nextAction: 'Use the existing aidlc-workflow-full pipeline.' };
     }
 
-    let rules: ProjectRules;
-    const existingRules = readJson(this.workspaceRoot, FILES.rulesJson, (value) => ProjectRulesSchema.parse(value));
-    if (existingRules && route !== 'bootstrap' && route !== 'update-rules') rules = existingRules;
-    else if (existingRules && !args.force) rules = ProjectRulesSchema.parse({ ...existingRules, foundationRevision: revision, generatedAt: now });
-    else rules = createDefaultRules(profile, revision, now);
-    writeJson(this.workspaceRoot, FILES.rulesJson, rules);
-    writeAtomic(resolveInside(this.workspaceRoot, FILES.rulesMarkdown), renderProjectRules(rules));
-    const violations = validateProjectRules({ workspaceRoot: this.workspaceRoot, rules, profile, now });
-    writeAtomic(resolveInside(this.workspaceRoot, FILES.drift), [
-      '# Rule Drift', '', '## Findings', '',
-      ...(violations.length ? violations.map((issue) => `- **${issue.severity} ${issue.ruleId}** — ${issue.path}: ${issue.message}`) : ['- No current violations.']), '',
-    ].join('\n'));
-    writeAtomic(resolveInside(this.workspaceRoot, FILES.architecture), architectureMap(this.workspaceRoot, profile));
+    // PROJECT-RULES.json/md, RULE-DRIFT.md, and ARCHITECTURE-MAP.md are
+    // deliberately NOT pre-seeded here. Deciding real policy and mapping real
+    // architecture is the `define-rules`/`map-system` phases' job once a
+    // human actually starts and runs the `cofofo-foundation` epic — every
+    // other step in this codebase already creates its own `produces` files
+    // fresh during the step (see ArtifactReview.ts), and Canvas review is the
+    // real safety net regardless of whether a draft existed beforehand.
+    // ECC catalog selection stays pre-computed here: unlike rules/
+    // architecture, it's a deterministic lookup (`selectCatalog`) that
+    // `select-ecc-catalog` reviews/audits rather than authors from scratch —
+    // the same kind of machine evidence as the stack detection above.
     writeAtomic(resolveInside(this.workspaceRoot, FILES.selection), catalogSelectionMarkdown(profile, this.catalogRoot));
 
     installCofofoPhaseSkills(this.workspaceRoot);
@@ -316,7 +276,43 @@ export class CofofoFoundationService {
       stackProfilePath: FILES.stackJson, publishedAt: now,
     });
     writeJson(this.workspaceRoot, COFOFO_STATE_PATH, pending);
-    return { status: 'pending-review', state: pending, profile, manifest: null, issues: violations.filter((issue) => issue.severity === 'block').map((issue) => `${issue.ruleId}: ${issue.message}`), nextAction: 'Start cofofo-foundation, review policy/catalog in Canvas, then install.' };
+    return {
+      status: 'pending-review', state: pending, profile, manifest: null, issues: [],
+      nextAction: 'Start a cofofo-foundation epic from the Epics tab, then review rules/architecture/catalog in Canvas.',
+    };
+  }
+
+  /**
+   * Registers the six CoFoFo recipes and the `cofofo-foundation`/
+   * `cofofo-delivery` pipelines into `.aidlc/workspace.yaml` unconditionally
+   * — unlike `prepare()`, this never falls back to `aidlc-workflow-full`
+   * based on stack detection. The Ideas tab is CoFoFo-only by design (see
+   * `contracts/idea.ts`): its routing agent proposes `cofofo-*` recipe ids
+   * regardless of whether this project has been through `prepare()` yet, so
+   * those recipes must exist the moment a route needs one — even for a
+   * project with no code yet. An empty `scan-stack` result is itself valid
+   * machine evidence that phase is built to narrate ("Explain ... the
+   * generic-SDLC fallback when present" — see `WorkflowGenerator.ts`'s
+   * `PHASE_INSTRUCTIONS['scan-stack']`), not a reason to withhold the recipe.
+   *
+   * Idempotent: merges into whatever `workspace.yaml` already has (via
+   * `generatedCofofoWorkspace`) and only seeds `stack.json` when one doesn't
+   * exist yet — it never touches rules/architecture/catalog, which stay a
+   * real `prepare()` run's job once there's code to audit.
+   */
+  ensureRecipesRegistered(): void {
+    const workspacePath = resolveInside(this.workspaceRoot, '.aidlc/workspace.yaml');
+    let current: Partial<WorkspaceConfig> | undefined;
+    if (fs.existsSync(workspacePath)) current = yaml.load(fs.readFileSync(workspacePath, 'utf8')) as Partial<WorkspaceConfig>;
+    const generated = generatedCofofoWorkspace(current);
+    writeAtomic(workspacePath, yaml.dump(generated, { lineWidth: -1, noRefs: true, sortKeys: false }));
+    installCofofoPhaseSkills(this.workspaceRoot);
+    installCofofoProviderCommands(this.workspaceRoot, generated);
+    if (!fs.existsSync(resolveInside(this.workspaceRoot, FILES.stackJson))) {
+      const profile = detectStack(this.workspaceRoot);
+      writeJson(this.workspaceRoot, FILES.stackJson, profile);
+      writeAtomic(resolveInside(this.workspaceRoot, FILES.stackMarkdown), profileMarkdown(profile));
+    }
   }
 
   install(runId: string, force = false): ReturnType<typeof installCatalog> {

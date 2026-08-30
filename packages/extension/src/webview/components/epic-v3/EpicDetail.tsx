@@ -18,6 +18,7 @@ import { RequestUpdateModal } from '../RequestUpdateModal';
 import { RerunModal } from '../RerunModal';
 import { BugReportModal } from '../BugReportModal';
 import { RunWithFeedbackModal } from '../RunWithFeedbackModal';
+import { DeleteEpicModal } from '../DeleteEpicModal';
 import { GateModal } from './GateModal';
 import { FlowCanvas } from './FlowCanvas';
 import { DEFAULT_LOOP, type FlowLoop } from './flow-layout';
@@ -1076,6 +1077,7 @@ function HistoryCard({ step }: { step: EpicStepDetailFull }) {
 
 function ActionBar({ epic }: { epic: EpicSummary }) {
   const hasInputs = Object.keys(epic.inputs || {}).length > 0;
+  const [deleteOpen, setDeleteOpen] = useState(false);
   return (
     <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', paddingBottom: 6, flex: 'none' }}>
       <Btn
@@ -1092,6 +1094,32 @@ function ActionBar({ epic }: { epic: EpicSummary }) {
           fs={12}
           title="File brief lúc tạo epic (Jira, Figma, scope)."
           onClick={() => postMessage({ type: 'openInputsJson', epicDir: epic.epicDir })}
+        />
+      )}
+      <Spacer />
+      <Btn
+        label="Xoá epic"
+        variant="danger"
+        pad="8px 13px"
+        fs={12}
+        title="Xoá run state, tuỳ chọn xoá luôn thư mục docs/epics/<id>."
+        onClick={() => setDeleteOpen(true)}
+      />
+      {deleteOpen && (
+        <DeleteEpicModal
+          epicId={epic.id}
+          epicDir={epic.epicDir}
+          hasRun={!!epic.runId}
+          onConfirm={(deleteFolder) =>
+            postMessage({
+              type: 'deleteEpic',
+              epicId: epic.id,
+              runId: epic.runId ?? undefined,
+              deleteFolder,
+              confirmed: true,
+            })
+          }
+          onClose={() => setDeleteOpen(false)}
         />
       )}
     </div>

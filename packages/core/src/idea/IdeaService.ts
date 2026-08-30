@@ -5,6 +5,7 @@ import * as path from 'path';
 import type { ActorRef } from '../contracts/common';
 import { nowIso } from '../contracts/common';
 import {
+  parseIdea,
   type Idea,
   type IdeaAssumption,
   type IdeaChild,
@@ -29,6 +30,8 @@ const MAX_BATCH_SIZE = 5;
 const MAX_BATCH_ROUNDS = 2;
 /** Gate rule from `discovery-gate.md`, reused verbatim for the same reason it exists there. */
 const MIN_QUESTIONS_TO_ASK = 3;
+/** Persisted marker used by the UI to distinguish a user stop from an agent failure. */
+export const IDEA_AGENT_STOPPED = 'Stopped by user.';
 
 export interface CreateIdeaInput {
   id?: string;
@@ -71,7 +74,7 @@ function derivedTitle(seedSentence: string): string {
 
 /** `docs/ideas/<id>/` — human-readable artifacts, separate from `.aidlc/ideas/<id>/`'s
  * machine state (see docs/design/ideas-tab/ideas-redesign-cofofo.canvas.tsx). */
-function docsIdeaDir(workspaceRoot: string, ideaId: string): string {
+export function docsIdeaDir(workspaceRoot: string, ideaId: string): string {
   return path.join(workspaceRoot, 'docs', 'ideas', ideaId);
 }
 
@@ -106,6 +109,8 @@ export class IdeaService {
   }
 
   list(): Idea[] { return this.store.list(); }
+  /** Ideas hidden from `list()` because their `state.json` fails schema validation — see `IdeaStore.listLoadErrors`. */
+  listLoadErrors() { return this.store.listLoadErrors(); }
   get(id: string): Idea | null { return this.store.load(id); }
   require(id: string): Idea { return this.store.require(id); }
 
@@ -151,14 +156,14 @@ export class IdeaService {
   /**
    * Free while nothing depends on the seed yet; once prep has run, editing
    * resets to `captured` so prep reruns against the new sentence rather than
-   * silently keeping stale self-answers (E03). Refused once routing has
-   * started — `restart()` is the tool for that, since a route or epic may
-   * already exist by then.
+   * silently keeping stale self-answers (E03). It remains safe while the
+   * route lookup is in progress because no route has been committed yet;
+   * once a route or epic exists, `restart()` is the intentional reset.
    */
   patchSeed(id: string, expectedRevision: number, seedSentence: string, actor: ActorRef): Idea {
     const current = this.require(id);
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    if (current.checkpoint === 'intent_drafted' || current.checkpoint === 'route_proposed'
+    if (current.checkpoint === 'route_proposed'
       || current.checkpoint === 'in_delivery' || current.checkpoint === 'completed' || current.checkpoint === 'closed') {
       throw new IdeaStateError('Routing has already started for this Idea; use restart() to begin a fresh revision instead of editing the seed.');
     }
@@ -173,6 +178,8 @@ export class IdeaService {
       answers: {},
       batchIndex: 0,
       batchSubmitted: false,
+      blockedReason: undefined,
+      shelvedFromCheckpoint: undefined,
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
     };
@@ -215,6 +222,43 @@ export class IdeaService {
     };
     this.store.save(next, current.ideaRevision);
     this.record(next, 'prep_failed', actor, error);
+    return next;
+  }
+
+  /** Stop a running prep without discarding the Idea or its audit history. */
+  stopPrep(id: string, expectedRevision: number, actor: ActorRef): Idea {
+    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may stop Idea preparation.');
+    const current = this.require(id);
+    if (current.checkpoint !== 'preparing' || current.prep.status !== 'running') {
+      throw new IdeaStateError('Only a running Idea preparation can be stopped.');
+    }
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    const next: Idea = {
+      ...current,
+      prep: { ...current.prep, status: 'failed', error: IDEA_AGENT_STOPPED },
+      updatedAt: this.clock(),
+      ideaRevision: current.ideaRevision + 1,
+    };
+    this.store.save(next, current.ideaRevision);
+    this.record(next, 'prep_stopped', actor);
+    return next;
+  }
+
+  /** Start a fresh provider job after a stopped or failed preparation attempt. */
+  retryPrep(id: string, expectedRevision: number, jobId: string, actor: ActorRef): Idea {
+    const current = this.require(id);
+    if (current.checkpoint !== 'preparing' || current.prep.status !== 'failed') {
+      throw new IdeaStateError('Only a stopped or failed Idea preparation can be re-run.');
+    }
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    const next: Idea = {
+      ...current,
+      prep: { status: 'running', jobId, selfAnswered: [], questions: [] },
+      updatedAt: this.clock(),
+      ideaRevision: current.ideaRevision + 1,
+    };
+    this.store.save(next, current.ideaRevision);
+    this.record(next, 'prep_rerun', actor);
     return next;
   }
 
@@ -405,6 +449,38 @@ export class IdeaService {
     return this.advanceToIntentDrafted(decided, actor);
   }
 
+  /**
+   * Return a submitted intake to its question form before a route has been
+   * generated. Explicit human answers stay selected; prior assumptions become
+   * unanswered again so the person can choose them deliberately.
+   */
+  reopenQuestionBatch(id: string, expectedRevision: number, actor: ActorRef): Idea {
+    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may edit submitted Idea answers.');
+    const current = this.require(id);
+    if (current.checkpoint !== 'intent_drafted') {
+      throw new IdeaStateError('Submitted answers can only be edited before a route is generated.');
+    }
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    const assumedQuestionIds = new Set(current.assumptions.map((assumption) => assumption.id));
+    const answers = Object.fromEntries(Object.entries(current.answers)
+      .filter(([questionId]) => !assumedQuestionIds.has(questionId)));
+    const next: Idea = {
+      ...current,
+      checkpoint: 'awaiting_human',
+      answers,
+      assumptions: [],
+      batchSubmitted: false,
+      routeDraft: undefined,
+      routeConfirmed: false,
+      blockedReason: undefined,
+      updatedAt: this.clock(),
+      ideaRevision: current.ideaRevision + 1,
+    };
+    this.store.save(next, current.ideaRevision);
+    this.record(next, 'answers_reopened', actor);
+    return next;
+  }
+
   private advanceToIntentDrafted(idea: Idea, actor: ActorRef): Idea {
     const next: Idea = { ...idea, checkpoint: 'intent_drafted', updatedAt: this.clock(), ideaRevision: idea.ideaRevision + 1 };
     this.store.save(next, idea.ideaRevision);
@@ -558,6 +634,25 @@ export class IdeaService {
     return next;
   }
 
+  /** Stop an in-progress route lookup while keeping the completed intake intact. */
+  stopRoute(id: string, expectedRevision: number, actor: ActorRef): Idea {
+    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may stop Idea routing.');
+    const current = this.require(id);
+    if (current.checkpoint !== 'intent_drafted') {
+      throw new IdeaStateError('Only a running Idea route can be stopped.');
+    }
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    const next: Idea = {
+      ...current,
+      blockedReason: IDEA_AGENT_STOPPED,
+      updatedAt: this.clock(),
+      ideaRevision: current.ideaRevision + 1,
+    };
+    this.store.save(next, current.ideaRevision);
+    this.record(next, 'route_stopped', actor);
+    return next;
+  }
+
   clearBlocked(id: string, expectedRevision: number, actor: ActorRef): Idea {
     const current = this.require(id);
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
@@ -617,6 +712,7 @@ export class IdeaService {
       routeDraft: undefined,
       routeConfirmed: false,
       assumptions: [],
+      blockedReason: undefined,
       shelvedFromCheckpoint: undefined,
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
@@ -624,6 +720,92 @@ export class IdeaService {
     this.store.save(next, current.ideaRevision);
     this.record(next, 'restarted', actor);
     return next;
+  }
+
+  /**
+   * Permanently removes this Idea: `.aidlc/ideas/<id>` (machine state, audit
+   * log) and `docs/ideas/<id>` (INTENT.md/ROUTE.md/EVIDENCE.md) together, so
+   * a later Idea that reuses this id (via `nextId()`) never inherits stale
+   * docs from a deleted one. There is no undo — the caller must confirm with
+   * the human before calling this.
+   */
+  delete(id: string, expectedRevision: number, actor: ActorRef): void {
+    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may delete an Idea.');
+    const current = this.require(id);
+    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    this.store.delete(id);
+    const docsDir = docsIdeaDir(this.workspaceRoot, id);
+    if (fs.existsSync(docsDir)) fs.rmSync(docsDir, { recursive: true, force: true });
+  }
+
+  /**
+   * Repairs an Idea whose `state.json` fails schema validation (see
+   * `IdeaStore.listLoadErrors`) — e.g. a provider-managed agent wrote a
+   * checkpoint that drifted from the schema. There is no general way to
+   * "fix" an arbitrary corruption, so this does the one thing that's always
+   * safe: back up the broken file as `state.json.broken-<timestamp>`
+   * alongside it, then reset the Idea to a fresh, valid `captured`
+   * checkpoint, salvaging `seedSentence`/`title`/`outputLanguage`/
+   * `createdAt` from the broken JSON when they parse as the right type.
+   * `docs/ideas/<id>/` artifacts already on disk (INTENT.md, ROUTE.md, ...)
+   * are left untouched — only the machine state is reset.
+   */
+  repairCorrupted(id: string, actor: ActorRef): Idea {
+    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may repair a corrupted Idea.');
+    const file = this.store.stateFile(id);
+    if (!fs.existsSync(file)) throw new IdeaStateError(`No state.json exists for ${id}.`);
+    try {
+      this.store.load(id);
+      throw new IdeaStateError(`${id} already loads successfully — nothing to repair.`);
+    } catch (error) {
+      if (error instanceof IdeaStateError) throw error;
+      // Expected: load() throwing is exactly what makes this Idea "corrupted".
+    }
+
+    let raw: Record<string, unknown> = {};
+    try {
+      raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    } catch {
+      // Unparsable JSON — nothing left to salvage, repair still proceeds with a placeholder seed.
+    }
+
+    const now = this.clock();
+    fs.copyFileSync(file, `${file}.broken-${now.replace(/[:.]/g, '-')}`);
+
+    const seedSentence = typeof raw.seedSentence === 'string' && raw.seedSentence.trim()
+      ? raw.seedSentence.trim()
+      : '(Đã khôi phục từ trạng thái hỏng — hãy sửa lại câu ý tưởng này.)';
+    const outputLanguage = raw.outputLanguage === 'en' ? 'en' : 'vi';
+    const createdAt = typeof raw.createdAt === 'string' ? raw.createdAt : now;
+    const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : derivedTitle(seedSentence);
+
+    const repaired: Idea = {
+      schemaVersion: 1,
+      id,
+      checkpoint: 'captured',
+      ideaRevision: 0,
+      seedSentence,
+      title,
+      outputLanguage,
+      foundationHashAtCapture: this.captureFoundationSnapshot(),
+      answers: {},
+      batchIndex: 0,
+      batchSubmitted: false,
+      prep: { status: 'idle', selfAnswered: [], questions: [] },
+      routeConfirmed: false,
+      assumptions: [],
+      children: [],
+      saveStatus: 'saved',
+      dirty: false,
+      createdAt,
+      updatedAt: now,
+    };
+    const validated = parseIdea(repaired);
+    // Bypasses store.save()'s revision-match guard on purpose — a corrupted
+    // file has no trustworthy "current" revision to match against.
+    writeFileAtomic(file, `${JSON.stringify(validated, null, 2)}\n`);
+    this.record(validated, 'restarted', actor, 'Repaired from a corrupted state.json — the broken file was kept alongside it as a backup.');
+    return validated;
   }
 
   /** Which inbox bucket this Idea sits in right now — audit's INBOX_RULES table, verbatim. */

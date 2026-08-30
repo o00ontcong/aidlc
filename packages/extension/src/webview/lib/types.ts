@@ -830,6 +830,12 @@ export interface IdeaSummary {
   updatedAt: string;
 }
 
+/** One sibling under `.aidlc/ideas/` whose `state.json` exists but fails schema validation. */
+export interface IdeaLoadError {
+  id: string;
+  error: string;
+}
+
 export interface WorkspaceState {
   hasFolder: boolean;
   workspaceName: string;
@@ -838,6 +844,8 @@ export interface WorkspaceState {
   projectWorkspace?: ProjectWorkspaceSummary;
   /** Pre-Epic intake records; routing hands each one to exactly one CoFoFo recipe, or closes it with no epic. */
   ideas: IdeaSummary[];
+  /** Ideas hidden from `ideas` because their state failed validation — never dropped silently. */
+  corruptedIdeas: IdeaLoadError[];
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];

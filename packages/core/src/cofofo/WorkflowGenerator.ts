@@ -25,7 +25,7 @@ type Phase = typeof PHASES[number];
 
 const PHASE_INSTRUCTIONS: Record<Phase, string> = {
   'scan-stack': 'Read STACK-PROFILE.json as machine evidence. Do not guess an unsupported or second stack. Explain the detected manifest, toolchain, confidence, and generic-SDLC fallback when present.',
-  'define-rules': 'Edit PROJECT-RULES.json as canonical policy, then run `aidlc cofofo render-rules` to regenerate the hash-bound PROJECT-RULES.md and RULE-DRIFT.md. Every blocking rule needs a stable ruleId, machine-checkable matcher, measured scope, and explicit exception expiry.',
+  'define-rules': 'Create or edit PROJECT-RULES.json as canonical policy (it will not already exist on a first run), then run `aidlc cofofo render-rules` to regenerate the hash-bound PROJECT-RULES.md and RULE-DRIFT.md. Every blocking rule needs a stable ruleId, machine-checkable matcher, measured scope, and explicit exception expiry.',
   'map-system': 'Map modules, layers, dependency direction, state ownership, entry points, and test seams from concrete source paths. Write ARCHITECTURE-MAP.md and cite evidence.',
   'select-ecc-catalog': 'Review the pinned text-only catalog selection. Reject scripts, hooks, binaries, unknown licenses, unpinned revisions, and assets without a SHA-256 digest.',
   'install-ecc-assets': 'Run `aidlc cofofo install --run <foundation-run>` only after both policy and catalog Canvas gates are approved. Do not copy or download an executable ECC asset.',

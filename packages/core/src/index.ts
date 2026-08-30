@@ -140,6 +140,10 @@ export {
   ensureProviderManagedTaskCommand,
   providerManagedTaskCommandBody,
 } from './providers/ProviderManagedTaskCommand';
+export {
+  PROVIDER_MANAGED_IDEA_COMMAND,
+  providerManagedIdeaCommandBody,
+} from './providers/ProviderManagedIdeaCommand';
 
 export {
   WorkspaceLoader,

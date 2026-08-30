@@ -20,6 +20,8 @@ export interface CommandProviderAdapter {
   readonly id: BuiltinCommandProviderId;
   readonly displayName: string;
   readonly cliBinary: string;
+  /** Provider-native way for an interactive agent to ask and wait for human input. */
+  readonly nativeQuestionInstruction: string;
   commandsDir(root: string): string;
   commandFilePath(root: string, commandName: string): string;
   renderCommandFile(spec: StepCommandSpec, mappedModel?: string): string;
@@ -29,6 +31,22 @@ export interface CommandProviderAdapter {
     cwd?: string;
     /** Persisted provider CLI override from `.aidlc/providers.yaml`. */
     cliBinary?: string;
+  }): OneShotInvocation;
+  /**
+   * Start a real interactive provider session with an initial prompt. Unlike
+   * one-shot automation, this invocation must keep the provider UI attached
+   * to the terminal so its own question/answer mechanism remains available.
+   */
+  buildInteractiveInvocation(opts: {
+    prompt: string;
+    mappedModel?: string;
+    cwd?: string;
+    cliBinary?: string;
+    /**
+     * Provider-managed work can persist its own checkpoint in the visible
+     * session. The default stays read-only for discovery conversations.
+     */
+    allowWorkspaceWrite?: boolean;
   }): OneShotInvocation;
   /**
    * Return null rather than silently falling back to an unrestricted CLI mode.
@@ -51,6 +69,7 @@ const claudeAdapter: CommandProviderAdapter = {
   id: 'claude',
   displayName: BUILTIN_COMMAND_PROVIDERS.claude.displayName,
   cliBinary: BUILTIN_COMMAND_PROVIDERS.claude.cli,
+  nativeQuestionInstruction: 'Use Claude Code\'s native AskUserQuestion interaction. Wait for the person\'s answer inside Claude before continuing.',
   commandsDir(root) { return path.join(root, '.claude', 'commands'); },
   commandFilePath(root, commandName) {
     return path.join(this.commandsDir(root), `${commandName}.md`);
@@ -65,6 +84,17 @@ const claudeAdapter: CommandProviderAdapter = {
     return {
       argv: mappedModel ? [binary, '--model', mappedModel, slashOrPrompt] : [binary, slashOrPrompt],
       shellOneLiner: oneShot,
+    };
+  },
+  buildInteractiveInvocation({ prompt, mappedModel, cliBinary, allowWorkspaceWrite = false }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    const permissionMode = allowWorkspaceWrite ? '' : ' --permission-mode plan';
+    return {
+      argv: mappedModel
+        ? [binary, '--model', mappedModel, ...(allowWorkspaceWrite ? [] : ['--permission-mode', 'plan']), prompt]
+        : [binary, ...(allowWorkspaceWrite ? [] : ['--permission-mode', 'plan']), prompt],
+      shellOneLiner: `${binary}${modelFlag}${permissionMode} ${shellQuote(prompt)}`,
     };
   },
   buildDiscoveryInvocation({ prompt, mappedModel, cliBinary }) {
@@ -84,6 +114,7 @@ const cursorAdapter: CommandProviderAdapter = {
   id: 'cursor',
   displayName: BUILTIN_COMMAND_PROVIDERS.cursor.displayName,
   cliBinary: BUILTIN_COMMAND_PROVIDERS.cursor.cli,
+  nativeQuestionInstruction: 'Ask through Cursor Agent\'s native interactive conversation and wait for the person to answer in the Cursor terminal before continuing.',
   commandsDir(root) { return path.join(root, '.cursor', 'commands'); },
   commandFilePath(root, commandName) {
     return path.join(this.commandsDir(root), `${commandName}.md`);
@@ -111,6 +142,17 @@ ${spec.body}`;
       shellOneLiner: oneShot,
     };
   },
+  buildInteractiveInvocation({ prompt, mappedModel, cliBinary, allowWorkspaceWrite = false }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    const mode = allowWorkspaceWrite ? '' : ' --mode ask';
+    return {
+      argv: mappedModel
+        ? [binary, '--model', mappedModel, ...(allowWorkspaceWrite ? [] : ['--mode', 'ask']), prompt]
+        : [binary, ...(allowWorkspaceWrite ? [] : ['--mode', 'ask']), prompt],
+      shellOneLiner: `${binary}${modelFlag}${mode} ${shellQuote(prompt)}`,
+    };
+  },
   buildDiscoveryInvocation({ prompt, mappedModel, cliBinary }) {
     const binary = cliBinary?.trim() || this.cliBinary;
     const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
@@ -128,6 +170,7 @@ const codexAdapter: CommandProviderAdapter = {
   id: 'codex',
   displayName: BUILTIN_COMMAND_PROVIDERS.codex.displayName,
   cliBinary: BUILTIN_COMMAND_PROVIDERS.codex.cli,
+  nativeQuestionInstruction: 'Use Codex\'s native request_user_input interaction when available; otherwise ask in the Codex TUI and wait for the person\'s reply before continuing.',
   commandsDir(root) { return path.join(root, '.codex', 'skills'); },
   commandFilePath(root, commandName) {
     return path.join(this.commandsDir(root), `aidlc-${commandName}`, 'SKILL.md');
@@ -152,6 +195,17 @@ ${spec.body}`;
       shellOneLiner: oneShot,
     };
   },
+  buildInteractiveInvocation({ prompt, mappedModel, cliBinary, allowWorkspaceWrite = false }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    const sandbox = allowWorkspaceWrite ? 'workspace-write' : 'read-only';
+    return {
+      argv: mappedModel
+        ? [binary, '--model', mappedModel, '--sandbox', sandbox, '--no-alt-screen', prompt]
+        : [binary, '--sandbox', sandbox, '--no-alt-screen', prompt],
+      shellOneLiner: `${binary}${modelFlag} --sandbox ${sandbox} --no-alt-screen ${shellQuote(prompt)}`,
+    };
+  },
   buildDiscoveryInvocation({ prompt, mappedModel, cliBinary }) {
     const binary = cliBinary?.trim() || this.cliBinary;
     const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
@@ -169,6 +223,7 @@ const opencodeAdapter: CommandProviderAdapter = {
   id: 'opencode',
   displayName: BUILTIN_COMMAND_PROVIDERS.opencode.displayName,
   cliBinary: BUILTIN_COMMAND_PROVIDERS.opencode.cli,
+  nativeQuestionInstruction: 'Use OpenCode\'s native question interaction and wait for the person\'s answer inside the OpenCode TUI before continuing.',
   commandsDir(root) { return path.join(root, '.opencode', 'commands'); },
   commandFilePath(root, commandName) {
     return path.join(this.commandsDir(root), `${commandName}.md`);
@@ -191,6 +246,17 @@ const opencodeAdapter: CommandProviderAdapter = {
       argv: mappedModel
         ? [binary, '--model', mappedModel, '--auto', '--prompt', slashOrPrompt]
         : [binary, '--auto', '--prompt', slashOrPrompt],
+      shellOneLiner: oneShot,
+    };
+  },
+  buildInteractiveInvocation({ prompt, mappedModel, cliBinary }) {
+    const binary = cliBinary?.trim() || this.cliBinary;
+    const modelFlag = mappedModel ? ` --model ${shellQuote(mappedModel)}` : '';
+    const oneShot = `${binary}${modelFlag} --prompt ${shellQuote(prompt)}`;
+    return {
+      argv: mappedModel
+        ? [binary, '--model', mappedModel, '--prompt', prompt]
+        : [binary, '--prompt', prompt],
       shellOneLiner: oneShot,
     };
   },

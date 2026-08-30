@@ -74,6 +74,20 @@ describe('IdeaStore', () => {
     expect(listed.map((i) => i.id)).toEqual(['IDEA-002', 'IDEA-001']); // newest updatedAt first
   });
 
+  it('surfaces a corrupt sibling via listLoadErrors instead of only hiding it', () => {
+    const workspaceRoot = root();
+    const store = new IdeaStore(workspaceRoot);
+    store.save(draft({ id: 'IDEA-001' }), null);
+    fs.mkdirSync(path.join(workspaceRoot, '.aidlc/ideas/IDEA-002'), { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, '.aidlc/ideas/IDEA-002/state.json'), '{ not json', 'utf8');
+
+    expect(store.list().map((i) => i.id)).toEqual(['IDEA-001']);
+    const errors = store.listLoadErrors();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.id).toBe('IDEA-002');
+    expect(errors[0]!.error).toContain('Invalid Idea state');
+  });
+
   it('refuses a concurrent write while another writer holds the lock', () => {
     const workspaceRoot = root();
     const store = new IdeaStore(workspaceRoot);

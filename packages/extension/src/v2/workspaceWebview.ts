@@ -81,55 +81,6 @@ function runClaude(
   });
 }
 
-function runHeadlessProvider(
-  command: string,
-  args: string[],
-  opts: { cwd: string; timeoutMs: number },
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const extraPath = ['/opt/homebrew/bin', '/usr/local/bin', `${process.env.HOME ?? ''}/.local/bin`]
-      .filter(Boolean)
-      .join(':');
-    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${process.env.PATH ?? ''}:${extraPath}` };
-    delete env.ANTHROPIC_API_KEY;
-    delete env.ANTHROPIC_AUTH_TOKEN;
-    delete env.ANTHROPIC_BASE_URL;
-    delete env.CLAUDE_CODE_ENTRYPOINT;
-    delete env.CLAUDE_CODE_SESSION_ID;
-    delete env.CLAUDE_CODE_EXECPATH;
-
-    const proc = spawn(command, args, { cwd: opts.cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
-    let out = '';
-    let err = '';
-    let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      fn();
-    };
-    const timer = setTimeout(() => {
-      proc.kill('SIGKILL');
-      finish(() => reject(new Error('The agent took too long to prepare the plan.')));
-    }, opts.timeoutMs);
-
-    proc.stdout.on('data', (data: Buffer) => {
-      out += data.toString('utf8');
-      if (out.length > 4 * 1024 * 1024) {
-        proc.kill('SIGKILL');
-        finish(() => reject(new Error('The agent response was unexpectedly large.')));
-      }
-    });
-    proc.stderr.on('data', (data: Buffer) => { err += data.toString('utf8'); });
-    proc.on('error', (error) => finish(() => reject(error)));
-    proc.on('close', (code) => finish(() => {
-      rlog(`[Discovery proposal] provider=${command} exit=${code}\n  stdout: ${out.trim().slice(0, 600)}\n  stderr: ${err.trim().slice(0, 600)}`);
-      if (code === 0 && out.trim()) resolve(out);
-      else reject(Object.assign(new Error(`${command} exited ${code}`), { stderr: err, stdout: out }));
-    }));
-  });
-}
-
 /**
  * Per-source "how to fetch" actions for the `claude` CLI. Claude uses whatever
  * MCP integrations the user has configured (Atlassian, GitHub, Google Drive,
@@ -233,7 +184,10 @@ import {
   slugEpicId,
   scaffoldEpic,
   IdeaService,
+  IdeaStore,
   IdeaRevisionConflictError,
+  docsIdeaDir,
+  CofofoFoundationService,
   syncAllIdeaDeliveries,
   resolveChildCanvasStepIndex,
   epicsRoot,
@@ -276,20 +230,18 @@ import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './gl
 import { PresetStore } from './presetStore';
 import {
   reconcileValidatorConflictsCommand,
+  revealIdeaProviderTerminal,
+  runIdeaWithProviderCommand,
   runTaskWithProviderCommand,
+  stopIdeaProviderTerminal,
 } from './providerManagedRunCommands';
 
 const workspaceOutput = vscode.window.createOutputChannel('AIDLC Workspace');
 import { syncBuiltinPipelineCommands } from './presetWizards';
-import { buildProviderConfigUi, getProviderConfigStore, type ProviderConfigUi } from './providerConfig';
+import { buildProviderConfigUi, type ProviderConfigUi } from './providerConfig';
 import {
   runSlashCommandWithProvider,
-  buildIdeaPrepPrompt,
-  buildIdeaRoutePrompt,
-  buildHeadlessAnalysisInvocation,
 } from './providerRunService';
-import { extractJsonObject, readIdeaPrepResult } from './ideaPrepResult';
-import { readIdeaRouteResult } from './ideaRouteResult';
 import type {
   PipelineStepConfig,
   AssetScope,
@@ -301,6 +253,7 @@ import type {
   AutoReviewVerdict,
   StepHistoryEntry,
   ResolvedRouteStep,
+  IdeaLoadError,
 } from '@aidlc/core';
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
@@ -659,6 +612,8 @@ interface WorkspaceState {
   configExists: boolean;
   projectWorkspace?: ProjectWorkspaceSummary;
   ideas: IdeaUi[];
+  /** Ideas whose `state.json` exists but fails schema validation — kept out of `ideas` but never hidden entirely. */
+  corruptedIdeas: IdeaLoadError[];
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
@@ -763,6 +718,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       workspaceName: '',
       configExists: false,
       ideas: [],
+      corruptedIdeas: [],
       agents: [], skills: [], pipelines: [], recipes: [], epics: [],
       agentMeta: {}, slashCommandsByAgent: {},
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0, epicsCount: 0,
@@ -790,6 +746,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   // see IdeaService.create), so this list is built the same way in every
   // branch below, including the `!doc` one.
   const ideas: IdeaUi[] = buildIdeasUi(root, doc);
+  const corruptedIdeas: IdeaLoadError[] = new IdeaService(root).listLoadErrors();
   const discovered = discoverAssets(root);
   const architecture = readArchitectureStudio(root);
 
@@ -851,6 +808,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       configExists: false,
       projectWorkspace,
       ideas,
+      corruptedIdeas,
       agents, skills,
       pipelines: builtinPipelines,
       recipes: getBuiltinRecipeSummaries(),
@@ -932,6 +890,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     configExists: true,
     projectWorkspace,
     ideas,
+    corruptedIdeas,
     agents, skills, pipelines, recipes, epics,
     agentMeta, slashCommandsByAgent,
     agentsCount: agents.length,
@@ -1655,7 +1614,6 @@ export class WorkspaceWebview {
   private disposables: vscode.Disposable[] = [];
   private currentView: WorkspaceView;
   private lastBundleMtime = 0;
-
   static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'project'): void {
     const column = vscode.ViewColumn.One;
     const title = extensionDisplayName(extensionUri.fsPath);
@@ -2150,148 +2108,6 @@ export class WorkspaceWebview {
     }
   }
 
-  private handleIdeaSaveAnswer(root: string, id: string, revision: number, questionId: string, choiceId: string): void {
-    const service = new IdeaService(root);
-    const human = { kind: 'user' as const, id: 'vscode-user' };
-    try {
-      service.saveAnswer(id, revision, questionId, choiceId, human);
-      this.refresh();
-    } catch (error) {
-      if (error instanceof IdeaRevisionConflictError) {
-        this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-        this.refresh();
-        return;
-      }
-      try {
-        service.markSaveFailed(id, revision);
-      } catch {
-        // Idea moved on concurrently — conflict path above is enough.
-      }
-      void this.panel.webview.postMessage({ type: 'ideaSaveFailed', ideaId: id });
-      this.refresh();
-      void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  /**
-   * Run the Idea prep agent: read-only research + self-answering, gated and
-   * batched per docs/design/ideas-tab/ideas-tab-flow-graph.canvas.tsx. Called
-   * right after `createIdea` (fire-and-forget) and again from `runIdeaPrep`
-   * for the R02 retry path — same logic either way, since a failed prep
-   * leaves the Idea at `checkpoint: 'preparing', prep.status: 'failed'` and
-   * `startPrep` accepts being called again from `captured` only, not from a
-   * failed `preparing` state, so retries go through `completePrep`'s sibling
-   * entry point instead: re-running the same job id.
-   */
-  private async runIdeaPrep(root: string, ideaId: string): Promise<void> {
-    const ideas = new IdeaService(root);
-    let idea = ideas.get(ideaId);
-    if (!idea) return;
-
-    // Retry (F02/R02): `preparing` + `failed` means a previous attempt died
-    // mid-flight. Re-enter directly rather than calling startPrep again,
-    // since startPrep only accepts the `captured` checkpoint.
-    if (idea.checkpoint === 'captured') {
-      try {
-        idea = ideas.startPrep(ideaId, idea.ideaRevision, crypto.randomUUID(), { kind: 'agent', id: 'idea-prep-agent' });
-        this.refresh();
-      } catch (error) {
-        void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        return;
-      }
-    }
-    if (idea.checkpoint !== 'preparing') return;
-
-    const language = resolveDisplayLanguage();
-    const excludeAnswers = idea.prep.selfAnswered.filter((entry) => entry.flagged).map((entry) => entry.question);
-    try {
-      const store = getProviderConfigStore(root);
-      const config = store.loadOrDefault();
-      const providerId = config.defaultProvider;
-      const prompt = buildIdeaPrepPrompt({ ideaId, seedSentence: idea.seedSentence, language, excludeAnswers });
-      const invocation = buildHeadlessAnalysisInvocation({
-        providerId,
-        cli: store.cliFor(providerId, config),
-        model: store.modelFor(providerId, undefined, config),
-        prompt,
-      });
-      const stdout = await runHeadlessProvider(invocation.command, invocation.args, { cwd: root, timeoutMs: 180_000 });
-      const result = readIdeaPrepResult(extractJsonObject(stdout));
-      const current = ideas.require(ideaId);
-      if (current.checkpoint !== 'preparing') return; // superseded by a restart/patchSeed while the agent was running
-      const done = ideas.completePrep(ideaId, current.ideaRevision, {
-        selfAnswered: result.selfAnswered.map((entry) => ({ ...entry, flagged: false })),
-        questions: result.questions,
-      }, { kind: 'agent', id: 'idea-prep-agent' });
-      this.refresh();
-      // Zero surviving questions (the gate rule skipped the batch entirely) —
-      // straight through to routing, same as after a human submits a batch.
-      if (done.checkpoint === 'intent_drafted') void this.runIdeaRoute(root, ideaId);
-      return;
-    } catch (error) {
-      try {
-        const current = ideas.require(ideaId);
-        if (current.checkpoint === 'preparing') {
-          ideas.failPrep(ideaId, current.ideaRevision, describeExecError(error), { kind: 'agent', id: 'idea-prep-agent' });
-        }
-      } catch {
-        // The Idea was deleted/restarted concurrently — nothing left to mark failed.
-      }
-    }
-    this.refresh();
-  }
-
-  /**
-   * Run the Idea routing agent: classify the confirmed intent into one of
-   * the six CoFoFo recipes (or a clean close), per
-   * docs/design/ideas-tab/ideas-redesign-cofofo.canvas.tsx. Whether
-   * `cofofo-bootstrap` needs to be prepended is decided deterministically
-   * inside `IdeaService.generateRoute`, never by this agent.
-   */
-  private async runIdeaRoute(root: string, ideaId: string): Promise<void> {
-    const ideas = new IdeaService(root);
-    const idea = ideas.get(ideaId);
-    if (!idea || idea.checkpoint !== 'intent_drafted') return;
-
-    const language = resolveDisplayLanguage();
-    const intentPath = path.join(root, 'docs', 'ideas', ideaId, 'INTENT.md');
-    let intentBrief: string;
-    try {
-      intentBrief = fs.readFileSync(intentPath, 'utf8');
-    } catch {
-      void vscode.window.showWarningMessage(`AIDLC Ideas: INTENT.md is missing for ${ideaId} — cannot route.`);
-      return;
-    }
-
-    try {
-      const store = getProviderConfigStore(root);
-      const config = store.loadOrDefault();
-      const providerId = config.defaultProvider;
-      const prompt = buildIdeaRoutePrompt({ ideaId, intentBrief, language });
-      const invocation = buildHeadlessAnalysisInvocation({
-        providerId,
-        cli: store.cliFor(providerId, config),
-        model: store.modelFor(providerId, undefined, config),
-        prompt,
-      });
-      const stdout = await runHeadlessProvider(invocation.command, invocation.args, { cwd: root, timeoutMs: 180_000 });
-      const result = readIdeaRouteResult(extractJsonObject(stdout));
-      const current = ideas.require(ideaId);
-      if (current.checkpoint !== 'intent_drafted') return; // superseded while the agent was running
-      ideas.generateRoute(ideaId, current.ideaRevision, result, { kind: 'agent', id: 'idea-route-agent' });
-    } catch (error) {
-      try {
-        const current = ideas.require(ideaId);
-        if (current.checkpoint === 'intent_drafted') {
-          ideas.setBlocked(ideaId, current.ideaRevision, describeExecError(error), { kind: 'agent', id: 'idea-route-agent' });
-        }
-      } catch {
-        // The Idea was deleted/restarted concurrently — nothing left to block.
-      }
-    }
-    this.refresh();
-  }
-
   // ── Message routing ─────────────────────────────────────────────────────
 
   private async handleMessage(msg: { type: string; [k: string]: unknown }): Promise<void> {
@@ -2399,10 +2215,6 @@ export class WorkspaceWebview {
           });
           this.refresh();
           void this.panel.webview.postMessage({ type: 'selectIdea', ideaId: idea.id });
-          // Fire-and-forget: screen 3's own copy tells the human this happens
-          // automatically. A crash here still leaves the Idea safely at
-          // `captured` — nothing is lost, only unstarted.
-          void this.runIdeaPrep(root, idea.id);
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -2416,56 +2228,33 @@ export class WorkspaceWebview {
         if (!root || !id || !Number.isInteger(revision)) return;
         try {
           const patched = new IdeaService(root).patchSeed(id, revision, typeof msg.seedSentence === 'string' ? msg.seedSentence : '', { kind: 'user', id: 'vscode-user' });
+          // A changed seed invalidates the visible provider conversation so
+          // it cannot write a stale checkpoint after this edit.
+          stopIdeaProviderTerminal(root, id);
           this.refresh();
-          // E03: editing after prep already ran resets to `captured` so prep
-          // reruns against the new sentence — same auto-trigger as capture.
-          if (patched.checkpoint === 'captured' && patched.prep.status === 'idle') void this.runIdeaPrep(root, id);
+          // Editing returns to an explicit, human-started terminal run.
+          void patched;
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
         return;
       }
 
-      case 'saveIdeaAnswer': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        const questionId = typeof msg.questionId === 'string' ? msg.questionId : '';
-        const choiceId = typeof msg.choiceId === 'string' ? msg.choiceId : '';
-        if (!root || !id || !questionId || !choiceId || !Number.isInteger(revision)) return;
-        this.handleIdeaSaveAnswer(root, id, revision, questionId, choiceId);
-        return;
-      }
-
-      case 'submitIdeaBatch': {
+      case 'reopenIdeaAnswers': {
         const root = this.getRootOrWarn();
         const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
         const revision = Number(msg.revision);
         if (!root || !id || !Number.isInteger(revision)) return;
         try {
-          const submitted = new IdeaService(root).submitBatch(id, revision, { kind: 'user', id: 'vscode-user' });
+          const service = new IdeaService(root);
+          const current = service.require(id);
+          // Answers belong to the provider-native conversation now. Reset the
+          // intake and reopen that provider instead of rendering a second
+          // extension-owned question form.
+          service.patchSeed(id, revision, current.seedSentence, { kind: 'user', id: 'vscode-user' });
+          stopIdeaProviderTerminal(root, id);
           this.refresh();
-          if (submitted.checkpoint === 'intent_drafted') void this.runIdeaRoute(root, id);
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
-          }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'decideIdeaRest': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        if (!root || !id || !Number.isInteger(revision)) return;
-        try {
-          const decided = new IdeaService(root).decideRest(id, revision, { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-          if (decided.checkpoint === 'intent_drafted') void this.runIdeaRoute(root, id);
+          runIdeaWithProviderCommand(id, this.extensionUri.fsPath);
         } catch (error) {
           if (error instanceof IdeaRevisionConflictError) {
             this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
@@ -2480,6 +2269,33 @@ export class WorkspaceWebview {
       case 'reloadIdeasState':
         this.refresh();
         return;
+
+      case 'openIdeaArtifact': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const file = msg.file;
+        const allowed = new Set(['INTENT.md', 'ROUTE.md', 'EVIDENCE.md']);
+        if (!root || !id || typeof file !== 'string' || !allowed.has(file)) return;
+        const target = path.join(docsIdeaDir(root, id), file);
+        if (!fs.existsSync(target)) {
+          void vscode.window.showInformationMessage(`AIDLC Ideas: ${file} chưa tồn tại cho ${id}.`);
+          return;
+        }
+        const doc = await vscode.workspace.openTextDocument(target);
+        await vscode.window.showTextDocument(doc, { preview: false });
+        return;
+      }
+
+      case 'openIdeaStateFile': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        if (!root || !id) return;
+        const target = new IdeaStore(root).stateFile(id);
+        if (!fs.existsSync(target)) return;
+        const doc = await vscode.workspace.openTextDocument(target);
+        await vscode.window.showTextDocument(doc, { preview: false });
+        return;
+      }
 
       case 'flagIdeaSelfAnswer': {
         const root = this.getRootOrWarn();
@@ -2500,22 +2316,61 @@ export class WorkspaceWebview {
         const root = this.getRootOrWarn();
         const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
         if (!root || !id) return;
-        void this.runIdeaPrep(root, id);
+        runIdeaWithProviderCommand(id, this.extensionUri.fsPath);
         return;
       }
 
       case 'retryIdeaRoute': {
         const root = this.getRootOrWarn();
         const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
+        if (!root || !id) return;
+        runIdeaWithProviderCommand(id, this.extensionUri.fsPath);
+        return;
+      }
+
+      case 'runIdeaProvider':
+      case 'runIdeaTerminal': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
         if (!root || !id) return;
         try {
-          if (Number.isInteger(revision)) {
-            const current = new IdeaService(root).get(id);
-            if (current?.blockedReason) new IdeaService(root).clearBlocked(id, revision, { kind: 'agent', id: 'idea-route-agent' });
+          runIdeaWithProviderCommand(id, this.extensionUri.fsPath);
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'openIdeaTerminal': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        if (!root || !id || !revealIdeaProviderTerminal(root, id)) {
+          void vscode.window.showInformationMessage('AIDLC Ideas: no active terminal for this step. Start it first.');
+        }
+        return;
+      }
+
+      case 'stopIdeaRun': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const revision = Number(msg.revision);
+        const phase = msg.phase === 'route' ? 'route' : msg.phase === 'prep' ? 'prep' : undefined;
+        if (!root || !id || !phase || !Number.isInteger(revision)) return;
+        try {
+          const service = new IdeaService(root);
+          const human = { kind: 'user' as const, id: 'vscode-user' };
+          if (phase === 'prep') service.stopPrep(id, revision, human);
+          else service.stopRoute(id, revision, human);
+          stopIdeaProviderTerminal(root, id);
+          this.refresh();
+        } catch (error) {
+          if (error instanceof IdeaRevisionConflictError) {
+            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
+            this.refresh();
+            return;
           }
-        } catch { /* best-effort clear; runIdeaRoute re-blocks on a second failure anyway */ }
-        void this.runIdeaRoute(root, id);
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
         return;
       }
 
@@ -2530,8 +2385,21 @@ export class WorkspaceWebview {
           if (idea.checkpoint !== 'route_proposed' || !idea.routeDraft) {
             throw new Error(`Cannot confirm: checkpoint is "${idea.checkpoint}".`);
           }
-          const doc = readYaml(root);
+          let doc = readYaml(root);
           if (!doc) { void vscode.window.showWarningMessage('AIDLC: no workspace.yaml — initialize first.'); return; }
+          // The Ideas tab is CoFoFo-only by design — its routing agent
+          // proposes cofofo-* recipe ids regardless of whether this project
+          // has ever run CoFoFo Foundation prepare. Register them on demand
+          // rather than failing "Recipe not found" the first time a route
+          // needs one (see CofofoFoundationService.ensureRecipesRegistered).
+          const registeredRecipeIds = new Set(
+            (Array.isArray(doc.recipes) ? doc.recipes : []).map((r) => String((r as { id?: unknown }).id)),
+          );
+          if (idea.routeDraft.steps.some((step) => step.recipeId.startsWith('cofofo-') && !registeredRecipeIds.has(step.recipeId))) {
+            new CofofoFoundationService(root).ensureRecipesRegistered();
+            doc = readYaml(root);
+            if (!doc) { void vscode.window.showWarningMessage('AIDLC: no workspace.yaml — initialize first.'); return; }
+          }
           let nextIds = listEpicIdsFromDir(root, path.relative(root, epicsRoot(root, doc)) || 'docs/epics');
           const resolved: ResolvedRouteStep[] = [];
           for (const step of idea.routeDraft.steps) {
@@ -2571,8 +2439,51 @@ export class WorkspaceWebview {
           if (msg.type === 'shelveIdea') service.shelve(id, revision, human);
           if (msg.type === 'reopenIdea') service.reopen(id, revision, human);
           if (msg.type === 'restartIdea') service.restart(id, revision, human);
-          if (msg.type === 'restartIdea') void this.runIdeaPrep(root, id);
+          if (msg.type === 'restartIdea') {
+            stopIdeaProviderTerminal(root, id);
+          }
         });
+        return;
+      }
+
+      case 'deleteIdea': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const revision = Number(msg.revision);
+        if (!root || !id || !Number.isInteger(revision)) return;
+        this.handleIdeaMutation(() => {
+          new IdeaService(root).delete(id, revision, { kind: 'user', id: 'vscode-user' });
+          stopIdeaProviderTerminal(root, id);
+        });
+        return;
+      }
+
+      case 'repairCorruptedIdea': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        if (!root || !id) return;
+        try {
+          const repaired = new IdeaService(root).repairCorrupted(id, { kind: 'user', id: 'vscode-user' });
+          this.refresh();
+          void this.panel.webview.postMessage({ type: 'selectIdea', ideaId: repaired.id });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'deleteCorruptedIdea': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        if (!root || !id) return;
+        try {
+          new IdeaStore(root).delete(id);
+          const docsDir = docsIdeaDir(root, id);
+          if (fs.existsSync(docsDir)) fs.rmSync(docsDir, { recursive: true, force: true });
+          this.refresh();
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
         return;
       }
 

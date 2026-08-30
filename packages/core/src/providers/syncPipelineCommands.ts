@@ -21,6 +21,10 @@ import {
   providerManagedTaskCommandBody,
   PROVIDER_MANAGED_TASK_COMMAND,
 } from './ProviderManagedTaskCommand';
+import {
+  providerManagedIdeaCommandBody,
+  PROVIDER_MANAGED_IDEA_COMMAND,
+} from './ProviderManagedIdeaCommand';
 import { ModelProviderConfigStore } from '../models/ModelProviderConfigStore';
 import { activeEpicsDir } from '../runs/RunState';
 import { getCommandProviderAdapter } from './CommandProviderAdapter';
@@ -168,9 +172,14 @@ export function syncProviderManagedCommandForProvider(
   const written: string[] = [];
   for (const entry of [
     {
-      name: 'aidlc-provider-managed-task',
+      name: PROVIDER_MANAGED_TASK_COMMAND.slice(1),
       description: 'Run one AIDLC task pipeline in the selected provider terminal.',
       body: providerManagedTaskCommandBody(),
+    },
+    {
+      name: PROVIDER_MANAGED_IDEA_COMMAND.slice(1),
+      description: 'Run one AIDLC Idea intake in the selected provider terminal.',
+      body: providerManagedIdeaCommandBody(),
     },
   ]) {
     const file = writeStandaloneCommand(
@@ -288,10 +297,14 @@ function syncPipelineCommandsForProviderFiltered(
     );
   }
 
+  // Provider-managed Idea intake is available even before a workspace has a
+  // delivery pipeline. It shares the same command distribution mechanism as
+  // Epic so every provider gets its native command file.
+  written.push(...syncProviderManagedCommandForProvider(root, providerId, overwrite));
+
   if (pipelineIds.size > 0) {
     const twoLayer = writeTwoLayerCommandsForProvider(root, providerId, { epicRoot, overwrite });
     written.push(...twoLayer.written);
-    written.push(...syncProviderManagedCommandForProvider(root, providerId, overwrite));
   }
 
   return written;
@@ -316,4 +329,4 @@ function readEpicRootFrom(root: string): string {
   return activeEpicsDir(root);
 }
 
-export { PROVIDER_MANAGED_TASK_COMMAND };
+export { PROVIDER_MANAGED_TASK_COMMAND, PROVIDER_MANAGED_IDEA_COMMAND };

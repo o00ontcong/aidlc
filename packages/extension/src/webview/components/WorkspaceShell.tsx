@@ -164,7 +164,10 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
           />
         </main>
       ) : view === 'discovery' ? (
-        <main className="flex-1 overflow-y-auto">
+        // The v3 Ideas screen is a two-column master/detail that scrolls each
+        // column independently and must fill the panel height, so it is not
+        // wrapped in the padded scroll box — mirrors the Epics branch below.
+        <main className="min-h-0 flex-1 overflow-hidden">
           <IdeasView state={state} selectedIdeaId={selectedIdeaId} onSelectIdea={setSelectedIdeaId} />
         </main>
       ) : view === 'sprint' ? (

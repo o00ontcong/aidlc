@@ -86,4 +86,28 @@ describe('CommandProviderAdapter', () => {
     expect(codex.argv).not.toContain('workspace-write');
     expect(getCommandProviderAdapter('opencode').buildDiscoveryInvocation({ prompt })).toBeNull();
   });
+
+  it('opens provider-native interactive sessions for human questions', () => {
+    const prompt = 'Read the project and ask only what changes the outcome.';
+    expect(getCommandProviderAdapter('claude').buildInteractiveInvocation({ prompt }).shellOneLiner)
+      .toContain('claude --permission-mode plan');
+    expect(getCommandProviderAdapter('cursor').buildInteractiveInvocation({ prompt }).shellOneLiner)
+      .toContain('agent --mode ask');
+    const codex = getCommandProviderAdapter('codex').buildInteractiveInvocation({ prompt }).shellOneLiner!;
+    expect(codex).toContain('codex --sandbox read-only --no-alt-screen');
+    expect(codex).not.toContain('codex exec');
+    expect(getCommandProviderAdapter('opencode').buildInteractiveInvocation({ prompt }).shellOneLiner)
+      .toContain('opencode --prompt');
+  });
+
+  it('keeps a provider-managed native session interactive while allowing it to save checkpoints', () => {
+    const prompt = 'Own IDEA-001 and persist its state.';
+    const claude = getCommandProviderAdapter('claude').buildInteractiveInvocation({ prompt, allowWorkspaceWrite: true });
+    expect(claude.shellOneLiner).not.toContain('--permission-mode plan');
+    const cursor = getCommandProviderAdapter('cursor').buildInteractiveInvocation({ prompt, allowWorkspaceWrite: true });
+    expect(cursor.shellOneLiner).not.toContain('--mode ask');
+    const codex = getCommandProviderAdapter('codex').buildInteractiveInvocation({ prompt, allowWorkspaceWrite: true });
+    expect(codex.shellOneLiner).toContain('codex --sandbox workspace-write --no-alt-screen');
+    expect(codex.shellOneLiner).not.toContain('codex exec');
+  });
 });

@@ -15,6 +15,12 @@ export class IdeaNotFoundError extends Error {
   }
 }
 
+/** One sibling under `.aidlc/ideas/` whose `state.json` exists but fails schema validation. */
+export interface IdeaLoadError {
+  id: string;
+  error: string;
+}
+
 export class IdeaRevisionConflictError extends Error {
   constructor(readonly ideaId: string, readonly expectedRevision: number | null, readonly actualRevision: number | null) {
     super(`Idea ${ideaId} revision changed while writing (expected ${expectedRevision ?? 'missing'}, actual ${actualRevision ?? 'missing'}).`);
@@ -70,6 +76,11 @@ export class IdeaStore {
     return idea;
   }
 
+  /** Removes `.aidlc/ideas/<id>` outright — no validation, so it also works on a corrupted Idea `load()` can't parse. */
+  delete(ideaId: string): void {
+    fs.rmSync(this.ideaDir(ideaId), { recursive: true, force: true });
+  }
+
   list(): Idea[] {
     const root = this.ideasDir();
     if (!fs.existsSync(root)) return [];
@@ -79,11 +90,38 @@ export class IdeaStore {
       try {
         const idea = this.load(entry.name);
         if (idea) ideas.push(idea);
-      } catch {
-        // Keep the Ideas tab usable when an old/corrupt sibling needs repair.
+      } catch (error) {
+        // Keep the Ideas tab usable when an old/corrupt sibling needs
+        // repair — but never *silently*: listLoadErrors() below surfaces
+        // exactly this Idea to the UI instead of letting it vanish with no
+        // trace, and this warning covers callers (e.g. nextId()) that only
+        // ever call list().
+        console.warn(`[IdeaStore] Idea ${entry.name} failed to load: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     return ideas.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  /**
+   * Ideas whose `state.json` exists on disk but fails `parseIdea` — e.g. a
+   * provider-managed agent wrote a checkpoint that drifted from the schema.
+   * `list()` drops these to keep the tab usable; this is how the UI still
+   * tells the human something needs repair instead of the Idea just
+   * disappearing despite its `docs/ideas/<id>/` output existing.
+   */
+  listLoadErrors(): IdeaLoadError[] {
+    const root = this.ideasDir();
+    if (!fs.existsSync(root)) return [];
+    const errors: IdeaLoadError[] = [];
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      try {
+        this.load(entry.name);
+      } catch (error) {
+        errors.push({ id: entry.name, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return errors;
   }
 
   save(idea: Idea, expectedRevision: number | null): void {

@@ -12,8 +12,6 @@ import {
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
   buildHeadlessAnalysisInvocation,
-  buildIdeaPrepPrompt,
-  buildIdeaRoutePrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   resolveRunnableModel,
@@ -30,8 +28,6 @@ export {
   buildOpenCodeRunPrompt,
   buildProviderCommandPrompt,
   buildHeadlessAnalysisInvocation,
-  buildIdeaPrepPrompt,
-  buildIdeaRoutePrompt,
   buildTaskPrompt,
   canonicalModelForSlash,
   resolveRunnableModel,
@@ -231,6 +227,8 @@ export function runStepWithProvider(opts: {
   providerId?: string;
   root: string;
   extensionPath: string;
+  /** A focused owner such as an Idea can keep one visible native session. */
+  terminalName?: string;
 }): void {
   const store = getProviderConfigStore(opts.root);
   const config = store.loadOrDefault();
@@ -278,7 +276,58 @@ export function runStepWithProvider(opts: {
 
   spawnTerminalOneShot({
     oneShot,
-    terminalName: terminalNameForProvider(adapter.displayName),
+    terminalName: opts.terminalName ?? terminalNameForProvider(adapter.displayName),
+    cwd: opts.root,
+    fresh: true,
+  });
+}
+
+/**
+ * Start a visible native provider conversation that owns its own persisted
+ * state. Unlike `runStepWithProvider`, this deliberately never uses Codex's
+ * non-interactive `exec` mode: the provider must be able to ask, receive an
+ * answer, and continue in the same foreground session.
+ */
+export function runProviderManagedInteractiveSession(opts: {
+  slashCommand: string;
+  runId: string;
+  providerId?: string;
+  root: string;
+  extensionPath: string;
+  terminalName: string;
+}): void {
+  const store = getProviderConfigStore(opts.root);
+  const config = store.loadOrDefault();
+  const providerId = opts.providerId ?? config.defaultProvider;
+  const adapter = getCommandProviderAdapter(providerId);
+  const cli = store.cliFor(providerId, config);
+
+  ensureCommandFilesForProvider(opts.root, opts.extensionPath, providerId);
+
+  const taskPrompt = buildTaskPrompt(opts.slashCommand, opts.runId, '', providerId, opts.root);
+  const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
+  const language = resolveAidlcLanguage(configured, vscode.env.language);
+  const prompt = providerId === 'opencode'
+    ? taskPrompt
+    : `${taskPrompt}\n\n${markdownOutputLanguageInstruction(language)}`;
+  const mappedModel = mappedOrFallbackModel({
+    providerId,
+    cli,
+    root: opts.root,
+    mappedModel: store.modelFor(providerId, undefined, config),
+    defaultModel: store.modelFor(providerId, undefined, config),
+  });
+  const invocation = adapter.buildInteractiveInvocation({
+    prompt,
+    mappedModel,
+    cwd: opts.root,
+    cliBinary: cli,
+    allowWorkspaceWrite: true,
+  });
+  const oneShot = invocation.shellOneLiner ?? [cli, ...invocation.argv.slice(1)].join(' ');
+  spawnTerminalOneShot({
+    oneShot,
+    terminalName: opts.terminalName,
     cwd: opts.root,
     fresh: true,
   });

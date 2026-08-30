@@ -12,8 +12,11 @@ import {
   applyArtifactReviewVerdict,
   assemblePipeline,
   buildReviewBundle,
+  createDefaultRules,
+  detectStack,
   generatedCofofoWorkspace,
   markStepDone,
+  renderProjectRules,
   startRun,
   syncAllIdeaDeliveries,
   type PipelineConfig,
@@ -47,6 +50,22 @@ function approveCurrentCanvas(root: string, state: RunState, pipeline: PipelineC
   return applyArtifactReviewVerdict({ workspaceRoot: root, state, pipeline, bundle, verdict: { verdict: 'approve', reviewer: 'Reviewer <r@example.test>' } });
 }
 
+/**
+ * `prepare()` no longer pre-seeds PROJECT-RULES.json/ARCHITECTURE-MAP.md — a
+ * real `define-rules`/`map-system` step run by an agent would write these.
+ * These stand in for that, the same way `write()` stands in for any other
+ * agent-written artifact in a test with no real agent to call.
+ */
+function simulateDefineRules(root: string): void {
+  const rules = createDefaultRules(detectStack(root), 1, new Date().toISOString());
+  write(root, 'docs/project/foundation/PROJECT-RULES.json', JSON.stringify(rules, null, 2));
+  write(root, 'docs/project/foundation/PROJECT-RULES.md', renderProjectRules(rules));
+  write(root, 'docs/project/foundation/RULE-DRIFT.md', '# Rule Drift\n\n## Findings\n\n- No current violations.\n');
+}
+function simulateMapSystem(root: string): void {
+  write(root, 'docs/project/foundation/ARCHITECTURE-MAP.md', '# Architecture Map\n\n## Layer Map\n\n- (test placeholder)\n');
+}
+
 /** Drives a real `cofofo-foundation` run through bootstrap so CofofoFoundationService.inspect() reports `ready`. */
 function readyCofofoFoundation(root: string): void {
   const service = new CofofoFoundationService(root);
@@ -54,9 +73,11 @@ function readyCofofoFoundation(root: string): void {
   const foundation = generatedCofofoWorkspace({ version: '1.0', name: 'x', environment: {} }).pipelines.find((p) => p.id === 'cofofo-foundation')!;
   let state = startRun({ runId: 'FOUNDATION-R1', pipeline: foundation, context: {}, workspaceRoot: root });
   state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // scan-stack
+  simulateDefineRules(root);
   state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // define-rules -> Canvas
   state = approveCurrentCanvas(root, state, foundation);
   RunStateStore.save(root, state);
+  simulateMapSystem(root);
   state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // map-system
   state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // select-ecc-catalog -> Canvas
   state = approveCurrentCanvas(root, state, foundation);
@@ -363,6 +384,133 @@ describe('Idea shelve / reopen / restart', () => {
     const created = ideas.create({ seedSentence: 'x' });
     ideas.patchSeed(created.id, created.ideaRevision, 'edited', USER);
     expect(() => ideas.patchSeed(created.id, created.ideaRevision, 'stale write', USER)).toThrow(IdeaRevisionConflictError);
+  });
+});
+
+describe('Idea delete', () => {
+  it('removes both .aidlc/ideas/<id> and docs/ideas/<id>, and is user-only', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    write(root, `docs/ideas/${created.id}/INTENT.md`, '# intent\n');
+    expect(() => ideas.delete(created.id, created.ideaRevision, AGENT)).toThrow(/human user/i);
+    ideas.delete(created.id, created.ideaRevision, USER);
+    expect(ideas.get(created.id)).toBeNull();
+    expect(fs.existsSync(path.join(root, 'docs/ideas', created.id))).toBe(false);
+  });
+
+  it('refuses a stale-revision delete', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    ideas.patchSeed(created.id, created.ideaRevision, 'edited', USER);
+    expect(() => ideas.delete(created.id, created.ideaRevision, USER)).toThrow(IdeaRevisionConflictError);
+  });
+});
+
+describe('Idea repairCorrupted', () => {
+  it('salvages seedSentence/title from a broken state.json, backs it up, and resets to captured', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'Original seed', title: 'Original title' });
+    const stateFile = ideas.store.stateFile(created.id);
+    fs.writeFileSync(stateFile, JSON.stringify({
+      ...JSON.parse(fs.readFileSync(stateFile, 'utf8')),
+      checkpoint: 'route_proposed', // missing the routeDraft this checkpoint requires — fails schema validation
+    }));
+    expect(() => ideas.get(created.id)).toThrow(); // confirms this Idea is actually corrupted before repairing it
+    expect(ideas.store.list().map((i) => i.id)).not.toContain(created.id);
+
+    const repaired = ideas.repairCorrupted(created.id, USER);
+    expect(repaired.checkpoint).toBe('captured');
+    expect(repaired.seedSentence).toBe('Original seed');
+    expect(repaired.title).toBe('Original title');
+    expect(fs.existsSync(stateFile)).toBe(true);
+    const backups = fs.readdirSync(path.dirname(stateFile)).filter((f) => f.includes('.broken-'));
+    expect(backups).toHaveLength(1);
+    expect(ideas.store.list().map((i) => i.id)).toContain(created.id);
+  });
+
+  it('falls back to a placeholder seed when the file is not even valid JSON', () => {
+    const root = temporary();
+    write(root, '.aidlc/ideas/IDEA-001/state.json', '{ not json at all');
+    const ideas = new IdeaService(root);
+    const repaired = ideas.repairCorrupted('IDEA-001', USER);
+    expect(repaired.checkpoint).toBe('captured');
+    expect(repaired.seedSentence.length).toBeGreaterThan(0);
+  });
+
+  it('refuses to repair an Idea that already loads successfully, and is user-only', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    expect(() => ideas.repairCorrupted(created.id, USER)).toThrow(/nothing to repair/i);
+    write(root, '.aidlc/ideas/IDEA-999/state.json', '{ broken');
+    expect(() => ideas.repairCorrupted('IDEA-999', AGENT)).toThrow(/human user/i);
+  });
+});
+
+describe('Idea agent stop / re-run', () => {
+  it('stops a running prep without resetting the Idea and re-runs it with a fresh job id', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    const running = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+
+    const stopped = ideas.stopPrep(running.id, running.ideaRevision, USER);
+    expect(stopped.checkpoint).toBe('preparing');
+    expect(stopped.prep.status).toBe('failed');
+    expect(stopped.prep.error).toBe('Stopped by user.');
+
+    const rerun = ideas.retryPrep(stopped.id, stopped.ideaRevision, 'job-2', AGENT);
+    expect(rerun.prep).toMatchObject({ status: 'running', jobId: 'job-2' });
+    expect(ideas.store.readEvents(created.id).map((event) => event.type)).toEqual([
+      'created', 'prep_started', 'prep_stopped', 'prep_rerun',
+    ]);
+  });
+
+  it('stops routing as a resumable state rather than resetting the intake', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    const preparing = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const routing = ideas.completePrep(preparing.id, preparing.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
+    const stopped = ideas.stopRoute(routing.id, routing.ideaRevision, USER);
+
+    expect(stopped.checkpoint).toBe('intent_drafted');
+    expect(stopped.blockedReason).toBe('Stopped by user.');
+  });
+
+  it('lets a person edit submitted answers before routing, preserving only explicit answers', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    const running = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const awaiting = ideas.completePrep(running.id, running.ideaRevision, {
+      selfAnswered: [],
+      questions: [{
+        id: 'q1', text: 'Who?', reason: 'Scope', highImpact: true, dependsOn: [],
+        options: [{ id: 'a', label: 'Users', recommended: true }, { id: 'b', label: 'Admins', recommended: false }],
+      }],
+    }, AGENT);
+    const routed = ideas.submitBatch(awaiting.id, awaiting.ideaRevision, USER);
+    const reopened = ideas.reopenQuestionBatch(routed.id, routed.ideaRevision, USER);
+
+    expect(reopened.checkpoint).toBe('awaiting_human');
+    expect(reopened.answers).toEqual({});
+    expect(reopened.assumptions).toEqual([]);
+  });
+
+  it('allows a seed edit while routing is in progress and resets it to fresh prep', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'old input' });
+    const running = ideas.startPrep(created.id, created.ideaRevision, 'job-1', AGENT);
+    const routing = ideas.completePrep(running.id, running.ideaRevision, { selfAnswered: [], questions: [] }, AGENT);
+    const edited = ideas.patchSeed(routing.id, routing.ideaRevision, 'new input', USER);
+
+    expect(edited).toMatchObject({ checkpoint: 'captured', seedSentence: 'new input', blockedReason: undefined });
+    expect(edited.prep.status).toBe('idle');
   });
 });
 

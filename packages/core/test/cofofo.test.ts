@@ -11,6 +11,7 @@ import {
   assemblePipeline,
   buildReviewBundle,
   canStartStep,
+  createDefaultRules,
   detectStack,
   generatedCofofoWorkspace,
   foundationPipelineForRoute,
@@ -47,6 +48,22 @@ function write(root: string, relative: string, content: string): void {
   const absolute = path.join(root, relative);
   fs.mkdirSync(path.dirname(absolute), { recursive: true });
   fs.writeFileSync(absolute, content, 'utf8');
+}
+
+/**
+ * `prepare()` no longer pre-seeds these — a real `define-rules`/`map-system`
+ * step run by an agent would produce them. Tests have no agent to call, so
+ * they simulate that step's output directly before marking it done, exactly
+ * like `write()` above stands in for any other agent-written artifact.
+ */
+function simulateDefineRules(root: string, revision = 1): void {
+  const rules = createDefaultRules(detectStack(root), revision, new Date().toISOString());
+  write(root, 'docs/project/foundation/PROJECT-RULES.json', JSON.stringify(rules, null, 2));
+  write(root, 'docs/project/foundation/PROJECT-RULES.md', renderProjectRules(rules));
+  write(root, 'docs/project/foundation/RULE-DRIFT.md', '# Rule Drift\n\n## Findings\n\n- No current violations.\n');
+}
+function simulateMapSystem(root: string): void {
+  write(root, 'docs/project/foundation/ARCHITECTURE-MAP.md', '# Architecture Map\n\n## Layer Map\n\n- (test placeholder)\n');
 }
 
 function swiftFixture(): string {
@@ -107,10 +124,14 @@ describe('CoFoFo stack detection and policy', () => {
     const profile = detectStack(root);
     const workspace = generatedCofofoWorkspace({ version: '1.0', name: 'Demo' });
     expect(workspace.pipelines.find((pipeline) => pipeline.id === 'cofofo-delivery')?.foundation?.mode).toBe('cofofo');
+    // define-rules writes this for real during a run; simulate it here first
+    // so prepare()'s command-file hash embedding has something real to hash.
+    const rules = createDefaultRules(profile, 1, '2026-08-28T00:00:00.000Z');
+    const markdown = renderProjectRules(rules);
+    write(root, 'docs/project/foundation/PROJECT-RULES.json', JSON.stringify(rules, null, 2));
+    write(root, 'docs/project/foundation/PROJECT-RULES.md', markdown);
     const service = new CofofoFoundationService(root);
     service.prepare({ now: '2026-08-28T00:00:00.000Z' });
-    const rules = JSON.parse(fs.readFileSync(path.join(root, 'docs/project/foundation/PROJECT-RULES.json'), 'utf8'));
-    const markdown = renderProjectRules(rules);
     expect(markdown).toContain(rulesSourceHash(rules));
     expect(validateRulesMarkdown(rules, markdown)).toEqual([]);
     expect(validateProjectRules({ workspaceRoot: root, rules, profile }).some((issue) => issue.ruleId === 'LAYER-1')).toBe(false);
@@ -212,6 +233,7 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
     const route = foundationPipelineForRoute(foundation, 'update-rules');
     let run = startRun({ runId: 'FOUNDATION-RULES', pipeline: route, context: {}, workspaceRoot: root });
+    simulateDefineRules(root); // this route's first step is define-rules, not scan-stack
     run = markStepDone({ state: run, pipeline: route, workspaceRoot: root });
     run = approveCurrentCanvas(root, run, route);
     RunStateStore.save(root, run);
@@ -229,10 +251,12 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     const foundation = workspace.config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
     let state = startRun({ runId: 'FOUNDATION-R1', pipeline: foundation, context: {}, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // scan
+    simulateDefineRules(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // rules -> Canvas
     RunStateStore.save(root, state);
     expect(() => service.install('FOUNDATION-R1')).toThrow(/Canvas/);
     state = approveCurrentCanvas(root, state, foundation);
+    simulateMapSystem(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // map
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // selection -> Canvas
     state = approveCurrentCanvas(root, state, foundation);
@@ -286,6 +310,7 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     const refreshPipeline = foundationPipelineForRoute(refreshedDefinition, 'refresh-context');
     let refreshRun = startRun({ runId: 'FOUNDATION-R2', pipeline: refreshPipeline, context: {}, workspaceRoot: root });
     refreshRun = markStepDone({ state: refreshRun, pipeline: refreshPipeline, workspaceRoot: root }); // scan
+    simulateMapSystem(root);
     refreshRun = markStepDone({ state: refreshRun, pipeline: refreshPipeline, workspaceRoot: root }); // map
     RunStateStore.save(root, refreshRun);
     service.publish('FOUNDATION-R2');
@@ -308,8 +333,10 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
     let state = startRun({ runId: 'FOUNDATION-BIND', pipeline: foundation, context: {}, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    simulateDefineRules(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = approveCurrentCanvas(root, state, foundation);
+    simulateMapSystem(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = approveCurrentCanvas(root, state, foundation);
@@ -332,8 +359,10 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
     let state = startRun({ runId: 'FOUNDATION-DOCTOR', pipeline: foundation, context: {}, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    simulateDefineRules(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = approveCurrentCanvas(root, state, foundation);
+    simulateMapSystem(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = approveCurrentCanvas(root, state, foundation);
@@ -355,6 +384,43 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     );
     fs.writeFileSync(workspacePath, tampered, 'utf8');
     expect(service.inspect().status).not.toBe('ready');
+  });
+});
+
+describe('CoFoFo ensureRecipesRegistered — Ideas is CoFoFo-only regardless of stack detection', () => {
+  it('registers the six cofofo-* recipes and both pipelines even for a project with no code at all', () => {
+    const root = temporary(); // no fixture — nothing for detectStack to find, unlike prepare()'s early fallback
+    const service = new CofofoFoundationService(root);
+    expect(service.prepare().status).toBe('fallback'); // confirms this project would NOT get CoFoFo from prepare() alone
+
+    service.ensureRecipesRegistered();
+    const config = WorkspaceLoader.load(root).config;
+    expect(config.pipelines.map((p) => p.id)).toEqual(expect.arrayContaining(['cofofo-foundation', 'cofofo-delivery']));
+    const recipeIds = (config.recipes ?? []).map((r) => r.id);
+    expect(recipeIds).toEqual(expect.arrayContaining([
+      'cofofo-bootstrap', 'cofofo-refresh-context', 'cofofo-update-rules',
+      'cofofo-repin-bundle', 'cofofo-feature', 'cofofo-bugfix',
+    ]));
+  });
+
+  it('is idempotent and preserves an unrelated pipeline already in workspace.yaml', () => {
+    const root = temporary();
+    write(root, '.aidlc/workspace.yaml', 'version: "1.0"\nname: x\nenvironment: {}\npipelines:\n  - id: custom-pipeline\n    steps:\n      - agent: custom-agent\n');
+    const service = new CofofoFoundationService(root);
+    service.ensureRecipesRegistered();
+    service.ensureRecipesRegistered();
+    const config = WorkspaceLoader.load(root).config;
+    expect(config.pipelines.filter((p) => p.id === 'cofofo-foundation')).toHaveLength(1);
+    expect(config.pipelines.some((p) => p.id === 'custom-pipeline')).toBe(true);
+  });
+
+  it('does not require prepare() to have run first, and still seeds STACK-PROFILE.json for scan-stack to read', () => {
+    const root = temporary();
+    const service = new CofofoFoundationService(root);
+    const stackJsonPath = path.join(root, 'docs/project/foundation/STACK-PROFILE.json');
+    expect(fs.existsSync(stackJsonPath)).toBe(false);
+    expect(() => service.ensureRecipesRegistered()).not.toThrow();
+    expect(fs.existsSync(stackJsonPath)).toBe(true);
   });
 });
 
@@ -387,8 +453,10 @@ describe('CoFoFo C4 — provider context + doctor', () => {
     const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
     let state = startRun({ runId: 'DOCTOR-TAMPER', pipeline: foundation, context: {}, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    simulateDefineRules(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = approveCurrentCanvas(root, state, foundation);
+    simulateMapSystem(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = approveCurrentCanvas(root, state, foundation);
@@ -425,8 +493,10 @@ describe('CoFoFo C4 — provider context + doctor', () => {
     const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
     let state = startRun({ runId: 'DOCTOR-COMPOSE', pipeline: foundation, context: {}, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
+    simulateDefineRules(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = approveCurrentCanvas(root, state, foundation);
+    simulateMapSystem(root);
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
     state = approveCurrentCanvas(root, state, foundation);
