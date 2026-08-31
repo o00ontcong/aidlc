@@ -155,6 +155,56 @@ export type IdeaInDelivery = z.infer<typeof IdeaInDeliverySchema>;
 export const IdeaSaveStatusSchema = z.enum(['saved', 'saving', 'failed']);
 export type IdeaSaveStatus = z.infer<typeof IdeaSaveStatusSchema>;
 
+export const COFOFO_RECIPE_IDS = [
+  'cofofo-bootstrap',
+  'cofofo-refresh-context',
+  'cofofo-update-rules',
+  'cofofo-repin-bundle',
+  'cofofo-feature',
+  'cofofo-bugfix',
+] as const;
+export const CofofoRecipeIdSchema = z.enum(COFOFO_RECIPE_IDS);
+export type CofofoRecipeId = z.infer<typeof CofofoRecipeIdSchema>;
+
+/** Journal funnel phase — human-owned intake before epic scaffold. */
+export const IDEA_JOURNAL_PHASES = ['spark', 'research', 'rewrite', 'ready'] as const;
+export const IdeaJournalPhaseSchema = z.enum(IDEA_JOURNAL_PHASES);
+export type IdeaJournalPhase = z.infer<typeof IdeaJournalPhaseSchema>;
+
+export const IdeaJournalSourceSchema = z.object({
+  id: z.string().min(1),
+  source: z.string(),
+  type: z.string(),
+  question: z.string(),
+  read: z.boolean(),
+});
+export type IdeaJournalSource = z.infer<typeof IdeaJournalSourceSchema>;
+
+export const IdeaJournalNoteSchema = z.object({
+  id: z.string().min(1),
+  at: IsoTimestampSchema,
+  text: z.string(),
+  origin: z.enum(['human', 'ai']),
+});
+export type IdeaJournalNote = z.infer<typeof IdeaJournalNoteSchema>;
+
+export const IdeaJournalRewriteSchema = z.object({
+  problem: z.string(),
+  outcome: z.string(),
+  appetite: z.string(),
+  noGos: z.string(),
+});
+export type IdeaJournalRewrite = z.infer<typeof IdeaJournalRewriteSchema>;
+
+export const IdeaJournalSchema = z.object({
+  sources: z.array(IdeaJournalSourceSchema),
+  notes: z.array(IdeaJournalNoteSchema),
+  rewrite: IdeaJournalRewriteSchema,
+  readyRecipeId: CofofoRecipeIdSchema.optional(),
+  readyEpicTitle: z.string().optional(),
+});
+export type IdeaJournal = z.infer<typeof IdeaJournalSchema>;
+
 /**
  * A human Canvas verdict on the routing decision itself (`ROUTE.md` for an
  * epics outcome, `EVIDENCE.md` for a `close` outcome) — presence means
@@ -206,6 +256,10 @@ export const IdeaSchema = z.object({
   saveStatus: IdeaSaveStatusSchema,
   /** Unsaved local edits exist that a idea-switch would discard (M02). */
   dirty: z.boolean(),
+  /** Human journal funnel position; drives the Ideas tab UI (v2 redesign). */
+  journalPhase: IdeaJournalPhaseSchema.optional(),
+  /** Structured journal content — prose also mirrored to `docs/ideas/<id>/journal.md`. */
+  journal: IdeaJournalSchema.optional(),
   createdAt: IsoTimestampSchema,
   updatedAt: IsoTimestampSchema,
 }).superRefine((idea, ctx) => {
@@ -251,6 +305,10 @@ export const IdeaEventSchema = z.object({
     'shelved',
     'reopened',
     'restarted',
+    'journal_saved',
+    'journal_phase_advanced',
+    'journal_note_appended',
+    'journal_scaffolded',
   ]),
   actor: ActorRefSchema,
   revision: z.number().int().nonnegative(),

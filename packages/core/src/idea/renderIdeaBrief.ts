@@ -1,18 +1,13 @@
 import { type Idea } from '../contracts/idea';
-
-function section(title: string, value: string): string[] {
-  return value.trim() ? [`## ${title}`, '', value.trim(), ''] : [];
-}
+import { renderIntentFromJournal } from './journal';
 
 /**
- * Markdown projection of canonical Idea JSON — the compressed `INTENT.md`
- * the flow graph's "intent" node writes once the question batch (or the
- * self-answer path alone, if zero questions were warranted) converges.
- * Never the state source: `state.json` is. Snapshotted immutably into the
- * scaffolded epic's `artifacts/INTENT.md` (mirrors `renderShapeBrief` /
- * `artifacts/SHAPE.md`).
+ * Markdown projection of the Idea journal — `INTENT.md` at scaffold time.
+ * When a structured journal exists, synthesis comes from human-written sections.
  */
 export function renderIdeaBrief(idea: Idea): string {
+  if (idea.journal) return renderIntentFromJournal(idea);
+
   const answered = idea.prep.questions
     .filter((question) => idea.answers[question.id])
     .map((question) => {
@@ -48,4 +43,8 @@ export function renderIdeaBrief(idea: Idea): string {
   }
 
   return `${lines.join('\n').trimEnd()}\n`;
+}
+
+function section(title: string, value: string): string[] {
+  return value.trim() ? [`## ${title}`, '', value.trim(), ''] : [];
 }

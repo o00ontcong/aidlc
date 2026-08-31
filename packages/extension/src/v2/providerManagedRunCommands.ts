@@ -1,14 +1,11 @@
 import * as vscode from 'vscode';
 
 import {
-  IdeaService,
-  PROVIDER_MANAGED_IDEA_COMMAND,
   PROVIDER_MANAGED_TASK_COMMAND,
   ensureProviderManagedTaskCommand,
   listValidatorConflicts,
   resolveValidatorConflict,
   RunStateStore,
-  getCommandProviderAdapter,
 } from '@aidlc/core';
 
 import { getProviderConfigStore } from './providerConfig';
@@ -34,57 +31,6 @@ export async function runTaskWithProviderCommand(taskId: string): Promise<void> 
     taskId,
     '',
   );
-}
-
-function ideaTerminalName(root: string, ideaId: string): string {
-  const store = getProviderConfigStore(root);
-  const config = store.loadOrDefault();
-  const adapter = getCommandProviderAdapter(config.defaultProvider);
-  return `${terminalNameForProvider(adapter.displayName)} · Idea ${ideaId}`;
-}
-
-/**
- * Start or reveal one visible, provider-owned Idea session. Unlike the old
- * terminal-result bridge, this does not read stdout or wait for the shell to
- * exit; the provider command persists each Idea checkpoint itself.
- */
-export function runIdeaWithProviderCommand(
-  ideaId: string,
-  extensionPath: string,
-): void {
-  const root = workspaceRoot();
-  if (!root) return;
-  if (!new IdeaService(root).get(ideaId)) {
-    throw new Error(`Idea "${ideaId}" does not exist.`);
-  }
-  const terminalName = ideaTerminalName(root, ideaId);
-  const existing = vscode.window.terminals.find((terminal) => terminal.name === terminalName);
-  if (existing && existing.exitStatus === undefined) {
-    existing.show(false);
-    return;
-  }
-  existing?.dispose();
-  runProviderManagedInteractiveSession({
-    slashCommand: PROVIDER_MANAGED_IDEA_COMMAND,
-    runId: ideaId,
-    root,
-    extensionPath,
-    terminalName,
-  });
-}
-
-/** Reveal the Idea's visible native provider session without submitting text. */
-export function revealIdeaProviderTerminal(root: string, ideaId: string): boolean {
-  const terminal = vscode.window.terminals.find((candidate) => candidate.name === ideaTerminalName(root, ideaId));
-  if (!terminal) return false;
-  terminal.show(false);
-  return true;
-}
-
-/** Stop only this Idea's foreground provider session. */
-export function stopIdeaProviderTerminal(root: string, ideaId: string): void {
-  const terminal = vscode.window.terminals.find((candidate) => candidate.name === ideaTerminalName(root, ideaId));
-  terminal?.dispose();
 }
 
 async function reconcileValidatorConflictsInteractive(root: string): Promise<boolean> {

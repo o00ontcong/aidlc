@@ -7,42 +7,26 @@ import { nowIso } from '../contracts/common';
 import {
   parseIdea,
   type Idea,
-  type IdeaAssumption,
   type IdeaChild,
   type IdeaEvent,
   type IdeaFoundationSnapshot,
-  type IdeaQuestion,
-  type IdeaRouteApproval,
   type IdeaRouteDraft,
-  type IdeaRouteStep,
-  type IdeaSelfAnswered,
 } from '../contracts/idea';
 import { epicsRoot, scaffoldEpic, type ScaffoldEpicArgs, type ScaffoldEpicResult } from '../runs/EpicScaffold';
 import { RunStateStore } from '../runs/RunStateStore';
-import { buildReviewBundle, checkBundleCurrent, type ReviewBundle } from '../runs/ArtifactReview';
 import { CofofoFoundationService } from '../cofofo/FoundationService';
 import type { PipelineConfig } from '../schema/WorkspaceSchema';
-import { renderIdeaBrief } from './renderIdeaBrief';
+import {
+  emptyJournal,
+  renderIntentFromJournal,
+  renderJournalMarkdown,
+  suggestRecipeFromJournal,
+} from './journal';
+import type { CofofoRecipeId, IdeaJournal, IdeaJournalPhase } from '../contracts/idea';
 import { IdeaRevisionConflictError, IdeaStore } from './IdeaStore';
 import { writeFileAtomic } from '../epic/EpicStore';
 
-/**
- * `stepIdx` slot `buildRouteReviewBundle` uses when building a `ReviewBundle`
- * for the routing decision. `ReviewBundle` was designed for a pipeline step's
- * Canvas gate (`runId + stepIdx + stepRevision`); an Idea's routing decision
- * has no pipeline step, so this is a fixed sentinel, not an ordinal — it only
- * has to be stable across a bundle's build and its verdict.
- */
-const ROUTE_REVIEW_STEP_IDX = 1;
-
-/** Batch size cap from the flow graph's "ngân sách hiển thị" mechanism. */
-const MAX_BATCH_SIZE = 5;
-/** At most one supplementary batch for questions unblocked by the first round. */
-const MAX_BATCH_ROUNDS = 2;
-/** Gate rule from `discovery-gate.md`, reused verbatim for the same reason it exists there. */
-const MIN_QUESTIONS_TO_ASK = 3;
-/** Persisted marker used by the UI to distinguish a user stop from an agent failure. */
-export const IDEA_AGENT_STOPPED = 'Stopped by user.';
+const LEGACY_CHECKPOINTS = new Set(['preparing', 'awaiting_human', 'intent_drafted', 'route_proposed']);
 
 export interface CreateIdeaInput {
   id?: string;
@@ -52,11 +36,7 @@ export interface CreateIdeaInput {
   actor?: ActorRef;
 }
 
-/** One route step already resolved to a startable pipeline by the caller — the
- * one piece of this flow that is extension-only glue today (recipe id → real
- * pipeline via `assemblePipeline`, see `workspaceWebview.ts`'s
- * `assembleRecipeForEpic`). Core cannot do this step itself: it has no
- * workspace.yaml-mutation capability. */
+/** One journal step already resolved to a startable pipeline by the caller. */
 export interface ResolvedRouteStep {
   recipeId: IdeaRouteDraft['steps'][number]['recipeId'];
   epicId: string;
@@ -83,17 +63,12 @@ function derivedTitle(seedSentence: string): string {
   return trimmed.length <= 72 ? trimmed : `${trimmed.slice(0, 69)}...`;
 }
 
-/** `docs/ideas/<id>/` — human-readable artifacts, separate from `.aidlc/ideas/<id>/`'s
- * machine state (see docs/design/ideas-tab/ideas-redesign-cofofo.canvas.tsx). */
 export function docsIdeaDir(workspaceRoot: string, ideaId: string): string {
   return path.join(workspaceRoot, 'docs', 'ideas', ideaId);
 }
 
 /**
- * Coordinates the Idea lifecycle: one sentence → agent-assisted question
- * batch → routed handoff into exactly one of the six CoFoFo recipes, or a
- * clean close with no epic. Every transition here is one row of the
- * checkpoint table in docs/design/ideas-tab/ideas-tab-wireframe.canvas.tsx.
+ * Journal-first Idea lifecycle: capture → human research journal → scaffold epic.
  */
 export class IdeaService {
   readonly foundation: CofofoFoundationService;
@@ -109,7 +84,6 @@ export class IdeaService {
   }
   private readonly clock: () => string;
 
-  /** `null` when no CoFoFo Foundation has ever published — capture never blocks on this (F01/C01). */
   private captureFoundationSnapshot(): IdeaFoundationSnapshot | null {
     try {
       const inspection = this.foundation.inspect();
@@ -120,7 +94,6 @@ export class IdeaService {
   }
 
   list(): Idea[] { return this.store.list(); }
-  /** Ideas hidden from `list()` because their `state.json` fails schema validation — see `IdeaStore.listLoadErrors`. */
   listLoadErrors() { return this.store.listLoadErrors(); }
   get(id: string): Idea | null { return this.store.load(id); }
   require(id: string): Idea { return this.store.require(id); }
@@ -130,7 +103,6 @@ export class IdeaService {
     return `IDEA-${String(largest + 1).padStart(3, '0')}`;
   }
 
-  /** Capture is unconditional — no Foundation, no provider, no workspace.yaml required (F01/C01/X03). */
   create(input: CreateIdeaInput): Idea {
     const seedSentence = input.seedSentence.trim();
     if (!seedSentence) throw new IdeaStateError('An Idea needs at least one sentence.');
@@ -156,516 +128,148 @@ export class IdeaService {
       children: [],
       saveStatus: 'saved',
       dirty: false,
+      journalPhase: 'spark',
+      journal: emptyJournal(),
       createdAt: now,
       updatedAt: now,
     };
     this.store.save(idea, null);
     this.record(idea, 'created', actorOrSystem(input.actor));
+    this.syncJournalFiles(idea);
     return idea;
   }
 
-  /**
-   * Free while nothing depends on the seed yet; once prep has run, editing
-   * resets to `captured` so prep reruns against the new sentence rather than
-   * silently keeping stale self-answers (E03). It remains safe while the
-   * route lookup is in progress because no route has been committed yet;
-   * once a route or epic exists, `restart()` is the intentional reset.
-   */
-  patchSeed(id: string, expectedRevision: number, seedSentence: string, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    if (current.checkpoint === 'route_proposed'
-      || current.checkpoint === 'in_delivery' || current.checkpoint === 'completed' || current.checkpoint === 'closed') {
-      throw new IdeaStateError('Routing has already started for this Idea; use restart() to begin a fresh revision instead of editing the seed.');
+  private syncJournalFiles(idea: Idea): void {
+    const dir = docsIdeaDir(this.workspaceRoot, idea.id);
+    fs.mkdirSync(dir, { recursive: true });
+    writeFileAtomic(path.join(dir, 'journal.md'), renderJournalMarkdown(idea));
+    if (idea.journalPhase === 'ready' || idea.checkpoint === 'in_delivery') {
+      writeFileAtomic(path.join(dir, 'INTENT.md'), renderIntentFromJournal(idea));
     }
-    const trimmed = seedSentence.trim();
-    if (!trimmed) throw new IdeaStateError('An Idea needs at least one sentence.');
-    const rerunsPrep = current.checkpoint !== 'captured';
-    const next: Idea = {
-      ...current,
-      seedSentence: trimmed,
-      checkpoint: 'captured',
-      prep: rerunsPrep ? { status: 'idle', selfAnswered: [], questions: [] } : current.prep,
-      answers: {},
-      batchIndex: 0,
-      batchSubmitted: false,
-      blockedReason: undefined,
-      shelvedFromCheckpoint: undefined,
-      updatedAt: this.clock(),
-      ideaRevision: current.ideaRevision + 1,
-    };
-    this.store.save(next, current.ideaRevision);
-    this.record(next, 'seed_edited', actor, rerunsPrep ? 'Seed changed after prep — prep will run again.' : undefined);
-    return next;
   }
 
-  startPrep(id: string, expectedRevision: number, jobId: string, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.checkpoint !== 'captured') {
-      throw new IdeaStateError(`Cannot start prep: checkpoint is "${current.checkpoint}", expected "captured".`);
+  private assertJournalEditable(idea: Idea): void {
+    if (['in_delivery', 'completed', 'closed'].includes(idea.checkpoint)) {
+      throw new IdeaStateError('This Idea has already been scaffolded — journal is read-only.');
     }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const next: Idea = {
-      ...current,
-      checkpoint: 'preparing',
-      prep: { status: 'running', jobId, selfAnswered: [], questions: [] },
-      updatedAt: this.clock(),
-      ideaRevision: current.ideaRevision + 1,
-    };
-    this.store.save(next, current.ideaRevision);
-    this.record(next, 'prep_started', actor);
-    return next;
   }
 
-  failPrep(id: string, expectedRevision: number, error: string, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.checkpoint !== 'preparing') {
-      throw new IdeaStateError(`Cannot fail prep: checkpoint is "${current.checkpoint}", expected "preparing".`);
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    // Stays at `preparing` with status `failed` — R02's retry button re-calls
-    // `startPrep`, it does not reset to `captured` and lose the job context.
-    const next: Idea = {
-      ...current,
-      prep: { ...current.prep, status: 'failed', error },
-      updatedAt: this.clock(),
-      ideaRevision: current.ideaRevision + 1,
-    };
-    this.store.save(next, current.ideaRevision);
-    this.record(next, 'prep_failed', actor, error);
-    return next;
-  }
-
-  /** Stop a running prep without discarding the Idea or its audit history. */
-  stopPrep(id: string, expectedRevision: number, actor: ActorRef): Idea {
-    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may stop Idea preparation.');
-    const current = this.require(id);
-    if (current.checkpoint !== 'preparing' || current.prep.status !== 'running') {
-      throw new IdeaStateError('Only a running Idea preparation can be stopped.');
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const next: Idea = {
-      ...current,
-      prep: { ...current.prep, status: 'failed', error: IDEA_AGENT_STOPPED },
-      updatedAt: this.clock(),
-      ideaRevision: current.ideaRevision + 1,
-    };
-    this.store.save(next, current.ideaRevision);
-    this.record(next, 'prep_stopped', actor);
-    return next;
-  }
-
-  /** Start a fresh provider job after a stopped or failed preparation attempt. */
-  retryPrep(id: string, expectedRevision: number, jobId: string, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.checkpoint !== 'preparing' || current.prep.status !== 'failed') {
-      throw new IdeaStateError('Only a stopped or failed Idea preparation can be re-run.');
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const next: Idea = {
-      ...current,
-      prep: { status: 'running', jobId, selfAnswered: [], questions: [] },
-      updatedAt: this.clock(),
-      ideaRevision: current.ideaRevision + 1,
-    };
-    this.store.save(next, current.ideaRevision);
-    this.record(next, 'prep_rerun', actor);
-    return next;
-  }
-
-  /**
-   * Prep finished: self-answers are recorded, and the surviving questions
-   * (already self-answer-filtered and impact-filtered by the agent) are
-   * gated exactly as `discovery-gate.md` gates a phase's open questions — 0
-   * offered questions skips straight to `intent_drafted`.
-   */
-  completePrep(
+  saveJournal(
     id: string,
     expectedRevision: number,
-    result: { selfAnswered: IdeaSelfAnswered[]; questions: IdeaQuestion[] },
+    patch: {
+      seedSentence?: string;
+      journalPhase?: IdeaJournalPhase;
+      journal?: Partial<IdeaJournal> & { rewrite?: Partial<IdeaJournal['rewrite']> };
+    },
     actor: ActorRef,
   ): Idea {
     const current = this.require(id);
-    if (current.checkpoint !== 'preparing') {
-      throw new IdeaStateError(`Cannot complete prep: checkpoint is "${current.checkpoint}", expected "preparing".`);
+    if (current.ideaRevision !== expectedRevision) {
+      throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
     }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const gatedQuestions = this.gateQuestions(result.questions);
-    const done: Idea = {
-      ...current,
-      prep: { status: 'done', jobId: current.prep.jobId, selfAnswered: result.selfAnswered, questions: gatedQuestions },
-      updatedAt: this.clock(),
-      ideaRevision: current.ideaRevision + 1,
+    this.assertJournalEditable(current);
+
+    const journal = current.journal ?? emptyJournal();
+    const mergedRewrite = patch.journal?.rewrite
+      ? { ...journal.rewrite, ...patch.journal.rewrite }
+      : journal.rewrite;
+    const nextJournal: IdeaJournal = {
+      sources: patch.journal?.sources ?? journal.sources,
+      notes: patch.journal?.notes ?? journal.notes,
+      rewrite: mergedRewrite,
+      readyRecipeId: patch.journal?.readyRecipeId ?? journal.readyRecipeId,
+      readyEpicTitle: patch.journal?.readyEpicTitle ?? journal.readyEpicTitle,
     };
-    this.store.save(done, current.ideaRevision);
-    this.record(done, 'prep_completed', actor, `${gatedQuestions.length} question(s) survived filtering.`);
 
-    if (gatedQuestions.length === 0) {
-      return this.advanceToIntentDrafted(done, actor);
-    }
-    const next: Idea = { ...done, checkpoint: 'awaiting_human', updatedAt: this.clock(), ideaRevision: done.ideaRevision + 1 };
-    this.store.save(next, done.ideaRevision);
-    return next;
-  }
+    const seedSentence = patch.seedSentence !== undefined ? patch.seedSentence.trim() : current.seedSentence;
+    if (!seedSentence) throw new IdeaStateError('An Idea needs at least one sentence.');
 
-  /** F02 — a self-answer the human says is wrong. Excluded from confirmed facts on the next prep pass. */
-  flagSelfAnswer(id: string, expectedRevision: number, index: number, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    if (!current.prep.selfAnswered[index]) throw new IdeaStateError(`No self-answered question at index ${index}.`);
-    const selfAnswered = current.prep.selfAnswered.map((entry, i) => (i === index ? { ...entry, flagged: true } : entry));
-    const next: Idea = { ...current, prep: { ...current.prep, selfAnswered }, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-    this.store.save(next, current.ideaRevision);
-    this.record(next, 'self_answer_flagged', actor, current.prep.selfAnswered[index]!.question);
-    return next;
-  }
-
-  /** discovery-gate threshold — skip the batch when fewer than 3 low-impact questions survive. */
-  private gateQuestions(questions: IdeaQuestion[]): IdeaQuestion[] {
-    if (questions.length === 0) return [];
-    if (questions.some((question) => question.highImpact)) return questions;
-    if (questions.length >= MIN_QUESTIONS_TO_ASK) return questions;
-    return [];
-  }
-
-  /** True when the CoFoFo Foundation has changed since this Idea was captured. */
-  isFoundationStale(idea: Idea): boolean {
-    const inspection = this.foundation.inspect();
-    const current = inspection.status === 'ready' ? inspection.snapshot : undefined;
-    if (!current) return true;
-    if (!idea.foundationHashAtCapture) return true;
-    return current.revision !== idea.foundationHashAtCapture.revision
-      || current.manifestHash !== idea.foundationHashAtCapture.manifestHash;
-  }
-
-  markSaveFailed(id: string, expectedRevision: number): Idea {
-    const current = this.require(id);
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
     const next: Idea = {
       ...current,
-      saveStatus: 'failed',
-      dirty: true,
-      updatedAt: this.clock(),
-    };
-    this.store.save(next, current.ideaRevision);
-    return next;
-  }
-
-  /** Autosave — persists immediately, never waits for batch submit (R01/E01). */
-  saveAnswer(id: string, expectedRevision: number, questionId: string, choiceId: string, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.checkpoint !== 'awaiting_human') {
-      throw new IdeaStateError(`Cannot save an answer: checkpoint is "${current.checkpoint}", expected "awaiting_human".`);
-    }
-    if (current.batchSubmitted) throw new IdeaStateError('This batch was already submitted.');
-    const question = current.prep.questions.find((q) => q.id === questionId);
-    if (!question) throw new IdeaStateError(`Question "${questionId}" is not part of this Idea's current batch.`);
-    if (!question.options.some((option) => option.id === choiceId)) {
-      throw new IdeaStateError(`"${choiceId}" is not an option for question "${questionId}".`);
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const next: Idea = {
-      ...current,
-      answers: { ...current.answers, [questionId]: choiceId },
-      saveStatus: 'saved',
+      seedSentence,
+      title: derivedTitle(seedSentence),
+      journalPhase: patch.journalPhase ?? current.journalPhase ?? 'spark',
+      journal: nextJournal,
       dirty: false,
+      saveStatus: 'saved',
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
     };
     this.store.save(next, current.ideaRevision);
-    this.record(next, 'answer_saved', actor, questionId);
+    this.syncJournalFiles(next);
+    this.record(next, 'journal_saved', actor);
     return next;
   }
 
-  /** Which of the current batch's questions are answerable right now — `dependsOn` fully satisfied. */
-  private eligibleQuestions(idea: Idea): IdeaQuestion[] {
-    return idea.prep.questions
-      .filter((question) => question.dependsOn.every((dep) => Boolean(idea.answers[dep])))
-      .slice(0, MAX_BATCH_SIZE);
-  }
-
-  /**
-   * Closes the current batch. Any eligible-but-unanswered question becomes a
-   * labeled assumption using its recommended option — the implicit form of
-   * "Bạn quyết hết" for whatever the human skipped rather than answered.
-   * Newly-unblocked dependent questions open at most one more batch
-   * (mechanism #4/#5); after that, everything left becomes an assumption too.
-   */
-  submitBatch(id: string, expectedRevision: number, actor: ActorRef): Idea {
+  appendJournalNote(id: string, expectedRevision: number, text: string, origin: 'human' | 'ai', actor: ActorRef): Idea {
+    const trimmed = text.trim();
+    if (!trimmed) throw new IdeaStateError('Note text cannot be empty.');
     const current = this.require(id);
-    if (current.checkpoint !== 'awaiting_human') {
-      throw new IdeaStateError(`Cannot submit a batch: checkpoint is "${current.checkpoint}", expected "awaiting_human".`);
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-
-    const eligible = this.eligibleQuestions(current);
-    const unanswered = eligible.filter((question) => !current.answers[question.id]);
-    const assumptions = [...current.assumptions, ...this.assumptionsFor(unanswered)];
-    const submitted: Idea = {
-      ...current,
-      assumptions,
-      batchSubmitted: true,
-      updatedAt: this.clock(),
-      ideaRevision: current.ideaRevision + 1,
-    };
-    this.store.save(submitted, current.ideaRevision);
-    this.record(submitted, 'batch_submitted', actor, `batch ${current.batchIndex}`);
-
-    const nowAnswered = { ...submitted.answers };
-    for (const question of unanswered) nowAnswered[question.id] = question.options.find((o) => o.recommended)?.id ?? question.options[0]!.id;
-    const stillUnopened = submitted.prep.questions.filter((question) => !this.eligibleQuestions({ ...submitted, answers: nowAnswered }).some((q) => q.id === question.id) && !nowAnswered[question.id]);
-
-    if (stillUnopened.length > 0 && submitted.batchIndex + 1 < MAX_BATCH_ROUNDS) {
-      const next: Idea = {
-        ...submitted,
-        answers: nowAnswered,
-        batchIndex: submitted.batchIndex + 1,
-        batchSubmitted: false,
-        updatedAt: this.clock(),
-        ideaRevision: submitted.ideaRevision + 1,
-      };
-      this.store.save(next, submitted.ideaRevision);
-      return next;
-    }
-
-    const finalAssumptions = [...assumptions, ...this.assumptionsFor(stillUnopened)];
-    return this.advanceToIntentDrafted({ ...submitted, assumptions: finalAssumptions, answers: nowAnswered }, actor);
+    const journal = current.journal ?? emptyJournal();
+    return this.saveJournal(id, expectedRevision, {
+      journal: {
+        notes: [
+          ...journal.notes,
+          { id: eventId(), at: this.clock(), text: trimmed, origin },
+        ],
+      },
+    }, actor);
   }
 
-  private assumptionsFor(questions: IdeaQuestion[]): IdeaAssumption[] {
-    return questions.map((question) => ({
-      id: question.id,
-      label: `${question.text} → ${question.options.find((o) => o.recommended)?.label ?? question.options[0]!.label} (chưa trả lời, dùng khuyến nghị)`,
-      source: 'agent',
-    }));
+  advanceJournalPhase(id: string, expectedRevision: number, phase: IdeaJournalPhase, actor: ActorRef): Idea {
+    return this.saveJournal(id, expectedRevision, { journalPhase: phase }, actor);
   }
 
-  /** The "Bạn quyết hết" exit door — available at any point in the question loop (E02/mechanism #7). */
-  decideRest(id: string, expectedRevision: number, actor: ActorRef): Idea {
-    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may decide the rest.');
-    const current = this.require(id);
-    if (current.checkpoint !== 'awaiting_human') {
-      throw new IdeaStateError(`Cannot decide the rest: checkpoint is "${current.checkpoint}", expected "awaiting_human".`);
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const unanswered = current.prep.questions.filter((question) => !current.answers[question.id]);
-    const assumptions = [...current.assumptions, ...unanswered.map((question) => ({
-      id: question.id,
-      label: `${question.text} → ${question.options.find((o) => o.recommended)?.label ?? question.options[0]!.label}`,
-      source: 'human' as const,
-    }))];
-    const decided: Idea = { ...current, assumptions, batchSubmitted: true, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-    this.store.save(decided, current.ideaRevision);
-    this.record(decided, 'decided_rest', actor);
-    return this.advanceToIntentDrafted(decided, actor);
-  }
-
-  /**
-   * Return a submitted intake to its question form before a route has been
-   * generated. Explicit human answers stay selected; prior assumptions become
-   * unanswered again so the person can choose them deliberately.
-   */
-  reopenQuestionBatch(id: string, expectedRevision: number, actor: ActorRef): Idea {
-    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may edit submitted Idea answers.');
-    const current = this.require(id);
-    if (current.checkpoint !== 'intent_drafted') {
-      throw new IdeaStateError('Submitted answers can only be edited before a route is generated.');
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const assumedQuestionIds = new Set(current.assumptions.map((assumption) => assumption.id));
-    const answers = Object.fromEntries(Object.entries(current.answers)
-      .filter(([questionId]) => !assumedQuestionIds.has(questionId)));
-    const next: Idea = {
-      ...current,
-      checkpoint: 'awaiting_human',
-      answers,
-      assumptions: [],
-      batchSubmitted: false,
-      routeDraft: undefined,
-      routeConfirmed: false,
-      routeApproval: undefined,
-      blockedReason: undefined,
-      updatedAt: this.clock(),
-      ideaRevision: current.ideaRevision + 1,
-    };
-    this.store.save(next, current.ideaRevision);
-    this.record(next, 'answers_reopened', actor);
-    return next;
-  }
-
-  private advanceToIntentDrafted(idea: Idea, actor: ActorRef): Idea {
-    const next: Idea = { ...idea, checkpoint: 'intent_drafted', updatedAt: this.clock(), ideaRevision: idea.ideaRevision + 1 };
-    this.store.save(next, idea.ideaRevision);
-    writeFileAtomic(path.join(docsIdeaDir(this.workspaceRoot, next.id), 'INTENT.md'), renderIdeaBrief(next));
-    return next;
-  }
-
-  /**
-   * The routing agent's light research produced a decision. Both outcomes
-   * land at `route_proposed` and wait for a Canvas verdict on the decision
-   * itself (F22/`applyRouteReviewVerdict`) — `outcome: 'close'` no longer
-   * finalizes on the spot; approving `EVIDENCE.md` in Canvas is what closes
-   * the Idea. This is the only human checkpoint on the routing decision:
-   * the Idea flow deliberately does not gate `INTENT.md`/assumptions a second
-   * time here (see `IdeaAssumptionSchema`) — only the recipe/close choice.
-   */
-  generateRoute(id: string, expectedRevision: number, routeDraft: IdeaRouteDraft, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.checkpoint !== 'intent_drafted') {
-      throw new IdeaStateError(`Cannot generate a route: checkpoint is "${current.checkpoint}", expected "intent_drafted".`);
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-
-    if (routeDraft.outcome === 'close') {
-      if (!routeDraft.evidence?.trim()) throw new IdeaStateError('A close outcome requires research evidence to write as EVIDENCE.md.');
-      const next: Idea = { ...current, routeDraft, checkpoint: 'route_proposed', routeConfirmed: false, routeApproval: undefined, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-      this.store.save(next, current.ideaRevision);
-      writeFileAtomic(path.join(docsIdeaDir(this.workspaceRoot, id), 'EVIDENCE.md'), `${routeDraft.evidence.trim()}\n`);
-      this.record(next, 'route_generated', actor, 'close');
-      return next;
-    }
-
-    if (routeDraft.steps.length === 0) throw new IdeaStateError('An epics-outcome route needs at least one step.');
-    // Whether CONTEXT-MANIFEST.json is still current is a fact, not a
-    // judgment call — checked here deterministically rather than trusted
-    // from the routing agent's own read of the file, so a bootstrap
-    // requirement can never be argued or hallucinated away (flow graph's
-    // `fcheck` decision node, downstream of the agent's `route` step).
-    const draftWithBootstrap = this.withBootstrapIfStale(current, routeDraft);
-    const next: Idea = { ...current, routeDraft: draftWithBootstrap, checkpoint: 'route_proposed', routeConfirmed: false, routeApproval: undefined, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-    this.store.save(next, current.ideaRevision);
-    writeFileAtomic(path.join(docsIdeaDir(this.workspaceRoot, id), 'ROUTE.md'), renderRouteMarkdown(next));
-    this.record(next, 'route_generated', actor);
-    return next;
-  }
-
-  /**
-   * Canvas gate on the routing decision itself (F22) — `ROUTE.md` for an
-   * epics outcome, `EVIDENCE.md` for `close`. Mirrors
-   * `applyArtifactReviewVerdict` (`runs/PipelineRunner.ts`) but applies to
-   * `Idea` state instead of `RunState`, since this decision is made before
-   * any run exists. `bundle` must come from `buildRouteReviewBundle` built
-   * against the *current* revision — a stale or foreign bundle is rejected
-   * the same way a foreign step bundle is there.
-   */
-  applyRouteReviewVerdict(
+  markJournalReady(
     id: string,
     expectedRevision: number,
-    bundle: ReviewBundle,
-    verdict: { decision: 'approve' | 'request_changes'; reviewer: string; feedback?: string; at?: string },
+    readyRecipeId: CofofoRecipeId,
+    readyEpicTitle: string,
     actor: ActorRef,
   ): Idea {
-    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may decide a Canvas verdict.');
+    const title = readyEpicTitle.trim();
+    if (!title) throw new IdeaStateError('Epic title is required before scaffold.');
     const current = this.require(id);
-    if (current.checkpoint !== 'route_proposed' || !current.routeDraft) {
-      throw new IdeaStateError(`Cannot apply a route review verdict: checkpoint is "${current.checkpoint}", expected "route_proposed".`);
+    const j = current.journal ?? emptyJournal();
+    if (!j.rewrite.problem.trim() || !j.rewrite.outcome.trim()) {
+      throw new IdeaStateError('Problem and outcome must be filled before marking ready.');
     }
-    if (current.routeApproval) {
-      throw new IdeaStateError('This route was already approved in Canvas; a verdict cannot be replayed.');
-    }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-
-    const reviewer = verdict.reviewer.trim();
-    if (!reviewer) throw new IdeaStateError('A Canvas verdict must carry a reviewer identity.');
-
-    if (bundle.runId !== current.id || bundle.stepIdx !== ROUTE_REVIEW_STEP_IDX || bundle.stepRevision !== current.ideaRevision) {
-      throw new IdeaStateError(
-        `Canvas verdict for ${id} was issued against a different gate `
-        + `(bundle "${bundle.runId}"@${bundle.stepRevision} != "${current.id}"@${current.ideaRevision}).`,
-      );
-    }
-
-    const at = verdict.at ?? this.clock();
-
-    if (verdict.decision === 'request_changes') {
-      const feedback = verdict.feedback?.trim();
-      if (!feedback) throw new IdeaStateError('A "request_changes" verdict must carry feedback saying what to change.');
-      // Same target every time: the routing decision is the only thing this
-      // gate reviews, so "wrong" always means "redo the route", never a
-      // partial/cascading reject the way a pipeline step's gate can need.
-      const next: Idea = {
-        ...current,
-        checkpoint: 'intent_drafted',
-        routeDraft: undefined,
-        routeConfirmed: false,
-        routeApproval: undefined,
-        updatedAt: this.clock(),
-        ideaRevision: current.ideaRevision + 1,
-      };
-      this.store.save(next, current.ideaRevision);
-      this.record(next, 'route_changes_requested', actor, feedback);
-      return next;
-    }
-
-    const stale = checkBundleCurrent(this.workspaceRoot, bundle);
-    if (stale.length > 0) {
-      throw new IdeaStateError(
-        `Canvas approval is stale — reviewed content changed after it was shown: `
-        + stale.map((s) => `${s.path} (${s.reason})`).join(', '),
-      );
-    }
-
-    const approval: IdeaRouteApproval = { reviewer, at, bundleHash: bundle.bundleHash };
-
-    if (current.routeDraft.outcome === 'close') {
-      const closed: Idea = { ...current, routeApproval: approval, checkpoint: 'closed', updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-      this.store.save(closed, current.ideaRevision);
-      this.record(closed, 'closed', actor, 'Routing found no build was needed.');
-      return closed;
-    }
-
-    const next: Idea = { ...current, routeApproval: approval, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-    this.store.save(next, current.ideaRevision);
-    this.record(next, 'route_reviewed', actor);
-    return next;
+    return this.saveJournal(id, expectedRevision, {
+      journalPhase: 'ready',
+      journal: {
+        ...j,
+        readyRecipeId,
+        readyEpicTitle: title,
+      },
+    }, actor);
   }
 
-  private withBootstrapIfStale(idea: Idea, routeDraft: IdeaRouteDraft): IdeaRouteDraft {
-    if (routeDraft.steps[0]?.recipeId === 'cofofo-bootstrap') return routeDraft;
-    const inspection = this.foundation.inspect();
-    const current = inspection.status === 'ready' ? inspection.snapshot : undefined;
-    const stale = !current
-      || !idea.foundationHashAtCapture
-      || current.revision !== idea.foundationHashAtCapture.revision
-      || current.manifestHash !== idea.foundationHashAtCapture.manifestHash;
-    if (!stale) return routeDraft;
-    const bootstrap: IdeaRouteStep = {
-      recipeId: 'cofofo-bootstrap',
-      epicTitle: 'CoFoFo Foundation bootstrap',
-      rationale: 'CONTEXT-MANIFEST.json is missing or out of date — every other step in this route requires it.',
-    };
-    return { ...routeDraft, steps: [bootstrap, ...routeDraft.steps] };
-  }
-
-  /**
-   * Confirms the route and scaffolds every step's epic. Idempotent and
-   * crash-safe like `ShapeService.convertToEpic`: `resolved` must already
-   * carry an assembled `PipelineConfig` per step (the one piece of work only
-   * the extension can do — turning a recipe id into a pipeline via
-   * `assemblePipeline`), and re-entry after a partial crash verifies rather
-   * than re-scaffolds an epic dir that already exists for this Idea.
-   */
-  confirmRouteAndScaffold(id: string, expectedRevision: number, resolved: ResolvedRouteStep[], doc: { state?: unknown } | null, actor: ActorRef): Idea {
-    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may confirm a route.');
-    let current = this.require(id);
-    if (current.checkpoint !== 'route_proposed' || !current.routeDraft) {
-      throw new IdeaStateError(`Cannot confirm a route: checkpoint is "${current.checkpoint}", expected "route_proposed".`);
+  scaffoldFromJournal(
+    id: string,
+    expectedRevision: number,
+    resolved: ResolvedRouteStep[],
+    doc: { state?: unknown } | null,
+    actor: ActorRef,
+  ): Idea {
+    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may scaffold from a journal.');
+    const current = this.require(id);
+    if (current.ideaRevision !== expectedRevision) {
+      throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
     }
-    if (!current.routeApproval) {
-      throw new IdeaStateError('This route has not been approved in Canvas yet (F22) — open the Canvas gate on ROUTE.md before confirming.');
+    if (current.journalPhase !== 'ready') {
+      throw new IdeaStateError(`Cannot scaffold: journal phase is "${current.journalPhase ?? 'spark'}", expected "ready".`);
     }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    if (resolved.length !== current.routeDraft.steps.length) {
-      throw new IdeaStateError('Resolved pipelines do not match the confirmed route\'s step count.');
+    const recipeId = current.journal?.readyRecipeId ?? suggestRecipeFromJournal(current);
+    if (resolved.length === 0) throw new IdeaStateError('At least one resolved pipeline is required.');
+    if (resolved[0]!.recipeId !== recipeId) {
+      throw new IdeaStateError(`Resolved recipe ${resolved[0]!.recipeId} does not match journal recipe ${recipeId}.`);
     }
 
-    if (!current.routeConfirmed) {
-      current = { ...current, routeConfirmed: true, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-      this.store.save(current, this.require(id).ideaRevision);
-      this.record(current, 'route_confirmed', actor);
-    }
+    const brief = renderIntentFromJournal(current);
+    writeFileAtomic(path.join(docsIdeaDir(this.workspaceRoot, id), 'INTENT.md'), brief);
+    this.syncJournalFiles(current);
 
-    const brief = renderIdeaBrief(current);
     const children: IdeaChild[] = [];
     for (const step of resolved) {
       const target = path.join(epicsRoot(this.workspaceRoot, doc), step.epicId);
@@ -700,64 +304,48 @@ export class IdeaService {
       children.push({ epicId: step.epicId, recipeId: step.recipeId, runStatus: result.runState?.status ?? 'pending' });
     }
 
-    const reloaded = this.require(id);
     const primary = children[0]!;
     const primaryRun = RunStateStore.load(this.workspaceRoot, primary.epicId);
     const stepRevision = primaryRun?.steps[primaryRun.currentStepIdx]?.revision ?? 1;
     const next: Idea = {
-      ...reloaded,
+      ...current,
       children,
       checkpoint: 'in_delivery',
       inDelivery: { epicId: primary.epicId, runId: primary.epicId, stepRevision },
       updatedAt: this.clock(),
-      ideaRevision: reloaded.ideaRevision + 1,
+      ideaRevision: current.ideaRevision + 1,
     };
-    this.store.save(next, reloaded.ideaRevision);
-    this.record(next, 'scaffolded', actor, children.map((c) => c.epicId).join(', '));
-    return next;
-  }
-
-  /**
-   * Records that something outside the checkpoint state machine needs
-   * attention — today, only a routing-agent failure (there is no `preparing`-
-   * style sub-status for routing to fail into). Rule 4 of the audit: blocked
-   * is never deleted, and a retry clears it the same way a successful
-   * `generateRoute` call does — by simply not being blocked anymore.
-   */
-  setBlocked(id: string, expectedRevision: number, reason: string, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const next: Idea = { ...current, blockedReason: reason, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
     this.store.save(next, current.ideaRevision);
-    this.record(next, 'route_failed', actor, reason);
+    this.record(next, 'journal_scaffolded', actor, children.map((c) => c.epicId).join(', '));
     return next;
   }
 
-  /** Stop an in-progress route lookup while keeping the completed intake intact. */
-  stopRoute(id: string, expectedRevision: number, actor: ActorRef): Idea {
-    if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may stop Idea routing.');
+  patchSeed(id: string, expectedRevision: number, seedSentence: string, actor: ActorRef): Idea {
     const current = this.require(id);
-    if (current.checkpoint !== 'intent_drafted') {
-      throw new IdeaStateError('Only a running Idea route can be stopped.');
+    if (current.ideaRevision !== expectedRevision) {
+      throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
     }
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
+    if (['in_delivery', 'completed', 'closed'].includes(current.checkpoint)) {
+      throw new IdeaStateError('This Idea is already in delivery — use restart() to begin a fresh revision.');
+    }
+    const trimmed = seedSentence.trim();
+    if (!trimmed) throw new IdeaStateError('An Idea needs at least one sentence.');
+    const seedChanged = trimmed !== current.seedSentence;
     const next: Idea = {
       ...current,
-      blockedReason: IDEA_AGENT_STOPPED,
+      seedSentence: trimmed,
+      title: derivedTitle(trimmed),
+      checkpoint: 'captured',
+      journalPhase: seedChanged ? 'spark' : (current.journalPhase ?? 'spark'),
+      journal: seedChanged ? emptyJournal() : (current.journal ?? emptyJournal()),
+      blockedReason: undefined,
+      shelvedFromCheckpoint: undefined,
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
     };
     this.store.save(next, current.ideaRevision);
-    this.record(next, 'route_stopped', actor);
-    return next;
-  }
-
-  clearBlocked(id: string, expectedRevision: number, actor: ActorRef): Idea {
-    const current = this.require(id);
-    if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    if (!current.blockedReason) return current;
-    const next: Idea = { ...current, blockedReason: undefined, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
-    this.store.save(next, current.ideaRevision);
+    this.syncJournalFiles(next);
+    this.record(next, 'seed_edited', actor, seedChanged ? 'Seed changed — journal reset to spark.' : undefined);
     return next;
   }
 
@@ -766,22 +354,28 @@ export class IdeaService {
     const current = this.require(id);
     if (current.checkpoint === 'completed') throw new IdeaStateError('A completed Idea cannot be shelved.');
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
-    const next: Idea = { ...current, checkpoint: 'shelved', shelvedFromCheckpoint: current.checkpoint, updatedAt: this.clock(), ideaRevision: current.ideaRevision + 1 };
+    const next: Idea = {
+      ...current,
+      checkpoint: 'shelved',
+      shelvedFromCheckpoint: current.checkpoint === 'shelved' ? current.shelvedFromCheckpoint : current.checkpoint,
+      updatedAt: this.clock(),
+      ideaRevision: current.ideaRevision + 1,
+    };
     this.store.save(next, current.ideaRevision);
     this.record(next, 'shelved', actor);
     return next;
   }
 
-  /** Reopens at the checkpoint stored when shelved — never resets mid-flow state. */
   reopen(id: string, expectedRevision: number, actor: ActorRef): Idea {
     if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may reopen an Idea.');
     const current = this.require(id);
     if (current.checkpoint !== 'shelved') throw new IdeaStateError('Only a shelved Idea can be reopened.');
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
     const resumeAt = current.shelvedFromCheckpoint ?? 'captured';
+    const checkpoint = LEGACY_CHECKPOINTS.has(resumeAt) ? 'captured' : resumeAt;
     const next: Idea = {
       ...current,
-      checkpoint: resumeAt,
+      checkpoint,
       shelvedFromCheckpoint: undefined,
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
@@ -791,43 +385,33 @@ export class IdeaService {
     return next;
   }
 
-  /**
-   * "Bắt đầu lại" — only reachable from the ⋯ menu, never the default action
-   * (wireframe screen 2). Resets to `captured` under a bumped revision; the
-   * prior attempt's seed/answers/prep are not erased, only superseded —
-   * `events.ndjson` keeps every one of them for audit.
-   */
   restart(id: string, expectedRevision: number, actor: ActorRef): Idea {
     const current = this.require(id);
     if (current.checkpoint === 'completed') throw new IdeaStateError('A completed Idea cannot be restarted.');
+    if (current.checkpoint === 'in_delivery') {
+      throw new IdeaStateError('An Idea in delivery cannot be restarted — finish or delete the linked epic first.');
+    }
     if (current.ideaRevision !== expectedRevision) throw new IdeaRevisionConflictError(id, expectedRevision, current.ideaRevision);
     const next: Idea = {
       ...current,
       checkpoint: 'captured',
-      prep: { status: 'idle', selfAnswered: [], questions: [] },
-      answers: {},
-      batchIndex: 0,
-      batchSubmitted: false,
+      journalPhase: 'spark',
+      journal: emptyJournal(),
+      children: [],
+      inDelivery: undefined,
       routeDraft: undefined,
       routeConfirmed: false,
-      assumptions: [],
       blockedReason: undefined,
       shelvedFromCheckpoint: undefined,
       updatedAt: this.clock(),
       ideaRevision: current.ideaRevision + 1,
     };
     this.store.save(next, current.ideaRevision);
+    this.syncJournalFiles(next);
     this.record(next, 'restarted', actor);
     return next;
   }
 
-  /**
-   * Permanently removes this Idea: `.aidlc/ideas/<id>` (machine state, audit
-   * log) and `docs/ideas/<id>` (INTENT.md/ROUTE.md/EVIDENCE.md) together, so
-   * a later Idea that reuses this id (via `nextId()`) never inherits stale
-   * docs from a deleted one. There is no undo — the caller must confirm with
-   * the human before calling this.
-   */
   delete(id: string, expectedRevision: number, actor: ActorRef): void {
     if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may delete an Idea.');
     const current = this.require(id);
@@ -837,18 +421,6 @@ export class IdeaService {
     if (fs.existsSync(docsDir)) fs.rmSync(docsDir, { recursive: true, force: true });
   }
 
-  /**
-   * Repairs an Idea whose `state.json` fails schema validation (see
-   * `IdeaStore.listLoadErrors`) — e.g. a provider-managed agent wrote a
-   * checkpoint that drifted from the schema. There is no general way to
-   * "fix" an arbitrary corruption, so this does the one thing that's always
-   * safe: back up the broken file as `state.json.broken-<timestamp>`
-   * alongside it, then reset the Idea to a fresh, valid `captured`
-   * checkpoint, salvaging `seedSentence`/`title`/`outputLanguage`/
-   * `createdAt` from the broken JSON when they parse as the right type.
-   * `docs/ideas/<id>/` artifacts already on disk (INTENT.md, ROUTE.md, ...)
-   * are left untouched — only the machine state is reset.
-   */
   repairCorrupted(id: string, actor: ActorRef): Idea {
     if (actor.kind !== 'user') throw new IdeaStateError('Only a human user may repair a corrupted Idea.');
     const file = this.store.stateFile(id);
@@ -858,15 +430,12 @@ export class IdeaService {
       throw new IdeaStateError(`${id} already loads successfully — nothing to repair.`);
     } catch (error) {
       if (error instanceof IdeaStateError) throw error;
-      // Expected: load() throwing is exactly what makes this Idea "corrupted".
     }
 
     let raw: Record<string, unknown> = {};
     try {
       raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
-    } catch {
-      // Unparsable JSON — nothing left to salvage, repair still proceeds with a placeholder seed.
-    }
+    } catch { /* unparsable */ }
 
     const now = this.clock();
     fs.copyFileSync(file, `${file}.broken-${now.replace(/[:.]/g, '-')}`);
@@ -896,63 +465,36 @@ export class IdeaService {
       children: [],
       saveStatus: 'saved',
       dirty: false,
+      journalPhase: 'spark',
+      journal: emptyJournal(),
       createdAt,
       updatedAt: now,
     };
     const validated = parseIdea(repaired);
-    // Bypasses store.save()'s revision-match guard on purpose — a corrupted
-    // file has no trustworthy "current" revision to match against.
     writeFileAtomic(file, `${JSON.stringify(validated, null, 2)}\n`);
+    this.syncJournalFiles(validated);
     this.record(validated, 'restarted', actor, 'Repaired from a corrupted state.json — the broken file was kept alongside it as a backup.');
     return validated;
   }
 
-  /** Which inbox bucket this Idea sits in right now — audit's INBOX_RULES table, verbatim. */
-  inboxBucket(idea: Idea): 'awaiting_you' | 'agent_running' | 'blocked' | 'done' | 'shelved' {
+  /** True when CoFoFo Foundation changed since this Idea was captured. */
+  isFoundationStale(idea: Idea): boolean {
+    const inspection = this.foundation.inspect();
+    const current = inspection.status === 'ready' ? inspection.snapshot : undefined;
+    if (!current) return true;
+    if (!idea.foundationHashAtCapture) return true;
+    return current.revision !== idea.foundationHashAtCapture.revision
+      || current.manifestHash !== idea.foundationHashAtCapture.manifestHash;
+  }
+
+  inboxBucket(idea: Idea): 'awaiting_you' | 'blocked' | 'done' | 'shelved' {
     if (idea.checkpoint === 'shelved') return 'shelved';
     if (idea.blockedReason) return 'blocked';
-    if (idea.checkpoint === 'closed' || idea.checkpoint === 'completed') return 'done';
-    if (idea.prep.status === 'running') return 'agent_running';
-    if (idea.checkpoint === 'awaiting_human' || idea.checkpoint === 'route_proposed') return 'awaiting_you';
+    if (idea.checkpoint === 'closed' || idea.checkpoint === 'completed' || idea.checkpoint === 'in_delivery') return 'done';
     return 'awaiting_you';
   }
 
   private record(idea: Idea, type: IdeaEvent['type'], actor: ActorRef, detail?: string): void {
     this.store.appendEvent(idea.id, { id: eventId(), at: this.clock(), type, actor, revision: idea.ideaRevision, detail });
   }
-}
-
-function renderRouteMarkdown(idea: Idea): string {
-  const draft = idea.routeDraft!;
-  const lines = [`# Route — ${idea.id}`, ''];
-  draft.steps.forEach((step, i) => {
-    lines.push(`## ${i + 1}. ${step.recipeId} — ${step.epicTitle}`, '', step.rationale, '');
-  });
-  if (idea.assumptions.length) {
-    lines.push('## Assumptions', '', ...idea.assumptions.map((a) => `- ${a.label} (${a.source})`), '');
-  }
-  return `${lines.join('\n').trimEnd()}\n`;
-}
-
-/**
- * Build the `ReviewBundle` for the F22 Canvas gate on an Idea's routing
- * decision. Reviews `EVIDENCE.md` for a `close` outcome, `ROUTE.md`
- * otherwise — whichever `generateRoute` just wrote. Callers (extension) build
- * this fresh each time they open or verify the gate; nothing about it is
- * persisted on `Idea` beyond `routeApproval` once a verdict lands.
- */
-export function buildRouteReviewBundle(workspaceRoot: string, idea: Idea): ReviewBundle {
-  if (idea.checkpoint !== 'route_proposed' || !idea.routeDraft) {
-    throw new IdeaStateError(`Cannot build a route review bundle: checkpoint is "${idea.checkpoint}", expected "route_proposed".`);
-  }
-  const file = idea.routeDraft.outcome === 'close' ? 'EVIDENCE.md' : 'ROUTE.md';
-  return buildReviewBundle({
-    workspaceRoot,
-    runId: idea.id,
-    stepIdx: ROUTE_REVIEW_STEP_IDX,
-    stepRevision: idea.ideaRevision,
-    reviewRevision: 1,
-    artifacts: [`docs/ideas/{id}/${file}`],
-    context: { id: idea.id },
-  });
 }

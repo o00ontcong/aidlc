@@ -55,9 +55,6 @@ import {
   ANNOTRON_DEFAULT_BASE,
   CANVAS_VERDICT_WIRE,
   syncIdeasForRun,
-  IdeaService,
-  IdeaStateError,
-  buildRouteReviewBundle,
 } from '@aidlc/core';
 import type { PipelineConfig, ReviewGate, RunState } from '@aidlc/core';
 
@@ -620,98 +617,6 @@ export async function reviewCanvasStepCommand(
       void vscode.window.showWarningMessage(
         `Canvas requested changes${verdict?.reviewer ? ` (${verdict.reviewer})` : ''}: ${verdict?.feedback ?? 'No feedback supplied.'}`,
       );
-    }
-  } catch (error) {
-    surfaceRunError(error);
-  }
-}
-
-// ── openIdeaRouteReview (F22) ────────────────────────────────────────────
-
-/**
- * Open the Canvas gate on an Idea's routing decision (`ROUTE.md` for an
- * epics outcome, `EVIDENCE.md` for `close`) and wait for a verdict, exactly
- * like {@link reviewCanvasStepCommand} does for a pipeline step's gate —
- * except the bundle is bound to `idea.id`/`idea.ideaRevision` instead of a
- * `RunState`, since this decision is made before any run exists.
- */
-export async function openIdeaRouteReviewCommand(extensionPath: string, ideaId: string): Promise<void> {
-  const root = requireRoot('Review in Canvas');
-  if (!root) { return; }
-  const ideas = new IdeaService(root);
-  let idea;
-  try {
-    idea = ideas.require(ideaId);
-  } catch (error) {
-    surfaceRunError(error);
-    return;
-  }
-  if (idea.checkpoint !== 'route_proposed' || idea.routeApproval) {
-    void vscode.window.showInformationMessage(`AIDLC Ideas: no open Canvas gate for ${ideaId}.`);
-    return;
-  }
-
-  try {
-    const bundle = buildRouteReviewBundle(root, idea);
-    await ensureAnnotron(extensionPath);
-    const transport = new AnnotronTransport(root, ANNOTRON_DEFAULT_BASE);
-    const opened = await transport.open(bundle);
-
-    for (const artifact of bundle.artifacts) {
-      const query = new URLSearchParams({ file: path.join(root, artifact.path), gate: bundle.bundleHash });
-      const fragment = opened.token ? `#token=${encodeURIComponent(opened.token)}` : '';
-      await vscode.env.openExternal(vscode.Uri.parse(`${ANNOTRON_DEFAULT_BASE}/?${query.toString()}${fragment}`));
-    }
-
-    if (opened.supersededVerdict) {
-      void vscode.window.showWarningMessage(
-        'Canvas reopened because the artifact content changed after the previous verdict. Review the new bundle.',
-      );
-    }
-
-    const next = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `AIDLC: waiting for Canvas verdict · ${ideaId}`,
-        cancellable: true,
-      },
-      async (_progress, cancel) => {
-        const deadline = Date.now() + 30 * 60_000;
-        while (!cancel.isCancellationRequested && Date.now() < deadline) {
-          const reported = await transport.read(bundle);
-          if (reported) {
-            const wire = CANVAS_VERDICT_WIRE[reported.verdict];
-            if (!wire) {
-              throw new IdeaStateError(`Review transport reported an unknown verdict "${reported.verdict}".`);
-            }
-            const latest = ideas.require(ideaId);
-            return ideas.applyRouteReviewVerdict(
-              ideaId,
-              latest.ideaRevision,
-              bundle,
-              { decision: wire, reviewer: reported.reviewer, feedback: reported.feedback, at: reported.at },
-              { kind: 'user', id: 'vscode-user' },
-            );
-          }
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-        return null;
-      },
-    );
-
-    if (!next) {
-      void vscode.window.showInformationMessage(
-        `Canvas gate for "${ideaId}" remains open. Click Open plan canvas again to resume.`,
-      );
-      return;
-    }
-
-    if (next.checkpoint === 'closed') {
-      void vscode.window.showInformationMessage(`AIDLC Ideas: ${ideaId} closed — routing decided no build was needed.`);
-    } else if (next.routeApproval) {
-      void vscode.window.showInformationMessage(`AIDLC Ideas: route approved by ${next.routeApproval.reviewer}.`);
-    } else {
-      void vscode.window.showWarningMessage('AIDLC Ideas: Canvas requested changes on the route — redo routing.');
     }
   } catch (error) {
     surfaceRunError(error);

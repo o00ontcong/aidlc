@@ -13,7 +13,7 @@ interface IdeasCopy {
   tab: string;
   header: { eyebrow: string; title: string; subtitle: string };
   newIdea: string;
-  filters: { all: string; awaitingYou: string; agentRunning: string; blocked: string; done: string; shelved: string };
+  filters: { all: string; writing: string; ready: string; blocked: string; done: string; shelved: string };
   list: { emptyTitle: string; emptyBody: string; savedAutomatically: string; resume: string };
   checkpointLabel: Record<IdeasCheckpoint, string>;
   capture: {
@@ -149,6 +149,40 @@ interface IdeasCopy {
     stay: string;
   };
   languageSettings: string;
+  journal: {
+    subtitle: string;
+    phases: Record<'spark' | 'research' | 'rewrite' | 'ready', string>;
+    sourcesTitle: string;
+    notesTitle: string;
+    sourcePath: string;
+    sourceQuestion: string;
+    read: string;
+    addSource: string;
+    noNotes: string;
+    fromAi: string;
+    fromHuman: string;
+    copySpark: string;
+    copySources: string;
+    copySummarize: string;
+    copyRewrite: string;
+    copyReadyCheck: string;
+    pasteAi: string;
+    pasteModalTitle: string;
+    pastePlaceholder: string;
+    pasteAppend: string;
+    save: string;
+    saving: string;
+    advanceResearch: string;
+    advanceRewrite: string;
+    advanceReady: string;
+    readyHint: string;
+    epicTitle: string;
+    scaffoldEpic: string;
+    scaffoldedBody: string;
+    openJournalFile: string;
+    viewJournal: string;
+    rewrite: { problem: string; outcome: string; appetite: string; noGos: string };
+  };
 }
 
 const en: IdeasCopy = {
@@ -156,13 +190,13 @@ const en: IdeasCopy = {
   header: {
     eyebrow: 'IDEAS',
     title: 'Your ideas',
-    subtitle: 'One sentence is enough. An agent asks only what changes the outcome.',
+    subtitle: 'A journal for each idea — research and rewrite yourself, use AI chat via copy/paste.',
   },
   newIdea: '+ New idea',
   filters: {
     all: 'All',
-    awaitingYou: 'Awaiting you',
-    agentRunning: 'Terminal running',
+    writing: 'In progress',
+    ready: 'Ready',
     blocked: 'Blocked',
     done: 'Done',
     shelved: 'Shelved',
@@ -187,7 +221,7 @@ const en: IdeasCopy = {
   capture: {
     prompt: 'What do you want different?',
     placeholder: 'e.g. The list never refreshes, it feels stuck…',
-    hint: 'The agent will read AGENTS.md, PROJECT-RULES.json, ARCHITECTURE-MAP.md and the code before asking anything.',
+    hint: 'One sentence is enough. You will research and rewrite in the journal — AI helps via copy/paste prompts.',
     start: 'Start',
     edit: 'Edit',
     saveAndRerun: 'Save & re-run',
@@ -318,6 +352,40 @@ const en: IdeasCopy = {
     stay: 'Stay here',
   },
   languageSettings: 'Display language',
+  journal: {
+    subtitle: 'Human-owned journal — copy prompts to your AI chat, paste results back.',
+    phases: { spark: 'Raw idea', research: 'Research', rewrite: 'Rewrite', ready: 'Ready for epic' },
+    sourcesTitle: 'Sources to read',
+    notesTitle: 'Research notes',
+    sourcePath: 'Path or URL',
+    sourceQuestion: 'Question to answer',
+    read: 'Read',
+    addSource: 'Add source',
+    noNotes: 'No notes yet — paste from AI or write here.',
+    fromAi: 'from AI',
+    fromHuman: 'human',
+    copySpark: 'Copy prompt — clarify outcome',
+    copySources: 'Copy prompt — suggest sources',
+    copySummarize: 'Copy prompt — summarize source',
+    copyRewrite: 'Copy prompt — draft rewrite',
+    copyReadyCheck: 'Copy prompt — pre-scaffold check',
+    pasteAi: 'Paste from AI',
+    pasteModalTitle: 'Paste from AI',
+    pastePlaceholder: 'Paste the AI response here…',
+    pasteAppend: 'Append to notes',
+    save: 'Save',
+    saving: 'Saving…',
+    advanceResearch: 'Continue to Research →',
+    advanceRewrite: 'Continue to Rewrite →',
+    advanceReady: 'Mark Ready →',
+    readyHint: 'Pick a CoFoFo recipe and epic title, then scaffold.',
+    epicTitle: 'Epic title',
+    scaffoldEpic: 'Scaffold epic',
+    scaffoldedBody: 'This idea was scaffolded. Track delivery below.',
+    openJournalFile: 'Open journal.md',
+    viewJournal: 'View journal.md',
+    rewrite: { problem: 'Problem', outcome: 'Observable outcome', appetite: 'Appetite', noGos: 'Non-goals' },
+  },
 };
 
 const vi: IdeasCopy = {
@@ -325,13 +393,13 @@ const vi: IdeasCopy = {
   header: {
     eyebrow: 'Ý TƯỞNG',
     title: 'Ý tưởng của bạn',
-    subtitle: 'Một câu là đủ. Agent chỉ hỏi những gì làm thay đổi kết quả.',
+    subtitle: 'Nhật ký từng ý tưởng — bạn tự nghiên cứu và viết lại, AI hỗ trợ qua copy/paste.',
   },
   newIdea: '+ Ý tưởng mới',
   filters: {
     all: 'Tất cả',
-    awaitingYou: 'Chờ bạn',
-    agentRunning: 'Terminal đang chạy',
+    writing: 'Đang viết',
+    ready: 'Sẵn sàng',
     blocked: 'Bị chặn',
     done: 'Đã xong',
     shelved: 'Đã gác',
@@ -356,7 +424,7 @@ const vi: IdeasCopy = {
   capture: {
     prompt: 'Bạn muốn điều gì khác đi?',
     placeholder: 'Ví dụ: Danh sách không cập nhật, mở app cứ tưởng nó treo…',
-    hint: 'Agent sẽ đọc AGENTS.md, PROJECT-RULES.json, ARCHITECTURE-MAP.md và code trước khi hỏi bạn câu nào.',
+    hint: 'Một câu là đủ. Bạn sẽ nghiên cứu và viết lại trong journal — AI hỗ trợ qua copy/paste.',
     start: 'Bắt đầu',
     edit: 'Chỉnh sửa',
     saveAndRerun: 'Lưu & chạy lại',
@@ -487,6 +555,40 @@ const vi: IdeasCopy = {
     stay: 'Ở lại',
   },
   languageSettings: 'Ngôn ngữ hiển thị',
+  journal: {
+    subtitle: 'Journal do bạn sở hữu — copy prompt sang AI chat, paste kết quả về đây.',
+    phases: { spark: 'Ý tưởng thô', research: 'Nghiên cứu', rewrite: 'Viết lại', ready: 'Sẵn sàng epic' },
+    sourcesTitle: 'Nguồn cần đọc',
+    notesTitle: 'Ghi chép nghiên cứu',
+    sourcePath: 'Đường dẫn hoặc URL',
+    sourceQuestion: 'Câu hỏi cần trả lời',
+    read: 'Đã đọc',
+    addSource: 'Thêm nguồn',
+    noNotes: 'Chưa có ghi chép — paste từ AI hoặc tự viết.',
+    fromAi: 'từ AI',
+    fromHuman: 'human',
+    copySpark: 'Copy prompt — làm rõ mong muốn',
+    copySources: 'Copy prompt — gợi ý nguồn',
+    copySummarize: 'Copy prompt — tóm tắt nguồn',
+    copyRewrite: 'Copy prompt — draft viết lại',
+    copyReadyCheck: 'Copy prompt — kiểm tra trước scaffold',
+    pasteAi: 'Paste từ AI',
+    pasteModalTitle: 'Paste từ AI',
+    pastePlaceholder: 'Dán câu trả lời AI vào đây…',
+    pasteAppend: 'Thêm vào ghi chép',
+    save: 'Lưu',
+    saving: 'Đang lưu…',
+    advanceResearch: 'Sang Nghiên cứu →',
+    advanceRewrite: 'Sang Viết lại →',
+    advanceReady: 'Đánh dấu Sẵn sàng →',
+    readyHint: 'Chọn recipe CoFoFo và tên epic, rồi scaffold.',
+    epicTitle: 'Tên epic',
+    scaffoldEpic: 'Scaffold epic',
+    scaffoldedBody: 'Idea đã được scaffold. Theo dõi delivery bên dưới.',
+    openJournalFile: 'Mở journal.md',
+    viewJournal: 'Xem journal.md',
+    rewrite: { problem: 'Problem', outcome: 'Outcome quan sát được', appetite: 'Appetite', noGos: 'Non-goals' },
+  },
 };
 
 const IDEAS_COPY: Record<IdeasLanguage, IdeasCopy> = { en, vi };

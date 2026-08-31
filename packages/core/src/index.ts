@@ -56,6 +56,8 @@ export {
   type Idea,
   type IdeaCheckpoint,
   type IdeaFoundationSnapshot,
+  type IdeaJournal,
+  type IdeaJournalPhase,
   type ArtifactPolicy,
   type Capability,
 } from './contracts';
@@ -140,10 +142,6 @@ export {
   ensureProviderManagedTaskCommand,
   providerManagedTaskCommandBody,
 } from './providers/ProviderManagedTaskCommand';
-export {
-  PROVIDER_MANAGED_IDEA_COMMAND,
-  providerManagedIdeaCommandBody,
-} from './providers/ProviderManagedIdeaCommand';
 
 export {
   WorkspaceLoader,

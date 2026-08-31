@@ -84,7 +84,6 @@ import {
   openRunStateCommand,
   deleteRunCommand,
   deleteEpicCommand,
-  openIdeaRouteReviewCommand,
 } from './runCommands';
 import { resolveTechStackForRoot } from './techStackResolver';
 
@@ -564,11 +563,6 @@ export function registerV2WorkspaceCommands(
         toStepIdx(stepIdx),
       ),
   );
-  const openIdeaRouteReviewCmd = vscode.commands.registerCommand(
-    'aidlc.openIdeaRouteReview',
-    (ideaId?: unknown) =>
-      openIdeaRouteReviewCommand(context.extensionPath, typeof ideaId === 'string' ? ideaId : ''),
-  );
   const rejectStepCmd = vscode.commands.registerCommand(
     'aidlc.rejectStep',
     (runId?: unknown, stepIdx?: unknown) =>
@@ -661,7 +655,6 @@ export function registerV2WorkspaceCommands(
       skipStepCmd,
       approveStepCmd,
       reviewCanvasStepCmd,
-      openIdeaRouteReviewCmd,
       rejectStepCmd,
       rerunStepCmd,
       runAutoReviewCmd,

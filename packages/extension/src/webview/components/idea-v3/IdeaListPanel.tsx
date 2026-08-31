@@ -11,14 +11,14 @@ import type { CSSProperties } from 'react';
 import type { IdeaSummary } from '@/lib/types';
 import { ideasCopy, type IdeasLanguage } from '@/lib/ideasI18n';
 import { useHorizontalPanelResize } from '@/hooks/useHorizontalPanelResize';
-import { FILTER_TONE, formatUpdated, type Filter } from './idea-adapt';
+import { FILTER_TONE, formatUpdated, inboxBucket, journalPhaseLabel, type Filter } from './idea-adapt';
 
 export const IDEA_LIST_DEFAULT_WIDTH = 316;
 export const IDEA_LIST_RAIL_WIDTH = 46;
 export const IDEA_LIST_MIN_WIDTH = 220;
 export const IDEA_LIST_MAX_WIDTH = 560;
 
-const FILTER_ORDER: Filter[] = ['all', 'awaiting_you', 'agent_running', 'blocked', 'done', 'shelved'];
+const FILTER_ORDER: Filter[] = ['all', 'writing', 'ready', 'done', 'shelved', 'blocked'];
 
 export interface IdeaListPanelProps {
   ideas: IdeaSummary[];
@@ -325,11 +325,10 @@ function OpenList(p: IdeaListPanelProps) {
 
 function Row({ idea, p }: { idea: IdeaSummary; p: IdeaListPanelProps }) {
   const selected = idea.id === p.selectedId;
-  const bucket = idea.checkpoint === 'shelved' ? 'shelved'
-    : idea.blockedReason ? 'blocked'
-      : idea.checkpoint === 'closed' || idea.checkpoint === 'completed' ? 'done'
-        : idea.prep.status === 'running' ? 'agent_running' : 'awaiting_you';
+  const bucket = inboxBucket(idea);
   const tone = FILTER_TONE[bucket];
+  const phase = idea.journalPhase;
+  const phaseLabel = phase ? journalPhaseLabel(phase, p.language) : null;
   return (
     <button
       type="button"
@@ -366,9 +365,12 @@ function Row({ idea, p }: { idea: IdeaSummary; p: IdeaListPanelProps }) {
         </div>
       </div>
       {idea.blockedReason && (
-        <div style={{ fontSize: 10, color: 'var(--err)', display: 'flex', alignItems: 'center', gap: 4 }}>
-          ⚠ {idea.blockedReason}
+        <div style={{ fontSize: 10, color: 'var(--err)', display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 14 }}>
+          {idea.blockedReason}
         </div>
+      )}
+      {phaseLabel && !idea.blockedReason && (
+        <div style={{ fontSize: 10, color: 'var(--txt3)', paddingLeft: 14 }}>{phaseLabel}</div>
       )}
     </button>
   );
@@ -377,8 +379,8 @@ function Row({ idea, p }: { idea: IdeaSummary; p: IdeaListPanelProps }) {
 function FILTER_LABEL(copy: ReturnType<typeof ideasCopy>): Record<Filter, string> {
   return {
     all: copy.filters.all,
-    awaiting_you: copy.filters.awaitingYou,
-    agent_running: copy.filters.agentRunning,
+    writing: copy.filters.writing,
+    ready: copy.filters.ready,
     blocked: copy.filters.blocked,
     done: copy.filters.done,
     shelved: copy.filters.shelved,

@@ -127,10 +127,10 @@ export function Btn({
   style?: CSSProperties;
 }) {
   const skin: CSSProperties =
-    variant === 'primary' ? { background: 'var(--acc)', color: 'var(--on-acc)', fontWeight: 600 }
+    variant === 'primary' ? { background: 'var(--acc)', color: 'var(--on-acc)', fontWeight: 600, border: '1px solid var(--acc)' }
       : variant === 'danger' ? { border: '1px solid var(--err-bd)', color: 'var(--err)' }
         : variant === 'warn' ? { border: '1px solid var(--warn-bd)', color: 'var(--warn)' }
-          : variant === 'ghost' ? { color: 'var(--acc-txt)' }
+          : variant === 'ghost' ? { color: 'var(--acc-txt)', border: '1px solid transparent' }
             : { border: '1px solid var(--bd)', color: 'var(--txt)' };
   return (
     <button
@@ -140,6 +140,12 @@ export function Btn({
       onClick={onClick}
       className={mono ? 'v3-mono' : undefined}
       style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        boxSizing: 'border-box',
+        minHeight: 28,
         flex: flex ? 1 : 'none',
         whiteSpace: 'nowrap',
         cursor: disabled ? 'not-allowed' : 'pointer',
@@ -148,6 +154,7 @@ export function Btn({
         padding: pad,
         borderRadius: 6,
         background: 'transparent',
+        border: '1px solid transparent',
         font: 'inherit',
         fontFamily: mono ? undefined : 'inherit',
         textAlign: 'center',

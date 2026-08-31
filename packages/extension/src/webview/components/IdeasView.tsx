@@ -1,17 +1,4 @@
-/* Ideas screen, v3 design — mirrors `EpicsView.tsx`'s shell shape (resizable
- * master list on the left, detail column on the right, wrapped in the same
- * `.aidlc-v3` token scope + `MockProvider`). See idea-v3/* for the pieces:
- * `IdeaListPanel` (adapted from `epic-v3/EpicListPanel`, no follow/drag),
- * `IdeaDetail` (1:1 restyle of the previous plain-Tailwind detail panels),
- * `IdeaStepper` (the lifecycle "where am I" indicator — a plain linear
- * stepper, not Epic's DAG `FlowCanvas`, since an Idea's checkpoints never
- * branch or loop), and `idea-adapt.ts` (checkpoint→tone derivation).
- *
- * List width/collapse/filter/search/tools-open stay session-only React state
- * here — unlike Epics' `persistEpicsUi`, there is no `persistIdeasUi` host
- * message today, and adding one is a host-side change out of scope for this
- * pass.
- */
+/* Ideas screen, v3 — journal-first: list trái, journal detail phải. */
 
 import { useEffect, useMemo, useState } from 'react';
 
@@ -24,7 +11,7 @@ import { MockProvider } from './epic-v3/mock';
 import { Btn } from './epic-v3/primitives';
 import { V3Callout, V3Modal, V3ModalFooter, V3ModalHeader, V3Textarea } from './epic-v3/V3Modal';
 import { IdeaListPanel, IDEA_LIST_DEFAULT_WIDTH } from './idea-v3/IdeaListPanel';
-import { IdeaDetail } from './idea-v3/IdeaDetail';
+import { IdeaJournalDetail } from './idea-v3/IdeaJournalDetail';
 import { inboxBucket, type Filter } from './idea-v3/idea-adapt';
 
 interface Props {
@@ -47,7 +34,7 @@ export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
   const selected = state.ideas.find((idea) => idea.id === selectedIdeaId);
 
   const [creating, setCreating] = useState(state.ideas.length === 0);
-  const [filter, setFilter] = useState<Filter>('awaiting_you');
+  const [filter, setFilter] = useState<Filter>('writing');
   const [search, setSearch] = useState('');
   const [listCollapsed, setListCollapsed] = useState(false);
   const [listWidth, setListWidth] = useState(IDEA_LIST_DEFAULT_WIDTH);
@@ -79,7 +66,7 @@ export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
   };
 
   const counts = useMemo(() => {
-    const out: Record<Filter, number> = { all: state.ideas.length, awaiting_you: 0, agent_running: 0, blocked: 0, done: 0, shelved: 0 };
+    const out: Record<Filter, number> = { all: state.ideas.length, writing: 0, ready: 0, blocked: 0, done: 0, shelved: 0 };
     for (const idea of state.ideas) out[inboxBucket(idea)] += 1;
     return out;
   }, [state.ideas]);
@@ -122,11 +109,11 @@ export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
             onListWidthChange={setListWidth}
             onListWidthCommit={setListWidth}
             onToggleTools={() => setToolsOpen((v) => !v)}
-            onResetFilters={() => { setFilter('awaiting_you'); setSearch(''); }}
+            onResetFilters={() => { setFilter('writing'); setSearch(''); }}
             onNewIdea={() => setCreating(true)}
           />
           {selected ? (
-            <IdeaDetail idea={selected} language={language} />
+            <IdeaJournalDetail idea={selected} language={language} />
           ) : (
             <div
               style={{

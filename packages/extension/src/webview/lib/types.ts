@@ -805,6 +805,38 @@ export interface IdeaInDelivery {
  * Every resume/undo/inbox question the UI needs answers from this field set —
  * see docs/design/ideas-tab/ideas-tab-audit.canvas.tsx.
  */
+export type IdeaJournalPhase = 'spark' | 'research' | 'rewrite' | 'ready';
+
+export interface IdeaJournalSource {
+  id: string;
+  source: string;
+  type: string;
+  question: string;
+  read: boolean;
+}
+
+export interface IdeaJournalNote {
+  id: string;
+  at: string;
+  text: string;
+  origin: 'human' | 'ai';
+}
+
+export interface IdeaJournalRewrite {
+  problem: string;
+  outcome: string;
+  appetite: string;
+  noGos: string;
+}
+
+export interface IdeaJournal {
+  sources: IdeaJournalSource[];
+  notes: IdeaJournalNote[];
+  rewrite: IdeaJournalRewrite;
+  readyRecipeId?: IdeaRouteStep['recipeId'];
+  readyEpicTitle?: string;
+}
+
 export interface IdeaSummary {
   id: string;
   checkpoint: 'captured' | 'preparing' | 'awaiting_human' | 'intent_drafted' | 'route_proposed' | 'in_delivery' | 'closed' | 'completed' | 'shelved';
@@ -813,6 +845,8 @@ export interface IdeaSummary {
   title: string;
   outputLanguage: 'en' | 'vi';
   foundationHashAtCapture: { revision: number; manifestPath: string; manifestHash: string; capturedAt: string } | null;
+  journalPhase?: IdeaJournalPhase;
+  journal?: IdeaJournal;
   answers: Record<string, string>;
   batchIndex: number;
   batchSubmitted: boolean;

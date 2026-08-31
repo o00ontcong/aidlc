@@ -192,6 +192,8 @@ import {
   resolveChildCanvasStepIndex,
   epicsRoot,
   EpicScaffoldError,
+  buildIdeaCopyPrompt,
+  type IdeaPromptKey,
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
@@ -230,10 +232,7 @@ import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './gl
 import { PresetStore } from './presetStore';
 import {
   reconcileValidatorConflictsCommand,
-  revealIdeaProviderTerminal,
-  runIdeaWithProviderCommand,
   runTaskWithProviderCommand,
-  stopIdeaProviderTerminal,
 } from './providerManagedRunCommands';
 
 const workspaceOutput = vscode.window.createOutputChannel('AIDLC Workspace');
@@ -253,6 +252,7 @@ import type {
   AutoReviewVerdict,
   StepHistoryEntry,
   ResolvedRouteStep,
+  IdeaJournal,
   IdeaLoadError,
 } from '@aidlc/core';
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
@@ -2223,46 +2223,120 @@ export class WorkspaceWebview {
         return;
       }
 
-      case 'patchIdeaSeed': {
+      case 'saveIdeaJournal': {
         const root = this.getRootOrWarn();
         const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
         const revision = Number(msg.revision);
         if (!root || !id || !Number.isInteger(revision)) return;
         try {
-          const patched = new IdeaService(root).patchSeed(id, revision, typeof msg.seedSentence === 'string' ? msg.seedSentence : '', { kind: 'user', id: 'vscode-user' });
-          // A changed seed invalidates the visible provider conversation so
-          // it cannot write a stale checkpoint after this edit.
-          stopIdeaProviderTerminal(root, id);
+          new IdeaService(root).saveJournal(id, revision, {
+            seedSentence: typeof msg.seedSentence === 'string' ? msg.seedSentence : undefined,
+            journalPhase: typeof msg.journalPhase === 'string' ? msg.journalPhase as 'spark' | 'research' | 'rewrite' | 'ready' : undefined,
+            journal: msg.journal && typeof msg.journal === 'object' ? msg.journal as IdeaJournal : undefined,
+          }, { kind: 'user', id: 'vscode-user' });
           this.refresh();
-          // Editing returns to an explicit, human-started terminal run.
-          void patched;
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'reopenIdeaAnswers': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        if (!root || !id || !Number.isInteger(revision)) return;
-        try {
-          const service = new IdeaService(root);
-          const current = service.require(id);
-          // Answers belong to the provider-native conversation now. Reset the
-          // intake and reopen that provider instead of rendering a second
-          // extension-owned question form.
-          service.patchSeed(id, revision, current.seedSentence, { kind: 'user', id: 'vscode-user' });
-          stopIdeaProviderTerminal(root, id);
-          this.refresh();
-          runIdeaWithProviderCommand(id, this.extensionUri.fsPath);
         } catch (error) {
           if (error instanceof IdeaRevisionConflictError) {
             this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
             this.refresh();
             return;
           }
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'copyIdeaPrompt': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const key = typeof msg.promptKey === 'string' ? msg.promptKey as IdeaPromptKey : undefined;
+        if (!root || !id || !key) return;
+        try {
+          const idea = new IdeaService(root).require(id);
+          const text = buildIdeaCopyPrompt(idea, key, idea.outputLanguage);
+          await vscode.env.clipboard.writeText(text);
+          void vscode.window.setStatusBarMessage('AIDLC: prompt copied to clipboard', 2500);
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'appendIdeaJournalNote': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const revision = Number(msg.revision);
+        const text = typeof msg.text === 'string' ? msg.text : '';
+        const origin = msg.origin === 'human' ? 'human' : 'ai';
+        if (!root || !id || !Number.isInteger(revision) || !text.trim()) return;
+        try {
+          new IdeaService(root).appendJournalNote(id, revision, text, origin, { kind: 'user', id: 'vscode-user' });
+          this.refresh();
+        } catch (error) {
+          if (error instanceof IdeaRevisionConflictError) {
+            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
+            this.refresh();
+            return;
+          }
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'scaffoldIdeaJournal': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const revision = Number(msg.revision);
+        const recipeId = typeof msg.recipeId === 'string' ? msg.recipeId : '';
+        const epicTitle = typeof msg.epicTitle === 'string' ? msg.epicTitle : '';
+        if (!root || !id || !Number.isInteger(revision) || !recipeId || !epicTitle.trim()) return;
+        try {
+          const ideas = new IdeaService(root);
+          let idea = ideas.require(id);
+          if (idea.journalPhase !== 'ready' || idea.journal?.readyRecipeId !== recipeId) {
+            idea = ideas.markJournalReady(id, revision, recipeId as ResolvedRouteStep['recipeId'], epicTitle.trim(), { kind: 'user', id: 'vscode-user' });
+          }
+          let doc = readYaml(root);
+          if (!doc) { void vscode.window.showWarningMessage('AIDLC: no workspace.yaml — initialize first.'); return; }
+          new CofofoFoundationService(root).ensureRecipesRegistered();
+          doc = readYaml(root);
+          if (!doc) return;
+          const nextIds = listEpicIdsFromDir(root, path.relative(root, epicsRoot(root, doc)) || 'docs/epics');
+          const epicId = suggestNextEpicId(nextIds);
+          const pipelineId = this.assembleRecipeForEpic(root, recipeId, epicId);
+          if (!pipelineId) return;
+          const freshDoc = readYaml(root);
+          const pipeline = (freshDoc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
+          if (!pipeline) { void vscode.window.showErrorMessage(`AIDLC Ideas: pipeline "${pipelineId}" missing.`); return; }
+          const resolved: ResolvedRouteStep[] = [{
+            recipeId: recipeId as ResolvedRouteStep['recipeId'],
+            epicId,
+            epicTitle: epicTitle.trim(),
+            pipeline,
+            scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} },
+          }];
+          ideas.scaffoldFromJournal(id, idea.ideaRevision, resolved, readYaml(root), { kind: 'user', id: 'vscode-user' });
+          this.refresh();
+        } catch (error) {
+          if (error instanceof IdeaRevisionConflictError) {
+            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
+            this.refresh();
+            return;
+          }
+          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'patchIdeaSeed': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const revision = Number(msg.revision);
+        if (!root || !id || !Number.isInteger(revision)) return;
+        try {
+          new IdeaService(root).patchSeed(id, revision, typeof msg.seedSentence === 'string' ? msg.seedSentence : '', { kind: 'user', id: 'vscode-user' });
+          this.refresh();
+        } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
         }
         return;
@@ -2276,7 +2350,7 @@ export class WorkspaceWebview {
         const root = this.getRootOrWarn();
         const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
         const file = msg.file;
-        const allowed = new Set(['INTENT.md', 'ROUTE.md', 'EVIDENCE.md']);
+        const allowed = new Set(['INTENT.md', 'journal.md']);
         if (!root || !id || typeof file !== 'string' || !allowed.has(file)) return;
         const target = path.join(docsIdeaDir(root, id), file);
         if (!fs.existsSync(target)) {
@@ -2299,144 +2373,6 @@ export class WorkspaceWebview {
         return;
       }
 
-      case 'flagIdeaSelfAnswer': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        const index = Number(msg.index);
-        if (!root || !id || !Number.isInteger(revision) || !Number.isInteger(index)) return;
-        try {
-          new IdeaService(root).flagSelfAnswer(id, revision, index, { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'retryIdeaPrep': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        if (!root || !id) return;
-        runIdeaWithProviderCommand(id, this.extensionUri.fsPath);
-        return;
-      }
-
-      case 'retryIdeaRoute': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        if (!root || !id) return;
-        runIdeaWithProviderCommand(id, this.extensionUri.fsPath);
-        return;
-      }
-
-      case 'runIdeaProvider':
-      case 'runIdeaTerminal': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        if (!root || !id) return;
-        try {
-          runIdeaWithProviderCommand(id, this.extensionUri.fsPath);
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'openIdeaTerminal': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        if (!root || !id || !revealIdeaProviderTerminal(root, id)) {
-          void vscode.window.showInformationMessage('AIDLC Ideas: no active terminal for this step. Start it first.');
-        }
-        return;
-      }
-
-      case 'stopIdeaRun': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        const phase = msg.phase === 'route' ? 'route' : msg.phase === 'prep' ? 'prep' : undefined;
-        if (!root || !id || !phase || !Number.isInteger(revision)) return;
-        try {
-          const service = new IdeaService(root);
-          const human = { kind: 'user' as const, id: 'vscode-user' };
-          if (phase === 'prep') service.stopPrep(id, revision, human);
-          else service.stopRoute(id, revision, human);
-          stopIdeaProviderTerminal(root, id);
-          this.refresh();
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
-          }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'confirmIdeaRoute': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        if (!root || !id || !Number.isInteger(revision)) return;
-        try {
-          const ideas = new IdeaService(root);
-          const idea = ideas.require(id);
-          if (idea.checkpoint !== 'route_proposed' || !idea.routeDraft) {
-            throw new Error(`Cannot confirm: checkpoint is "${idea.checkpoint}".`);
-          }
-          let doc = readYaml(root);
-          if (!doc) { void vscode.window.showWarningMessage('AIDLC: no workspace.yaml — initialize first.'); return; }
-          // The Ideas tab is CoFoFo-only by design — its routing agent
-          // proposes cofofo-* recipe ids regardless of whether this project
-          // has ever run CoFoFo Foundation prepare. Register them on demand
-          // rather than failing "Recipe not found" the first time a route
-          // needs one (see CofofoFoundationService.ensureRecipesRegistered).
-          const registeredRecipeIds = new Set(
-            (Array.isArray(doc.recipes) ? doc.recipes : []).map((r) => String((r as { id?: unknown }).id)),
-          );
-          if (idea.routeDraft.steps.some((step) => step.recipeId.startsWith('cofofo-') && !registeredRecipeIds.has(step.recipeId))) {
-            new CofofoFoundationService(root).ensureRecipesRegistered();
-            doc = readYaml(root);
-            if (!doc) { void vscode.window.showWarningMessage('AIDLC: no workspace.yaml — initialize first.'); return; }
-          }
-          let nextIds = listEpicIdsFromDir(root, path.relative(root, epicsRoot(root, doc)) || 'docs/epics');
-          const resolved: ResolvedRouteStep[] = [];
-          for (const step of idea.routeDraft.steps) {
-            const epicId = suggestNextEpicId(nextIds);
-            nextIds = [...nextIds, epicId];
-            const pipelineId = this.assembleRecipeForEpic(root, step.recipeId, epicId);
-            if (!pipelineId) return; // assembleRecipeForEpic already surfaced why
-            const freshDoc = readYaml(root);
-            const pipeline = (freshDoc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
-            if (!pipeline) { void vscode.window.showErrorMessage(`AIDLC Ideas: generated pipeline "${pipelineId}" is missing.`); return; }
-            resolved.push({
-              recipeId: step.recipeId,
-              epicId,
-              epicTitle: step.epicTitle,
-              pipeline,
-              scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} },
-            });
-          }
-          ideas.confirmRouteAndScaffold(id, revision, resolved, readYaml(root), { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      // F22 — Canvas gate on the routing decision (ROUTE.md/EVIDENCE.md).
-      case 'openIdeaRouteReview': {
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        if (!id) return;
-        await vscode.commands.executeCommand('aidlc.openIdeaRouteReview', id);
-        this.refresh();
-        return;
-      }
-
       case 'shelveIdea':
       case 'reopenIdea':
       case 'restartIdea': {
@@ -2450,9 +2386,6 @@ export class WorkspaceWebview {
           if (msg.type === 'shelveIdea') service.shelve(id, revision, human);
           if (msg.type === 'reopenIdea') service.reopen(id, revision, human);
           if (msg.type === 'restartIdea') service.restart(id, revision, human);
-          if (msg.type === 'restartIdea') {
-            stopIdeaProviderTerminal(root, id);
-          }
         });
         return;
       }
@@ -2464,7 +2397,6 @@ export class WorkspaceWebview {
         if (!root || !id || !Number.isInteger(revision)) return;
         this.handleIdeaMutation(() => {
           new IdeaService(root).delete(id, revision, { kind: 'user', id: 'vscode-user' });
-          stopIdeaProviderTerminal(root, id);
         });
         return;
       }
