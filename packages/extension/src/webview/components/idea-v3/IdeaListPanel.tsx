@@ -8,10 +8,11 @@
  */
 
 import type { CSSProperties } from 'react';
+import { BookOpen } from 'lucide-react';
 import type { IdeaSummary } from '@/lib/types';
 import { ideasCopy, type IdeasLanguage } from '@/lib/ideasI18n';
 import { useHorizontalPanelResize } from '@/hooks/useHorizontalPanelResize';
-import { FILTER_TONE, formatUpdated, inboxBucket, journalPhaseLabel, type Filter } from './idea-adapt';
+import { FILTER_TONE, formatUpdated, inboxBucket, stageLabel, type Filter } from './idea-adapt';
 
 export const IDEA_LIST_DEFAULT_WIDTH = 316;
 export const IDEA_LIST_RAIL_WIDTH = 46;
@@ -39,6 +40,7 @@ export interface IdeaListPanelProps {
   onListWidthCommit: (width: number) => void;
   onToggleTools: () => void;
   onResetFilters: () => void;
+  onOpenGuide: () => void;
   onNewIdea: () => void;
 }
 
@@ -119,10 +121,7 @@ function Rail(p: IdeaListPanelProps) {
       <div style={{ width: 1, height: 6, flex: 'none' }} />
       {p.visible.map((idea) => {
         const selected = idea.id === p.selectedId;
-        const dot = FILTER_TONE[idea.checkpoint === 'shelved' ? 'shelved'
-          : idea.blockedReason ? 'blocked'
-            : idea.checkpoint === 'closed' || idea.checkpoint === 'completed' ? 'done'
-              : idea.prep.status === 'running' ? 'agent_running' : 'awaiting_you'].dot;
+        const dot = FILTER_TONE[inboxBucket(idea)].dot;
         return (
           <button
             key={idea.id}
@@ -193,6 +192,15 @@ function OpenList(p: IdeaListPanelProps) {
               {chipLabel}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={p.onOpenGuide}
+            aria-label={copy.header.openGuide}
+            title={copy.header.openGuide}
+            style={iconBtn}
+          >
+            <BookOpen size={12} aria-hidden />
+          </button>
           <button
             type="button"
             onClick={p.onToggleTools}
@@ -324,11 +332,13 @@ function OpenList(p: IdeaListPanelProps) {
 }
 
 function Row({ idea, p }: { idea: IdeaSummary; p: IdeaListPanelProps }) {
+  const copy = ideasCopy(p.language);
   const selected = idea.id === p.selectedId;
   const bucket = inboxBucket(idea);
   const tone = FILTER_TONE[bucket];
-  const phase = idea.journalPhase;
-  const phaseLabel = phase ? journalPhaseLabel(phase, p.language) : null;
+  const inWorkspace = !['in_delivery', 'completed', 'closed'].includes(idea.checkpoint);
+  const stageText = stageLabel(idea.stage, p.language);
+  const missing = idea.stageStatus.requirements.filter((r) => r.level === 'required' && !r.passed).length;
   return (
     <button
       type="button"
@@ -369,8 +379,13 @@ function Row({ idea, p }: { idea: IdeaSummary; p: IdeaListPanelProps }) {
           {idea.blockedReason}
         </div>
       )}
-      {phaseLabel && !idea.blockedReason && (
-        <div style={{ fontSize: 10, color: 'var(--txt3)', paddingLeft: 14 }}>{phaseLabel}</div>
+      {inWorkspace && !idea.blockedReason && (
+        <div style={{ fontSize: 10, color: 'var(--txt3)', paddingLeft: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>{stageText}</span>
+          <span>· {Math.round(idea.stageStatus.completion * 100)}%</span>
+          {missing > 0 && <span style={{ color: 'var(--warn)' }}>· {copy.list.missingCount(missing)}</span>}
+          {idea.needsReview && <span style={{ color: 'var(--warn)' }}>· {copy.list.needsReview}</span>}
+        </div>
       )}
     </button>
   );

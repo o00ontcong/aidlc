@@ -124,17 +124,39 @@ function syncExtensionCommandsForProvider(
   }
 }
 
+const busyTerminals = new WeakSet<vscode.Terminal>();
+let shellExecutionTrackingReady = false;
+
+/**
+ * A reused terminal only stays safe to type a new one-shot command into
+ * while its previous command has actually returned to an idle shell prompt.
+ * An interactive `claude` session left alive (waiting for the next turn)
+ * never fires the shell-integration "end execution" event for the command
+ * that launched it, so it correctly stays marked busy for as long as it's
+ * alive — without this, `spawnTerminalOneShot` would type the next one-shot
+ * invocation as plain chat input into that still-running session instead of
+ * launching a new one with the intended model/command.
+ */
+function ensureShellExecutionTracking(): void {
+  if (shellExecutionTrackingReady) { return; }
+  shellExecutionTrackingReady = true;
+  vscode.window.onDidStartTerminalShellExecution((e) => { busyTerminals.add(e.terminal); });
+  vscode.window.onDidEndTerminalShellExecution((e) => { busyTerminals.delete(e.terminal); });
+  vscode.window.onDidCloseTerminal((t) => { busyTerminals.delete(t); });
+}
+
 export function spawnTerminalOneShot(opts: {
   oneShot: string;
   terminalName: string;
   cwd?: string;
   fresh?: boolean;
 }): void {
+  ensureShellExecutionTracking();
   const cwd = opts.cwd && fs.existsSync(opts.cwd) ? opts.cwd : undefined;
 
   if (!opts.fresh) {
     const existing = vscode.window.terminals.find((t) => t.name === opts.terminalName);
-    if (existing) {
+    if (existing && existing.exitStatus === undefined && !busyTerminals.has(existing)) {
       existing.show(false);
       existing.sendText(opts.oneShot, true);
       return;

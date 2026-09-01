@@ -799,15 +799,29 @@ export interface IdeaInDelivery {
   reviewRound?: number;
 }
 
-/**
- * One sentence in, an agent-assisted question batch, then a routed handoff
- * into one of the six CoFoFo recipes (or a clean close with no epic).
- * Every resume/undo/inbox question the UI needs answers from this field set —
- * see docs/design/ideas-tab/ideas-tab-audit.canvas.tsx.
- */
-export type IdeaJournalPhase = 'spark' | 'research' | 'rewrite' | 'ready';
+/** Understand → Research → Explore → Decide → Ready. Drives the workspace UI directly — never inferred client-side. */
+export type IdeaStage = 'understand' | 'research' | 'explore' | 'decide' | 'ready';
 
-export interface IdeaJournalSource {
+export interface IdeaUnderstand {
+  problem: string;
+  context: string;
+  users: string[];
+  assumptions: string[];
+  unknowns: string[];
+}
+
+export type FindingType = 'fact' | 'assumption' | 'inference';
+
+export interface Finding {
+  id: string;
+  text: string;
+  type: FindingType;
+  sourceIds: string[];
+  createdBy: 'user' | 'ai';
+  createdAt: string;
+}
+
+export interface IdeaSource {
   id: string;
   source: string;
   type: string;
@@ -815,26 +829,78 @@ export interface IdeaJournalSource {
   read: boolean;
 }
 
-export interface IdeaJournalNote {
+export interface ExistingSolution {
   id: string;
-  at: string;
   text: string;
-  origin: 'human' | 'ai';
+  createdBy: 'user' | 'ai';
+  createdAt: string;
 }
 
-export interface IdeaJournalRewrite {
-  problem: string;
-  outcome: string;
-  appetite: string;
-  noGos: string;
+export interface IdeaResearch {
+  findings: Finding[];
+  sources: IdeaSource[];
+  existingSolutions: ExistingSolution[];
+  unknowns: string[];
 }
 
-export interface IdeaJournal {
-  sources: IdeaJournalSource[];
-  notes: IdeaJournalNote[];
-  rewrite: IdeaJournalRewrite;
-  readyRecipeId?: IdeaRouteStep['recipeId'];
-  readyEpicTitle?: string;
+export interface SolutionOption {
+  id: string;
+  title: string;
+  description: string;
+  pros: string[];
+  cons: string[];
+  risks: string[];
+  tradeoffs: string[];
+  validation?: string;
+}
+
+export interface IdeaExplore {
+  options: SolutionOption[];
+  validations: string[];
+}
+
+export type DecisionStatus = 'go' | 'no-go' | 'later' | 'more-research' | 'change-direction';
+
+export interface IdeaDecision {
+  status?: DecisionStatus;
+  recommendation?: string;
+  finalIdea?: string;
+  scope: string[];
+  outOfScope: string[];
+  validation?: string;
+  successCriteria: string[];
+  nextStep?: string;
+}
+
+export interface IdeaNeedsReview {
+  reason: string;
+  since: string;
+}
+
+/** An AI-proposed change awaiting Accept/Reject, or an `ask_user` question — never silently applied (spec §24). */
+export interface PendingIdeaAction {
+  id: string;
+  stage: IdeaStage;
+  actionType: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface DoDCheckResult {
+  id: string;
+  level: 'required' | 'optional';
+  label: string;
+  passed: boolean;
+}
+
+/** Computed server-side by the workflow controller (`getStageStatus`) — never re-derived in the webview. */
+export interface StageStatus {
+  stage: IdeaStage;
+  requirements: DoDCheckResult[];
+  completion: number;
+  canAdvance: boolean;
+  needsReview: boolean;
 }
 
 export interface IdeaSummary {
@@ -845,8 +911,17 @@ export interface IdeaSummary {
   title: string;
   outputLanguage: 'en' | 'vi';
   foundationHashAtCapture: { revision: number; manifestPath: string; manifestHash: string; capturedAt: string } | null;
-  journalPhase?: IdeaJournalPhase;
-  journal?: IdeaJournal;
+  stage: IdeaStage;
+  understand: IdeaUnderstand;
+  research: IdeaResearch;
+  explore: IdeaExplore;
+  decision: IdeaDecision;
+  readyRecipeId?: IdeaRouteStep['recipeId'];
+  readyEpicTitle?: string;
+  needsReview?: IdeaNeedsReview;
+  pendingActions: PendingIdeaAction[];
+  agentNotesFiles: string[];
+  stageStatus: StageStatus;
   answers: Record<string, string>;
   batchIndex: number;
   batchSubmitted: boolean;

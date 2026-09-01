@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { parseIdea, parseIdeaEvent, type Idea, type IdeaEvent } from '../contracts/idea';
-import { normalizeIdeaJournal } from './journal';
+import { migrateIdea } from './migration';
 import { writeFileAtomic } from '../epic/EpicStore';
 
 const IDEAS_DIR = '.aidlc/ideas';
@@ -65,7 +65,7 @@ export class IdeaStore {
     const file = this.stateFile(ideaId);
     if (!fs.existsSync(file)) return null;
     try {
-      return normalizeIdeaJournal(parseIdea(JSON.parse(fs.readFileSync(file, 'utf8'))));
+      return migrateIdea(parseIdea(JSON.parse(fs.readFileSync(file, 'utf8'))));
     } catch (error) {
       throw new Error(`Invalid Idea state at ${file}: ${error instanceof Error ? error.message : String(error)}`);
     }

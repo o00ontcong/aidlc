@@ -21,6 +21,14 @@ import {
   providerManagedTaskCommandBody,
   PROVIDER_MANAGED_TASK_COMMAND,
 } from './ProviderManagedTaskCommand';
+import {
+  ideaAgentCommandBody,
+  IDEA_AGENT_COMMAND_NAME,
+  ideaPipelineCommandBody,
+  IDEA_PIPELINE_COMMAND_NAME,
+  ideaTranslateCommandBody,
+  IDEA_TRANSLATE_COMMAND_NAME,
+} from '../idea/IdeaAgentCommand';
 import { ModelProviderConfigStore } from '../models/ModelProviderConfigStore';
 import { activeEpicsDir } from '../runs/RunState';
 import { getCommandProviderAdapter } from './CommandProviderAdapter';
@@ -187,6 +195,66 @@ export function syncProviderManagedCommandForProvider(
   return written;
 }
 
+/** Install the Idea Research Agent command — same distribution mechanism as `syncProviderManagedCommandForProvider`, works without a `workspace.yaml`/pipeline. */
+export function syncIdeaAgentCommandForProvider(
+  root: string,
+  providerId: string,
+  overwrite = false,
+): string[] {
+  const configStore = new ModelProviderConfigStore(root);
+  const mappedModel = configStore.modelFor(providerId);
+  const file = writeStandaloneCommand(
+    root,
+    providerId,
+    IDEA_AGENT_COMMAND_NAME,
+    'Work one Idea Research Workflow stage (Understand/Research/Explore/Decide) and write findings to a notes file. Usage: /aidlc-idea-research <idea-id> <stage> [note]',
+    ideaAgentCommandBody(),
+    overwrite,
+    mappedModel,
+  );
+  return file ? [file] : [];
+}
+
+/** Install the Idea Research Agent PIPELINE command — same mechanism as `syncIdeaAgentCommandForProvider`, but owns all 4 research stages across turns instead of one fixed stage per invocation. */
+export function syncIdeaPipelineCommandForProvider(
+  root: string,
+  providerId: string,
+  overwrite = false,
+): string[] {
+  const configStore = new ModelProviderConfigStore(root);
+  const mappedModel = configStore.modelFor(providerId);
+  const file = writeStandaloneCommand(
+    root,
+    providerId,
+    IDEA_PIPELINE_COMMAND_NAME,
+    'Own the Idea Research Workflow (Understand/Research/Explore/Decide) for one idea, one stage per turn, re-detecting the current stage each time. Usage: /aidlc-idea-research-pipeline <idea-id> [note]',
+    ideaPipelineCommandBody(),
+    overwrite,
+    mappedModel,
+  );
+  return file ? [file] : [];
+}
+
+/** Install the Idea Translate command — same distribution mechanism as `syncIdeaAgentCommandForProvider`, translates an idea's notes files into another language. */
+export function syncIdeaTranslateCommandForProvider(
+  root: string,
+  providerId: string,
+  overwrite = false,
+): string[] {
+  const configStore = new ModelProviderConfigStore(root);
+  const mappedModel = configStore.modelFor(providerId);
+  const file = writeStandaloneCommand(
+    root,
+    providerId,
+    IDEA_TRANSLATE_COMMAND_NAME,
+    'Translate an Idea\'s content into another language, applied straight to its state. Usage: /aidlc-idea-translate <idea-id>',
+    ideaTranslateCommandBody(),
+    overwrite,
+    mappedModel,
+  );
+  return file ? [file] : [];
+}
+
 /** Sync command files for one provider (workflows that own workspace pipelines). */
 export function syncPipelineCommandsForProvider(
   root: string,
@@ -292,6 +360,14 @@ function syncPipelineCommandsForProviderFiltered(
   // delivery pipeline. It shares the same command distribution mechanism as
   // Epic so every provider gets its native command file.
   written.push(...syncProviderManagedCommandForProvider(root, providerId, overwrite));
+
+  // Same reasoning for the Idea Research Agent command — an Idea's
+  // Understand/Research/Explore/Decide stages exist and are usable long
+  // before any delivery pipeline does.
+  written.push(...syncIdeaAgentCommandForProvider(root, providerId, overwrite));
+
+  // ...and for its multi-stage pipeline variant.
+  written.push(...syncIdeaPipelineCommandForProvider(root, providerId, overwrite));
 
   if (pipelineIds.size > 0) {
     const twoLayer = writeTwoLayerCommandsForProvider(root, providerId, { epicRoot, overwrite });

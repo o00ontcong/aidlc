@@ -166,7 +166,14 @@ export const COFOFO_RECIPE_IDS = [
 export const CofofoRecipeIdSchema = z.enum(COFOFO_RECIPE_IDS);
 export type CofofoRecipeId = z.infer<typeof CofofoRecipeIdSchema>;
 
-/** Journal funnel phase — human-owned intake before epic scaffold. */
+/**
+ * LEGACY — the human-owned "journal" funnel (spark → research → rewrite →
+ * ready) that preceded the Understand/Research/Explore/Decide/Ready
+ * workflow below. Superseded; kept only so `parseIdea` can still read an
+ * `state.json` written before the 5-stage model existed. `migrateIdea`
+ * (`../idea/migration.ts`) converts these into the new fields on load —
+ * nothing writes `journalPhase`/`journal` going forward.
+ */
 export const IDEA_JOURNAL_PHASES = ['spark', 'research', 'rewrite', 'ready'] as const;
 export const IdeaJournalPhaseSchema = z.enum(IDEA_JOURNAL_PHASES);
 export type IdeaJournalPhase = z.infer<typeof IdeaJournalPhaseSchema>;
@@ -206,6 +213,190 @@ export const IdeaJournalSchema = z.object({
 export type IdeaJournal = z.infer<typeof IdeaJournalSchema>;
 
 /**
+ * The research workflow stage — replaces {@link IdeaJournalPhase}. Drives
+ * the Ideas tab UI directly (`IdeaWorkspaceDetail`'s `StageBar` reads this,
+ * never infers it). `ready` is reached only via `IdeaService.markReady()`,
+ * an explicit human action gated by the Decide stage's Definition of Done —
+ * never set as a side effect of an AI-imported action
+ * (see `agentActions.ts`'s `mark_ready`, which never writes this field).
+ */
+export const IDEA_STAGES = ['understand', 'research', 'explore', 'decide', 'ready'] as const;
+export const IdeaStageSchema = z.enum(IDEA_STAGES);
+export type IdeaStage = z.infer<typeof IdeaStageSchema>;
+
+export const IdeaSourceSchema = IdeaJournalSourceSchema;
+export type IdeaSource = z.infer<typeof IdeaSourceSchema>;
+
+/**
+ * A single research finding. `type` must never be inferred as `fact` by
+ * anything AI-authored — only a human upgrading an `inference`/`assumption`
+ * to `fact` (by editing it directly) should ever produce a `fact` finding.
+ * See spec §5: "Do not present an AI assumption as verified fact."
+ */
+export const FindingTypeSchema = z.enum(['fact', 'assumption', 'inference']);
+export type FindingType = z.infer<typeof FindingTypeSchema>;
+
+export const FindingSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  type: FindingTypeSchema,
+  sourceIds: z.array(z.string()),
+  createdBy: z.enum(['user', 'ai']),
+  createdAt: IsoTimestampSchema,
+});
+export type Finding = z.infer<typeof FindingSchema>;
+
+export const ExistingSolutionSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  createdBy: z.enum(['user', 'ai']),
+  createdAt: IsoTimestampSchema,
+});
+export type ExistingSolution = z.infer<typeof ExistingSolutionSchema>;
+
+/** Understand stage content — the real problem behind the original idea. */
+export const IdeaUnderstandSchema = z.object({
+  problem: z.string(),
+  context: z.string(),
+  users: z.array(z.string()),
+  assumptions: z.array(z.string()),
+  unknowns: z.array(z.string()),
+});
+export type IdeaUnderstand = z.infer<typeof IdeaUnderstandSchema>;
+
+/** Research stage content — how the problem is solved today, and evidence collected. */
+export const IdeaResearchSchema = z.object({
+  findings: z.array(FindingSchema),
+  sources: z.array(IdeaSourceSchema),
+  existingSolutions: z.array(ExistingSolutionSchema),
+  unknowns: z.array(z.string()),
+});
+export type IdeaResearch = z.infer<typeof IdeaResearchSchema>;
+
+export const SolutionOptionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  description: z.string(),
+  pros: z.array(z.string()),
+  cons: z.array(z.string()),
+  risks: z.array(z.string()),
+  tradeoffs: z.array(z.string()),
+  validation: z.string().optional(),
+});
+export type SolutionOption = z.infer<typeof SolutionOptionSchema>;
+
+/** Explore stage content — realistic solution options compared against each other. */
+export const IdeaExploreSchema = z.object({
+  options: z.array(SolutionOptionSchema),
+  /** Idea-level validation ideas, distinct from a single option's own `validation`. */
+  validations: z.array(z.string()),
+});
+export type IdeaExplore = z.infer<typeof IdeaExploreSchema>;
+
+export const DECISION_STATUSES = ['go', 'no-go', 'later', 'more-research', 'change-direction'] as const;
+export const DecisionStatusSchema = z.enum(DECISION_STATUSES);
+export type DecisionStatus = z.infer<typeof DecisionStatusSchema>;
+
+/** Decide stage content — the research turned into an explicit decision. */
+export const IdeaDecisionSchema = z.object({
+  status: DecisionStatusSchema.optional(),
+  recommendation: z.string().optional(),
+  finalIdea: z.string().optional(),
+  scope: z.array(z.string()),
+  outOfScope: z.array(z.string()),
+  validation: z.string().optional(),
+  successCriteria: z.array(z.string()),
+  nextStep: z.string().optional(),
+});
+export type IdeaDecision = z.infer<typeof IdeaDecisionSchema>;
+
+/**
+ * The output of `/aidlc-idea-translate` (see `IdeaAgentCommand.ts`) — a
+ * language-only rewrite of an idea's existing content, applied in place by
+ * `IdeaService.applyTranslation()`. Every array here must have the SAME
+ * length as the field it replaces (matched by index) except where the
+ * current field carries its own `id` (findings/sources/existingSolutions/
+ * options), which are matched by `id` instead so reordering can't silently
+ * scramble data. Anything not a human-prose string (ids, `type`, `source`
+ * paths, booleans) is deliberately absent from this shape — there is
+ * nothing to translate there.
+ */
+export const IdeaTranslationSchema = z.object({
+  language: z.enum(['en', 'vi']),
+  understand: z.object({
+    problem: z.string().optional(),
+    context: z.string().optional(),
+    users: z.array(z.string()).optional(),
+    assumptions: z.array(z.string()).optional(),
+    unknowns: z.array(z.string()).optional(),
+  }).optional(),
+  research: z.object({
+    findings: z.array(z.object({ id: z.string().min(1), text: z.string().min(1) })).optional(),
+    sources: z.array(z.object({ id: z.string().min(1), question: z.string() })).optional(),
+    existingSolutions: z.array(z.object({ id: z.string().min(1), text: z.string().min(1) })).optional(),
+    unknowns: z.array(z.string()).optional(),
+  }).optional(),
+  explore: z.object({
+    options: z.array(z.object({
+      id: z.string().min(1),
+      title: z.string().min(1).optional(),
+      description: z.string().optional(),
+      pros: z.array(z.string()).optional(),
+      cons: z.array(z.string()).optional(),
+      risks: z.array(z.string()).optional(),
+      tradeoffs: z.array(z.string()).optional(),
+      validation: z.string().optional(),
+    })).optional(),
+    validations: z.array(z.string()).optional(),
+  }).optional(),
+  decision: z.object({
+    recommendation: z.string().optional(),
+    finalIdea: z.string().optional(),
+    scope: z.array(z.string()).optional(),
+    outOfScope: z.array(z.string()).optional(),
+    validation: z.string().optional(),
+    successCriteria: z.array(z.string()).optional(),
+    nextStep: z.string().optional(),
+  }).optional(),
+});
+export type IdeaTranslation = z.infer<typeof IdeaTranslationSchema>;
+export function parseIdeaTranslation(raw: unknown): IdeaTranslation {
+  return parseContract(IdeaTranslationSchema, raw, 'IdeaTranslation');
+}
+
+/**
+ * A change an earlier stage needs re-checked because a stage ahead of it was
+ * already advanced past when the earlier stage's data changed (spec §9 —
+ * "Decision may need review because the Problem changed"). Cleared only by
+ * the human re-running `advanceStage` through the flagged stage, never
+ * automatically.
+ */
+export const IdeaNeedsReviewSchema = z.object({
+  reason: z.string().min(1),
+  since: IsoTimestampSchema,
+});
+export type IdeaNeedsReview = z.infer<typeof IdeaNeedsReviewSchema>;
+
+/**
+ * An AI-proposed change awaiting a human verdict (spec §24's "Represent
+ * pending changes in a reusable way"). `payload` is intentionally loose
+ * here — the discriminated `IdeaAgentAction` union it must satisfy lives in
+ * `../idea/agentActions.ts`, validated at the point a proposal is imported,
+ * not re-validated by this contract on every load. Declared on `Idea` now so
+ * adding it later would not require a second schema migration.
+ */
+export const PendingIdeaActionSchema = z.object({
+  id: z.string().min(1),
+  stage: IdeaStageSchema,
+  actionType: z.string().min(1),
+  /** Human-readable "AI proposes: ..." line for the approval card. */
+  summary: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()),
+  createdAt: IsoTimestampSchema,
+});
+export type PendingIdeaAction = z.infer<typeof PendingIdeaActionSchema>;
+
+/**
  * A human Canvas verdict on the routing decision itself (`ROUTE.md` for an
  * epics outcome, `EVIDENCE.md` for a `close` outcome) — presence means
  * approved. Absent while `checkpoint === 'route_proposed'` means the gate is
@@ -229,7 +420,16 @@ export type IdeaRouteApproval = z.infer<typeof IdeaRouteApprovalSchema>;
  * missing bit of UI (docs/design/ideas-tab/ideas-tab-audit.canvas.tsx).
  */
 export const IdeaSchema = z.object({
-  schemaVersion: z.literal(1),
+  /**
+   * `1` — pre-5-stage records (`journalPhase`/`journal`, or older still).
+   * `2` — Understand/Research/Explore/Decide/Ready records. `migrateIdea`
+   * (`../idea/migration.ts`) is the ONLY place that bumps 1 → 2; it uses this
+   * field, not field-presence sniffing, to decide whether migration already
+   * ran — every new field below has a `.default()` purely so `parseIdea` can
+   * still read a `schemaVersion: 1` file at all, not as a signal of migration
+   * status.
+   */
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   id: z.string().regex(/^IDEA-\d{3,}$/),
   checkpoint: IdeaCheckpointSchema,
   /** Bumped on every seed/answer/route edit — the optimistic-concurrency field. */
@@ -256,10 +456,23 @@ export const IdeaSchema = z.object({
   saveStatus: IdeaSaveStatusSchema,
   /** Unsaved local edits exist that a idea-switch would discard (M02). */
   dirty: z.boolean(),
-  /** Human journal funnel position; drives the Ideas tab UI (v2 redesign). */
+  /** LEGACY — human journal funnel position; superseded by `stage`. */
   journalPhase: IdeaJournalPhaseSchema.optional(),
-  /** Structured journal content — prose also mirrored to `docs/ideas/<id>/journal.md`. */
+  /** LEGACY — superseded by `understand`/`research`/`explore`/`decision`. */
   journal: IdeaJournalSchema.optional(),
+  /** Understand → Research → Explore → Decide → Ready. See {@link IdeaStageSchema}. */
+  stage: IdeaStageSchema.default('understand'),
+  understand: IdeaUnderstandSchema.default({ problem: '', context: '', users: [], assumptions: [], unknowns: [] }),
+  research: IdeaResearchSchema.default({ findings: [], sources: [], existingSolutions: [], unknowns: [] }),
+  explore: IdeaExploreSchema.default({ options: [], validations: [] }),
+  decision: IdeaDecisionSchema.default({ scope: [], outOfScope: [], successCriteria: [] }),
+  /** Set once `stage` reaches `ready` and a CoFoFo recipe is chosen for scaffold. */
+  readyRecipeId: CofofoRecipeIdSchema.optional(),
+  readyEpicTitle: z.string().optional(),
+  /** A stage ahead of the flagged one changed data it already relied on — see {@link IdeaNeedsReviewSchema}. */
+  needsReview: IdeaNeedsReviewSchema.optional(),
+  /** AI-proposed changes awaiting Accept/Edit/Reject — see {@link PendingIdeaActionSchema}. */
+  pendingActions: z.array(PendingIdeaActionSchema).default([]),
   createdAt: IsoTimestampSchema,
   updatedAt: IsoTimestampSchema,
 }).superRefine((idea, ctx) => {
@@ -305,10 +518,22 @@ export const IdeaEventSchema = z.object({
     'shelved',
     'reopened',
     'restarted',
+    // LEGACY — superseded by the stage-based event types below; kept so
+    // `events.ndjson` written before the 5-stage workflow still parses.
     'journal_saved',
     'journal_phase_advanced',
     'journal_note_appended',
     'journal_scaffolded',
+    'understand_updated',
+    'research_updated',
+    'explore_updated',
+    'decision_updated',
+    'stage_advanced',
+    'marked_ready',
+    'ai_proposal_imported',
+    'ai_action_accepted',
+    'ai_action_rejected',
+    'translated',
   ]),
   actor: ActorRefSchema,
   revision: z.number().int().nonnegative(),

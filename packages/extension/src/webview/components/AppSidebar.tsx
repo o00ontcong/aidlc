@@ -54,6 +54,11 @@ const DEFAULT_COLLAPSED: CollapseState = {
 
 export function AppSidebar({ state }: { state: SidebarState | null }) {
   const seed = (getPersistedUi<PersistedUi>() ?? {});
+  // Keep the sidebar renderable when a retained webview receives state from an
+  // older extension host that predates the language field. The host normally
+  // supplies this value, but a missing optional-at-runtime field must not take
+  // down the entire sidebar.
+  const displayLanguage = state?.displayLanguage ?? 'en';
   const [collapsed, setCollapsed] = useState<CollapseState>({
     ...DEFAULT_COLLAPSED,
     ...(seed.collapsed ?? {}),
@@ -100,11 +105,11 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
           <button
             type="button"
             onClick={() => postMessage({ type: 'openSettings' })}
-            title={`AIDLC Workspace output language: ${state.displayLanguage === 'vi' ? 'Tiếng Việt' : 'English'}. Change language`}
+            title={`AIDLC Workspace output language: ${displayLanguage === 'vi' ? 'Tiếng Việt' : 'English'}. Change language`}
             className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-secondary/50 px-1.5 text-[10px] font-bold tracking-wide text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <Globe2 className="h-3 w-3" />
-            {state.displayLanguage.toUpperCase()}
+            {displayLanguage.toUpperCase()}
           </button>
           <ThemeToggle />
         </div>

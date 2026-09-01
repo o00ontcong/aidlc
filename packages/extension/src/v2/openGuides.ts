@@ -54,6 +54,14 @@ export async function openDiscoveryGuide(extensionPath: string): Promise<void> {
   );
 }
 
+/** Open the Vietnamese user guide bundled for the Ideas tab. */
+export async function openIdeasGuide(extensionPath: string): Promise<void> {
+  await openMarkdownPreview(
+    path.join(extensionPath, 'assets', 'ideas-pipeline-guide.vi.md'),
+    'Ideas pipeline guide',
+  );
+}
+
 /**
  * Render step help to a real file under the OS temp dir, then open Markdown
  * preview only. Untitled documents were wrong here: `openTextDocument({content})`

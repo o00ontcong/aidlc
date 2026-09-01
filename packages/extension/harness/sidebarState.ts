@@ -3,6 +3,7 @@ import type { SidebarState } from '../src/webview/lib/types';
 import { MOCK_PROVIDER_CONFIG } from '../src/webview/lib/providers';
 
 export const SIDEBAR_STATE: SidebarState = {
+  displayLanguage: 'en',
   hasFolder: true,
   workspaceName: 'payments-service',
   configExists: true,
@@ -24,6 +25,8 @@ export const SIDEBAR_STATE: SidebarState = {
   pipelines: [],
   runIds: [],
   demoProjectExists: true,
+  iosDemoProjectExists: false,
+  cofofoWeatherDemoProjectExists: false,
   mcpServers: null,
   mcpLoading: false,
   mcpError: null,

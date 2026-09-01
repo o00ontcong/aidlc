@@ -1,6 +1,6 @@
-/* Journal-first inbox buckets and phase labels for the Ideas tab v2 redesign. */
+/* Inbox buckets and stage labels for the Ideas tab — Understand → Research → Explore → Decide → Ready. */
 
-import type { IdeaJournalPhase, IdeaSummary } from '@/lib/types';
+import type { IdeaStage, IdeaSummary } from '@/lib/types';
 import { ideasCopy, type IdeasLanguage } from '@/lib/ideasI18n';
 
 export type Filter = 'all' | 'writing' | 'ready' | 'done' | 'shelved' | 'blocked';
@@ -9,12 +9,12 @@ export function inboxBucket(idea: IdeaSummary): Filter {
   if (idea.checkpoint === 'shelved') return 'shelved';
   if (idea.blockedReason) return 'blocked';
   if (idea.checkpoint === 'closed' || idea.checkpoint === 'completed' || idea.checkpoint === 'in_delivery') return 'done';
-  if (idea.journalPhase === 'ready' && idea.checkpoint === 'captured') return 'ready';
+  if (idea.stage === 'ready' && idea.checkpoint === 'captured') return 'ready';
   return 'writing';
 }
 
-export function journalPhaseLabel(phase: IdeaJournalPhase, language: IdeasLanguage): string {
-  return ideasCopy(language).journal.phases[phase];
+export function stageLabel(stage: IdeaStage, language: IdeasLanguage): string {
+  return ideasCopy(language).stages.labels[stage];
 }
 
 export function formatUpdated(iso: string, language: IdeasLanguage): string {

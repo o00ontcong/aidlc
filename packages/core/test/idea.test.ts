@@ -19,6 +19,7 @@ import {
   renderProjectRules,
   startRun,
   syncAllIdeaDeliveries,
+  type Idea,
   type PipelineConfig,
   type RunState,
 } from '../src';
@@ -87,6 +88,35 @@ function readyCofofoFoundation(root: string): void {
 }
 
 const USER = { kind: 'user' as const, id: 'owner' };
+const NOW = '2026-08-01T00:00:00.000Z';
+
+/** Walks a fresh Idea through Understand → Research → Explore with just enough
+ * data to satisfy each stage's Definition of Done, landing at "decide". */
+function advanceToDecide(ideas: IdeaService, id: string, revision: number): Idea {
+  let idea = ideas.updateUnderstand(id, revision, {
+    problem: 'No alert when temperature spikes.',
+    context: 'Weather app used by field workers.',
+    users: ['Field worker checking conditions before a shift'],
+  }, USER);
+  idea = ideas.advanceStage(id, idea.ideaRevision, USER);
+  idea = ideas.updateResearch(id, idea.ideaRevision, {
+    findings: [
+      { id: 'f1', text: 'No push API exists today.', type: 'inference', sourceIds: [], createdBy: 'user', createdAt: NOW },
+      { id: 'f2', text: 'Users say they check the app manually.', type: 'assumption', sourceIds: [], createdBy: 'user', createdAt: NOW },
+    ],
+    existingSolutions: [{ id: 'e1', text: 'WeatherKit ships an alerts API.', createdBy: 'user', createdAt: NOW }],
+  }, USER);
+  idea = ideas.advanceStage(id, idea.ideaRevision, USER);
+  idea = ideas.updateExplore(id, idea.ideaRevision, {
+    options: [
+      { id: 'o1', title: 'Push notification', description: 'Native push above 38C.', pros: ['Fast'], cons: ['Needs permission'], risks: [], tradeoffs: [] },
+      { id: 'o2', title: 'In-app banner', description: 'Banner on next open.', pros: ['No permission needed'], cons: ['Easy to miss'], risks: [], tradeoffs: [] },
+    ],
+    validations: ['Ask 3 field workers which they would notice fastest.'],
+  }, USER);
+  idea = ideas.advanceStage(id, idea.ideaRevision, USER);
+  return idea;
+}
 
 describe('Idea capture — never blocked by Foundation', () => {
   it('captures with a null Foundation snapshot before any CoFoFo Foundation exists', () => {
@@ -98,59 +128,71 @@ describe('Idea capture — never blocked by Foundation', () => {
     expect(idea.title).toBe('The list never refreshes.');
   });
 
-  it('starts in journal spark phase with journal.md on disk', () => {
+  it('starts at the Understand stage with RESEARCH.md on disk', () => {
     const root = temporary();
     const ideas = new IdeaService(root);
     const idea = ideas.create({ seedSentence: 'List feels stuck.' });
-    expect(idea.journalPhase).toBe('spark');
-    expect(idea.journal?.sources).toEqual([]);
-    const journalPath = path.join(root, 'docs', 'ideas', idea.id, 'journal.md');
-    expect(fs.existsSync(journalPath)).toBe(true);
-    expect(fs.readFileSync(journalPath, 'utf8')).toContain('List feels stuck.');
+    expect(idea.stage).toBe('understand');
+    expect(idea.understand).toEqual({ problem: '', context: '', users: [], assumptions: [], unknowns: [] });
+    const researchDoc = path.join(root, 'docs', 'ideas', idea.id, 'RESEARCH.md');
+    expect(fs.existsSync(researchDoc)).toBe(true);
+    expect(fs.readFileSync(researchDoc, 'utf8')).toContain('List feels stuck.');
   });
 });
 
-describe('Idea journal', () => {
-  it('saves journal fields and advances phase', () => {
+describe('Idea research workflow', () => {
+  it('updates Understand fields and advances to Research', () => {
     const root = temporary();
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'Heat alert when temp > 38C.' });
-    const saved = ideas.saveJournal(created.id, created.ideaRevision, {
-      journalPhase: 'research',
-      journal: {
-        sources: [{ id: 's1', source: 'WeatherSnapshot.swift', type: 'code', question: 'Existing alert types?', read: false }],
-      },
+    const saved = ideas.updateUnderstand(created.id, created.ideaRevision, {
+      problem: 'No alert exists.', context: 'Weather app.', users: ['Field worker'],
     }, USER);
-    expect(saved.journalPhase).toBe('research');
-    expect(saved.journal?.sources).toHaveLength(1);
+    expect(saved.understand.problem).toBe('No alert exists.');
     expect(ideas.inboxBucket(saved)).toBe('awaiting_you');
+    const advanced = ideas.advanceStage(created.id, saved.ideaRevision, USER);
+    expect(advanced.stage).toBe('research');
   });
 
-  it('requires problem and outcome before markJournalReady', () => {
+  it('adds a research finding, never inferring it as a verified fact', () => {
     const root = temporary();
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'x' });
-    expect(() => ideas.markJournalReady(
-      created.id, created.ideaRevision, 'cofofo-feature', 'Heat alert', USER,
-    )).toThrow(/Problem and outcome/);
+    const updated = ideas.updateResearch(created.id, created.ideaRevision, {
+      findings: [{ id: 'f1', text: 'Found existing WeatherSnapshot type.', type: 'inference', sourceIds: [], createdBy: 'user', createdAt: NOW }],
+    }, USER);
+    expect(updated.research.findings).toHaveLength(1);
+    expect(updated.research.findings[0]?.type).toBe('inference');
   });
 
-  it('scaffolds from a ready journal', () => {
+  it('requires the Decide fields before markReady', () => {
+    const root = temporary();
+    const ideas = new IdeaService(root);
+    const created = ideas.create({ seedSentence: 'x' });
+    const atDecide = advanceToDecide(ideas, created.id, created.ideaRevision);
+    expect(atDecide.stage).toBe('decide');
+    expect(() => ideas.markReady(created.id, atDecide.ideaRevision, 'cofofo-feature', 'Heat alert', USER))
+      .toThrow(/Decide is not complete/);
+  });
+
+  it('scaffolds from a ready Idea', () => {
     const root = swiftFixture();
     readyCofofoFoundation(root);
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'Add heat alert.' });
-    const ready = ideas.saveJournal(created.id, created.ideaRevision, {
-      journalPhase: 'ready',
-      journal: {
-        rewrite: { problem: 'No alert', outcome: 'User sees alert above 38C', appetite: 'Small', noGos: 'No push' },
-        readyRecipeId: 'cofofo-feature',
-        readyEpicTitle: 'Heat alert',
-      },
+    let idea = advanceToDecide(ideas, created.id, created.ideaRevision);
+    idea = ideas.updateDecision(created.id, idea.ideaRevision, {
+      status: 'go',
+      recommendation: 'Ship the push alert.',
+      finalIdea: 'Push alert when temperature exceeds 38C.',
+      nextStep: 'Design the push copy.',
     }, USER);
+    const ready = ideas.markReady(created.id, idea.ideaRevision, 'cofofo-feature', 'Heat alert', USER);
+    expect(ready.stage).toBe('ready');
+
     const cfg = generatedCofofoWorkspace({ version: '1.0', name: 'x', environment: {} });
     const pipeline = assemblePipeline(cfg, { recipeId: 'cofofo-feature', pipelineId: 'EPIC-201-PIPELINE' });
-    const scaffolded = ideas.scaffoldFromJournal(ready.id, ready.ideaRevision, [{
+    const scaffolded = ideas.scaffoldFromIdea(ready.id, ready.ideaRevision, [{
       recipeId: 'cofofo-feature',
       epicId: 'EPIC-201',
       epicTitle: 'Heat alert',
@@ -162,13 +204,21 @@ describe('Idea journal', () => {
     expect(fs.existsSync(path.join(root, 'docs', 'ideas', created.id, 'INTENT.md'))).toBe(true);
   });
 
-  it('appends journal notes', () => {
+  it('projects a pending (unaccepted) AI proposal into RESEARCH.md', () => {
     const root = temporary();
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'x' });
-    const noted = ideas.appendJournalNote(created.id, created.ideaRevision, 'Found existing WeatherSnapshot type.', 'human', USER);
-    expect(noted.journal?.notes).toHaveLength(1);
-    expect(noted.journal?.notes[0]?.text).toContain('WeatherSnapshot');
+    const { idea } = ideas.importAgentProposal(
+      created.id, created.ideaRevision, 'understand',
+      '### set_context\nAn independent trader building this for personal use.',
+      USER,
+    );
+    expect(idea.pendingActions).toHaveLength(1);
+    const researchDoc = fs.readFileSync(path.join(root, 'docs', 'ideas', created.id, 'RESEARCH.md'), 'utf8');
+    expect(researchDoc).toContain('## Pending AI proposals');
+    expect(researchDoc).toContain('Set context: An independent trader building this for personal use.');
+    // Not yet accepted, so it must not have landed in `understand` itself.
+    expect(idea.understand.context).toBe('');
   });
 });
 
@@ -186,15 +236,15 @@ describe('Idea shelve / reopen / restart', () => {
     expect(reopened.shelvedFromCheckpoint).toBeUndefined();
   });
 
-  it('restart resets journal to spark', () => {
+  it('restart resets the stage back to Understand', () => {
     const root = temporary();
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'x' });
-    const saved = ideas.saveJournal(created.id, created.ideaRevision, { journalPhase: 'rewrite' }, USER);
-    const restarted = ideas.restart(saved.id, saved.ideaRevision, USER);
+    const updated = ideas.updateUnderstand(created.id, created.ideaRevision, { problem: 'x', context: 'y', users: ['a'] }, USER);
+    const restarted = ideas.restart(updated.id, updated.ideaRevision, USER);
     expect(restarted.checkpoint).toBe('captured');
-    expect(restarted.journalPhase).toBe('spark');
-    expect(restarted.journal?.notes).toEqual([]);
+    expect(restarted.stage).toBe('understand');
+    expect(restarted.understand.problem).toBe('');
   });
 
   it('delete removes machine state and docs', () => {
@@ -213,17 +263,15 @@ describe('Idea delivery sync', () => {
     readyCofofoFoundation(root);
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'Add a heat alert.' });
-    const ready = ideas.saveJournal(created.id, created.ideaRevision, {
-      journalPhase: 'ready',
-      journal: {
-        rewrite: { problem: 'No alert', outcome: 'User sees alert', appetite: 'Small', noGos: '' },
-        readyRecipeId: 'cofofo-feature',
-        readyEpicTitle: 'Heat alert',
-      },
+    let idea = advanceToDecide(ideas, created.id, created.ideaRevision);
+    idea = ideas.updateDecision(created.id, idea.ideaRevision, {
+      status: 'go', recommendation: 'Ship it.', finalIdea: 'Push alert above 38C.', nextStep: 'Design copy.',
     }, USER);
+    const ready = ideas.markReady(created.id, idea.ideaRevision, 'cofofo-feature', 'Heat alert', USER);
+
     const cfg = generatedCofofoWorkspace({ version: '1.0', name: 'x', environment: {} });
     const pipeline = assemblePipeline(cfg, { recipeId: 'cofofo-feature', pipelineId: 'EPIC-201-PIPELINE' });
-    ideas.scaffoldFromJournal(ready.id, ready.ideaRevision, [{
+    ideas.scaffoldFromIdea(ready.id, ready.ideaRevision, [{
       recipeId: 'cofofo-feature',
       epicId: 'EPIC-201',
       epicTitle: 'Heat alert',
@@ -248,7 +296,7 @@ describe('Idea revision guard', () => {
     const root = temporary();
     const ideas = new IdeaService(root);
     const created = ideas.create({ seedSentence: 'x' });
-    expect(() => ideas.saveJournal(created.id, 999, { journalPhase: 'research' }, USER))
+    expect(() => ideas.updateUnderstand(created.id, 999, { problem: 'x' }, USER))
       .toThrow(IdeaRevisionConflictError);
   });
 
@@ -260,7 +308,7 @@ describe('Idea revision guard', () => {
     fs.writeFileSync(stateFile, '{ not valid json', 'utf8');
     const repaired = ideas.repairCorrupted(created.id, USER);
     expect(repaired.checkpoint).toBe('captured');
-    expect(repaired.journalPhase).toBe('spark');
+    expect(repaired.stage).toBe('understand');
     expect(() => ideas.repairCorrupted(created.id, USER)).toThrow(IdeaStateError);
   });
 });

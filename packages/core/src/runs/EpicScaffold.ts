@@ -368,18 +368,28 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   }
 
   // Start the pipeline run machine + mirror it into the epic's state.json.
+  // `epicDir` was just created above (the exists-check at the top of this
+  // function guarantees that): if starting the run throws (e.g. a missing
+  // `requires` artifact), remove it rather than leaving an orphaned,
+  // half-initialized epic directory behind — the caller sees the original
+  // error and nothing was scaffolded, matching a clean no-op failure.
   let runState: RunState | undefined;
   if (target.kind === 'pipeline' && pipeline
     && Array.isArray(pipeline.steps) && pipeline.steps.length > 0
     && !RunStateStore.load(workspaceRoot, epicId)) {
-    runState = startRun({
-      runId: epicId,
-      pipeline,
-      context: { epic: epicId, ...inputs },
-      workspaceRoot,
-    });
-    RunStateStore.save(workspaceRoot, runState);
-    mirrorRunStateToEpic(workspaceRoot, runState, doc);
+    try {
+      runState = startRun({
+        runId: epicId,
+        pipeline,
+        context: { epic: epicId, ...inputs },
+        workspaceRoot,
+      });
+      RunStateStore.save(workspaceRoot, runState);
+      mirrorRunStateToEpic(workspaceRoot, runState, doc);
+    } catch (error) {
+      fs.rmSync(epicDir, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   return { epicDir, artifactsDir, runState };

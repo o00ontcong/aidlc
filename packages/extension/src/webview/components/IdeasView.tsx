@@ -11,7 +11,7 @@ import { MockProvider } from './epic-v3/mock';
 import { Btn } from './epic-v3/primitives';
 import { V3Callout, V3Modal, V3ModalFooter, V3ModalHeader, V3Textarea } from './epic-v3/V3Modal';
 import { IdeaListPanel, IDEA_LIST_DEFAULT_WIDTH } from './idea-v3/IdeaListPanel';
-import { IdeaJournalDetail } from './idea-v3/IdeaJournalDetail';
+import { IdeaWorkspaceDetail } from './idea-v3/IdeaWorkspaceDetail';
 import { inboxBucket, type Filter } from './idea-v3/idea-adapt';
 
 interface Props {
@@ -110,10 +110,11 @@ export function IdeasView({ state, selectedIdeaId, onSelectIdea }: Props) {
             onListWidthCommit={setListWidth}
             onToggleTools={() => setToolsOpen((v) => !v)}
             onResetFilters={() => { setFilter('writing'); setSearch(''); }}
+            onOpenGuide={() => postMessage({ type: 'openIdeasGuide' })}
             onNewIdea={() => setCreating(true)}
           />
           {selected ? (
-            <IdeaJournalDetail idea={selected} language={language} />
+            <IdeaWorkspaceDetail idea={selected} language={language} />
           ) : (
             <div
               style={{

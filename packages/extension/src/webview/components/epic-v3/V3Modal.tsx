@@ -10,7 +10,7 @@
  * be clipped by the Epic screen's scroll container.
  */
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 
 export function V3Modal({
   width = 620,
@@ -197,9 +197,16 @@ export function V3Field({ label, hint, children }: { label: string; hint?: strin
   );
 }
 
-/** dc.html:111 — multiline box: same skin as the input, min-height 62. */
+/**
+ * dc.html:111 — multiline box: same skin as the input, min-height 62.
+ * `autoGrow` (opt-in, default off so existing callers keep their fixed-row
+ * box) expands the textarea to fit its content on mount and on every value
+ * change — needed once a field can hold an AI-authored paragraph rather than
+ * a short phrase, where a static `rows={3}` box hides most of the text
+ * behind an internal scrollbar (Ideas tab Understand/Research/... fields).
+ */
 export function V3Textarea({
-  value, onChange, placeholder, rows = 3, autoFocus, selectOnFocus, mono,
+  value, onChange, placeholder, rows = 3, autoFocus, selectOnFocus, mono, disabled, resize = 'none', autoGrow = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -208,6 +215,9 @@ export function V3Textarea({
   autoFocus?: boolean;
   selectOnFocus?: boolean;
   mono?: boolean;
+  disabled?: boolean;
+  resize?: 'none' | 'vertical';
+  autoGrow?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -215,6 +225,11 @@ export function V3Textarea({
     ref.current?.focus();
     if (selectOnFocus) { ref.current?.select(); }
   }, [autoFocus, selectOnFocus]);
+  useLayoutEffect(() => {
+    if (!autoGrow || !ref.current) return;
+    ref.current.style.height = 'auto';
+    ref.current.style.height = `${ref.current.scrollHeight}px`;
+  }, [autoGrow, value]);
   return (
     <textarea
       ref={ref}
@@ -222,8 +237,11 @@ export function V3Textarea({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       rows={rows}
+      disabled={disabled}
       className={mono ? 'v3-mono' : undefined}
       style={{
+        width: '100%',
+        boxSizing: 'border-box',
         background: 'var(--panel)',
         border: '1px solid var(--bd)',
         borderRadius: 6,
@@ -233,8 +251,10 @@ export function V3Textarea({
         fontFamily: mono ? undefined : 'inherit',
         lineHeight: 1.6,
         minHeight: 62,
-        resize: 'none',
+        resize,
         outline: 'none',
+        opacity: disabled ? 0.7 : 1,
+        overflow: autoGrow ? 'hidden' : undefined,
       }}
     />
   );
