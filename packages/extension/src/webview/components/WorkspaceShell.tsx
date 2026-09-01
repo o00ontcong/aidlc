@@ -11,12 +11,12 @@ import { TestAgentView } from './TestAgentView';
 import { ArchitectureStudio } from './architecture/ArchitectureStudio';
 import { ProjectOverview } from './ProjectOverview';
 import { SprintView } from './SprintView';
-import { IdeasView } from './IdeasView';
+import { DiscoverView } from './DiscoverView';
 import { onHostMessage, postMessage } from '@/lib/bridge';
-import { ideasCopy, type IdeasLanguage } from '@/lib/ideasI18n';
+import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 
 const VIEWS: WorkspaceView[] = [
-  'project', 'discovery', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
+  'project', 'discover', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
 ];
 
 export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
@@ -25,7 +25,6 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   const [startEpicOpen, setStartEpicOpen] = useState(false);
   const [epicPrefill, setEpicPrefill] = useState<StartEpicPrefill | undefined>();
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
-  const [selectedIdeaId, setSelectedIdeaId] = useState<string | undefined>();
   const seededView = useRef(Boolean(state?.initialView));
   // Sprint data arrives on its own channel: the host fetches it asynchronously,
   // so it cannot ride along in the synchronous `state` push. The snapshot in
@@ -54,14 +53,6 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
       if (msg.type === 'selectEpic') {
         const epicId = String(msg.epicId ?? '');
         if (epicId) { setSelectedTaskId(epicId); }
-      }
-      if (msg.type === 'selectIdea') {
-        const ideaId = String(msg.ideaId ?? '');
-        if (ideaId) {
-          setSelectedIdeaId(ideaId);
-          setView('discovery');
-          seededView.current = true;
-        }
       }
     });
   }, []);
@@ -156,19 +147,18 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
           <ProjectOverview
             state={state}
             onNewTask={() => setStartEpicOpen(true)}
-            onDiscussIdea={() => onView('discovery')}
+            onOpenDiscover={() => onView('discover')}
             onOpenTask={(taskId) => {
               setSelectedTaskId(taskId);
               onView('epics');
             }}
           />
         </main>
-      ) : view === 'discovery' ? (
-        // The v3 Ideas screen is a two-column master/detail that scrolls each
-        // column independently and must fill the panel height, so it is not
-        // wrapped in the padded scroll box — mirrors the Epics branch below.
+      ) : view === 'discover' ? (
+        // Discover owns the full panel height: the real UI is a three-pane
+        // master/detail that scrolls each pane on its own (B4).
         <main className="min-h-0 flex-1 overflow-hidden">
-          <IdeasView state={state} selectedIdeaId={selectedIdeaId} onSelectIdea={setSelectedIdeaId} />
+          <DiscoverView state={state} />
         </main>
       ) : view === 'sprint' ? (
         // Reading a sprint needs no workspace.yaml — it only needs Jira
@@ -250,19 +240,19 @@ function TopBar({
   view: WorkspaceView;
   onView: (v: WorkspaceView) => void;
   workspaceName: string;
-  language: IdeasLanguage;
+  language: DiscoverLanguage;
 }) {
   const nav = language === 'vi'
     ? { project: 'Dự án', epics: 'Công việc', sprint: 'Sprint', builder: 'Thiết lập', architecture: 'Kiến trúc', analyze: 'Phân tích', tests: 'Kiểm thử', projectTag: 'DỰ ÁN' }
     : { project: 'Project', epics: 'Tasks', sprint: 'Sprint', builder: 'Builder', architecture: 'Architecture', analyze: 'Analyze', tests: 'Tests', projectTag: 'PROJECT' };
-  const ideas = ideasCopy(language);
+  const discover = discoverCopy(language);
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/80 px-6 py-2.5 backdrop-blur-sm">
       <PillButton active={view === 'project'} onClick={() => onView('project')}>
         {nav.project}
       </PillButton>
-      <PillButton active={view === 'discovery'} onClick={() => onView('discovery')}>
-        {ideas.tab}
+      <PillButton active={view === 'discover'} onClick={() => onView('discover')}>
+        {discover.tab}
       </PillButton>
       <PillButton active={view === 'epics'} onClick={() => onView('epics')}>
         {nav.epics}
@@ -291,7 +281,7 @@ function TopBar({
         <button
           type="button"
           onClick={() => postMessage({ type: 'openSettings' })}
-          title={ideas.languageSettings}
+          title={discover.languageSettings}
           className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-secondary/50 px-2 text-[10px] font-bold text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <Globe2 className="h-3 w-3" /> {language.toUpperCase()}

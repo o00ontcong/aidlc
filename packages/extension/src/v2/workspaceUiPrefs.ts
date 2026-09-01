@@ -8,7 +8,21 @@
 import * as vscode from 'vscode';
 
 export type WorkspaceUiView =
-  | 'project' | 'discovery' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
+  | 'project' | 'discover' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
+
+const WORKSPACE_UI_VIEWS: readonly WorkspaceUiView[] = [
+  'project', 'discover', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
+];
+
+/**
+ * A stored `lastView` predates this build when it says `discovery` — the id
+ * the Ideas tab used before Discover replaced it. Map it forward rather than
+ * dropping the preference; anything else unknown falls back to undefined.
+ */
+function normalizeView(view: unknown): WorkspaceUiView | undefined {
+  if (view === 'discovery') { return 'discover'; }
+  return WORKSPACE_UI_VIEWS.includes(view as WorkspaceUiView) ? (view as WorkspaceUiView) : undefined;
+}
 
 export interface EpicsViewPrefs {
   filter?: 'all' | 'in_progress' | 'pending' | 'done' | 'failed';
@@ -35,7 +49,8 @@ class WorkspaceUiPrefsStore {
   }
 
   get(): WorkspaceUiPrefs {
-    return this.context?.workspaceState.get<WorkspaceUiPrefs>(KEY) ?? {};
+    const stored = this.context?.workspaceState.get<WorkspaceUiPrefs>(KEY) ?? {};
+    return { ...stored, lastView: normalizeView(stored.lastView) };
   }
 
   async setLastView(view: WorkspaceUiView): Promise<void> {

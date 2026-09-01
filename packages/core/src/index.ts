@@ -16,7 +16,7 @@ export * from './guide';
 export * from './capabilities';
 export * from './project';
 export * from './shape';
-export * from './idea';
+export * from './discover';
 export * from './workflows';
 export * from './application';
 export * from './migration';
@@ -53,28 +53,19 @@ export {
   type Shape,
   type ShapeStatus,
   type ShapeOption,
-  type Idea,
-  type IdeaCheckpoint,
-  type IdeaFoundationSnapshot,
-  type IdeaJournal,
-  type IdeaJournalPhase,
-  type IdeaStage,
-  type IdeaUnderstand,
-  type IdeaResearch,
-  type IdeaExplore,
-  type IdeaDecision,
-  type IdeaSource,
-  type IdeaTranslation,
-  parseIdeaTranslation,
-  type Finding,
-  type FindingType,
-  type ExistingSolution,
-  type SolutionOption,
-  type DecisionStatus,
-  type IdeaNeedsReview,
-  type PendingIdeaAction,
   type ArtifactPolicy,
   type Capability,
+  type ActorRef,
+  type DiscoverIndex,
+  type DiscoverItemMeta,
+  type DiscoverDocMeta,
+  type DiscoverRun,
+  type DiscoverRunDiff,
+  type DiscoverStepId,
+  type DiscoverHandoff,
+  type CofofoRecipeId,
+  COFOFO_RECIPE_IDS,
+  parseDiscoverIndex,
 } from './contracts';
 
 export {
@@ -367,9 +358,7 @@ export {
   syncPipelineCommands,
   syncPipelineCommandsForProvider,
   syncProviderManagedCommandForProvider,
-  syncIdeaAgentCommandForProvider,
-  syncIdeaPipelineCommandForProvider,
-  syncIdeaTranslateCommandForProvider,
+  syncDiscoverCommandsForProvider,
   writeTwoLayerCommandsForProvider,
 } from './providers';
 export type {

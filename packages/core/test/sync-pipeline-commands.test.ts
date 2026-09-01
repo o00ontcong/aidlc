@@ -81,26 +81,4 @@ describe('syncPipelineCommands multi-provider', () => {
     expect(body).toContain('.aidlc/epics/$ARGUMENTS/artifacts/PRD.md');
     expect(body).not.toContain('docs/epics/$ARGUMENTS');
   });
-
-  it('installs the provider-managed Idea command even before any delivery pipeline exists', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-sync-idea-native-'));
-    roots.push(root);
-    fs.mkdirSync(path.join(root, '.aidlc'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.aidlc', 'workspace.yaml'), yaml.dump({ pipelines: [] }));
-
-    syncPipelineCommandsForProvider(root, builtinTemplatesRoot(), 'codex');
-
-    const commandFile = path.join(
-      root,
-      '.codex',
-      'skills',
-      'aidlc-aidlc-provider-managed-idea',
-      'SKILL.md',
-    );
-    const body = fs.readFileSync(commandFile, 'utf8');
-    expect(body).toContain('Own Idea `$ARGUMENTS` in this visible provider session');
-    expect(body).toContain('provider-native UI');
-    expect(body).toContain('watches those files and does not consume terminal output');
-    expect(body).not.toContain('"humanAnswers"');
-  });
 });

@@ -286,8 +286,8 @@ export class CofofoFoundationService {
    * Registers the six CoFoFo recipes and the `cofofo-foundation`/
    * `cofofo-delivery` pipelines into `.aidlc/workspace.yaml` unconditionally
    * — unlike `prepare()`, this never falls back to `aidlc-workflow-full`
-   * based on stack detection. The Ideas tab is CoFoFo-only by design (see
-   * `contracts/idea.ts`): its routing agent proposes `cofofo-*` recipe ids
+   * based on stack detection. The Discover tab is CoFoFo-only by design (see
+   * `docs/DISCOVER_TAB_PLAN.md`): its handoff proposes `cofofo-*` recipe ids
    * regardless of whether this project has been through `prepare()` yet, so
    * those recipes must exist the moment a route needs one — even for a
    * project with no code yet. An empty `scan-stack` result is itself valid

@@ -203,7 +203,7 @@ export function V3Field({ label, hint, children }: { label: string; hint?: strin
  * box) expands the textarea to fit its content on mount and on every value
  * change — needed once a field can hold an AI-authored paragraph rather than
  * a short phrase, where a static `rows={3}` box hides most of the text
- * behind an internal scrollbar (Ideas tab Understand/Research/... fields).
+ * behind an internal scrollbar (long-form fields such as a Discover section).
  */
 export function V3Textarea({
   value, onChange, placeholder, rows = 3, autoFocus, selectOnFocus, mono, disabled, resize = 'none', autoGrow = false,

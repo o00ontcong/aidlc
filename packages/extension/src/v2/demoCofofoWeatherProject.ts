@@ -595,7 +595,7 @@ function seedProducedArtifacts(
   }
 
   // INTENT.md is likewise an input, not an output: a real epic gets it
-  // snapshotted by IdeaService.confirmRouteAndScaffold at scaffold time, so
+  // snapshotted from the Discover handoff at scaffold time, so
   // no cofofo-delivery step's `produces` ever writes it — but `requirement`
   // now `requires` it (see WorkflowGenerator.ts), so every feature/bugfix
   // demo epic needs one on disk from the start, not just completed ones.
@@ -649,7 +649,7 @@ function demoBugReport(spec: DemoEpicSpec): string {
 function demoIntent(spec: DemoEpicSpec): string {
   const brief = spec.inputs?.brief ?? 'Weather behavior for the SkyCast demo.';
   return [
-    `<!-- CoFoFo demo fixture: Ideas-tab intake snapshot for ${spec.id}. -->`,
+    `<!-- CoFoFo demo fixture: Discover handoff snapshot for ${spec.id}. -->`,
     '',
     `# Intent — ${spec.id}`,
     '',

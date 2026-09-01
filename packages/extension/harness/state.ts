@@ -3,6 +3,7 @@ import type {
   AgentMeta, EpicStepDetailFull, EpicSummary, WorkspaceState,
 } from '../src/webview/lib/types';
 import { MOCK_PROVIDER_CONFIG } from '../src/webview/lib/providers';
+import { DISCOVER_FIXTURE } from './discoverFixture';
 
 const step = (
   o: Partial<EpicStepDetailFull> & { agent: string },
@@ -511,6 +512,7 @@ export const STATE: WorkspaceState = {
     structuralEdges: [],
     featureFlows: {},
   },
+  discover: DISCOVER_FIXTURE,
   displayLanguage: 'vi',
   providerConfig: MOCK_PROVIDER_CONFIG,
 };

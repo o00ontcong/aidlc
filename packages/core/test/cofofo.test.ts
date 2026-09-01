@@ -288,8 +288,8 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     const delivery = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-delivery')!;
     const run = startRun({ runId: 'FEATURE-1', pipeline: delivery, context: { epic: 'FEATURE-1' }, workspaceRoot: root });
     expect(run.cofofoFoundation?.revision).toBe(1);
-    // `requirement` requires INTENT.md — normally snapshotted by Idea routing
-    // (IdeaService.confirmRouteAndScaffold); this run was started directly,
+    // `requirement` requires INTENT.md — normally snapshotted by the Discover
+    // handoff; this run was started directly,
     // so the test stands in for that provenance the same way a manually
     // authored epic would.
     write(root, 'docs/epics/FEATURE-1/artifacts/INTENT.md', '# Intent\n\nAdd a heat alert.\n');
@@ -387,7 +387,7 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
   });
 });
 
-describe('CoFoFo ensureRecipesRegistered — Ideas is CoFoFo-only regardless of stack detection', () => {
+describe('CoFoFo ensureRecipesRegistered — Discover is CoFoFo-only regardless of stack detection', () => {
   it('registers the six cofofo-* recipes and both pipelines even for a project with no code at all', () => {
     const root = temporary(); // no fixture — nothing for detectStack to find, unlike prepare()'s early fallback
     const service = new CofofoFoundationService(root);

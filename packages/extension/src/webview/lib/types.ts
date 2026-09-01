@@ -736,215 +736,134 @@ export interface ProjectWorkspaceSummary {
   documents: ProjectDocumentSummary[];
 }
 
-export interface IdeaQuestionOption {
-  id: string;
-  label: string;
-  recommended: boolean;
-}
+// ── Discover blueprint (mirrors src/v2/discoverHost.ts) ──────────────────
 
-export interface IdeaQuestion {
+export type DiscoverStepId =
+  | 'idea' | 'product' | 'requirements' | 'features' | 'usecases' | 'userflows'
+  | 'datamodel' | 'architecture' | 'techdecisions' | 'structure' | 'plan' | 'skeleton';
+
+export interface DiscoverItem {
   id: string;
   text: string;
-  options: IdeaQuestionOption[];
-  reason: string;
-  highImpact: boolean;
-  dependsOn: string[];
-}
-
-export interface IdeaSelfAnswered {
-  question: string;
-  answer: string;
-  source: string;
+  origin: 'ai' | 'human';
+  pinned: boolean;
   flagged: boolean;
 }
 
-export interface IdeaPrep {
-  status: 'idle' | 'running' | 'done' | 'failed';
-  jobId?: string;
-  selfAnswered: IdeaSelfAnswered[];
-  questions: IdeaQuestion[];
-  error?: string;
-}
-
-export interface IdeaRouteStep {
-  recipeId: 'cofofo-bootstrap' | 'cofofo-refresh-context' | 'cofofo-update-rules' | 'cofofo-repin-bundle' | 'cofofo-feature' | 'cofofo-bugfix';
-  epicTitle: string;
-  rationale: string;
-  epicId?: string;
-}
-
-export interface IdeaRouteDraft {
-  outcome: 'epics' | 'close';
-  steps: IdeaRouteStep[];
-  evidence?: string;
-}
-
-export interface IdeaAssumption {
-  id: string;
-  label: string;
-  source: 'agent' | 'human';
-}
-
-export interface IdeaChild {
-  epicId: string;
-  recipeId: IdeaRouteStep['recipeId'];
-  runStatus: string;
-  canvasStepIdx?: number;
-}
-
-export interface IdeaInDelivery {
-  epicId: string;
-  runId: string;
-  stepRevision: number;
-  reviewRound?: number;
-}
-
-/** Understand → Research → Explore → Decide → Ready. Drives the workspace UI directly — never inferred client-side. */
-export type IdeaStage = 'understand' | 'research' | 'explore' | 'decide' | 'ready';
-
-export interface IdeaUnderstand {
-  problem: string;
-  context: string;
-  users: string[];
-  assumptions: string[];
-  unknowns: string[];
-}
-
-export type FindingType = 'fact' | 'assumption' | 'inference';
-
-export interface Finding {
-  id: string;
-  text: string;
-  type: FindingType;
-  sourceIds: string[];
-  createdBy: 'user' | 'ai';
-  createdAt: string;
-}
-
-export interface IdeaSource {
-  id: string;
-  source: string;
-  type: string;
-  question: string;
-  read: boolean;
-}
-
-export interface ExistingSolution {
-  id: string;
-  text: string;
-  createdBy: 'user' | 'ai';
-  createdAt: string;
-}
-
-export interface IdeaResearch {
-  findings: Finding[];
-  sources: IdeaSource[];
-  existingSolutions: ExistingSolution[];
-  unknowns: string[];
-}
-
-export interface SolutionOption {
+export interface DiscoverRecord {
   id: string;
   title: string;
-  description: string;
-  pros: string[];
-  cons: string[];
-  risks: string[];
-  tradeoffs: string[];
-  validation?: string;
+  fields: { label: string; value: string; items: string[] }[];
+  origin: 'ai' | 'human';
+  pinned: boolean;
+  flagged: boolean;
 }
 
-export interface IdeaExplore {
-  options: SolutionOption[];
-  validations: string[];
+export interface DiscoverSection {
+  key: string;
+  heading: string;
+  kind: string;
+  /** Spec metadata for the editor: id prefix, whether ids carry a group, field labels. */
+  idPrefix?: string;
+  grouped?: boolean;
+  hint?: string;
+  fields?: { label: string; list?: boolean; required?: boolean }[];
+  prose: string;
+  items: DiscoverItem[];
+  records: DiscoverRecord[];
+  /** Lines under this heading the parser could not read as items. */
+  stray: number;
 }
 
-export type DecisionStatus = 'go' | 'no-go' | 'later' | 'more-research' | 'change-direction';
-
-export interface IdeaDecision {
-  status?: DecisionStatus;
-  recommendation?: string;
-  finalIdea?: string;
-  scope: string[];
-  outOfScope: string[];
-  validation?: string;
-  successCriteria: string[];
-  nextStep?: string;
+export interface DiscoverDoc {
+  path: string;
+  title: string;
+  exists: boolean;
+  filePath: string;
+  step: DiscoverStepId;
+  /** Raw Markdown as stored on disk. */
+  raw: string;
+  sections: DiscoverSection[];
+  updatedAt?: string;
+  lastRunId?: string;
 }
 
-export interface IdeaNeedsReview {
-  reason: string;
-  since: string;
-}
-
-/** An AI-proposed change awaiting Accept/Reject, or an `ask_user` question — never silently applied (spec §24). */
-export interface PendingIdeaAction {
-  id: string;
-  stage: IdeaStage;
-  actionType: string;
-  summary: string;
-  payload: Record<string, unknown>;
-  createdAt: string;
-}
-
-export interface DoDCheckResult {
-  id: string;
-  level: 'required' | 'optional';
+export interface DiscoverStep {
+  id: DiscoverStepId;
+  order: number;
   label: string;
-  passed: boolean;
-}
-
-/** Computed server-side by the workflow controller (`getStageStatus`) — never re-derived in the webview. */
-export interface StageStatus {
-  stage: IdeaStage;
-  requirements: DoDCheckResult[];
+  goal: string;
+  files: string[];
   completion: number;
   canAdvance: boolean;
-  needsReview: boolean;
+  requirements: { id: string; level: string; label: string; passed: boolean; notApplicable?: boolean; detail?: string }[];
 }
 
-export interface IdeaSummary {
+export interface DiscoverRunSummary {
   id: string;
-  checkpoint: 'captured' | 'preparing' | 'awaiting_human' | 'intent_drafted' | 'route_proposed' | 'in_delivery' | 'closed' | 'completed' | 'shelved';
-  ideaRevision: number;
-  seedSentence: string;
+  step: DiscoverStepId;
+  mode: 'fill' | 'refine';
+  startedAt: string;
+  finishedAt?: string;
+  note?: string;
+  diff: { added: string[]; updated: string[]; removed: string[] };
+  guardrail: string[];
+  revertable: boolean;
+  status: 'running' | 'review' | 'kept' | 'reverted';
+}
+
+export interface DiscoverDiffRow {
+  key: string;
+  file: string;
+  id: string;
+  text: string;
+  before?: string;
+}
+
+export type CofofoRecipeId =
+  | 'cofofo-bootstrap' | 'cofofo-refresh-context' | 'cofofo-update-rules'
+  | 'cofofo-repin-bundle' | 'cofofo-feature' | 'cofofo-bugfix';
+
+export const COFOFO_RECIPE_IDS: CofofoRecipeId[] = [
+  'cofofo-feature', 'cofofo-bugfix', 'cofofo-bootstrap',
+  'cofofo-refresh-context', 'cofofo-update-rules', 'cofofo-repin-bundle',
+];
+
+export interface DiscoverPhase {
+  id: string;
   title: string;
-  outputLanguage: 'en' | 'vi';
-  foundationHashAtCapture: { revision: number; manifestPath: string; manifestHash: string; capturedAt: string } | null;
-  stage: IdeaStage;
-  understand: IdeaUnderstand;
-  research: IdeaResearch;
-  explore: IdeaExplore;
-  decision: IdeaDecision;
-  readyRecipeId?: IdeaRouteStep['recipeId'];
-  readyEpicTitle?: string;
-  needsReview?: IdeaNeedsReview;
-  pendingActions: PendingIdeaAction[];
-  agentNotesFiles: string[];
-  stageStatus: StageStatus;
-  answers: Record<string, string>;
-  batchIndex: number;
-  batchSubmitted: boolean;
-  prep: IdeaPrep;
-  routeDraft?: IdeaRouteDraft;
-  routeConfirmed: boolean;
-  /** F22 — Canvas verdict on the routing decision; absent means the gate is still open. */
-  routeApproval?: { reviewer: string; at: string; bundleHash: string };
-  assumptions: IdeaAssumption[];
-  inDelivery?: IdeaInDelivery;
-  children: IdeaChild[];
-  blockedReason?: string;
-  foundationStale?: boolean;
-  saveStatus: 'saved' | 'saving' | 'failed';
-  dirty: boolean;
-  createdAt: string;
-  updatedAt: string;
+  goal: string;
+  dependsOn: string[];
+  deliverables: string[];
+  definitionOfDone: string[];
+  cites: { id: string; file: string; text: string }[];
+  suggestedRecipe: CofofoRecipeId;
+  handoff?: { phaseId: string; epicId: string; recipeId: CofofoRecipeId; title: string; at: string };
 }
 
-/** One sibling under `.aidlc/ideas/` whose `state.json` exists but fails schema validation. */
-export interface IdeaLoadError {
+export interface DiscoverSummary {
   id: string;
-  error: string;
+  title: string;
+  seedSentence: string;
+  docsRoot: string;
+  docsRootPath: string;
+  outputLanguage: 'en' | 'vi';
+  currentStep: DiscoverStepId;
+  revision: number;
+  steps: DiscoverStep[];
+  docs: DiscoverDoc[];
+  devDocs: { path: string; exists: boolean; filePath: string }[];
+  extraFiles: Record<string, string[]>;
+  issues: { level: string; code: string; message: string; file?: string; id?: string }[];
+  runs: DiscoverRunSummary[];
+  /** Implementation Plan phases, each one a candidate epic. */
+  phases: DiscoverPhase[];
+  activeRun?: {
+    run: DiscoverRunSummary;
+    added: DiscoverDiffRow[];
+    updated: DiscoverDiffRow[];
+    removed: DiscoverDiffRow[];
+  };
 }
 
 export interface WorkspaceState {
@@ -953,10 +872,8 @@ export interface WorkspaceState {
   configExists: boolean;
   /** Shared, durable project memory used by every task. */
   projectWorkspace?: ProjectWorkspaceSummary;
-  /** Pre-Epic intake records; routing hands each one to exactly one CoFoFo recipe, or closes it with no epic. */
-  ideas: IdeaSummary[];
-  /** Ideas hidden from `ideas` because their state failed validation — never dropped silently. */
-  corruptedIdeas: IdeaLoadError[];
+  /** The Discover blueprint, when this workspace has one. */
+  discover?: DiscoverSummary;
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
@@ -1089,7 +1006,7 @@ export interface TestAgentTarget {
 }
 
 export type WorkspaceView =
-  | 'project' | 'discovery' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
+  | 'project' | 'discover' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
 
 // ── Jira Sprint tab ────────────────────────────────────────────────────────
 // Mirrors the host shapes in @aidlc/core (JiraTicket) and

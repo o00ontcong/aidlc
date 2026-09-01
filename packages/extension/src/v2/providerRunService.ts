@@ -249,7 +249,7 @@ export function runStepWithProvider(opts: {
   providerId?: string;
   root: string;
   extensionPath: string;
-  /** A focused owner such as an Idea can keep one visible native session. */
+  /** A focused owner such as a Discover step can keep one visible native session. */
   terminalName?: string;
 }): void {
   const store = getProviderConfigStore(opts.root);

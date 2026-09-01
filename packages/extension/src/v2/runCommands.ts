@@ -54,7 +54,6 @@ import {
   AnnotronTransport,
   ANNOTRON_DEFAULT_BASE,
   CANVAS_VERDICT_WIRE,
-  syncIdeasForRun,
 } from '@aidlc/core';
 import type { PipelineConfig, ReviewGate, RunState } from '@aidlc/core';
 
@@ -83,11 +82,6 @@ function saveRun(workspaceRoot: string, next: RunState): void {
   // one place Jira write-back needs to hook. Fire-and-forget by design: it is
   // off by default, and a Jira problem must never fail the run.
   jiraStatusSync.onRunStateSaved(workspaceRoot, next, doc);
-  try {
-    syncIdeasForRun(workspaceRoot, next.runId, doc);
-  } catch {
-    // Idea sync is best-effort — run state remains authoritative.
-  }
 }
 
 function stepIdxMatchingSlash(state: RunState, slash: string, pipeline?: PipelineConfig): number {

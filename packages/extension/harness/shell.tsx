@@ -17,6 +17,8 @@ const theme = params.get('theme') === 'light' ? 'light' : 'dark';
 // the real webview host injects so the bridge forces the mode we asked for.
 (window as unknown as { __AIDLC_INITIAL_THEME__?: string }).__AIDLC_INITIAL_THEME__ = theme;
 if (theme === 'dark') { document.documentElement.classList.add('dark'); }
+// ?discover=none renders the Discover tab's pre-blueprint state.
+const discover = params.get('discover') === 'none' ? undefined : STATE.discover;
 const view = (params.get('view') ?? 'builder') as 'builder' | 'analyze' | 'tests' | 'epics';
 
 const root = document.getElementById('app');
@@ -24,5 +26,5 @@ if (root) {
   document.body.style.margin = '0';
   root.style.height = '100vh';
   root.style.width = '100%';
-  createRoot(root).render(<WorkspaceShell state={{ ...STATE, initialView: view }} />);
+  createRoot(root).render(<WorkspaceShell state={{ ...STATE, discover, initialView: view }} />);
 }

@@ -54,11 +54,11 @@ export async function openDiscoveryGuide(extensionPath: string): Promise<void> {
   );
 }
 
-/** Open the Vietnamese user guide bundled for the Ideas tab. */
-export async function openIdeasGuide(extensionPath: string): Promise<void> {
+/** Open the Vietnamese user guide bundled for the Discover tab. */
+export async function openDiscoverGuide(extensionPath: string): Promise<void> {
   await openMarkdownPreview(
-    path.join(extensionPath, 'assets', 'ideas-pipeline-guide.vi.md'),
-    'Ideas pipeline guide',
+    path.join(extensionPath, 'assets', 'discover-pipeline-guide.vi.md'),
+    'Discover pipeline guide',
   );
 }
 

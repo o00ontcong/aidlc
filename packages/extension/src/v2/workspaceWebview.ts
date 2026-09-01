@@ -183,30 +183,27 @@ import {
   parseClassificationVerdict,
   slugEpicId,
   scaffoldEpic,
-  IdeaService,
-  IdeaStore,
-  IdeaRevisionConflictError,
-  docsIdeaDir,
-  CofofoFoundationService,
-  syncAllIdeaDeliveries,
-  resolveChildCanvasStepIndex,
+  DiscoverService,
+  DiscoverRevisionConflictError,
+  DISCOVER_COMMAND_NAME,
+  DISCOVER_PIPELINE_COMMAND_NAME,
+  DISCOVER_DEV_DOCS_COMMAND_NAME,
+  DISCOVER_STEPS,
+  COFOFO_RECIPE_IDS,
   epicsRoot,
   EpicScaffoldError,
-  getStageStatus,
-  buildStagePrompt,
-  IDEA_AGENT_COMMAND_NAME,
-  syncIdeaAgentCommandForProvider,
-  IDEA_PIPELINE_COMMAND_NAME,
-  syncIdeaPipelineCommandForProvider,
-  IDEA_TRANSLATE_COMMAND_NAME,
-  syncIdeaTranslateCommandForProvider,
-  buildIdeaTranslationSnapshot,
-  parseIdeaTranslation,
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
   isCofofoSourcePipelineId,
 } from '@aidlc/core';
+import {
+  absorbDocChanges,
+  buildDiscoverUi,
+  isDiscoverDocPath,
+  scaffoldEpicFromPhase,
+  type DiscoverUi,
+} from './discoverHost';
 import { jiraCredentials, verifyAndStoreJiraCredentials } from './jiraCredentials';
 import { jiraSprintService } from './jiraSprintService';
 import { jiraStatusSync } from './jiraStatusSync';
@@ -259,14 +256,8 @@ import type {
   StepStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
-  ResolvedRouteStep,
-  IdeaStage,
-  IdeaUnderstand,
-  IdeaResearch,
-  IdeaExplore,
-  IdeaDecision,
-  PendingIdeaAction,
-  IdeaLoadError,
+  DiscoverStepId,
+  DocOp,
 } from '@aidlc/core';
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
@@ -315,126 +306,7 @@ function stringList(value: unknown): string[] {
 // ── Webview-side type shapes (must mirror src/webview/lib/types.ts) ───────
 
 type WorkspaceView =
-  | 'project' | 'discovery' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
-
-interface IdeaQuestionOptionUi {
-  id: string;
-  label: string;
-  recommended: boolean;
-}
-
-interface IdeaQuestionUi {
-  id: string;
-  text: string;
-  options: IdeaQuestionOptionUi[];
-  reason: string;
-  highImpact: boolean;
-  dependsOn: string[];
-}
-
-interface IdeaSelfAnsweredUi {
-  question: string;
-  answer: string;
-  source: string;
-  flagged: boolean;
-}
-
-interface IdeaPrepUi {
-  status: 'idle' | 'running' | 'done' | 'failed';
-  jobId?: string;
-  selfAnswered: IdeaSelfAnsweredUi[];
-  questions: IdeaQuestionUi[];
-  error?: string;
-}
-
-interface IdeaRouteStepUi {
-  recipeId: 'cofofo-bootstrap' | 'cofofo-refresh-context' | 'cofofo-update-rules' | 'cofofo-repin-bundle' | 'cofofo-feature' | 'cofofo-bugfix';
-  epicTitle: string;
-  rationale: string;
-  epicId?: string;
-}
-
-interface IdeaRouteDraftUi {
-  outcome: 'epics' | 'close';
-  steps: IdeaRouteStepUi[];
-  evidence?: string;
-}
-
-interface IdeaAssumptionUi {
-  id: string;
-  label: string;
-  source: 'agent' | 'human';
-}
-
-interface IdeaChildUi {
-  epicId: string;
-  recipeId: IdeaRouteStepUi['recipeId'];
-  runStatus: string;
-  canvasStepIdx?: number;
-}
-
-interface IdeaInDeliveryUi {
-  epicId: string;
-  runId: string;
-  stepRevision: number;
-  reviewRound?: number;
-}
-
-interface DoDCheckResultUi {
-  id: string;
-  level: 'required' | 'optional';
-  label: string;
-  passed: boolean;
-}
-
-interface StageStatusUi {
-  stage: IdeaStage;
-  requirements: DoDCheckResultUi[];
-  completion: number;
-  canAdvance: boolean;
-  needsReview: boolean;
-}
-
-interface IdeaUi {
-  id: string;
-  checkpoint: 'captured' | 'preparing' | 'awaiting_human' | 'intent_drafted' | 'route_proposed' | 'in_delivery' | 'closed' | 'completed' | 'shelved';
-  ideaRevision: number;
-  seedSentence: string;
-  title: string;
-  outputLanguage: 'en' | 'vi';
-  foundationHashAtCapture: { revision: number; manifestPath: string; manifestHash: string; capturedAt: string } | null;
-  answers: Record<string, string>;
-  batchIndex: number;
-  batchSubmitted: boolean;
-  prep: IdeaPrepUi;
-  routeDraft?: IdeaRouteDraftUi;
-  routeConfirmed: boolean;
-  /** F22 — Canvas verdict on the routing decision; absent means the gate is still open. */
-  routeApproval?: { reviewer: string; at: string; bundleHash: string };
-  assumptions: IdeaAssumptionUi[];
-  inDelivery?: IdeaInDeliveryUi;
-  children: IdeaChildUi[];
-  blockedReason?: string;
-  foundationStale?: boolean;
-  saveStatus: 'saved' | 'saving' | 'failed';
-  dirty: boolean;
-  /** Understand → Research → Explore → Decide → Ready. */
-  stage: IdeaStage;
-  understand: IdeaUnderstand;
-  research: IdeaResearch;
-  explore: IdeaExplore;
-  decision: IdeaDecision;
-  readyRecipeId?: IdeaRouteStepUi['recipeId'];
-  readyEpicTitle?: string;
-  needsReview?: { reason: string; since: string };
-  pendingActions: PendingIdeaAction[];
-  /** `.md` files an agent wrote into this Idea's docs folder, detected on disk — see `listIdeaAgentNotesFiles`. */
-  agentNotesFiles: string[];
-  /** Computed by the workflow controller (`getStageStatus`) — the webview never re-derives this. */
-  stageStatus: StageStatusUi;
-  createdAt: string;
-  updatedAt: string;
-}
+  | 'project' | 'discover' | 'builder' | 'architecture' | 'epics' | 'sprint' | 'analyze' | 'tests';
 
 interface AgentSummary {
   id: string;
@@ -655,9 +527,8 @@ interface WorkspaceState {
   workspaceName: string;
   configExists: boolean;
   projectWorkspace?: ProjectWorkspaceSummary;
-  ideas: IdeaUi[];
-  /** Ideas whose `state.json` exists but fails schema validation — kept out of `ideas` but never hidden entirely. */
-  corruptedIdeas: IdeaLoadError[];
+  /** The Discover blueprint, when this workspace has one. */
+  discover?: DiscoverUi;
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
@@ -740,48 +611,6 @@ function buildRecipeSummary(
   };
 }
 
-/**
- * Agent stage notes are the only documents that can be parsed back into an
- * Idea. Keep this deliberately narrow: `journal.md`, `RESEARCH.md`, and any
- * hand-written docs in the same folder are context, not an agent proposal.
- * Accept the older underscore spelling too, so a pre-existing agent output
- * remains usable after the filename convention changed to hyphens.
- */
-const IDEA_STAGE_NOTES_RE = /^(UNDERSTAND|RESEARCH|EXPLORE|DECIDE)[-_]NOTES\.md$/i;
-
-function stageForIdeaNotesFile(fileName: string): Exclude<IdeaStage, 'ready'> | undefined {
-  const match = IDEA_STAGE_NOTES_RE.exec(fileName);
-  if (!match) return undefined;
-  return match[1]!.toLowerCase() as Exclude<IdeaStage, 'ready'>;
-}
-
-/** Agent-written notes eligible for "Read from file", optionally for one stage only. */
-function listIdeaAgentNotesFiles(root: string, ideaId: string, stage?: IdeaStage): string[] {
-  const dir = docsIdeaDir(root, ideaId);
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir)
-    .filter((fileName) => {
-      const fileStage = stageForIdeaNotesFile(fileName);
-      return !!fileStage && (!stage || fileStage === stage);
-    })
-    .sort();
-}
-
-function buildIdeasUi(root: string, doc: ReturnType<typeof readYaml>): IdeaUi[] {
-  const service = new IdeaService(root);
-  syncAllIdeaDeliveries(root, doc);
-  return service.list().map((idea) => ({
-    ...idea,
-    foundationStale: service.isFoundationStale(idea),
-    stageStatus: getStageStatus(idea),
-    agentNotesFiles: listIdeaAgentNotesFiles(root, idea.id),
-    children: idea.children.map((child) => ({
-      ...child,
-      canvasStepIdx: resolveChildCanvasStepIndex(root, child.epicId, doc),
-    })),
-  }));
-}
-
 function buildState(initialView: WorkspaceView): WorkspaceState {
   const folder = vscode.workspace.workspaceFolders?.[0];
   const providerConfig = buildProviderConfigUi(folder?.uri.fsPath);
@@ -790,8 +619,6 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       hasFolder: false,
       workspaceName: '',
       configExists: false,
-      ideas: [],
-      corruptedIdeas: [],
       agents: [], skills: [], pipelines: [], recipes: [], epics: [],
       agentMeta: {}, slashCommandsByAgent: {},
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0, epicsCount: 0,
@@ -815,11 +642,9 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const root = folder.uri.fsPath;
   const doc = readYaml(root);
   const projectWorkspace = readProjectWorkspace(root);
-  // Idea capture is unconditional (never gated on Foundation/workspace.yaml —
-  // see IdeaService.create), so this list is built the same way in every
-  // branch below, including the `!doc` one.
-  const ideas: IdeaUi[] = buildIdeasUi(root, doc);
-  const corruptedIdeas: IdeaLoadError[] = new IdeaService(root).listLoadErrors();
+  // Built the same way in every branch below: a blueprint exists as soon as
+  // the user types one sentence, with or without a workspace.yaml.
+  const discover = buildDiscoverUi(root);
   const discovered = discoverAssets(root);
   const architecture = readArchitectureStudio(root);
 
@@ -880,8 +705,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       workspaceName: folder.name,
       configExists: false,
       projectWorkspace,
-      ideas,
-      corruptedIdeas,
+      discover,
       agents, skills,
       pipelines: builtinPipelines,
       recipes: getBuiltinRecipeSummaries(),
@@ -962,8 +786,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     workspaceName: folder.name,
     configExists: true,
     projectWorkspace,
-    ideas,
-    corruptedIdeas,
+    discover,
     agents, skills, pipelines, recipes, epics,
     agentMeta, slashCommandsByAgent,
     agentsCount: agents.length,
@@ -1687,6 +1510,8 @@ export class WorkspaceWebview {
   private disposables: vscode.Disposable[] = [];
   private currentView: WorkspaceView;
   private lastBundleMtime = 0;
+  /** Debounce for the Discover docs watcher — an agent saves several times per step. */
+  private discoverAbsorbTimer: ReturnType<typeof setTimeout> | undefined;
   static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'project'): void {
     const column = vscode.ViewColumn.One;
     const title = extensionDisplayName(extensionUri.fsPath);
@@ -1914,25 +1739,24 @@ export class WorkspaceWebview {
       artifactsWatcher.onDidDelete(refresh, null, this.disposables);
       this.disposables.push(artifactsWatcher);
 
-      // docs/ideas/<id>/*.md — refresh when an Idea Research Agent run
-      // writes a new <STAGE>-NOTES.md, so "Read from file" sees it without a
-      // manual refresh (same reasoning as the artifacts watcher above).
-      const ideaDocsPattern = new vscode.RelativePattern(vscode.Uri.file(root), 'docs/ideas/**');
-      const ideaDocsWatcher = vscode.workspace.createFileSystemWatcher(ideaDocsPattern);
-      ideaDocsWatcher.onDidChange(refresh, null, this.disposables);
-      ideaDocsWatcher.onDidCreate(refresh, null, this.disposables);
-      ideaDocsWatcher.onDidDelete(refresh, null, this.disposables);
-      this.disposables.push(ideaDocsWatcher);
-
-      // docs/ideas/<id>/translation.json — the translate agent's finished
-      // output. Applied to the idea's state the moment it appears, so the
-      // "Translate" button needs no manual "Read from file" follow-up.
-      const translationPattern = new vscode.RelativePattern(vscode.Uri.file(root), 'docs/ideas/*/translation.json');
-      const translationWatcher = vscode.workspace.createFileSystemWatcher(translationPattern);
-      const onTranslationFile = (uri: vscode.Uri) => { this.applyPendingTranslation(uri.fsPath); };
-      translationWatcher.onDidCreate(onTranslationFile, null, this.disposables);
-      translationWatcher.onDidChange(onTranslationFile, null, this.disposables);
-      this.disposables.push(translationWatcher);
+      // The Discover docs. An agent writes these files directly — this watcher
+      // is the only thing that turns those writes into a reviewable diff, so it
+      // debounces (a step is several saves) rather than reacting per save.
+      const discoverDocsRoot = new DiscoverService(root).load()?.docsRoot ?? 'docs';
+      const discoverPattern = new vscode.RelativePattern(vscode.Uri.file(root), `${discoverDocsRoot}/**/*.md`);
+      const discoverWatcher = vscode.workspace.createFileSystemWatcher(discoverPattern);
+      const absorb = () => {
+        if (this.discoverAbsorbTimer) { clearTimeout(this.discoverAbsorbTimer); }
+        this.discoverAbsorbTimer = setTimeout(() => {
+          this.discoverAbsorbTimer = undefined;
+          absorbDocChanges(root);
+          this.refresh();
+        }, 1200);
+      };
+      discoverWatcher.onDidChange(absorb, null, this.disposables);
+      discoverWatcher.onDidCreate(absorb, null, this.disposables);
+      discoverWatcher.onDidDelete(absorb, null, this.disposables);
+      this.disposables.push(discoverWatcher);
 
       const breakdownPattern = new vscode.RelativePattern(
         vscode.Uri.file(root),
@@ -2179,71 +2003,23 @@ export class WorkspaceWebview {
     await vscode.commands.executeCommand('markdown.showPreview', doc.uri);
   }
 
-  private postIdeaRevisionConflict(ideaId: string, serverRevision: number | null): void {
-    void this.panel.webview.postMessage({
-      type: 'ideaRevisionConflict',
-      ideaId,
-      serverRevision,
-    });
-  }
-
-  private handleIdeaMutation(run: () => void): void {
+  /**
+   * Every Discover write goes through here: a stale `revision` means the tab
+   * is looking at an older blueprint than the one on disk, and the fix is to
+   * reload rather than to overwrite what changed underneath.
+   */
+  private handleDiscoverMutation(run: () => void): void {
     try {
       run();
       this.refresh();
     } catch (error) {
-      if (error instanceof IdeaRevisionConflictError) {
-        this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
+      if (error instanceof DiscoverRevisionConflictError) {
+        void this.panel.webview.postMessage({ type: 'discoverRevisionConflict', serverRevision: error.actualRevision });
         this.refresh();
         return;
       }
-      void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+      void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }
-
-  /**
-   * Fired by the `translation.json` watcher — the translate agent's
-   * finished output (see `IdeaAgentCommand.ts`'s `ideaTranslateCommandBody`).
-   * Applies it straight to the idea's state and cleans up both translation
-   * JSON files, so the "Translate" button needs no follow-up click. A parse
-   * failure is left alone (the agent may still be mid-write — the next
-   * change event retries); a schema or apply failure removes the input file
-   * too but keeps the bad output file around so it can be inspected.
-   */
-  private applyPendingTranslation(filePath: string): void {
-    const root = this.getRootOrWarn();
-    if (!root) return;
-    const ideaId = path.basename(path.dirname(filePath));
-    const inputFile = path.join(path.dirname(filePath), 'translation-input.json');
-
-    let raw: string;
-    try { raw = fs.readFileSync(filePath, 'utf8'); } catch { return; }
-    let json: unknown;
-    try { json = JSON.parse(raw); } catch { return; }
-
-    let translation;
-    try {
-      translation = parseIdeaTranslation(json);
-    } catch (error) {
-      void vscode.window.showWarningMessage(
-        `AIDLC Ideas: bản dịch cho ${ideaId} không đúng định dạng — ${error instanceof Error ? error.message : String(error)}`,
-      );
-      try { fs.unlinkSync(inputFile); } catch { /* best-effort cleanup */ }
-      return;
-    }
-
-    try {
-      new IdeaService(root).applyTranslation(ideaId, translation, { kind: 'user', id: 'vscode-user' });
-    } catch (error) {
-      void vscode.window.showWarningMessage(
-        `AIDLC Ideas: không áp dụng được bản dịch cho ${ideaId} — ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return;
-    }
-    try { fs.unlinkSync(filePath); } catch { /* best-effort cleanup */ }
-    try { fs.unlinkSync(inputFile); } catch { /* best-effort cleanup */ }
-    this.refresh();
-    void vscode.window.setStatusBarMessage(`AIDLC: đã áp dụng bản dịch cho ${ideaId}`, 4000);
   }
 
   // ── Message routing ─────────────────────────────────────────────────────
@@ -2314,15 +2090,15 @@ export class WorkspaceWebview {
         return;
       }
 
-      case 'openIdeasGuide': {
-        const { openIdeasGuide } = await import('./openGuides');
-        await openIdeasGuide(this.extensionUri.fsPath);
+      case 'openDiscoverGuide': {
+        const { openDiscoverGuide } = await import('./openGuides');
+        await openDiscoverGuide(this.extensionUri.fsPath);
         return;
       }
 
       case 'setView': {
         const v = msg.view;
-        if (v === 'project' || v === 'discovery' || v === 'builder' || v === 'architecture' || v === 'epics' || v === 'sprint' || v === 'analyze' || v === 'tests') {
+        if (v === 'project' || v === 'discover' || v === 'builder' || v === 'architecture' || v === 'epics' || v === 'sprint' || v === 'analyze' || v === 'tests') {
           this.currentView = v;
           void workspaceUiPrefs.setLastView(v);
         }
@@ -2344,431 +2120,206 @@ export class WorkspaceWebview {
         return;
       }
 
-      // ── Ideas lifecycle ──────────────────────────────────────────────────
-      // No `openDiscoveryGuide` / `publishFoundation` equivalent here: the
-      // generic ProjectFoundationService (AGENTS.md/PROJECT.md/...) belonged
-      // to the old Discovery tab alone. Ideas is CoFoFo-only and reads the
-      // CoFoFo Foundation directly where it matters (route confirm).
-      case 'createIdea': {
+      // ── Discover blueprint ───────────────────────────────────────────────
+      // Content lives in Markdown under docsRoot and is authoritative; these
+      // handlers only ever go through DiscoverService, never write a doc by
+      // hand. See docs/DISCOVER_TAB_PLAN.md.
+      case 'initDiscover': {
         const root = this.getRootOrWarn();
-        if (!root) return;
-        try {
-          const idea = new IdeaService(root).create({
-            seedSentence: typeof msg.seedSentence === 'string' ? msg.seedSentence : '',
+        if (!root) { return; }
+        const seedSentence = typeof msg.seedSentence === 'string' ? msg.seedSentence.trim() : '';
+        if (!seedSentence) { return; }
+        this.handleDiscoverMutation(() => {
+          new DiscoverService(root).init({
+            seedSentence,
+            outputLanguage: resolveDisplayLanguage(),
             actor: { kind: 'user', id: 'vscode-user' },
           });
-          this.refresh();
-          void this.panel.webview.postMessage({ type: 'selectIdea', ideaId: idea.id });
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        });
         return;
       }
 
-      case 'updateIdeaUnderstand':
-      case 'updateIdeaResearch':
-      case 'updateIdeaExplore':
-      case 'updateIdeaDecision': {
+      case 'applyDiscoverOps': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const docPath = msg.docPath;
+        const ops = Array.isArray(msg.ops) ? (msg.ops as DocOp[]) : [];
+        if (!root || !isDiscoverDocPath(docPath) || ops.length === 0) { return; }
         const revision = Number(msg.revision);
-        const patch = msg.patch;
-        if (!root || !id || !Number.isInteger(revision) || !patch || typeof patch !== 'object') return;
-        try {
-          const ideas = new IdeaService(root);
-          const actor = { kind: 'user' as const, id: 'vscode-user' };
-          if (msg.type === 'updateIdeaUnderstand') ideas.updateUnderstand(id, revision, patch as Partial<IdeaUnderstand>, actor);
-          if (msg.type === 'updateIdeaResearch') ideas.updateResearch(id, revision, patch as Partial<IdeaResearch>, actor);
-          if (msg.type === 'updateIdeaExplore') ideas.updateExplore(id, revision, patch as Partial<IdeaExplore>, actor);
-          if (msg.type === 'updateIdeaDecision') ideas.updateDecision(id, revision, patch as Partial<IdeaDecision>, actor);
-          this.refresh();
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
+        this.handleDiscoverMutation(() => {
+          const result = new DiscoverService(root).applyOps(docPath, ops, {
+            actor: { kind: 'user', id: 'vscode-user' },
+            expectedRevision: Number.isInteger(revision) ? revision : undefined,
+          });
+          if (result.issues.length) {
+            void vscode.window.showWarningMessage(`AIDLC Discover: ${result.issues.join(' · ')}`);
           }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        });
         return;
       }
 
-      case 'advanceIdeaStage': {
+      case 'saveDiscoverDoc': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
+        const docPath = msg.docPath;
+        const content = typeof msg.content === 'string' ? msg.content : undefined;
+        if (!root || !isDiscoverDocPath(docPath) || content === undefined) { return; }
         const revision = Number(msg.revision);
-        if (!root || !id || !Number.isInteger(revision)) return;
-        try {
-          new IdeaService(root).advanceStage(id, revision, { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
-          }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        this.handleDiscoverMutation(() => {
+          new DiscoverService(root).writeDoc(docPath, content, {
+            actor: { kind: 'user', id: 'vscode-user' },
+            expectedRevision: Number.isInteger(revision) ? revision : undefined,
+          });
+        });
         return;
       }
 
-      case 'markIdeaReady': {
+      case 'setDiscoverItemFlags': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        const recipeId = typeof msg.recipeId === 'string' ? msg.recipeId : '';
-        const epicTitle = typeof msg.epicTitle === 'string' ? msg.epicTitle : '';
-        if (!root || !id || !Number.isInteger(revision) || !recipeId || !epicTitle.trim()) return;
-        try {
-          new IdeaService(root).markReady(id, revision, recipeId as ResolvedRouteStep['recipeId'], epicTitle.trim(), { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
-          }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        const docPath = msg.docPath;
+        const id = typeof msg.id === 'string' ? msg.id : '';
+        if (!root || !isDiscoverDocPath(docPath) || !id) { return; }
+        const flags: { pinned?: boolean; flagged?: boolean } = {};
+        if (typeof msg.pinned === 'boolean') { flags.pinned = msg.pinned; }
+        if (typeof msg.flagged === 'boolean') { flags.flagged = msg.flagged; }
+        this.handleDiscoverMutation(() => { new DiscoverService(root).setItemFlags(docPath, id, flags); });
         return;
       }
 
-      case 'scaffoldIdea': {
+      case 'advanceDiscoverStep': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        if (!root || !id || !Number.isInteger(revision)) return;
-        try {
-          const ideas = new IdeaService(root);
-          const idea = ideas.require(id);
-          if (idea.stage !== 'ready' || !idea.readyRecipeId) {
-            void vscode.window.showWarningMessage('AIDLC Ideas: mark the idea ready with a recipe before scaffolding.');
-            return;
-          }
-          const recipeId = idea.readyRecipeId;
-          const epicTitle = idea.readyEpicTitle?.trim() || idea.title;
-          let doc = readYaml(root);
-          if (!doc) { void vscode.window.showWarningMessage('AIDLC: no workspace.yaml — initialize first.'); return; }
-          new CofofoFoundationService(root).ensureRecipesRegistered();
-          doc = readYaml(root);
-          if (!doc) return;
-          const nextIds = listEpicIdsFromDir(root, path.relative(root, epicsRoot(root, doc)) || 'docs/epics');
-          const epicId = suggestNextEpicId(nextIds);
-          const pipelineId = this.assembleRecipeForEpic(root, recipeId, epicId);
-          if (!pipelineId) return;
-          const freshDoc = readYaml(root);
-          const pipeline = (freshDoc?.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === pipelineId);
-          if (!pipeline) { void vscode.window.showErrorMessage(`AIDLC Ideas: pipeline "${pipelineId}" missing.`); return; }
-          const resolved: ResolvedRouteStep[] = [{
-            recipeId,
-            epicId,
-            epicTitle,
-            pipeline,
-            scaffold: { agents: pipeline.steps.map((s) => (typeof s === 'string' ? s : s.agent)), inputs: {} },
-          }];
-          ideas.scaffoldFromIdea(id, revision, resolved, readYaml(root), { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
-          }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        if (!root) { return; }
+        this.handleDiscoverMutation(() => { new DiscoverService(root).advanceStep(); });
         return;
       }
 
-      case 'copyIdeaAgentPrompt': {
+      case 'setDiscoverStep': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const stage = typeof msg.stage === 'string' ? msg.stage as IdeaStage : undefined;
-        const userMessage = typeof msg.userMessage === 'string' ? msg.userMessage : undefined;
-        if (!root || !id || !stage) return;
-        try {
-          const idea = new IdeaService(root).require(id);
-          const text = buildStagePrompt(idea, stage, userMessage);
-          await vscode.env.clipboard.writeText(text);
-          void vscode.window.setStatusBarMessage('AIDLC: prompt copied to clipboard', 2500);
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        const step = typeof msg.step === 'string' ? msg.step as DiscoverStepId : undefined;
+        if (!root || !step || !DISCOVER_STEPS.some((s) => s.id === step)) { return; }
+        this.handleDiscoverMutation(() => { new DiscoverService(root).setCurrentStep(step); });
         return;
       }
 
-      case 'copyIdeaAgentCommand': {
+      case 'runDiscoverStep':
+      case 'runDiscoverPipeline': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const stage = typeof msg.stage === 'string' ? msg.stage as IdeaStage : undefined;
-        const userMessage = typeof msg.userMessage === 'string' ? msg.userMessage.trim() : '';
-        if (!root || !id || !stage) return;
-        try {
-          // Ensured directly (not via the extension's `syncBuiltinPipelineCommands`
-          // wrapper, which no-ops without a workspace.yaml) so this command file
-          // exists even for an Idea created before any delivery pipeline does.
-          const providerId = buildProviderConfigUi(root)?.defaultProvider ?? 'claude';
-          syncIdeaAgentCommandForProvider(root, providerId);
-          const command = `/${IDEA_AGENT_COMMAND_NAME} ${id} ${stage}${userMessage ? ` ${userMessage}` : ''}`;
-          await vscode.env.clipboard.writeText(command);
-          void vscode.window.setStatusBarMessage(`AIDLC: copied ${command}`, 3000);
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'runIdeaAgentStage': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const stage = typeof msg.stage === 'string' ? msg.stage as IdeaStage : undefined;
-        const userMessage = typeof msg.userMessage === 'string' ? msg.userMessage.trim() : '';
-        if (!root || !id || !stage || stage === 'ready') return;
-        try {
-          const providerId = buildProviderConfigUi(root)?.defaultProvider ?? 'claude';
-          syncIdeaAgentCommandForProvider(root, providerId);
-          const command = `/${IDEA_AGENT_COMMAND_NAME} ${id} ${stage}${userMessage ? ` ${userMessage}` : ''}`;
-          runSlashCommandWithProvider(command, root, this.extensionUri.fsPath, providerId);
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'runIdeaAgentPipeline': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const userMessage = typeof msg.userMessage === 'string' ? msg.userMessage.trim() : '';
-        if (!root || !id) return;
-        try {
-          const providerId = buildProviderConfigUi(root)?.defaultProvider ?? 'claude';
-          syncIdeaPipelineCommandForProvider(root, providerId);
-          const command = `/${IDEA_PIPELINE_COMMAND_NAME} ${id}${userMessage ? ` ${userMessage}` : ''}`;
-          runSlashCommandWithProvider(command, root, this.extensionUri.fsPath, providerId);
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'translateIdeaArtifacts': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const language = msg.language === 'vi' || msg.language === 'en' ? msg.language : undefined;
-        if (!root || !id || !language) return;
-        try {
-          const idea = new IdeaService(root).require(id);
-          const snapshot = buildIdeaTranslationSnapshot(idea, language);
-          if (!snapshot) {
-            void vscode.window.showInformationMessage(`AIDLC Ideas: ${id} chưa có nội dung để dịch.`);
-            return;
-          }
-          fs.writeFileSync(
-            path.join(docsIdeaDir(root, id), 'translation-input.json'),
-            `${JSON.stringify(snapshot, null, 2)}\n`,
-            'utf8',
-          );
-          const providerId = buildProviderConfigUi(root)?.defaultProvider ?? 'claude';
-          syncIdeaTranslateCommandForProvider(root, providerId);
-          const command = `/${IDEA_TRANSLATE_COMMAND_NAME} ${id}`;
-          runSlashCommandWithProvider(command, root, this.extensionUri.fsPath, providerId);
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'importIdeaAgentProposal': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        const stage = typeof msg.stage === 'string' ? msg.stage as IdeaStage : undefined;
-        const markdown = typeof msg.markdown === 'string' ? msg.markdown : '';
-        if (!root || !id || !stage || !Number.isInteger(revision) || !markdown.trim()) return;
-        try {
-          const { unparsed } = new IdeaService(root).importAgentProposal(id, revision, stage, markdown, { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-          void this.panel.webview.postMessage({ type: 'ideaAgentImportResult', ideaId: id, unparsed });
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
-          }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'importIdeaAgentProposalFromFile': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        const stage = typeof msg.stage === 'string' ? msg.stage as IdeaStage : undefined;
-        if (!root || !id || !stage || !Number.isInteger(revision)) return;
-        try {
-          const dir = docsIdeaDir(root, id);
-          const requested = typeof msg.fileName === 'string' ? msg.fileName : undefined;
-          let chosen: string;
-          const candidates = listIdeaAgentNotesFiles(root, id, stage);
-          if (requested) {
-            // The webview already knows which file it wants (e.g. the user
-            // clicked a specific detected-file chip) — skip the picker. Do
-            // not let a stale, unrelated Markdown file (such as journal.md)
-            // look like it was imported as an AI proposal.
-            if (!candidates.includes(requested)) {
-              void vscode.window.showWarningMessage(`AIDLC Ideas: ${requested} is not a ${stage} agent-notes file for ${id}.`);
-              return;
-            }
-            chosen = requested;
-          } else {
-            if (candidates.length === 0) {
-              void vscode.window.showInformationMessage(`AIDLC Ideas: no ${stage} agent-notes file found for ${id} — run the pipeline or paste the AI's reply manually instead.`);
-              return;
-            }
-            if (candidates.length > 1) {
-              const picked = await vscode.window.showQuickPick(candidates, { placeHolder: `Which file has the AI's "${stage}" analysis?` });
-              if (!picked) return;
-              chosen = picked;
-            } else {
-              chosen = candidates[0]!;
-            }
-          }
-          const markdown = fs.readFileSync(path.join(dir, chosen), 'utf8');
-          const { unparsed } = new IdeaService(root).importAgentProposal(id, revision, stage, markdown, { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-          void vscode.window.setStatusBarMessage(`AIDLC: imported ${chosen} into ${stage}`, 3000);
-          void this.panel.webview.postMessage({ type: 'ideaAgentImportResult', ideaId: id, unparsed });
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
-          }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'resolveIdeaPendingAction': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        const actionId = typeof msg.actionId === 'string' ? msg.actionId : '';
-        const verdict = msg.verdict === 'accept' ? 'accept' : 'reject';
-        if (!root || !id || !actionId || !Number.isInteger(revision)) return;
-        try {
-          new IdeaService(root).resolvePendingAction(id, revision, actionId, verdict, { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-        } catch (error) {
-          if (error instanceof IdeaRevisionConflictError) {
-            this.postIdeaRevisionConflict(error.ideaId, error.actualRevision);
-            this.refresh();
-            return;
-          }
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'patchIdeaSeed': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        if (!root || !id || !Number.isInteger(revision)) return;
-        try {
-          new IdeaService(root).patchSeed(id, revision, typeof msg.seedSentence === 'string' ? msg.seedSentence : '', { kind: 'user', id: 'vscode-user' });
-          this.refresh();
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        return;
-      }
-
-      case 'reloadIdeasState':
-        this.refresh();
-        return;
-
-      case 'openIdeaArtifact': {
-        const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const file = msg.file;
-        const isGeneratedArtifact = file === 'INTENT.md' || file === 'RESEARCH.md';
-        if (!root || !id || typeof file !== 'string' || (!isGeneratedArtifact && !stageForIdeaNotesFile(file))) return;
-        const target = path.join(docsIdeaDir(root, id), file);
-        if (!fs.existsSync(target)) {
-          void vscode.window.showInformationMessage(`AIDLC Ideas: ${file} chưa tồn tại cho ${id}.`);
+        if (!root) { return; }
+        const service = new DiscoverService(root);
+        if (!service.exists()) {
+          void vscode.window.showWarningMessage('AIDLC Discover: tạo blueprint trước khi chạy agent.');
           return;
         }
-        const doc = await vscode.workspace.openTextDocument(target);
-        await vscode.window.showTextDocument(doc, { preview: false });
+        const requested = typeof msg.step === 'string' ? msg.step as DiscoverStepId : undefined;
+        const step = requested && DISCOVER_STEPS.some((s) => s.id === requested) ? requested : service.require().currentStep;
+        const note = typeof msg.note === 'string' ? msg.note.trim() : '';
+        try {
+          // Snapshot BEFORE the agent starts — the diff and every undo hang off it.
+          service.startRun(step, { note: note || undefined });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
+          return;
+        }
+        const slash = msg.type === 'runDiscoverPipeline'
+          ? `/${DISCOVER_PIPELINE_COMMAND_NAME}${note ? ` ${note}` : ''}`
+          : `/${DISCOVER_COMMAND_NAME} ${step}${note ? ` ${note}` : ''}`;
+        runSlashCommandInProvider(slash, root, this.extensionUri.fsPath);
+        this.refresh();
         return;
       }
 
-      case 'openIdeaStateFile': {
+      case 'runDiscoverDevDocs': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        if (!root || !id) return;
-        const target = new IdeaStore(root).stateFile(id);
-        if (!fs.existsSync(target)) return;
-        const doc = await vscode.workspace.openTextDocument(target);
-        await vscode.window.showTextDocument(doc, { preview: false });
+        if (!root) { return; }
+        runSlashCommandInProvider(`/${DISCOVER_DEV_DOCS_COMMAND_NAME}`, root, this.extensionUri.fsPath);
         return;
       }
 
-      case 'shelveIdea':
-      case 'reopenIdea':
-      case 'restartIdea': {
+      case 'finishDiscoverRun':
+      case 'keepDiscoverRun':
+      case 'revertDiscoverRun': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        if (!root || !id || !Number.isInteger(revision)) return;
-        this.handleIdeaMutation(() => {
-          const service = new IdeaService(root);
-          const human = { kind: 'user' as const, id: 'vscode-user' };
-          if (msg.type === 'shelveIdea') service.shelve(id, revision, human);
-          if (msg.type === 'reopenIdea') service.reopen(id, revision, human);
-          if (msg.type === 'restartIdea') service.restart(id, revision, human);
+        const runId = typeof msg.runId === 'string' ? msg.runId : '';
+        if (!root || !runId) { return; }
+        this.handleDiscoverMutation(() => {
+          const service = new DiscoverService(root);
+          if (msg.type === 'finishDiscoverRun') { service.finishRun(runId); }
+          if (msg.type === 'keepDiscoverRun') { service.keepRun(runId); }
+          if (msg.type === 'revertDiscoverRun') { service.revertRun(runId); }
         });
         return;
       }
 
-      case 'deleteIdea': {
+      case 'revertDiscoverItems': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        const revision = Number(msg.revision);
-        if (!root || !id || !Number.isInteger(revision)) return;
-        this.handleIdeaMutation(() => {
-          new IdeaService(root).delete(id, revision, { kind: 'user', id: 'vscode-user' });
+        const runId = typeof msg.runId === 'string' ? msg.runId : '';
+        const keys = stringList(msg.keys);
+        if (!root || !runId || keys.length === 0) { return; }
+        this.handleDiscoverMutation(() => {
+          const result = new DiscoverService(root).revertEntries(runId, keys, { kind: 'user', id: 'vscode-user' });
+          if (result.issues.length) {
+            void vscode.window.showWarningMessage(`AIDLC Discover: ${result.issues.join(' · ')}`);
+          }
         });
         return;
       }
 
-      case 'repairCorruptedIdea': {
+      case 'openDiscoverDoc': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        if (!root || !id) return;
+        const docPath = msg.docPath;
+        if (!root || !isDiscoverDocPath(docPath)) { return; }
+        const service = new DiscoverService(root);
+        const target = service.docFile(docPath, service.load() ?? undefined);
+        if (!fs.existsSync(target)) {
+          void vscode.window.showInformationMessage(`AIDLC Discover: ${docPath} chưa tồn tại.`);
+          return;
+        }
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target), { preview: false });
+        return;
+      }
+
+      case 'scaffoldEpicFromPhase': {
+        const root = this.getRootOrWarn();
+        const phaseId = typeof msg.phaseId === 'string' ? msg.phaseId : '';
+        const recipeId = typeof msg.recipeId === 'string' ? msg.recipeId : '';
+        if (!root || !phaseId || !COFOFO_RECIPE_IDS.includes(recipeId as (typeof COFOFO_RECIPE_IDS)[number])) { return; }
         try {
-          const repaired = new IdeaService(root).repairCorrupted(id, { kind: 'user', id: 'vscode-user' });
+          const { epicId } = scaffoldEpicFromPhase(root, {
+            phaseId,
+            recipeId: recipeId as (typeof COFOFO_RECIPE_IDS)[number],
+            title: typeof msg.title === 'string' ? msg.title : undefined,
+          });
           this.refresh();
-          void this.panel.webview.postMessage({ type: 'selectIdea', ideaId: repaired.id });
+          void vscode.window.showInformationMessage(`AIDLC Discover: đã tạo ${epicId} từ ${phaseId}.`);
+          // Hand the user over to where the work now lives.
+          this.setView('epics');
+          void this.panel.webview.postMessage({ type: 'selectEpic', epicId });
         } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+          void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
         }
         return;
       }
 
-      case 'deleteCorruptedIdea': {
+      case 'openDiscoverFile': {
         const root = this.getRootOrWarn();
-        const id = typeof msg.ideaId === 'string' ? msg.ideaId : '';
-        if (!root || !id) return;
-        try {
-          new IdeaStore(root).delete(id);
-          const docsDir = docsIdeaDir(root, id);
-          if (fs.existsSync(docsDir)) fs.rmSync(docsDir, { recursive: true, force: true });
-          this.refresh();
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Ideas: ${error instanceof Error ? error.message : String(error)}`);
+        const rel = typeof msg.relPath === 'string' ? msg.relPath : '';
+        if (!root || !rel) { return; }
+        const service = new DiscoverService(root);
+        const docsRoot = service.docsRoot(service.load() ?? undefined);
+        const target = path.resolve(docsRoot, rel);
+        // Anything the webview asks for must resolve inside docsRoot — the tab
+        // lists ADRs and development docs by name, and a name is not a promise.
+        if (target !== docsRoot && !target.startsWith(`${docsRoot}${path.sep}`)) { return; }
+        if (!fs.existsSync(target)) {
+          void vscode.window.showInformationMessage(`AIDLC Discover: ${rel} chưa tồn tại.`);
+          return;
         }
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(target), { preview: false });
+        return;
+      }
+
+      case 'reloadDiscover': {
+        const root = this.getRootOrWarn();
+        if (root) { absorbDocChanges(root); }
+        this.refresh();
         return;
       }
 

@@ -15,7 +15,7 @@ export function terminalNameForProvider(displayName: string): string {
 /**
  * A read-only, non-interactive invocation for a supported provider CLI.
  * Provider-agnostic — used for any prompt that only needs to read and
- * reason, never to write (Idea prep, Idea routing; formerly Shape's
+ * reason, never to write (formerly Idea prep/routing and Shape's
  * proposal generation).
  */
 export function buildHeadlessAnalysisInvocation(opts: {

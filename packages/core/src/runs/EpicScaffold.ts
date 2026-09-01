@@ -26,7 +26,6 @@ import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
 import { formatCofofoBugReportFromEpic, pipelineIncludesDiagnose, writeCofofoBugReportFile } from '../cofofo/bugReport';
 import type { FoundationSnapshot } from '../contracts/foundation';
-import type { IdeaFoundationSnapshot } from '../contracts/idea';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
@@ -198,16 +197,21 @@ export interface ScaffoldEpicArgs {
     brief: string;
   };
   /**
-   * Immutable pre-Epic decision provenance for an Idea-routed epic. Only
-   * IdeaService supplies this — mirrors `shapeProvenance` but binds the
-   * CoFoFo Foundation (Idea is CoFoFo-only) instead of the generic one, and
-   * has no acceptance hash since routing confirmation, not an accept step,
-   * is what commits an Idea.
+   * Immutable pre-Epic decision provenance for a Discover-routed epic — the
+   * blueprint an epic was handed off from (see `docs/DISCOVER_TAB_PLAN.md`).
+   * Mirrors `shapeProvenance` but binds the CoFoFo Foundation instead of the
+   * generic one, and has no acceptance hash: handing the Implementation Plan
+   * off, not an accept step, is what commits it.
    */
-  ideaProvenance?: {
+  discoverProvenance?: {
     id: string;
     revision: number;
-    foundation: IdeaFoundationSnapshot;
+    foundation: {
+      revision: number;
+      manifestPath: string;
+      manifestHash: string;
+      capturedAt: string;
+    };
     brief: string;
   };
 }
@@ -231,7 +235,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     runMode = 'guided',
     relatesTo,
     shapeProvenance,
-    ideaProvenance,
+    discoverProvenance,
   } = args;
 
   if (!epicId.trim()) { throw new EpicScaffoldError('Epic id is required.'); }
@@ -314,16 +318,16 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     // This is a handoff snapshot, not a second editable source of truth.
     fs.writeFileSync(path.join(artifactsDir, 'SHAPE.md'), shapeProvenance.brief, 'utf8');
   }
-  if (ideaProvenance) {
-    persistedInputs.source_idea = {
-      id: ideaProvenance.id,
-      revision: ideaProvenance.revision,
-      foundation_revision: ideaProvenance.foundation.revision,
-      foundation_manifest_hash: ideaProvenance.foundation.manifestHash,
+  if (discoverProvenance) {
+    persistedInputs.source_discover = {
+      id: discoverProvenance.id,
+      revision: discoverProvenance.revision,
+      foundation_revision: discoverProvenance.foundation.revision,
+      foundation_manifest_hash: discoverProvenance.foundation.manifestHash,
     };
     // Snapshotted into the `requirement` Canvas bundle alongside EVIDENCE.md /
     // OPTIONS.md / REQUIREMENT.md — never re-derived, never re-edited here.
-    fs.writeFileSync(path.join(artifactsDir, 'INTENT.md'), ideaProvenance.brief, 'utf8');
+    fs.writeFileSync(path.join(artifactsDir, 'INTENT.md'), discoverProvenance.brief, 'utf8');
   }
   fs.writeFileSync(
     path.join(epicDir, 'inputs.json'),

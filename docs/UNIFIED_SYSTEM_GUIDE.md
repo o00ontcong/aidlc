@@ -32,9 +32,36 @@ aidlc migration rollback <migration-id> --confirm
 aidlc migrate --preview                      # §12.1 compatibility spelling
 ```
 
+Provider commands installed for the Discover tab (run inside a provider
+session, not the CLI):
+
+```text
+/aidlc-discover <step> [note]     # do one blueprint step
+/aidlc-discover-pipeline [note]   # do the blueprint's current step, then stop
+/aidlc-discover-dev-docs          # write development/*.md from the chosen stack
+```
+
 All redesigned commands return the same typed result used by `/aidlc` and the VS Code extension: `status`, `nextAction`, `evidence`, `warnings`, `recoveryActions`, and a structured `error` when applicable. Exit codes are 0 for success, 2 for user input, 3 for a blocker, and 1 for an error.
 
-## Three onboarding paths
+## Four onboarding paths
+
+### Blueprint a new project (Discover tab)
+
+Use this when there is nothing to automate yet — an idea, no code. The Discover
+tab walks one idea through twelve steps (Idea → Product Definition →
+Requirements → Features → Use Cases → User Flow → Data Model → Architecture →
+Tech Decisions → Project Structure → Implementation Plan → Project Skeleton),
+writing each step into Markdown under the project's `docs/` tree. Those files
+are the source of truth; the app keeps only an index, per-item provenance and
+one snapshot per agent run under `.aidlc/discover/`.
+
+Agents work one step per turn through `/aidlc-discover <step>` or
+`/aidlc-discover-pipeline`, editing the docs directly. Every run is diffed
+against its snapshot entry by entry, so any change — or any single entry — can
+be undone. When the Implementation Plan is written, each phase is handed off as
+its own CoFoFo epic with an `INTENT.md` snapshot; the epic then follows the
+paths below. See `docs/DISCOVER_TAB_PLAN.md`, and the tab's own guide via
+its "Open the pipeline guide" button.
 
 ### Workflow runner
 
