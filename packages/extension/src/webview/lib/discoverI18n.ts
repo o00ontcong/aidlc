@@ -5,9 +5,59 @@
 
 export type DiscoverLanguage = 'en' | 'vi';
 
+/** Hover help for every interactive control in the Discover (formerly Ideas) tab. */
+export interface DiscoverHints {
+  seedInput: string;
+  startBlueprint: string;
+  openGuide: string;
+  showPipeline: string;
+  showDocs: string;
+  showChecks: string;
+  reloadDocs: string;
+  openCurrentDoc: string;
+  runPipeline: string;
+  showDiff: string;
+  keepRun: string;
+  revertRun: string;
+  showStructured: string;
+  showRaw: string;
+  showPreview: string;
+  runStep: string;
+  advanceStep: string;
+  selectStep: (step: string) => string;
+  openDoc: (path: string) => string;
+  addEntry: string;
+  itemInput: string;
+  groupInput: string;
+  confirmAdd: string;
+  cancelAdd: string;
+  recordTitleInput: string;
+  recordField: (label: string) => string;
+  saveEntry: string;
+  cancelEdit: string;
+  rawEditor: string;
+  discardRaw: string;
+  saveRaw: string;
+  openRunDiff: string;
+  undoRun: string;
+  generateDevDocs: string;
+  selectDoc: (path: string) => string;
+  openFile: (path: string) => string;
+  back: string;
+  undoEntry: string;
+  undoAll: string;
+  keepAll: string;
+  openEpic: string;
+  configureEpic: string;
+  epicTitleInput: string;
+  recipeSelect: string;
+  createEpic: string;
+}
+
 export interface DiscoverCopy {
   tab: string;
   languageSettings: string;
+  hints: DiscoverHints;
 
   // empty state
   emptyTitle: string;
@@ -23,7 +73,6 @@ export interface DiscoverCopy {
   openInEditor: string;
   reload: string;
   checks: string;
-  step: string;
 
   // step rail + detail
   steps: string;
@@ -63,11 +112,8 @@ export interface DiscoverCopy {
 
   // agent panel
   agent: string;
-  notePlaceholder: string;
   runStep: string;
   runPipeline: string;
-  modeFillHint: string;
-  modeRefineHint: string;
   history: string;
   noRuns: string;
   keep: string;
@@ -137,9 +183,106 @@ const RECIPE_HINT_EN: Record<string, string> = {
   'cofofo-repin-bundle': 'reinstall the pinned ECC catalog',
 };
 
+const HINTS_VI: DiscoverHints = {
+  seedInput: 'Nhập một câu mô tả sản phẩm để khởi tạo blueprint 12 bước.',
+  startBlueprint: 'Tạo blueprint và các tài liệu Markdown ban đầu từ mô tả sản phẩm.',
+  openGuide: 'Mở hướng dẫn giải thích 12 bước, định dạng tài liệu và cách chạy agent.',
+  showPipeline: 'Xem và chỉnh sửa blueprint theo thứ tự 12 bước phát triển.',
+  showDocs: 'Xem toàn bộ tài liệu blueprint theo cây thư mục và file.',
+  showChecks: 'Mở danh sách lỗi, cảnh báo và liên kết còn thiếu trong blueprint.',
+  reloadDocs: 'Đọc lại các file Markdown từ ổ đĩa và cập nhật nội dung trong tab.',
+  openCurrentDoc: 'Mở file chính của bước đang xem trong VS Code editor.',
+  runPipeline: 'Chạy agent cho bước hiện tại của pipeline; mỗi lần chỉ xử lý một bước.',
+  showDiff: 'Xem các mục agent vừa thêm, sửa hoặc xoá trong run này.',
+  keepRun: 'Chấp nhận toàn bộ thay đổi của run và bỏ snapshot hoàn tác.',
+  revertRun: 'Khôi phục toàn bộ tài liệu về trạng thái trước run này.',
+  showStructured: 'Hiển thị tài liệu thành các section và mục có thể chỉnh sửa riêng.',
+  showRaw: 'Chỉnh sửa trực tiếp toàn bộ nội dung Markdown của file.',
+  showPreview: 'Xem bản render của Markdown mà không chỉnh sửa nội dung.',
+  runStep: 'Chạy agent để điền hoặc cải thiện tài liệu của riêng bước đang xem.',
+  advanceStep: 'Chốt bước hiện tại và chuyển pipeline sang bước kế tiếp.',
+  selectStep: (step) => `Mở bước ${step} để xem hoặc chỉnh sửa; thao tác này không đổi tiến độ pipeline.`,
+  openDoc: (path) => `Mở ${path} trong VS Code editor.`,
+  addEntry: 'Thêm một mục mới vào section này và tự cấp ID tiếp theo.',
+  itemInput: 'Nhập nội dung mục; Enter để lưu, Esc để huỷ.',
+  groupInput: 'Nhập mã nhóm dùng để tạo ID cho mục mới.',
+  confirmAdd: 'Lưu mục mới vào tài liệu.',
+  cancelAdd: 'Huỷ việc thêm mục mới.',
+  recordTitleInput: 'Nhập tiêu đề cho mục có cấu trúc này.',
+  recordField: (label) => `Nhập giá trị cho trường ${label}.`,
+  saveEntry: 'Lưu mục và các trường vừa chỉnh sửa.',
+  cancelEdit: 'Huỷ chỉnh sửa và giữ nguyên nội dung hiện tại.',
+  rawEditor: 'Chỉnh sửa trực tiếp Markdown; khi lưu, toàn bộ file sẽ được thay bằng nội dung này.',
+  discardRaw: 'Bỏ các thay đổi Markdown chưa lưu và nạp lại nội dung hiện tại.',
+  saveRaw: 'Ghi toàn bộ nội dung Markdown đang sửa xuống file.',
+  openRunDiff: 'Mở diff chi tiết của run để kiểm tra từng thay đổi.',
+  undoRun: 'Hoàn tác toàn bộ thay đổi của run này nếu snapshot vẫn còn.',
+  generateDevDocs: 'Sinh CODING_RULES.md, TESTING_RULES.md và GIT_WORKFLOW.md từ tech stack đã chốt.',
+  selectDoc: (path) => `Chọn ${path} để xem nội dung, trạng thái và liên kết truy vết.`,
+  openFile: (path) => `Mở ${path} trong VS Code editor.`,
+  back: 'Quay lại màn hình pipeline.',
+  undoEntry: 'Chỉ hoàn tác thay đổi của mục này, giữ nguyên các thay đổi khác trong run.',
+  undoAll: 'Hoàn tác tất cả thay đổi của run và khôi phục snapshot trước đó.',
+  keepAll: 'Chấp nhận tất cả thay đổi và xoá snapshot hoàn tác của run.',
+  openEpic: 'Mở danh sách Epic và đi tới Epic đã được tạo từ phase này.',
+  configureEpic: 'Mở form chọn tên và recipe để bàn giao phase thành một Epic.',
+  epicTitleInput: 'Tên Epic sẽ được tạo từ phase của Implementation Plan.',
+  recipeSelect: 'Chọn recipe CoFoFo quyết định pipeline thực thi của Epic.',
+  createEpic: 'Tạo Epic và chụp INTENT.md từ trạng thái blueprint hiện tại.',
+};
+
+const HINTS_EN: DiscoverHints = {
+  seedInput: 'Enter a one-sentence product description to initialise the 12-step blueprint.',
+  startBlueprint: 'Create the blueprint and its initial Markdown documents from the product description.',
+  openGuide: 'Open the guide to the 12 steps, document format, and agent workflow.',
+  showPipeline: 'View and edit the blueprint in its 12-step development order.',
+  showDocs: 'Browse all blueprint documents by folder and file.',
+  showChecks: 'Open blueprint errors, warnings, and missing traceability links.',
+  reloadDocs: 'Re-read the Markdown files from disk and refresh this tab.',
+  openCurrentDoc: 'Open the selected step\'s primary file in the VS Code editor.',
+  runPipeline: 'Run the agent for the pipeline\'s current step; one step is processed per run.',
+  showDiff: 'Review the entries the agent added, changed, or removed in this run.',
+  keepRun: 'Accept every change in this run and discard its undo snapshot.',
+  revertRun: 'Restore all documents to their state before this run.',
+  showStructured: 'Show the document as separately editable sections and entries.',
+  showRaw: 'Edit the file\'s complete Markdown content directly.',
+  showPreview: 'Render the Markdown for reading without editing it.',
+  runStep: 'Run the agent to fill or refine only the selected step\'s documents.',
+  advanceStep: 'Complete the current step and move the pipeline to the next one.',
+  selectStep: (step) => `Open ${step} for viewing or editing without changing pipeline progress.`,
+  openDoc: (path) => `Open ${path} in the VS Code editor.`,
+  addEntry: 'Add an entry to this section and allocate its next ID.',
+  itemInput: 'Enter the entry text; press Enter to save or Escape to cancel.',
+  groupInput: 'Enter the group code used to generate the new entry ID.',
+  confirmAdd: 'Save the new entry to the document.',
+  cancelAdd: 'Cancel adding the new entry.',
+  recordTitleInput: 'Enter the title of this structured entry.',
+  recordField: (label) => `Enter the value for ${label}.`,
+  saveEntry: 'Save the entry and its edited fields.',
+  cancelEdit: 'Cancel editing and keep the current content.',
+  rawEditor: 'Edit Markdown directly; saving replaces the complete file with this content.',
+  discardRaw: 'Discard unsaved Markdown changes and restore the current file content.',
+  saveRaw: 'Write the complete edited Markdown content to the file.',
+  openRunDiff: 'Open the run diff to inspect every change.',
+  undoRun: 'Undo every change in this run while its snapshot is available.',
+  generateDevDocs: 'Generate CODING_RULES.md, TESTING_RULES.md, and GIT_WORKFLOW.md from the chosen stack.',
+  selectDoc: (path) => `Select ${path} to inspect its content, status, and traceability.`,
+  openFile: (path) => `Open ${path} in the VS Code editor.`,
+  back: 'Return to the pipeline view.',
+  undoEntry: 'Undo only this entry\'s change and keep the other changes in the run.',
+  undoAll: 'Undo every change in this run and restore the preceding snapshot.',
+  keepAll: 'Accept every change and discard the run\'s undo snapshot.',
+  openEpic: 'Open the Epics list and navigate to the Epic created from this phase.',
+  configureEpic: 'Choose a title and recipe before handing this phase off as an Epic.',
+  epicTitleInput: 'The title of the Epic created from this Implementation Plan phase.',
+  recipeSelect: 'Choose the CoFoFo recipe that determines the Epic\'s execution pipeline.',
+  createEpic: 'Create the Epic and snapshot INTENT.md from the current blueprint.',
+};
+
 const VI: DiscoverCopy = {
   tab: 'Discover',
   languageSettings: 'Ngôn ngữ hiển thị',
+  hints: HINTS_VI,
 
   emptyTitle: 'Bắt đầu một blueprint',
   emptyBody:
@@ -154,7 +297,6 @@ const VI: DiscoverCopy = {
   openInEditor: 'Mở trong editor',
   reload: 'Đọc lại docs',
   checks: 'Kiểm tra',
-  step: 'Bước',
 
   steps: '12 BƯỚC',
   selectedStep: 'BƯỚC ĐANG XEM',
@@ -191,11 +333,8 @@ const VI: DiscoverCopy = {
   yourSectionHint: 'Section này không thuộc hợp đồng — agent không được đụng vào.',
 
   agent: 'AI',
-  notePlaceholder: 'Ghi chú cho agent (tuỳ chọn)…',
   runStep: 'Chạy agent cho bước này',
   runPipeline: 'Chạy pipeline',
-  modeFillHint: 'Chế độ điền mới — bước này chưa có nội dung nào.',
-  modeRefineHint: 'Chế độ bổ sung/sửa — agent giữ nguyên ID cũ.',
   history: 'Lịch sử run',
   noRuns: 'Chưa chạy agent lần nào.',
   keep: 'Giữ',
@@ -246,6 +385,7 @@ const VI: DiscoverCopy = {
 const EN: DiscoverCopy = {
   tab: 'Discover',
   languageSettings: 'Display language',
+  hints: HINTS_EN,
 
   emptyTitle: 'Start a blueprint',
   emptyBody:
@@ -260,7 +400,6 @@ const EN: DiscoverCopy = {
   openInEditor: 'Open in editor',
   reload: 'Re-read docs',
   checks: 'Checks',
-  step: 'Step',
 
   steps: '12 STEPS',
   selectedStep: 'SELECTED STEP',
@@ -297,11 +436,8 @@ const EN: DiscoverCopy = {
   yourSectionHint: 'Not part of the contract — agents may not touch this section.',
 
   agent: 'AI',
-  notePlaceholder: 'Note for the agent (optional)…',
   runStep: 'Run the agent on this step',
   runPipeline: 'Run pipeline',
-  modeFillHint: 'Fill mode — this step has no content yet.',
-  modeRefineHint: 'Refine mode — existing ids are kept.',
   history: 'Run history',
   noRuns: 'No agent run yet.',
   keep: 'Keep',

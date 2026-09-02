@@ -18,7 +18,7 @@ export function DiffView({
     return (
       <div className="p-6">
         <p className="text-xs text-muted-foreground">{copy.noDiff}</p>
-        <button type="button" onClick={onBack} className="mt-3 rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent">{copy.back}</button>
+        <button type="button" title={copy.hints.back} onClick={onBack} className="mt-3 rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent">{copy.back}</button>
       </div>
     );
   }
@@ -37,7 +37,7 @@ export function DiffView({
           <span className="text-warning">~{active.updated.length}</span>{' '}
           <span className="text-destructive">−{active.removed.length}</span>
         </span>
-        <button type="button" onClick={onBack} className="ml-auto rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent">{copy.back}</button>
+        <button type="button" title={copy.hints.back} onClick={onBack} className="ml-auto rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent">{copy.back}</button>
       </header>
 
       {total === 0 && <p className="text-xs text-muted-foreground">{copy.noDiff}</p>}
@@ -65,6 +65,7 @@ export function DiffView({
           <button
             type="button"
             onClick={() => postMessage({ type: 'revertDiscoverRun', runId: active.run.id })}
+            title={copy.hints.undoAll}
             className="rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             {copy.undoAll}
@@ -72,6 +73,7 @@ export function DiffView({
           <button
             type="button"
             onClick={() => { postMessage({ type: 'keepDiscoverRun', runId: active.run.id }); onBack(); }}
+            title={copy.hints.keepAll}
             className="rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
           >
             {copy.keepAll}
@@ -108,6 +110,7 @@ function Group({
             <button
               type="button"
               onClick={() => postMessage({ type: 'revertDiscoverItems', runId, keys: [row.key] })}
+              title={copy.hints.undoEntry}
               className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <RotateCcw className="h-2.5 w-2.5" />{copy.undo}

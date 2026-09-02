@@ -61,6 +61,7 @@ function PhaseRow({ phase, discover, copy }: { phase: DiscoverPhase; discover: D
         <button
           type="button"
           onClick={() => postMessage({ type: 'openEpicsList' })}
+          title={copy.hints.openEpic}
           className="shrink-0 rounded border border-success/40 bg-success/10 px-1.5 py-0.5 font-mono text-[10px] text-success hover:bg-success/20"
         >
           {phase.handoff.epicId}
@@ -83,6 +84,7 @@ function PhaseRow({ phase, discover, copy }: { phase: DiscoverPhase; discover: D
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
+          title={copy.hints.configureEpic}
           className="shrink-0 rounded-md bg-primary px-2 py-0.5 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90"
         >
           {copy.createEpic}
@@ -100,6 +102,7 @@ function PhaseRow({ phase, discover, copy }: { phase: DiscoverPhase; discover: D
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              title={copy.hints.epicTitleInput}
               className="mt-0.5 w-full rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground"
             />
           </label>
@@ -108,6 +111,7 @@ function PhaseRow({ phase, discover, copy }: { phase: DiscoverPhase; discover: D
             <select
               value={recipe}
               onChange={(e) => setRecipe(e.target.value as CofofoRecipeId)}
+              title={copy.hints.recipeSelect}
               className="mt-0.5 w-full rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground"
             >
               {COFOFO_RECIPE_IDS.map((id) => (
@@ -117,12 +121,13 @@ function PhaseRow({ phase, discover, copy }: { phase: DiscoverPhase; discover: D
           </label>
           <p className="text-[10px] text-muted-foreground">{copy.handoffIntentNote}</p>
           <div className="flex justify-end gap-1.5">
-            <button type="button" onClick={() => setOpen(false)} className="rounded border border-border px-2 py-1 text-[10.5px] text-muted-foreground hover:bg-accent">
+            <button type="button" title={copy.hints.cancelEdit} onClick={() => setOpen(false)} className="rounded border border-border px-2 py-1 text-[10.5px] text-muted-foreground hover:bg-accent">
               {copy.cancel}
             </button>
             <button
               type="button"
               disabled={!title.trim()}
+              title={copy.hints.createEpic}
               onClick={() => {
                 postMessage({ type: 'scaffoldEpicFromPhase', phaseId: phase.id, recipeId: recipe, title });
                 setOpen(false);

@@ -40,12 +40,14 @@ function EmptyState({ language }: { language: DiscoverLanguage }) {
             onChange={(e) => setSeed(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { start(); } }}
             placeholder={copy.seedPlaceholder}
+            title={copy.hints.seedInput}
             className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground"
           />
           <button
             type="button"
             disabled={!seed.trim()}
             onClick={start}
+            title={copy.hints.startBlueprint}
             className="rounded-md bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
           >
             {copy.start}
@@ -56,6 +58,7 @@ function EmptyState({ language }: { language: DiscoverLanguage }) {
         <button
           type="button"
           onClick={() => postMessage({ type: 'openDiscoverGuide' })}
+          title={copy.hints.openGuide}
           className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <BookOpen className="h-3.5 w-3.5" />

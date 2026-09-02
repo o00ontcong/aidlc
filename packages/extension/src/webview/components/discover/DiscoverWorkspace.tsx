@@ -45,6 +45,7 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
               key={m}
               type="button"
               onClick={() => setMode(m)}
+              title={m === 'pipeline' ? copy.hints.showPipeline : copy.hints.showDocs}
               className={`px-2.5 py-1 text-[11px] transition ${
                 mode === m ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
@@ -58,6 +59,7 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
           <button
             type="button"
             onClick={() => setMode(mode === 'checks' ? 'pipeline' : 'checks')}
+            title={copy.hints.showChecks}
             className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
               discover.issues.length
                 ? 'border-warning/50 bg-warning/10 text-warning hover:bg-warning/20'
@@ -70,7 +72,8 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
           <button
             type="button"
             onClick={() => postMessage({ type: 'reloadDiscover' })}
-            title={copy.reload}
+            title={copy.hints.reloadDocs}
+            aria-label={copy.reload}
             className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <RefreshCw className="h-3 w-3" />
@@ -78,6 +81,7 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
           <button
             type="button"
             onClick={() => postMessage({ type: 'openDiscoverDoc', docPath: step.files[0] })}
+            title={copy.hints.openCurrentDoc}
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <ExternalLink className="h-3 w-3" />{copy.openInEditor}
@@ -85,6 +89,7 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
           <button
             type="button"
             onClick={() => postMessage({ type: 'runDiscoverPipeline' })}
+            title={copy.hints.runPipeline}
             className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <Play className="h-3 w-3" />{copy.runPipeline}
@@ -99,9 +104,9 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
             +{active.added.length} ~{active.updated.length} −{active.removed.length}
           </span>
           <span className="ml-auto flex gap-2">
-            <button type="button" onClick={() => setMode('diff')} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.viewDiff}</button>
-            <button type="button" onClick={() => postMessage({ type: 'keepDiscoverRun', runId: active.run.id })} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.keep}</button>
-            <button type="button" onClick={() => postMessage({ type: 'revertDiscoverRun', runId: active.run.id })} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.revert}</button>
+            <button type="button" title={copy.hints.showDiff} onClick={() => setMode('diff')} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.viewDiff}</button>
+            <button type="button" title={copy.hints.keepRun} onClick={() => postMessage({ type: 'keepDiscoverRun', runId: active.run.id })} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.keep}</button>
+            <button type="button" title={copy.hints.revertRun} onClick={() => postMessage({ type: 'revertDiscoverRun', runId: active.run.id })} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.revert}</button>
           </span>
         </div>
       )}
@@ -114,7 +119,7 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
           <div className="grid h-full min-h-0" style={{ gridTemplateColumns: 'clamp(148px, 17vw, 216px) minmax(0,1fr) clamp(186px, 21vw, 262px)' }}>
             <StepRail discover={discover} viewing={viewing} copy={copy} onSelect={setViewing} />
             <StepDetail discover={discover} stepId={viewing} pane={pane} copy={copy} onPane={setPane} />
-            <AgentPanel discover={discover} step={step} copy={copy} onOpenDiff={() => setMode('diff')} />
+            <AgentPanel discover={discover} copy={copy} onOpenDiff={() => setMode('diff')} />
           </div>
         )}
       </div>
@@ -135,6 +140,8 @@ function StepDetail({
   const docs = docsForStep(discover, stepId);
   const missing = missingRequirements(step);
   const isCurrent = stepId === discover.currentStep;
+  // The last step has nowhere to advance to — "next step" would be a no-op.
+  const isLastStep = step.order >= Math.max(...discover.steps.map((s) => s.order));
   // Only problems with the entry itself. "Not covered" is about a document
   // that has not been written yet, so marking every requirement with it would
   // put a warning on the whole list before the next step even starts.
@@ -165,6 +172,7 @@ function StepDetail({
               key={p}
               type="button"
               onClick={() => onPane(p)}
+              title={p === 'structured' ? copy.hints.showStructured : p === 'raw' ? copy.hints.showRaw : copy.hints.showPreview}
               className={`rounded border px-2 py-0.5 text-[10.5px] transition ${
                 pane === p ? 'border-border bg-secondary font-semibold text-foreground' : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
@@ -208,26 +216,27 @@ function StepDetail({
             ? <span className="text-success">{copy.doneWhen}: ✓</span>
             : <>{copy.missing}: <span className="text-warning">{missing.map((m) => m.label + (m.detail ? ` (${m.detail})` : '')).join(' · ')}</span></>}
         </p>
-        {isCurrent && (
+        <span className="ml-auto flex items-center gap-2">
           <button
             type="button"
-            disabled={!step.canAdvance}
-            title={step.canAdvance ? undefined : copy.nextStepBlocked}
-            onClick={() => postMessage({ type: 'advanceDiscoverStep' })}
-            className="ml-auto rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => postMessage({ type: 'runDiscoverStep', step: stepId })}
+            title={copy.hints.runStep}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
           >
-            {copy.nextStep}
+            <Play className="h-3 w-3" />{copy.runStep}
           </button>
-        )}
-        {!isCurrent && (
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'setDiscoverStep', step: stepId })}
-            className="ml-auto rounded-md border border-border px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            {copy.step} → {step.order}
-          </button>
-        )}
+          {isCurrent && !isLastStep && (
+            <button
+              type="button"
+              disabled={!step.canAdvance}
+              title={step.canAdvance ? copy.hints.advanceStep : copy.nextStepBlocked}
+              onClick={() => postMessage({ type: 'advanceDiscoverStep' })}
+              className="rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {copy.nextStep}
+            </button>
+          )}
+        </span>
       </footer>
     </div>
   );
@@ -245,7 +254,7 @@ function ChecksView({
     <div className="h-full overflow-y-auto px-5 py-4">
       <header className="mb-3 flex items-baseline gap-2">
         <h2 className="text-sm font-bold text-foreground">{copy.checks} · {discover.issues.length}</h2>
-        <button type="button" onClick={onBack} className="ml-auto rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent">{copy.back}</button>
+        <button type="button" title={copy.hints.back} onClick={onBack} className="ml-auto rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent">{copy.back}</button>
       </header>
       {discover.issues.length === 0 && <p className="text-xs text-success">✓</p>}
       {[...byFile].map(([file, issues]) => (
@@ -256,6 +265,7 @@ function ChecksView({
             <button
               type="button"
               onClick={() => postMessage({ type: 'openDiscoverDoc', docPath: file })}
+              title={copy.hints.openDoc(file)}
               className="ml-auto text-[10.5px] text-muted-foreground hover:text-foreground hover:underline"
             >
               {copy.openInEditor}

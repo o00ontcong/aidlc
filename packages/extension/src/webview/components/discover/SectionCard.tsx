@@ -73,7 +73,7 @@ function ItemList({ docPath, revision, section, copy, readOnly, flaggedIds }: Se
       {!readOnly && (adding
         ? <AddItemRow docPath={docPath} revision={revision} section={section} copy={copy} onDone={() => setAdding(false)} />
         : (
-          <button type="button" onClick={() => setAdding(true)} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent/50 hover:text-foreground">
+          <button type="button" title={copy.hints.addEntry} onClick={() => setAdding(true)} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent/50 hover:text-foreground">
             <Plus className="h-3 w-3" /> {copy.addEntry}
           </button>
         ))}
@@ -108,6 +108,7 @@ function ItemRow({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={save}
+          title={copy.hints.itemInput}
           onKeyDown={(e) => {
             if (e.key === 'Enter') { save(); }
             if (e.key === 'Escape') { setDraft(item.text); setEditing(false); }
@@ -189,6 +190,7 @@ function AddItemRow({
           value={group}
           onChange={(e) => setGroup(e.target.value)}
           placeholder={copy.groupPlaceholder(section.idPrefix ?? 'ID')}
+          title={copy.hints.groupInput}
           className="w-24 shrink-0 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase text-foreground"
         />
       )}
@@ -198,10 +200,11 @@ function AddItemRow({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') { submit(); } if (e.key === 'Escape') { onDone(); } }}
         placeholder={section.hint ?? copy.newEntryPlaceholder}
+        title={copy.hints.itemInput}
         className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-[11.5px] text-foreground"
       />
-      <button type="button" onClick={submit} className="rounded p-1 text-primary hover:bg-accent"><Check className="h-3.5 w-3.5" /></button>
-      <button type="button" onClick={onDone} className="rounded p-1 text-muted-foreground hover:bg-accent"><X className="h-3.5 w-3.5" /></button>
+      <button type="button" title={copy.hints.confirmAdd} aria-label={copy.hints.confirmAdd} onClick={submit} className="rounded p-1 text-primary hover:bg-accent"><Check className="h-3.5 w-3.5" /></button>
+      <button type="button" title={copy.hints.cancelAdd} aria-label={copy.hints.cancelAdd} onClick={onDone} className="rounded p-1 text-muted-foreground hover:bg-accent"><X className="h-3.5 w-3.5" /></button>
     </div>
   );
 }
@@ -230,7 +233,7 @@ function RecordList({ docPath, revision, section, copy, readOnly, flaggedIds }: 
       {!readOnly && (adding
         ? <RecordForm docPath={docPath} revision={revision} section={section} copy={copy} onDone={() => setAdding(false)} />
         : (
-          <button type="button" onClick={() => setAdding(true)} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent/50 hover:text-foreground">
+          <button type="button" title={copy.hints.addEntry} onClick={() => setAdding(true)} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-accent/50 hover:text-foreground">
             <Plus className="h-3 w-3" /> {copy.addEntry}
           </button>
         ))}
@@ -342,6 +345,7 @@ function RecordForm({
             value={group}
             onChange={(e) => setGroup(e.target.value)}
             placeholder={copy.groupPlaceholder(section.idPrefix ?? 'ID')}
+            title={copy.hints.groupInput}
             className="w-24 rounded border border-border bg-background px-1.5 py-1 font-mono text-[10px] uppercase text-foreground"
           />
         )}
@@ -350,6 +354,7 @@ function RecordForm({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={copy.titlePlaceholder}
+          title={copy.hints.recordTitleInput}
           className="min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-1 text-[11.5px] font-medium text-foreground"
         />
       </div>
@@ -363,20 +368,22 @@ function RecordForm({
               rows={2}
               value={values[spec.label] ?? ''}
               onChange={(e) => setValues((v) => ({ ...v, [spec.label]: e.target.value }))}
+              title={copy.hints.recordField(spec.label)}
               className="mt-0.5 w-full resize-y rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground"
             />
           ) : (
             <input
               value={values[spec.label] ?? ''}
               onChange={(e) => setValues((v) => ({ ...v, [spec.label]: e.target.value }))}
+              title={copy.hints.recordField(spec.label)}
               className="mt-0.5 w-full rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground"
             />
           )}
         </label>
       ))}
       <div className="flex justify-end gap-1.5 pt-0.5">
-        <button type="button" onClick={onDone} className="rounded border border-border px-2 py-1 text-[10.5px] text-muted-foreground hover:bg-accent">{copy.cancel}</button>
-        <button type="button" onClick={submit} className="rounded bg-primary px-2.5 py-1 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90">{copy.save}</button>
+        <button type="button" title={copy.hints.cancelEdit} onClick={onDone} className="rounded border border-border px-2 py-1 text-[10.5px] text-muted-foreground hover:bg-accent">{copy.cancel}</button>
+        <button type="button" title={copy.hints.saveEntry} onClick={submit} className="rounded bg-primary px-2.5 py-1 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90">{copy.save}</button>
       </div>
     </div>
   );
@@ -428,6 +435,7 @@ function ProseBody({ docPath, revision, section, copy, readOnly }: SectionProps)
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={save}
+        title={copy.proseHint}
         onKeyDown={(e) => { if (e.key === 'Escape') { setDraft(section.prose); setEditing(false); } }}
         className="w-full resize-y rounded border border-primary/50 bg-background px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground"
       />

@@ -11,11 +11,10 @@ export function extractIds(text: string): string[] {
   return [...new Set([...text.matchAll(ID_TOKEN)].map((m) => m[1]!))];
 }
 
-export type StepGlyph = 'done' | 'current' | 'upcoming' | 'review';
+export type StepGlyph = 'done' | 'current' | 'upcoming';
 
 export function stepGlyph(step: DiscoverStep, discover: DiscoverSummary): StepGlyph {
   const currentOrder = discover.steps.find((s) => s.id === discover.currentStep)?.order ?? 1;
-  if (stepIsStale(step, discover)) { return 'review'; }
   if (step.id === discover.currentStep) { return 'current'; }
   return step.order < currentOrder ? 'done' : 'upcoming';
 }
@@ -24,13 +23,7 @@ export const GLYPH_CHAR: Record<StepGlyph, string> = {
   done: '✓',
   current: '●',
   upcoming: '○',
-  review: '⚠',
 };
-
-/** A step is flagged when one of its docs was left behind by an upstream edit. */
-export function stepIsStale(step: DiscoverStep, discover: DiscoverSummary): boolean {
-  return discover.issues.some((i) => i.code === 'stale-doc' && !!i.file && step.files.includes(i.file));
-}
 
 export function missingRequirements(step: DiscoverStep) {
   return step.requirements.filter((r) => r.level === 'required' && !r.notApplicable && !r.passed);

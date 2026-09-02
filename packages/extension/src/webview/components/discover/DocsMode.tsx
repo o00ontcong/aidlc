@@ -35,11 +35,12 @@ export function DocsMode({ discover, copy }: { discover: DiscoverSummary; copy: 
               </code>
             </header>
             <div className="mb-2 flex gap-1">
-              <Tab on={pane === 'read'} onClick={() => setPane('read')}>{copy.viewPreview}</Tab>
-              <Tab on={pane === 'raw'} onClick={() => setPane('raw')}>{copy.viewMarkdown}</Tab>
+              <Tab on={pane === 'read'} title={copy.hints.showPreview} onClick={() => setPane('read')}>{copy.viewPreview}</Tab>
+              <Tab on={pane === 'raw'} title={copy.hints.showRaw} onClick={() => setPane('raw')}>{copy.viewMarkdown}</Tab>
               <button
                 type="button"
                 onClick={() => postMessage({ type: 'openDiscoverDoc', docPath: doc.path })}
+                title={copy.hints.openDoc(doc.path)}
                 className="ml-auto inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <ExternalLink className="h-2.5 w-2.5" />{copy.openInEditor}
@@ -57,11 +58,12 @@ export function DocsMode({ discover, copy }: { discover: DiscoverSummary; copy: 
   );
 }
 
-function Tab({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+function Tab({ on, title, onClick, children }: { on: boolean; title: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={`rounded border px-2 py-0.5 text-[10.5px] transition ${
         on ? 'border-border bg-secondary font-semibold text-foreground' : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
       }`}
@@ -96,6 +98,7 @@ function Tree({
                 key={doc.path}
                 type="button"
                 onClick={() => onSelect(doc.path)}
+                title={copy.hints.selectDoc(doc.path)}
                 className={`flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] transition ${
                   selected === doc.path ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                 }`}
@@ -118,6 +121,7 @@ function Tree({
               key={file}
               type="button"
               onClick={() => postMessage({ type: 'openDiscoverFile', relPath: `${adrDir[0]}/${file}` })}
+              title={copy.hints.openFile(`${adrDir[0]}/${file}`)}
               className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-accent/50 hover:text-foreground"
             >
               <span className="truncate">{file}</span>
@@ -134,6 +138,7 @@ function Tree({
             key={dev.path}
             type="button"
             onClick={() => postMessage({ type: 'openDiscoverFile', relPath: dev.path })}
+            title={copy.hints.openFile(dev.path)}
             className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] text-muted-foreground hover:bg-accent/50 hover:text-foreground"
           >
             <span className="truncate">{dev.path.split('/').pop()}</span>
@@ -213,6 +218,7 @@ function FileInfo({ discover, doc, copy }: { discover: DiscoverSummary; doc: Dis
       <button
         type="button"
         onClick={() => postMessage({ type: 'openDiscoverDoc', docPath: doc.path })}
+        title={copy.hints.openDoc(doc.path)}
         className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-secondary/40 px-2 py-1.5 text-[10.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         <FileText className="h-3 w-3" /> {copy.openInEditor}

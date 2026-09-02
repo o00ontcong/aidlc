@@ -12,7 +12,6 @@ const GLYPH_CLASS: Record<string, string> = {
   done: 'text-success',
   current: 'text-primary',
   upcoming: 'text-muted-foreground/50',
-  review: 'text-warning',
 };
 
 export function StepRail({
@@ -36,6 +35,7 @@ export function StepRail({
               <button
                 type="button"
                 onClick={() => onSelect(step.id)}
+                title={copy.hints.selectStep(`${step.order} · ${step.label}`)}
                 className={`flex w-full items-start gap-2 rounded-md px-1.5 py-1.5 text-left transition ${
                   isViewing ? 'bg-primary/10 outline outline-1 outline-primary/40' : 'hover:bg-accent/50'
                 }`}
