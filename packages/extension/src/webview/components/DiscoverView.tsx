@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { BookOpen, Compass } from 'lucide-react';
+import { BookOpen, Compass, ScanSearch } from 'lucide-react';
 import type { WorkspaceState } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
@@ -34,24 +34,49 @@ function EmptyState({ language }: { language: DiscoverLanguage }) {
         </div>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{copy.emptyBody}</p>
 
-        <div className="mt-4 flex gap-2">
-          <input
+        <div className="mt-4 flex flex-col gap-2">
+          <textarea
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { start(); } }}
+            onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { start(); } }}
             placeholder={copy.seedPlaceholder}
             title={copy.hints.seedInput}
-            className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground"
+            rows={5}
+            className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground"
           />
-          <button
-            type="button"
-            disabled={!seed.trim()}
-            onClick={start}
-            title={copy.hints.startBlueprint}
-            className="rounded-md bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-          >
-            {copy.start}
-          </button>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-muted-foreground">{copy.seedShortcutHint}</span>
+            <button
+              type="button"
+              disabled={!seed.trim()}
+              onClick={start}
+              title={copy.hints.startBlueprint}
+              className="rounded-md bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+            >
+              {copy.start}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center gap-3">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{copy.orDivider}</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        <div className="mt-4 flex items-start gap-3 rounded-md border border-border bg-secondary/30 p-3">
+          <ScanSearch className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">{copy.scanExistingHint}</p>
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'scanDiscoverProject' })}
+              title={copy.hints.scanExisting}
+              className="mt-2 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] font-semibold text-foreground hover:bg-accent"
+            >
+              {copy.scanExisting}
+            </button>
+          </div>
         </div>
 
         <p className="mt-4 text-[11px] text-muted-foreground">{copy.emptyHint}</p>

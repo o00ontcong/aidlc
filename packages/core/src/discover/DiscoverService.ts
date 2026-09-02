@@ -32,7 +32,7 @@ import {
   type DocFileSpec,
 } from './DocSpec';
 import { applyOps, renderEmptyDoc, type DocOp, type PatchResult } from './mdPatch';
-import { itemSignature, parseDoc, type DocItem, type DocModel, type DocRecord } from './mdParse';
+import { itemSignature, parseDoc, proseSectionKeyOf, type DocItem, type DocModel, type DocRecord } from './mdParse';
 import {
   checkGuardrails,
   diffBlueprints,
@@ -91,13 +91,20 @@ export function hashContent(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
+interface ProseEntry { text: string }
+
 interface FoundEntry {
-  kind: 'item' | 'record';
+  kind: 'item' | 'record' | 'prose';
   sectionKey: string;
-  entry: DocItem | DocRecord;
+  entry: DocItem | DocRecord | ProseEntry;
 }
 
 function findEntry(doc: DocModel, id: string): FoundEntry | undefined {
+  const proseSectionKey = proseSectionKeyOf(id);
+  if (proseSectionKey !== undefined) {
+    const section = doc.sections.find((s) => s.key === proseSectionKey && s.kind === 'prose');
+    return section ? { kind: 'prose', sectionKey: section.key, entry: { text: section.prose } } : undefined;
+  }
   for (const section of doc.sections) {
     const item = section.items.find((i) => i.id === id);
     if (item) { return { kind: 'item', sectionKey: section.key, entry: item }; }
@@ -112,6 +119,9 @@ function restoreOp(found: FoundEntry): DocOp {
   if (found.kind === 'item') {
     const item = found.entry as DocItem;
     return { op: 'addItem', section: found.sectionKey, id: item.id, text: item.text };
+  }
+  if (found.kind === 'prose') {
+    return { op: 'setProse', section: found.sectionKey, value: (found.entry as ProseEntry).text };
   }
   const record = found.entry as DocRecord;
   return {
@@ -411,15 +421,22 @@ export class DiscoverService {
   // ── agent runs ───────────────────────────────────────────────────────────
 
   /** Snapshot the docs, then record the run so its diff has something to compare against. */
-  startRun(stepId: DiscoverStepId, options: { note?: string; runId?: string } = {}): { index: DiscoverIndex; run: DiscoverRun } {
+  startRun(
+    stepId: DiscoverStepId,
+    options: { note?: string; runId?: string; kind?: 'step' | 'scan' | 'edit' } = {},
+  ): { index: DiscoverIndex; run: DiscoverRun } {
     const index = this.require();
     const ctx = this.readBlueprint(index);
+    const kind = options.kind ?? 'step';
     const runId = options.runId ?? `run-${String(index.runs.length + 1).padStart(3, '0')}`;
     this.snapshotDocs(runId, index);
     const run: DiscoverRun = {
       id: runId,
       step: stepId,
-      mode: isStepEmpty(ctx, stepId) ? 'fill' : 'refine',
+      // A scan reconciles every step against the real codebase in one pass —
+      // "fill vs refine" is decided per step inside that pass, not up front.
+      mode: kind === 'scan' ? 'refine' : (isStepEmpty(ctx, stepId) ? 'fill' : 'refine'),
+      kind,
       startedAt: nowIso(),
       note: options.note,
       diff: { added: [], updated: [], removed: [] },
@@ -446,7 +463,9 @@ export class DiscoverService {
     const before = this.readSnapshot(runId, index);
     const after = this.readBlueprint(index);
     const diff = diffBlueprints(before.docs, after.docs);
-    const allowed = getStepSpec(run.step).files.map((f) => f.path);
+    // Only a plain step run is scoped to its own files — a scan or a
+    // person's direct edit may legitimately touch any doc.
+    const allowed = run.kind === 'step' ? getStepSpec(run.step).files.map((f) => f.path) : allDocPaths();
     const guardrail = checkGuardrails(before.docs, after.docs, beforeIndex, allowed);
     const updated: DiscoverRun = {
       ...run,
@@ -542,17 +561,31 @@ export class DiscoverService {
         const was = snapshot ? findEntry(snapshot, id) : undefined;
         const now = findEntry(current, id);
         if (!was && !now) { issues.push(`${docPath}#${id} is in neither the snapshot nor the document.`); continue; }
-        if (!was && now) { ops.push(now.kind === 'item' ? { op: 'removeItem', id } : { op: 'removeRecord', id }); }
-        else if (was && !now) { ops.push(restoreOp(was)); }
-        else if (was && now && itemSignature(was.entry) !== itemSignature(now.entry)) {
-          ops.push(was.kind === 'item'
-            ? { op: 'updateItem', id, text: (was.entry as DocItem).text }
-            : {
-                op: 'updateRecord',
-                id,
-                title: (was.entry as DocRecord).title,
-                fields: (was.entry as DocRecord).fields.map((f) => ({ label: f.label, value: f.value, items: f.items })),
-              });
+        if (!was && now) {
+          ops.push(
+            now.kind === 'item' ? { op: 'removeItem', id }
+              : now.kind === 'record' ? { op: 'removeRecord', id }
+              : { op: 'setProse', section: now.sectionKey, value: '' },
+          );
+        } else if (was && !now) {
+          ops.push(restoreOp(was));
+        } else if (was && now) {
+          const unchanged = was.kind === 'prose'
+            ? (was.entry as ProseEntry).text === (now.entry as ProseEntry).text
+            : itemSignature(was.entry as DocItem | DocRecord) === itemSignature(now.entry as DocItem | DocRecord);
+          if (unchanged) { continue; }
+          if (was.kind === 'prose') {
+            ops.push({ op: 'setProse', section: was.sectionKey, value: (was.entry as ProseEntry).text });
+          } else if (was.kind === 'item') {
+            ops.push({ op: 'updateItem', id, text: (was.entry as DocItem).text });
+          } else {
+            ops.push({
+              op: 'updateRecord',
+              id,
+              title: (was.entry as DocRecord).title,
+              fields: (was.entry as DocRecord).fields.map((f) => ({ label: f.label, value: f.value, items: f.items })),
+            });
+          }
         } else { continue; }
         reverted.push(`${docPath}#${id}`);
       }
@@ -561,7 +594,80 @@ export class DiscoverService {
       latest = result.index;
       issues.push(...result.issues);
     }
+    // Without this, a reverted entry stays listed in the run's own diff —
+    // recomputed from the (now unchanged) doc against the snapshot, it drops
+    // out on its own the same way a late agent write grows it (finishRun's
+    // own doc comment).
+    if (reverted.length > 0) { latest = this.finishRun(runId).index; }
     return { index: latest, reverted, issues };
+  }
+
+  /**
+   * Confirm specific entries from a still-open run: fold their current value
+   * into the run's own snapshot copy, so a later "undo the whole run" no
+   * longer touches them and they drop off this run's diff. The mirror of
+   * `revertEntries`, which instead writes the snapshot's value back into the
+   * live doc — here the live doc never changes, only the run's baseline does.
+   */
+  keepEntries(runId: string, keys: string[]): { index: DiscoverIndex; kept: string[]; issues: string[] } {
+    const index = this.require();
+    const snapshotRoot = this.snapshotDir(runId);
+    if (!fs.existsSync(snapshotRoot)) {
+      throw new Error(`Snapshot for "${runId}" is gone — this run's entries are already final.`);
+    }
+    const byDoc = new Map<string, string[]>();
+    for (const key of keys) {
+      const [docPath, id] = key.split('#') as [string, string];
+      if (!docPath || !id) { continue; }
+      byDoc.set(docPath, [...(byDoc.get(docPath) ?? []), id]);
+    }
+
+    const kept: string[] = [];
+    const issues: string[] = [];
+    for (const [docPath, ids] of byDoc) {
+      const spec = getFileSpec(docPath);
+      if (!spec) { issues.push(`"${docPath}" is not a Discover document.`); continue; }
+      const current = this.readDoc(docPath, index);
+      const snapshotFile = path.join(snapshotRoot, docPath);
+      const snapshotContent = fs.existsSync(snapshotFile) ? fs.readFileSync(snapshotFile, 'utf8') : renderEmptyDoc(spec);
+      const snapshotDoc = parseDoc(snapshotContent, spec, true);
+
+      const ops: DocOp[] = [];
+      for (const id of ids) {
+        const was = findEntry(snapshotDoc, id);
+        const now = findEntry(current, id);
+        if (!was && !now) { issues.push(`${docPath}#${id} is in neither the snapshot nor the document.`); continue; }
+        if (!was && now) {
+          ops.push(restoreOp(now)); // it's new — add it to the snapshot too
+        } else if (was && !now) {
+          ops.push(
+            was.kind === 'item' ? { op: 'removeItem', id }
+              : was.kind === 'record' ? { op: 'removeRecord', id }
+              : { op: 'setProse', section: was.sectionKey, value: '' },
+          ); // it's gone — confirm the removal in the snapshot too
+        } else if (was && now) {
+          if (was.kind === 'prose') {
+            ops.push({ op: 'setProse', section: was.sectionKey, value: (now.entry as ProseEntry).text });
+          } else if (was.kind === 'item') {
+            ops.push({ op: 'updateItem', id, text: (now.entry as DocItem).text });
+          } else {
+            ops.push({
+              op: 'updateRecord',
+              id,
+              title: (now.entry as DocRecord).title,
+              fields: (now.entry as DocRecord).fields.map((f) => ({ label: f.label, value: f.value, items: f.items })),
+            });
+          }
+        }
+        kept.push(`${docPath}#${id}`);
+      }
+      if (ops.length === 0) { continue; }
+      const patched = applyOps(snapshotContent, spec, ops);
+      writeFileAtomic(snapshotFile, patched.content);
+    }
+
+    const finished = kept.length > 0 ? this.finishRun(runId).index : index;
+    return { index: finished, kept, issues };
   }
 
   private snapshotDocs(runId: string, index: DiscoverIndex): void {

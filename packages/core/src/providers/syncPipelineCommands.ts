@@ -25,9 +25,11 @@ import {
   discoverCommandBody,
   discoverDevDocsCommandBody,
   discoverPipelineCommandBody,
+  discoverScanCommandBody,
   DISCOVER_COMMAND_NAME,
   DISCOVER_DEV_DOCS_COMMAND_NAME,
   DISCOVER_PIPELINE_COMMAND_NAME,
+  DISCOVER_SCAN_COMMAND_NAME,
 } from '../discover/DiscoverAgentCommand';
 import { ModelProviderConfigStore } from '../models/ModelProviderConfigStore';
 import { activeEpicsDir } from '../runs/RunState';
@@ -224,6 +226,11 @@ export function syncDiscoverCommandsForProvider(
       name: DISCOVER_DEV_DOCS_COMMAND_NAME,
       description: `Write the development convention docs from the chosen stack. Usage: /${DISCOVER_DEV_DOCS_COMMAND_NAME} [note]`,
       body: discoverDevDocsCommandBody(),
+    },
+    {
+      name: DISCOVER_SCAN_COMMAND_NAME,
+      description: `Reconcile every step's docs against the actual source code in one pass. Usage: /${DISCOVER_SCAN_COMMAND_NAME} [note]`,
+      body: discoverScanCommandBody(),
     },
   ]) {
     const file = writeStandaloneCommand(root, providerId, entry.name, entry.description, entry.body, overwrite, mappedModel);

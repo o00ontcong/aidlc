@@ -68,6 +68,15 @@ export const DiscoverRunSchema = z.object({
   id: z.string().min(1),
   step: DiscoverStepIdSchema,
   mode: z.enum(['fill', 'refine']),
+  /**
+   * `step` (default) touches one step's files, scoped by the guardrail check.
+   * `scan` reconciles every step against the actual source code in one pass,
+   * so the guardrail's allowed-files check widens to the whole blueprint.
+   * `edit` wraps a person's direct field edit in the same run/diff/keep flow
+   * an agent gets — also unscoped, since a person may edit whichever doc
+   * they have open, not just one step's files.
+   */
+  kind: z.enum(['step', 'scan', 'edit']).default('step'),
   startedAt: IsoTimestampSchema,
   finishedAt: IsoTimestampSchema.optional(),
   note: z.string().optional(),

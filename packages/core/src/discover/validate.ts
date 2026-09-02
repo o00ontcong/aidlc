@@ -16,7 +16,7 @@ import {
   type DiscoverStepSpec,
   type DodRule,
 } from './DocSpec';
-import { extractIds, findSection, itemSignature, type DocModel, type DocRecord, type DocSection } from './mdParse';
+import { extractIds, findSection, itemSignature, proseEntryId, type DocModel, type DocRecord, type DocSection } from './mdParse';
 
 /** Parsed docs keyed by path relative to `docsRoot`. */
 export type Blueprint = Map<string, DocModel>;
@@ -280,6 +280,12 @@ function signatures(blueprint: Blueprint): Map<string, string> {
     for (const sec of doc.sections) {
       for (const entry of [...sec.items, ...sec.records]) {
         out.set(`${docPath}#${entry.id}`, itemSignature(entry));
+      }
+      // A prose section has no items/records of its own, so without this it
+      // never shows up in a diff at all — an edit to "Problem" or "Core
+      // value" would silently vanish from the run's diff and guardrail.
+      if (sec.kind === 'prose' && sec.prose) {
+        out.set(`${docPath}#${proseEntryId(sec.key)}`, sec.prose);
       }
     }
   }

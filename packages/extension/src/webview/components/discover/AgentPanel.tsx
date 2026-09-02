@@ -28,7 +28,7 @@ export function AgentPanel({
           {discover.runs.slice(0, 8).map((run) => (
             <li key={run.id} className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 py-1 text-[10.5px]">
               <span className="font-mono text-[9.5px] text-muted-foreground">{run.id}</span>
-              <span className="text-muted-foreground">{run.step}</span>
+              <span className="text-muted-foreground">{run.kind === 'scan' ? copy.scanBadge : run.step}</span>
               <span className="text-success">+{run.diff.added.length}</span>
               <span className="text-warning">~{run.diff.updated.length}</span>
               <span className="text-destructive">−{run.diff.removed.length}</span>

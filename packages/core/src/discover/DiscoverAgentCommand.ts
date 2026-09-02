@@ -13,6 +13,7 @@ import { DISCOVER_STEPS, DEV_DOC_PATHS, type DiscoverStepSpec, type SectionSpec 
 export const DISCOVER_COMMAND_NAME = 'aidlc-discover';
 export const DISCOVER_PIPELINE_COMMAND_NAME = 'aidlc-discover-pipeline';
 export const DISCOVER_DEV_DOCS_COMMAND_NAME = 'aidlc-discover-dev-docs';
+export const DISCOVER_SCAN_COMMAND_NAME = 'aidlc-discover-scan';
 
 function exampleId(spec: SectionSpec): string {
   const prefix = spec.idPrefix ?? 'ID';
@@ -161,6 +162,58 @@ argument.
 ## Fill or refine
 
 ${MODE_RULES}
+
+## Format rules
+
+${FORMAT_RULES}
+
+## The steps
+
+${stepCatalogue()}
+`;
+}
+
+export function discoverScanCommandBody(): string {
+  return `# AIDLC Discover Agent — Scan existing project
+
+Other people commit to this repo too, so the twelve-step blueprint drifts:
+someone adds a feature, changes a data model, or removes an endpoint, and the
+Markdown docs are never told. Your job this run is to reconcile every step's
+docs against **what the project's source code actually does right now** — not
+against what an earlier document claims, and not against what you remember
+from a previous turn.
+
+## Task
+
+You were invoked with \`$ARGUMENTS\` = \`[optional note]\`.
+
+1. Read \`.aidlc/discover/index.json\` for \`docsRoot\` (default \`docs\`) and the
+   blueprint's title. Everything below is relative to that root.
+2. Explore the real codebase before touching any doc: entry points, package
+   manifests, routes/handlers, data models or schemas, existing tests, and any
+   README. Build your own picture of what the product actually does today —
+   that picture is this run's ground truth. When a document says one thing and
+   the code does another, **the code wins**.
+3. Go through all twelve steps below, in order, in this same turn — unlike
+   \`/${DISCOVER_PIPELINE_COMMAND_NAME}\`'s one-step-per-turn rule, because code
+   drift rarely stays inside one step: a new endpoint alone can touch
+   Requirements, Data Model, Architecture and Tech Decisions at once. For each
+   step, read its current docs (if any), then work in the mode below.
+4. Never advance \`currentStep\` and never claim the blueprint is more complete
+   than it is — a scan reconciles the record, it does not move the pipeline
+   forward.
+5. Stop. Report, step by step, what you added, changed and removed, and which
+   steps you left untouched because they already matched the code.
+
+## Fill or refine
+
+${MODE_RULES}
+
+One addition for a scan specifically: **do not invent detail the code does not
+support.** If something is ambiguous in the code, or a document records a
+decision (a "why") that has no footprint in the code either way, leave the
+existing text alone rather than guessing — a scan corrects drift, it does not
+rewrite intent.
 
 ## Format rules
 

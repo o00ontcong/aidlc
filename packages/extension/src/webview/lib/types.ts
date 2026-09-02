@@ -803,6 +803,8 @@ export interface DiscoverRunSummary {
   id: string;
   step: DiscoverStepId;
   mode: 'fill' | 'refine';
+  /** `scan` reconciled every step against the source code in one pass; `edit` wraps a person's direct field edit. */
+  kind?: 'step' | 'scan' | 'edit';
   startedAt: string;
   finishedAt?: string;
   note?: string;

@@ -270,6 +270,24 @@ export function itemSignature(entry: DocItem | DocRecord): string {
   return entry.text.trim();
 }
 
+/**
+ * A prose section (e.g. "Problem") has no item/record id of its own, but the
+ * diff, guardrail and revert machinery all key everything off `<doc>#<id>`.
+ * `prose:<sectionKey>` fills that role — the colon can't collide with a real
+ * item id, which `ITEM_RE`/`RECORD_RE` never allow to contain one.
+ */
+const PROSE_ID_PREFIX = 'prose:';
+
+/** The diff/revert key for a whole prose section, e.g. `prose:problem`. */
+export function proseEntryId(sectionKey: string): string {
+  return `${PROSE_ID_PREFIX}${sectionKey}`;
+}
+
+/** The section key inside a prose entry id, or `undefined` if `id` isn't one. */
+export function proseSectionKeyOf(id: string): string | undefined {
+  return id.startsWith(PROSE_ID_PREFIX) ? id.slice(PROSE_ID_PREFIX.length) : undefined;
+}
+
 /** Next free id for a section, e.g. `FR-03`; `group` fills the middle segment of a grouped id. */
 export function nextId(section: DocSection | undefined, spec: SectionSpec, group?: string): string {
   const prefix = spec.idPrefix ?? 'ID';

@@ -8,8 +8,10 @@ import {
   DiscoverService,
   DOC_FEATURES,
   DOC_IDEA,
+  DOC_PRODUCT,
   DOC_REQUIREMENTS,
   DOC_TECH_STACK,
+  proseEntryId,
   type ActorRef,
 } from '../src';
 
@@ -231,6 +233,51 @@ describe('DiscoverService — agent runs', () => {
       'section-removed',      // '## Non-functional requirements' is gone
     ]);
     expect(finished.run.guardrail.some((g) => g.startsWith('pinned-modified'))).toBe(true);
+  });
+
+  it('widens the guardrail to every doc for a scan or edit run, unlike a plain step run', () => {
+    for (const kind of ['scan', 'edit'] as const) {
+      const service = seeded();
+      const { run } = service.startRun('requirements', { kind });
+      fs.writeFileSync(
+        service.docFile(DOC_FEATURES),
+        '# Features\n\n## Features\n\n- **F-VIDEO-01** — Phát video — FR-01.\n',
+        'utf8',
+      );
+      const finished = service.finishRun(run.id);
+      expect(finished.diff.added).toEqual([`${DOC_FEATURES}#F-VIDEO-01`]);
+      expect(finished.guardrail.some((g) => g.code === 'out-of-scope')).toBe(false);
+    }
+  });
+
+  it('diffs and reverts an edit to a prose section, not just items/records', () => {
+    const service = seeded();
+
+    // Fill it, then run again so the second run's snapshot starts non-empty —
+    // that is the "edit an existing paragraph" case the fill/refine split
+    // does not otherwise exercise for prose.
+    service.applyOps(DOC_PRODUCT, [{ op: 'setProse', section: 'problem', value: 'Bản nháp đầu.' }], { actor: USER });
+
+    const { run } = service.startRun('product');
+    service.applyOps(DOC_PRODUCT, [{ op: 'setProse', section: 'problem', value: 'Trader thiếu công cụ backtest.' }], { actor: USER, runId: run.id });
+    const finished = service.finishRun(run.id);
+
+    const key = `${DOC_PRODUCT}#${proseEntryId('problem')}`;
+    expect(finished.diff.updated).toEqual([key]);
+    expect(finished.guardrail).toEqual([]);
+
+    const { reverted, issues } = service.revertEntries(run.id, [key], USER);
+    expect(issues).toEqual([]);
+    expect(reverted).toEqual([key]);
+    expect(service.readDoc(DOC_PRODUCT).sections.find((s) => s.key === 'problem')?.prose).toBe('Bản nháp đầu.');
+
+    // The exact bug report this covers: clearing a prose field to empty
+    // ("delete some text, then delete the rest") must show up as a removal,
+    // not as no diff at all.
+    const clearRun = service.startRun('product').run;
+    service.applyOps(DOC_PRODUCT, [{ op: 'setProse', section: 'problem', value: '' }], { actor: USER, runId: clearRun.id });
+    const clearedFinish = service.finishRun(clearRun.id);
+    expect(clearedFinish.diff.removed).toEqual([key]);
   });
 
   it('reverts a run back to the snapshot, docs and sidecar alike', () => {

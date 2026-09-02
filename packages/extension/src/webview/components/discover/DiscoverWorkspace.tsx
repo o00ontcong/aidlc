@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ExternalLink, Play, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Play, RefreshCw, ScanSearch } from 'lucide-react';
 import type { DiscoverStepId, DiscoverSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
@@ -18,7 +18,7 @@ import { SectionCard } from './SectionCard';
 import { StepRail } from './StepRail';
 import { docsForStep, missingRequirements, pct } from './lib';
 
-type Mode = 'pipeline' | 'docs' | 'diff' | 'checks';
+type Mode = 'pipeline' | 'docs' | 'checks';
 type StepPane = 'structured' | 'raw' | 'preview';
 
 export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSummary; language: DiscoverLanguage }) {
@@ -26,6 +26,7 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
   const [mode, setMode] = useState<Mode>('pipeline');
   const [viewing, setViewing] = useState<DiscoverStepId>(discover.currentStep);
   const [pane, setPane] = useState<StepPane>('structured');
+  const [diffOpen, setDiffOpen] = useState(false);
 
   // Follow real workflow moves; selecting a step in the rail is navigation only.
   useEffect(() => { setViewing(discover.currentStep); }, [discover.currentStep]);
@@ -88,6 +89,14 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
           </button>
           <button
             type="button"
+            onClick={() => postMessage({ type: 'scanDiscoverProject' })}
+            title={copy.hints.scanProject}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <ScanSearch className="h-3 w-3" />{copy.scanProject}
+          </button>
+          <button
+            type="button"
             onClick={() => postMessage({ type: 'runDiscoverPipeline' })}
             title={copy.hints.runPipeline}
             className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
@@ -97,14 +106,19 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
         </span>
       </header>
 
-      {active && mode !== 'diff' && (
+      {active && (
         <div className="flex flex-wrap items-center gap-2 border-b border-warning/40 bg-warning/10 px-4 py-1.5 text-[11px] text-warning">
-          <span className="font-semibold">{copy.runBanner(active.run.id, active.run.mode)}</span>
+          <span className="font-semibold">
+            {active.run.kind === 'edit' ? copy.editBanner(active.run.id, active.run.mode) : copy.runBanner(active.run.id, active.run.mode)}
+          </span>
+          {active.run.kind === 'scan' && (
+            <span className="rounded bg-warning/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{copy.scanBadge}</span>
+          )}
           <span>
             +{active.added.length} ~{active.updated.length} −{active.removed.length}
           </span>
           <span className="ml-auto flex gap-2">
-            <button type="button" title={copy.hints.showDiff} onClick={() => setMode('diff')} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.viewDiff}</button>
+            <button type="button" title={copy.hints.showDiff} onClick={() => setDiffOpen(true)} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.viewDiff}</button>
             <button type="button" title={copy.hints.keepRun} onClick={() => postMessage({ type: 'keepDiscoverRun', runId: active.run.id })} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.keep}</button>
             <button type="button" title={copy.hints.revertRun} onClick={() => postMessage({ type: 'revertDiscoverRun', runId: active.run.id })} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.revert}</button>
           </span>
@@ -112,17 +126,18 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
       )}
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {mode === 'diff' && <DiffView discover={discover} copy={copy} onBack={() => setMode('pipeline')} />}
         {mode === 'checks' && <ChecksView discover={discover} copy={copy} onBack={() => setMode('pipeline')} />}
         {mode === 'docs' && <DocsMode discover={discover} copy={copy} />}
         {mode === 'pipeline' && (
           <div className="grid h-full min-h-0" style={{ gridTemplateColumns: 'clamp(148px, 17vw, 216px) minmax(0,1fr) clamp(186px, 21vw, 262px)' }}>
             <StepRail discover={discover} viewing={viewing} copy={copy} onSelect={setViewing} />
             <StepDetail discover={discover} stepId={viewing} pane={pane} copy={copy} onPane={setPane} />
-            <AgentPanel discover={discover} copy={copy} onOpenDiff={() => setMode('diff')} />
+            <AgentPanel discover={discover} copy={copy} onOpenDiff={() => setDiffOpen(true)} />
           </div>
         )}
       </div>
+
+      {diffOpen && <DiffView discover={discover} copy={copy} onClose={() => setDiffOpen(false)} />}
     </div>
   );
 }

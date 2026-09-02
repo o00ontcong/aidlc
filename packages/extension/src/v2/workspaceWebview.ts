@@ -188,6 +188,7 @@ import {
   DISCOVER_COMMAND_NAME,
   DISCOVER_PIPELINE_COMMAND_NAME,
   DISCOVER_DEV_DOCS_COMMAND_NAME,
+  DISCOVER_SCAN_COMMAND_NAME,
   DISCOVER_STEPS,
   COFOFO_RECIPE_IDS,
   epicsRoot,
@@ -301,6 +302,53 @@ function runSlashCommandInProvider(slash: string, root: string, extensionPath: s
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean) : [];
+}
+
+/**
+ * Wrap a person's direct field edit in the same run → diff → keep/revert flow
+ * an agent run already gets, instead of writing straight to disk with no
+ * review step. Folds into whatever is already pending review (an agent's run,
+ * or an earlier edit in the same session) so the diff widens rather than
+ * stacking a second unresolved run; starts a fresh `kind: 'edit'` run when
+ * nothing is pending; and — if an agent is still actively mid-run — leaves
+ * the edit untracked rather than risk touching that run's in-flight snapshot.
+ */
+function withDiscoverEditReview(
+  service: DiscoverService,
+  docPath: string,
+  write: (runId: string | undefined) => void,
+): void {
+  const existing = service.activeRun();
+  let runId: string | undefined;
+  if (existing?.status === 'review') {
+    runId = existing.id;
+  } else if (!existing) {
+    const stepId = DISCOVER_STEPS.find((s) => s.files.some((f) => f.path === docPath))?.id;
+    if (stepId) { runId = service.startRun(stepId, { kind: 'edit' }).run.id; }
+  }
+  write(runId);
+  if (runId) { service.finishRun(runId); }
+}
+
+/**
+ * A one-line seed for a blueprint bootstrapped by scanning existing source
+ * code, when no seed sentence was ever typed by a person. Best-effort: a
+ * `package.json` name/description, else just the folder name.
+ */
+function deriveScanSeedSentence(root: string): string {
+  try {
+    const pkgPath = path.join(root, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { name?: string; description?: string };
+      const name = typeof pkg.name === 'string' ? pkg.name : undefined;
+      const description = typeof pkg.description === 'string' ? pkg.description.trim() : '';
+      if (name && description) { return `${name}: ${description}`; }
+      if (name) { return name; }
+    }
+  } catch {
+    // Malformed package.json — fall through to the folder name.
+  }
+  return path.basename(root);
 }
 
 // ── Webview-side type shapes (must mirror src/webview/lib/types.ts) ───────
@@ -2145,13 +2193,22 @@ export class WorkspaceWebview {
         const ops = Array.isArray(msg.ops) ? (msg.ops as DocOp[]) : [];
         if (!root || !isDiscoverDocPath(docPath) || ops.length === 0) { return; }
         const revision = Number(msg.revision);
+        const expectedRevision = Number.isInteger(revision) ? revision : undefined;
         this.handleDiscoverMutation(() => {
-          const result = new DiscoverService(root).applyOps(docPath, ops, {
-            actor: { kind: 'user', id: 'vscode-user' },
-            expectedRevision: Number.isInteger(revision) ? revision : undefined,
+          const service = new DiscoverService(root);
+          // Checked up front: starting a run below bumps the revision itself,
+          // which would make this check fire on the run's own bump instead of
+          // on a real conflict if it ran after.
+          const currentRevision = service.require().revision;
+          if (expectedRevision !== undefined && currentRevision !== expectedRevision) {
+            throw new DiscoverRevisionConflictError(expectedRevision, currentRevision);
+          }
+          let issues: string[] = [];
+          withDiscoverEditReview(service, docPath, (runId) => {
+            issues = service.applyOps(docPath, ops, { actor: { kind: 'user', id: 'vscode-user' }, runId }).issues;
           });
-          if (result.issues.length) {
-            void vscode.window.showWarningMessage(`AIDLC Discover: ${result.issues.join(' · ')}`);
+          if (issues.length) {
+            void vscode.window.showWarningMessage(`AIDLC Discover: ${issues.join(' · ')}`);
           }
         });
         return;
@@ -2163,10 +2220,15 @@ export class WorkspaceWebview {
         const content = typeof msg.content === 'string' ? msg.content : undefined;
         if (!root || !isDiscoverDocPath(docPath) || content === undefined) { return; }
         const revision = Number(msg.revision);
+        const expectedRevision = Number.isInteger(revision) ? revision : undefined;
         this.handleDiscoverMutation(() => {
-          new DiscoverService(root).writeDoc(docPath, content, {
-            actor: { kind: 'user', id: 'vscode-user' },
-            expectedRevision: Number.isInteger(revision) ? revision : undefined,
+          const service = new DiscoverService(root);
+          const currentRevision = service.require().revision;
+          if (expectedRevision !== undefined && currentRevision !== expectedRevision) {
+            throw new DiscoverRevisionConflictError(expectedRevision, currentRevision);
+          }
+          withDiscoverEditReview(service, docPath, (runId) => {
+            service.writeDoc(docPath, content, { actor: { kind: 'user', id: 'vscode-user' }, runId });
           });
         });
         return;
@@ -2226,6 +2288,37 @@ export class WorkspaceWebview {
         return;
       }
 
+      case 'scanDiscoverProject': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const service = new DiscoverService(root);
+        // Existing project, no blueprint yet: bootstrap it from what's on
+        // disk instead of asking the user to type a seed sentence first.
+        if (!service.exists()) {
+          try {
+            service.init({
+              seedSentence: deriveScanSeedSentence(root),
+              outputLanguage: resolveDisplayLanguage(),
+              actor: { kind: 'user', id: 'vscode-user' },
+            });
+          } catch (error) {
+            void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
+            return;
+          }
+        }
+        const index = service.require();
+        try {
+          // Snapshot BEFORE the agent starts — the diff and every undo hang off it.
+          service.startRun(index.currentStep, { kind: 'scan' });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
+          return;
+        }
+        runSlashCommandInProvider(`/${DISCOVER_SCAN_COMMAND_NAME}`, root, this.extensionUri.fsPath);
+        this.refresh();
+        return;
+      }
+
       case 'runDiscoverDevDocs': {
         const root = this.getRootOrWarn();
         if (!root) { return; }
@@ -2255,6 +2348,20 @@ export class WorkspaceWebview {
         if (!root || !runId || keys.length === 0) { return; }
         this.handleDiscoverMutation(() => {
           const result = new DiscoverService(root).revertEntries(runId, keys, { kind: 'user', id: 'vscode-user' });
+          if (result.issues.length) {
+            void vscode.window.showWarningMessage(`AIDLC Discover: ${result.issues.join(' · ')}`);
+          }
+        });
+        return;
+      }
+
+      case 'keepDiscoverItems': {
+        const root = this.getRootOrWarn();
+        const runId = typeof msg.runId === 'string' ? msg.runId : '';
+        const keys = stringList(msg.keys);
+        if (!root || !runId || keys.length === 0) { return; }
+        this.handleDiscoverMutation(() => {
+          const result = new DiscoverService(root).keepEntries(runId, keys);
           if (result.issues.length) {
             void vscode.window.showWarningMessage(`AIDLC Discover: ${result.issues.join(' · ')}`);
           }

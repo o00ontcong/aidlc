@@ -9,6 +9,8 @@ export type DiscoverLanguage = 'en' | 'vi';
 export interface DiscoverHints {
   seedInput: string;
   startBlueprint: string;
+  scanExisting: string;
+  scanProject: string;
   openGuide: string;
   showPipeline: string;
   showDocs: string;
@@ -45,6 +47,7 @@ export interface DiscoverHints {
   openFile: (path: string) => string;
   back: string;
   undoEntry: string;
+  keepEntry: string;
   undoAll: string;
   keepAll: string;
   openEpic: string;
@@ -65,7 +68,13 @@ export interface DiscoverCopy {
   emptyHint: string;
   openGuide: string;
   seedPlaceholder: string;
+  seedShortcutHint: string;
   start: string;
+  orDivider: string;
+  scanExisting: string;
+  scanExistingHint: string;
+  scanProject: string;
+  scanBadge: string;
 
   // chrome
   modePipeline: string;
@@ -162,6 +171,7 @@ export interface DiscoverCopy {
   strayLines: (n: number) => string;
   groupPlaceholder: (prefix: string) => string;
   runBanner: (runId: string, mode: string) => string;
+  editBanner: (runId: string, mode: string) => string;
   runLabel: (runId: string, step: string) => string;
 }
 
@@ -184,8 +194,10 @@ const RECIPE_HINT_EN: Record<string, string> = {
 };
 
 const HINTS_VI: DiscoverHints = {
-  seedInput: 'Nhập một câu mô tả sản phẩm để khởi tạo blueprint 12 bước.',
+  seedInput: 'Nhập mô tả sản phẩm (một câu hoặc nhiều đoạn) để khởi tạo blueprint 12 bước.',
   startBlueprint: 'Tạo blueprint và các tài liệu Markdown ban đầu từ mô tả sản phẩm.',
+  scanExisting: 'Bỏ qua ý tưởng — đọc mã nguồn đã có trong workspace và tự điền 12 mục từ đó.',
+  scanProject: 'Đọc lại mã nguồn hiện tại và đối chiếu với 12 mục; phần lệch sẽ hiện ở diff để bạn xem trước khi giữ lại.',
   openGuide: 'Mở hướng dẫn giải thích 12 bước, định dạng tài liệu và cách chạy agent.',
   showPipeline: 'Xem và chỉnh sửa blueprint theo thứ tự 12 bước phát triển.',
   showDocs: 'Xem toàn bộ tài liệu blueprint theo cây thư mục và file.',
@@ -222,6 +234,7 @@ const HINTS_VI: DiscoverHints = {
   openFile: (path) => `Mở ${path} trong VS Code editor.`,
   back: 'Quay lại màn hình pipeline.',
   undoEntry: 'Chỉ hoàn tác thay đổi của mục này, giữ nguyên các thay đổi khác trong run.',
+  keepEntry: 'Chỉ xác nhận thay đổi của mục này; các mục khác trong run vẫn chờ quyết định.',
   undoAll: 'Hoàn tác tất cả thay đổi của run và khôi phục snapshot trước đó.',
   keepAll: 'Chấp nhận tất cả thay đổi và xoá snapshot hoàn tác của run.',
   openEpic: 'Mở danh sách Epic và đi tới Epic đã được tạo từ phase này.',
@@ -232,8 +245,10 @@ const HINTS_VI: DiscoverHints = {
 };
 
 const HINTS_EN: DiscoverHints = {
-  seedInput: 'Enter a one-sentence product description to initialise the 12-step blueprint.',
+  seedInput: 'Enter a product description (one sentence or several paragraphs) to initialise the 12-step blueprint.',
   startBlueprint: 'Create the blueprint and its initial Markdown documents from the product description.',
+  scanExisting: 'Skip the idea — read the source code already in this workspace and fill the 12 sections from that.',
+  scanProject: 'Re-read the current source code and reconcile it against the 12 sections; anything that drifted shows up in the diff for you to review before keeping it.',
   openGuide: 'Open the guide to the 12 steps, document format, and agent workflow.',
   showPipeline: 'View and edit the blueprint in its 12-step development order.',
   showDocs: 'Browse all blueprint documents by folder and file.',
@@ -270,6 +285,7 @@ const HINTS_EN: DiscoverHints = {
   openFile: (path) => `Open ${path} in the VS Code editor.`,
   back: 'Return to the pipeline view.',
   undoEntry: 'Undo only this entry\'s change and keep the other changes in the run.',
+  keepEntry: 'Confirm only this entry\'s change; the rest of the run still awaits a decision.',
   undoAll: 'Undo every change in this run and restore the preceding snapshot.',
   keepAll: 'Accept every change and discard the run\'s undo snapshot.',
   openEpic: 'Open the Epics list and navigate to the Epic created from this phase.',
@@ -286,11 +302,17 @@ const VI: DiscoverCopy = {
 
   emptyTitle: 'Bắt đầu một blueprint',
   emptyBody:
-    'Một câu mô tả sản phẩm là đủ để bắt đầu. Discover đưa nó đi qua 12 bước — Idea → Product Definition → Requirements → Features → Use Cases → User Flow → Data Model → Architecture → Tech Decisions → Project Structure → Implementation Plan → Project Skeleton — và ghi kết quả thẳng vào các file Markdown trong docs/.',
+    'Một câu mô tả sản phẩm là đủ để bắt đầu, hoặc viết dài hơn — mục tiêu, người dùng, ràng buộc đã biết — để agent có thêm ngữ cảnh. Discover đưa nó đi qua 12 bước — Idea → Product Definition → Requirements → Features → Use Cases → User Flow → Data Model → Architecture → Tech Decisions → Project Structure → Implementation Plan → Project Skeleton — và ghi kết quả thẳng vào các file Markdown trong docs/.',
   emptyHint: 'Các file .md trong docs/ là source of truth; agent điền và cập nhật từng mục trong đó.',
   openGuide: 'Mở hướng dẫn pipeline',
-  seedPlaceholder: 'Mô tả sản phẩm bằng một câu…',
+  seedPlaceholder: 'Mô tả sản phẩm — một câu là đủ, hoặc viết dài hơn để thêm ngữ cảnh…',
+  seedShortcutHint: '⌘/Ctrl + Enter để bắt đầu',
   start: 'Bắt đầu',
+  orDivider: 'hoặc',
+  scanExisting: 'Quét mã nguồn có sẵn',
+  scanExistingHint: 'Đã có sourcecode trong workspace này? Quét thay vì gõ ý tưởng — agent đọc code và tự điền 12 mục.',
+  scanProject: 'Quét dự án',
+  scanBadge: 'quét',
 
   modePipeline: 'Pipeline',
   modeDocs: 'Docs',
@@ -379,6 +401,7 @@ const VI: DiscoverCopy = {
   strayLines: (n) => `${n} dòng không đúng định dạng, không được theo dõi`,
   groupPlaceholder: (prefix) => `${prefix}-<nhóm>`,
   runBanner: (runId, mode) => `Agent vừa chạy ${runId} (${mode === 'fill' ? 'điền mới' : 'bổ sung/sửa'})`,
+  editBanner: (runId) => `Bạn vừa sửa ${runId}`,
   runLabel: (runId, step) => `${runId} · ${step}`,
 };
 
@@ -389,11 +412,17 @@ const EN: DiscoverCopy = {
 
   emptyTitle: 'Start a blueprint',
   emptyBody:
-    'One sentence about the product is enough to start. Discover takes it through 12 steps — Idea → Product Definition → Requirements → Features → Use Cases → User Flow → Data Model → Architecture → Tech Decisions → Project Structure → Implementation Plan → Project Skeleton — writing the result straight into the Markdown files under docs/.',
+    'One sentence about the product is enough to start, or write more — goals, users, known constraints — to give the agent more context. Discover takes it through 12 steps — Idea → Product Definition → Requirements → Features → Use Cases → User Flow → Data Model → Architecture → Tech Decisions → Project Structure → Implementation Plan → Project Skeleton — writing the result straight into the Markdown files under docs/.',
   emptyHint: 'The .md files under docs/ are the source of truth; the agent fills and updates each section in them.',
   openGuide: 'Open the pipeline guide',
-  seedPlaceholder: 'Describe the product in one sentence…',
+  seedPlaceholder: 'Describe the product — one sentence is enough, or write more for extra context…',
+  seedShortcutHint: '⌘/Ctrl + Enter to start',
   start: 'Start',
+  orDivider: 'or',
+  scanExisting: 'Scan existing source code',
+  scanExistingHint: 'Already have source code in this workspace? Scan it instead of typing an idea — the agent reads the code and fills the 12 sections itself.',
+  scanProject: 'Scan project',
+  scanBadge: 'scan',
 
   modePipeline: 'Pipeline',
   modeDocs: 'Docs',
@@ -482,6 +511,7 @@ const EN: DiscoverCopy = {
   strayLines: (n) => `${n} line(s) not in the item format — untracked`,
   groupPlaceholder: (prefix) => `${prefix}-<group>`,
   runBanner: (runId, mode) => `Agent run ${runId} (${mode})`,
+  editBanner: (runId) => `You just edited ${runId}`,
   runLabel: (runId, step) => `${runId} · ${step}`,
 };
 

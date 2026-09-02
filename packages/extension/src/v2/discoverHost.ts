@@ -20,6 +20,7 @@ import {
   getPhase,
   listPhases,
   normalizeStep,
+  proseSectionKeyOf,
   renderPhaseIntent,
   scaffoldEpic,
   suggestRecipeForPhase,
@@ -138,6 +139,10 @@ export interface DiscoverDiffRowUi {
 
 function entryText(doc: DocModel | undefined, id: string): string | undefined {
   if (!doc) { return undefined; }
+  const proseSectionKey = proseSectionKeyOf(id);
+  if (proseSectionKey !== undefined) {
+    return doc.sections.find((s) => s.key === proseSectionKey)?.prose;
+  }
   for (const section of doc.sections) {
     const item = section.items.find((i) => i.id === id);
     if (item) { return item.text; }

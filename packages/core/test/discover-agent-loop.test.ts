@@ -149,7 +149,46 @@ describe('Discover run verdicts', () => {
       'FR-03:Hiển thị hai subtitle.', // untouched by the partial undo
       'FR-02:Nạp subtitle #1.',       // deleted → restored (at the end of its section)
     ]);
-    expect(service.require().runs.find((r) => r.id === run.id)!.status).toBe('review');
+    const reloaded = service.require().runs.find((r) => r.id === run.id)!;
+    expect(reloaded.status).toBe('review');
+    // The two reverted entries are back to matching the snapshot, so the
+    // run's own diff should no longer list them — otherwise the dialog still
+    // shows a "change" for something that was just undone.
+    expect(reloaded.diff).toMatchObject({
+      added: [`${DOC_REQUIREMENTS}#FR-03`],
+      updated: [],
+      removed: [],
+    });
+  });
+
+  it('keeps one entry of a run — it survives "undo the whole run" and drops off the diff', () => {
+    const service = withOneRequirement();
+    const { run } = service.startRun('requirements');
+
+    // Same three-way change as the partial-undo test above.
+    agentWrites(service, '# Requirements\n\n## Functional requirements\n\n- **FR-01** — Mở video local từ Files.\n- **FR-03** — Hiển thị hai subtitle.\n\n## Non-functional requirements\n');
+    service.finishRun(run.id);
+
+    const result = service.keepEntries(run.id, [`${DOC_REQUIREMENTS}#FR-03`]);
+    expect(result.issues).toEqual([]);
+    expect(result.kept).toEqual([`${DOC_REQUIREMENTS}#FR-03`]);
+
+    // Confirmed, so it drops out of the run's diff — only FR-01/FR-02 are
+    // still pending a verdict.
+    const afterKeep = service.require().runs.find((r) => r.id === run.id)!;
+    expect(afterKeep.diff).toMatchObject({
+      added: [],
+      updated: [`${DOC_REQUIREMENTS}#FR-01`],
+      removed: [`${DOC_REQUIREMENTS}#FR-02`],
+    });
+
+    // And it's baked into the snapshot now, so undoing the rest of the run
+    // does not take FR-03 down with it.
+    service.revertRun(run.id);
+    const items = service.readDoc(DOC_REQUIREMENTS).sections[0]!.items;
+    expect(items.map((i) => i.id).sort()).toEqual(['FR-01', 'FR-02', 'FR-03']);
+    expect(items.find((i) => i.id === 'FR-01')!.text).toBe('Mở video local.'); // FR-01 reverted
+    expect(items.find((i) => i.id === 'FR-03')!.text).toBe('Hiển thị hai subtitle.'); // FR-03 kept
   });
 
   it('refuses a partial undo once the snapshot has been dropped', () => {
