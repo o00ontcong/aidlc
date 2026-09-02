@@ -298,6 +298,15 @@ describe('DiscoverService — agent runs', () => {
     expect(fs.readFileSync(service.docFile(DOC_REQUIREMENTS), 'utf8')).toBe(original);
     expect(index.items[`${DOC_REQUIREMENTS}#FR-02`]).toBeUndefined();
     expect(index.runs.find((r) => r.id === run.id)!.revertable).toBe(false);
+    // A reverted run has nothing left to undo back to — its snapshot should not linger on disk.
+    expect(fs.existsSync(service.snapshotDir(run.id))).toBe(false);
+  });
+
+  it('keeps run snapshots out of the host project\'s git status', () => {
+    const service = seeded();
+    service.startRun('requirements');
+    const ignoreFile = path.join(service.discoverDir(), '.gitignore');
+    expect(fs.readFileSync(ignoreFile, 'utf8')).toContain('snapshots/');
   });
 
   it('removes a doc the run created when reverting', () => {

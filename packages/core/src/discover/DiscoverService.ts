@@ -675,7 +675,23 @@ export class DiscoverService {
     return { index: finished, kept, issues };
   }
 
+  /**
+   * Keep run snapshots out of `git status` in the host project. Idempotent:
+   * appends a rule to `.aidlc/.gitignore` (creating it if needed) the first
+   * time a snapshot is taken, mirroring GitRunStateStore.ensureIgnored.
+   */
+  private ensureSnapshotsIgnored(): void {
+    const rule = `${SNAPSHOTS_DIR}/`;
+    const ignoreFile = path.join(this.discoverDir(), '.gitignore');
+    const existing = fs.existsSync(ignoreFile) ? fs.readFileSync(ignoreFile, 'utf8') : '';
+    if (existing.split(/\r?\n/).includes(rule)) { return; }
+    const prefix = existing.length && !existing.endsWith('\n') ? '\n' : '';
+    fs.mkdirSync(this.discoverDir(), { recursive: true });
+    fs.appendFileSync(ignoreFile, `${prefix}${rule}\n`);
+  }
+
   private snapshotDocs(runId: string, index: DiscoverIndex): void {
+    this.ensureSnapshotsIgnored();
     const root = this.snapshotDir(runId);
     fs.rmSync(root, { recursive: true, force: true });
     for (const docPath of allDocPaths()) {
