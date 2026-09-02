@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ExternalLink, Play, RefreshCw, ScanSearch } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FolderTree, Play, RefreshCw, ScanSearch } from 'lucide-react';
 import type { DiscoverStepId, DiscoverSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
@@ -86,6 +86,14 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <ExternalLink className="h-3 w-3" />{copy.openInEditor}
+          </button>
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'declareDiscoverScope' })}
+            title={copy.hints.repoLayout}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <FolderTree className="h-3 w-3" />{copy.repoLayout(discover.scope)}
           </button>
           <button
             type="button"

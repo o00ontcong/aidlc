@@ -3,6 +3,8 @@
  * reads better than inline ternaries at every call site.
  */
 
+import type { DiscoverScopeSummary } from './types';
+
 export type DiscoverLanguage = 'en' | 'vi';
 
 /** Hover help for every interactive control in the Discover (formerly Ideas) tab. */
@@ -11,6 +13,7 @@ export interface DiscoverHints {
   startBlueprint: string;
   scanExisting: string;
   scanProject: string;
+  repoLayout: string;
   openGuide: string;
   showPipeline: string;
   showDocs: string;
@@ -75,6 +78,8 @@ export interface DiscoverCopy {
   scanExistingHint: string;
   scanProject: string;
   scanBadge: string;
+  /** Header button label: the declared layout, or an invitation to declare one. */
+  repoLayout: (scope?: DiscoverScopeSummary) => string;
 
   // chrome
   modePipeline: string;
@@ -198,6 +203,7 @@ const HINTS_VI: DiscoverHints = {
   startBlueprint: 'Tạo blueprint và các tài liệu Markdown ban đầu từ mô tả sản phẩm.',
   scanExisting: 'Bỏ qua ý tưởng — đọc mã nguồn đã có trong workspace và tự điền 12 mục từ đó.',
   scanProject: 'Đọc lại mã nguồn hiện tại và đối chiếu với 12 mục; phần lệch sẽ hiện ở diff để bạn xem trước khi giữ lại.',
+  repoLayout: 'Khai báo repo nào chứa code của blueprint này — một repo, repo cha nhiều con, hay một repo con. Scan chỉ đọc trong vùng đã khai báo.',
   openGuide: 'Mở hướng dẫn giải thích 12 bước, định dạng tài liệu và cách chạy agent.',
   showPipeline: 'Xem và chỉnh sửa blueprint theo thứ tự 12 bước phát triển.',
   showDocs: 'Xem toàn bộ tài liệu blueprint theo cây thư mục và file.',
@@ -249,6 +255,7 @@ const HINTS_EN: DiscoverHints = {
   startBlueprint: 'Create the blueprint and its initial Markdown documents from the product description.',
   scanExisting: 'Skip the idea — read the source code already in this workspace and fill the 12 sections from that.',
   scanProject: 'Re-read the current source code and reconcile it against the 12 sections; anything that drifted shows up in the diff for you to review before keeping it.',
+  repoLayout: 'Declare which repos hold this blueprint\'s code — one repo, a parent over several children, or one child. A scan reads only inside what you declare.',
   openGuide: 'Open the guide to the 12 steps, document format, and agent workflow.',
   showPipeline: 'View and edit the blueprint in its 12-step development order.',
   showDocs: 'Browse all blueprint documents by folder and file.',
@@ -313,6 +320,12 @@ const VI: DiscoverCopy = {
   scanExistingHint: 'Đã có sourcecode trong workspace này? Quét thay vì gõ ý tưởng — agent đọc code và tự điền 12 mục.',
   scanProject: 'Quét dự án',
   scanBadge: 'quét',
+  repoLayout: (scope) => {
+    if (!scope) { return 'Cấu trúc repo?'; }
+    if (scope.layout === 'parent') { return `Cha + ${scope.repos.length} con`; }
+    if (scope.layout === 'child') { return 'Repo con'; }
+    return 'Một repo';
+  },
 
   modePipeline: 'Pipeline',
   modeDocs: 'Docs',
@@ -423,6 +436,12 @@ const EN: DiscoverCopy = {
   scanExistingHint: 'Already have source code in this workspace? Scan it instead of typing an idea — the agent reads the code and fills the 12 sections itself.',
   scanProject: 'Scan project',
   scanBadge: 'scan',
+  repoLayout: (scope) => {
+    if (!scope) { return 'Repo layout?'; }
+    if (scope.layout === 'parent') { return `Parent + ${scope.repos.length}`; }
+    if (scope.layout === 'child') { return 'Child repo'; }
+    return 'Single repo';
+  },
 
   modePipeline: 'Pipeline',
   modeDocs: 'Docs',

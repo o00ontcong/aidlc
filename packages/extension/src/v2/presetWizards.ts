@@ -380,6 +380,10 @@ export async function savePresetInlineCommand(
  *
  * Safe to call on every Run — only writes missing files and
  * appends/renames slash_commands entries; never clobbers hand-edited bodies.
+ * The one exception is the fully generated Discover command family, which is
+ * refreshed when its generated body changes (opt out per file with an
+ * `aidlc:keep` marker) — see `generatedCommandIsStale` in
+ * `core/providers/syncPipelineCommands.ts` for why.
  */
 export function syncBuiltinPipelineCommands(
   root: string,

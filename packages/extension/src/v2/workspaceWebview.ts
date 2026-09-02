@@ -190,6 +190,7 @@ import {
   DISCOVER_DEV_DOCS_COMMAND_NAME,
   DISCOVER_SCAN_COMMAND_NAME,
   DISCOVER_STEPS,
+  type DiscoverScope,
   COFOFO_RECIPE_IDS,
   epicsRoot,
   EpicScaffoldError,
@@ -260,6 +261,7 @@ import type {
   DiscoverStepId,
   DocOp,
 } from '@aidlc/core';
+import { promptForDiscoverScope, scopeSavedMessage } from './discoverScopeWizard';
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
   listEpics,
@@ -331,24 +333,74 @@ function withDiscoverEditReview(
 }
 
 /**
- * A one-line seed for a blueprint bootstrapped by scanning existing source
- * code, when no seed sentence was ever typed by a person. Best-effort: a
- * `package.json` name/description, else just the folder name.
+ * Ask for the repo layout and store it. Returns the declared scope, or
+ * `undefined` when the user escaped — callers must treat that as "do nothing",
+ * never as "scan anyway".
+ *
+ * `service` is omitted when no blueprint exists yet: there is nothing to write
+ * the scope into, so it is handed back for `init` to persist.
  */
-function deriveScanSeedSentence(root: string): string {
-  try {
-    const pkgPath = path.join(root, 'package.json');
-    if (fs.existsSync(pkgPath)) {
+async function declareDiscoverScope(root: string, service?: DiscoverService): Promise<DiscoverScope | undefined> {
+  const language = resolveDisplayLanguage();
+  const draft = await promptForDiscoverScope(root, language, service?.scope());
+  if (!draft) { return undefined; }
+  const scope: DiscoverScope = { ...draft, declaredAt: new Date().toISOString() };
+  if (service?.exists()) {
+    try {
+      service.setScope(draft);
+    } catch (error) {
+      void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
+  }
+  void vscode.window.showInformationMessage(scopeSavedMessage(draft, language));
+  return scope;
+}
+
+/**
+ * A one-line seed for a blueprint bootstrapped by scanning existing source
+ * code, when no seed sentence was ever typed by a person.
+ *
+ * Best-effort, in the order that names a product rather than a checkout: the
+ * README's title, then a `package.json` name/description — read from a source
+ * repo rather than the workspace root, since a parent repo holding only docs
+ * has no manifest of its own — and the folder name last, which is what makes a
+ * blueprint end up called something like `repo_for_loop_engine`.
+ */
+function deriveScanSeedSentence(root: string, scope?: DiscoverScope): string {
+  const heading = readmeTitle(root);
+  if (heading) { return heading; }
+  const dirs = [root, ...(scope?.repos ?? []).map((r) => (r.path === '.' ? root : path.join(root, r.path)))];
+  for (const dir of dirs) {
+    try {
+      const pkgPath = path.join(dir, 'package.json');
+      if (!fs.existsSync(pkgPath)) { continue; }
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { name?: string; description?: string };
       const name = typeof pkg.name === 'string' ? pkg.name : undefined;
       const description = typeof pkg.description === 'string' ? pkg.description.trim() : '';
       if (name && description) { return `${name}: ${description}`; }
       if (name) { return name; }
+    } catch {
+      // Malformed package.json — try the next source repo.
     }
-  } catch {
-    // Malformed package.json — fall through to the folder name.
   }
   return path.basename(root);
+}
+
+/** The first `# ` heading of the root README, when there is one. */
+function readmeTitle(root: string): string | undefined {
+  for (const name of ['README.md', 'readme.md', 'README.MD']) {
+    const file = path.join(root, name);
+    if (!fs.existsSync(file)) { continue; }
+    try {
+      const heading = fs.readFileSync(file, 'utf8').split(/\r?\n/).find((line) => /^#\s+\S/.test(line));
+      const title = heading?.replace(/^#\s+/, '').trim();
+      if (title) { return title; }
+    } catch {
+      // Unreadable README — fall through.
+    }
+  }
+  return undefined;
 }
 
 // ── Webview-side type shapes (must mirror src/webview/lib/types.ts) ───────
@@ -2288,17 +2340,37 @@ export class WorkspaceWebview {
         return;
       }
 
+      case 'declareDiscoverScope': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        await declareDiscoverScope(root, new DiscoverService(root));
+        this.refresh();
+        return;
+      }
+
       case 'scanDiscoverProject': {
         const root = this.getRootOrWarn();
         if (!root) { return; }
         const service = new DiscoverService(root);
+        // Which repos this blueprint is about, asked once and reused after
+        // that. Declared BEFORE the blueprint is bootstrapped, because the
+        // answer is what a sensible title is derived from — and because a
+        // scan with an undeclared scope is the bug this whole flow exists to
+        // stop, so an escaped wizard must start no run at all.
+        let scope = service.scope();
+        if (!scope) {
+          const declared = await declareDiscoverScope(root, service.exists() ? service : undefined);
+          if (!declared) { this.refresh(); return; }
+          scope = declared;
+        }
         // Existing project, no blueprint yet: bootstrap it from what's on
         // disk instead of asking the user to type a seed sentence first.
         if (!service.exists()) {
           try {
             service.init({
-              seedSentence: deriveScanSeedSentence(root),
+              seedSentence: deriveScanSeedSentence(root, scope),
               outputLanguage: resolveDisplayLanguage(),
+              scope,
               actor: { kind: 'user', id: 'vscode-user' },
             });
           } catch (error) {

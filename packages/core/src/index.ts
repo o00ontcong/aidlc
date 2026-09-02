@@ -63,6 +63,8 @@ export {
   type DiscoverRunDiff,
   type DiscoverStepId,
   type DiscoverHandoff,
+  type DiscoverScope,
+  type DiscoverSourceRepo,
   type CofofoRecipeId,
   COFOFO_RECIPE_IDS,
   parseDiscoverIndex,

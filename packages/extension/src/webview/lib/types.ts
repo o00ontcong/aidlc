@@ -843,6 +843,15 @@ export interface DiscoverPhase {
   handoff?: { phaseId: string; epicId: string; recipeId: CofofoRecipeId; title: string; at: string };
 }
 
+/** Mirrors `DiscoverScope` in core — which repos the blueprint describes. */
+export interface DiscoverScopeSummary {
+  layout: 'single' | 'parent' | 'child';
+  parentPath?: string;
+  repos: { path: string; kind: string; name?: string }[];
+  excludes: string[];
+  declaredAt: string;
+}
+
 export interface DiscoverSummary {
   id: string;
   title: string;
@@ -850,6 +859,8 @@ export interface DiscoverSummary {
   docsRoot: string;
   docsRootPath: string;
   outputLanguage: 'en' | 'vi';
+  /** Absent until the user declares the repo layout — the first scan asks. */
+  scope?: DiscoverScopeSummary;
   currentStep: DiscoverStepId;
   revision: number;
   steps: DiscoverStep[];

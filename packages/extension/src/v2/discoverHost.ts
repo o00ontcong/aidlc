@@ -28,6 +28,7 @@ import {
   type CofofoRecipeId,
   type DiscoverHandoff,
   type DiscoverPhase,
+  type DiscoverScope,
   type BlueprintContext,
   type DiscoverIndex,
   type DiscoverRun,
@@ -108,6 +109,12 @@ export interface DiscoverUi {
   docsRoot: string;
   docsRootPath: string;
   outputLanguage: 'en' | 'vi';
+  /**
+   * Which repos this blueprint describes, once declared. Surfaced so the tab
+   * can show what a scan is actually scoped to — an undeclared scope is why a
+   * scan on a parent repo used to describe the wrong thing.
+   */
+  scope?: DiscoverScope;
   currentStep: DiscoverStepId;
   revision: number;
   steps: DiscoverStepUi[];
@@ -249,6 +256,7 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
     docsRoot: index.docsRoot,
     docsRootPath,
     outputLanguage: index.outputLanguage,
+    scope: index.scope,
     currentStep: index.currentStep,
     revision: index.revision,
     steps: DISCOVER_STEPS.map((step) => {

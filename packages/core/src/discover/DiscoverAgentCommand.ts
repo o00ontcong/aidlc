@@ -9,6 +9,7 @@
  */
 
 import { DISCOVER_STEPS, DEV_DOC_PATHS, type DiscoverStepSpec, type SectionSpec } from './DocSpec';
+import { EXCLUDED_DIRS } from './sourceScope';
 
 export const DISCOVER_COMMAND_NAME = 'aidlc-discover';
 export const DISCOVER_PIPELINE_COMMAND_NAME = 'aidlc-discover-pipeline';
@@ -73,6 +74,11 @@ const FORMAT_RULES = [
   '5. **Stay inside this step\'s files.** Editing a document that belongs to',
   '   another step is reported as an out-of-scope change.',
   '6. Write in the language the existing docs are written in.',
+  '7. **If you read source code at all, read it inside the declared scope.**',
+  '   `scope.repos` in `.aidlc/discover/index.json` says which repos hold this',
+  '   blueprint\'s code. Never treat `.aidlc/`, `.claude/`, `.cursor/`,',
+  '   `.codex/` or `.opencode/` as source — they are the AI tooling\'s own',
+  '   configuration, and describing them describes the tool, not the product.',
 ].join('\n');
 
 const MODE_RULES = [
@@ -187,23 +193,76 @@ from a previous turn.
 
 You were invoked with \`$ARGUMENTS\` = \`[optional note]\`.
 
-1. Read \`.aidlc/discover/index.json\` for \`docsRoot\` (default \`docs\`) and the
-   blueprint's title. Everything below is relative to that root.
-2. Explore the real codebase before touching any doc: entry points, package
+1. Read \`.aidlc/discover/index.json\` for \`docsRoot\` (default \`docs\`), the
+   blueprint's title, and \`scope\` — **which repos on disk this blueprint is
+   the record of.** Every doc path below is relative to \`docsRoot\`.
+   If \`scope\` is missing, stop and tell the user to declare the repo layout
+   from the Discover panel first. Do not guess it: guessing is what makes a
+   scan describe the wrong product.
+2. Read the scope and obey it — see **Where the code is** below.
+3. Explore the real codebase, inside the scope only: entry points, package
    manifests, routes/handlers, data models or schemas, existing tests, and any
    README. Build your own picture of what the product actually does today —
    that picture is this run's ground truth. When a document says one thing and
    the code does another, **the code wins**.
-3. Go through all twelve steps below, in order, in this same turn — unlike
+4. Go through all twelve steps below, in order, in this same turn — unlike
    \`/${DISCOVER_PIPELINE_COMMAND_NAME}\`'s one-step-per-turn rule, because code
    drift rarely stays inside one step: a new endpoint alone can touch
    Requirements, Data Model, Architecture and Tech Decisions at once. For each
    step, read its current docs (if any), then work in the mode below.
-4. Never advance \`currentStep\` and never claim the blueprint is more complete
+5. Never advance \`currentStep\` and never claim the blueprint is more complete
    than it is — a scan reconciles the record, it does not move the pipeline
    forward.
-5. Stop. Report, step by step, what you added, changed and removed, and which
-   steps you left untouched because they already matched the code.
+6. Stop. Report, step by step, what you added, changed and removed, and which
+   steps you left untouched because they already matched the code. Report per
+   source repo when there is more than one.
+
+## Where the code is
+
+\`scope.repos\` lists the repos whose code you are reconciling against. Each
+has a \`path\` (relative to the workspace root; \`.\` is the workspace itself)
+and a \`kind\` the user declared — \`backend\`, \`frontend\`, \`mobile\`, … Those
+paths are the **only** places you read source from, and \`scope.layout\` says
+how to treat them:
+
+- \`single\` — one repo holding its own source. The ordinary case.
+- \`parent\` — this workspace is a parent repo that owns the docs while the
+  code lives in the listed child repos, each its own git repo with its own
+  stack. So:
+    - Give **every child repo its own \`M-\` module record** in
+      \`architecture/MODULES.md\`, with \`- **Folder:**\` set to its \`path\`, and
+      one \`MAP-\` line in \`architecture/PROJECT_STRUCTURE.md\` citing that id.
+    - Never merge two repos' stacks into one \`TECH-\` entry. Name the repo in
+      the entry (\`- **Choice:** Go 1.22 + chi (backend)\`) so a reader can tell
+      which repo a decision binds.
+    - Keep product-level documents (Idea through User Flows) about the
+      **product as a whole**, not about one repo.
+- \`child\` — this workspace is one child of a parent repo at
+  \`scope.parentPath\`. Read that parent's \`docs/\` as the product-level input
+  and do not contradict or restate it; this blueprint's job is this repo's own
+  data model, architecture, stack, structure and plan.
+
+### Never read these as source
+
+${EXCLUDED_DIRS.map((d) => `\`${d}\``).join(', ')} — at any depth, plus
+\`docsRoot\` itself and anything in \`scope.excludes\`.
+
+The first group is the reason this section exists: \`.aidlc/\`, \`.claude/\`,
+\`.cursor/\`, \`.codex/\`, \`.opencode/\` hold the **AI tooling's** own templates,
+skills and slash commands. They are configuration that happens to live in this
+repo — never the product. A stack decision like "Markdown as the prompt
+language" or "YAML for pipeline config" is a sign you read the scaffolding and
+described the tool instead of the product. \`.aidlc/discover/snapshots/\` is
+worse: it holds old copies of these very documents, and treating those as
+evidence makes the scan agree with itself.
+
+### Never write outside \`docsRoot\`
+
+A source repo is **read-only** this run. A child repo commonly has its own
+\`docs/\` with the same filenames as this blueprint (\`ARCHITECTURE.md\`,
+\`CONTEXT.md\`); those are input you may read, never files you may edit. The
+app fingerprints every source repo's git state around this run and shows the
+user any repo you dirtied.
 
 ## Fill or refine
 

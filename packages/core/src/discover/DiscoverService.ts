@@ -20,6 +20,7 @@ import {
   type DiscoverIndex,
   type DiscoverItemMeta,
   type DiscoverRun,
+  type DiscoverScope,
   type DiscoverStepId,
 } from '../contracts/discover';
 import { writeFileAtomic } from '../epic/EpicStore';
@@ -32,6 +33,12 @@ import {
   type DocFileSpec,
 } from './DocSpec';
 import { applyOps, renderEmptyDoc, type DocOp, type PatchResult } from './mdPatch';
+import {
+  checkSourceRepoWrites,
+  fingerprintSourceRepos,
+  singleRepoScope,
+  type SourceRepoFingerprint,
+} from './sourceScope';
 import { itemSignature, parseDoc, proseSectionKeyOf, type DocItem, type DocModel, type DocRecord } from './mdParse';
 import {
   checkGuardrails,
@@ -51,6 +58,12 @@ import {
 const DISCOVER_DIR = '.aidlc/discover';
 const INDEX_FILE = 'index.json';
 const SNAPSHOTS_DIR = 'snapshots';
+/**
+ * Inside a run's snapshot dir: the git state of every declared source repo at
+ * the moment the run started. Lives with the snapshot rather than in
+ * `index.json` because it is per-run scratch, and it dies with the snapshot.
+ */
+const SOURCE_FINGERPRINT_FILE = '_source-repos.json';
 const MAX_RUNS = 50;
 
 export class DiscoverNotInitializedError extends Error {
@@ -72,6 +85,8 @@ export interface InitBlueprintInput {
   title?: string;
   docsRoot?: string;
   outputLanguage?: 'en' | 'vi';
+  /** The repo layout, when the caller already asked for it. Left undeclared otherwise. */
+  scope?: DiscoverScope;
   actor: ActorRef;
 }
 
@@ -195,6 +210,7 @@ export class DiscoverService {
       seedSentence: input.seedSentence.trim(),
       docsRoot: input.docsRoot ?? 'docs',
       outputLanguage: input.outputLanguage ?? 'en',
+      scope: input.scope,
       currentStep: 'idea',
       revision: 0,
       docs: {},
@@ -418,6 +434,37 @@ export class DiscoverService {
     return (index ?? this.load())?.handoffs.find((h) => h.phaseId === phaseId);
   }
 
+  // ── source scope ─────────────────────────────────────────────────────────
+
+  /** The declared repo layout, or `undefined` while the user has never been asked. */
+  scope(index?: DiscoverIndex): DiscoverScope | undefined {
+    return (index ?? this.load())?.scope;
+  }
+
+  /**
+   * The layout to actually scan with. Falls back to "this one repo, its own
+   * source" for a blueprint created before layouts existed — the behaviour
+   * those blueprints already had — without writing that assumption to disk,
+   * so the wizard still gets to ask.
+   */
+  effectiveScope(index?: DiscoverIndex): DiscoverScope {
+    const idx = index ?? this.load() ?? undefined;
+    return idx?.scope ?? singleRepoScope(this.workspaceRoot, idx?.createdAt ?? nowIso());
+  }
+
+  /**
+   * Record which repos this blueprint describes. Overwrites wholesale: the
+   * user re-declares a layout when the repo tree changes, and merging a stale
+   * repo list into a new one would quietly keep a repo that has moved away.
+   */
+  setScope(scope: Omit<DiscoverScope, 'declaredAt'>): DiscoverIndex {
+    const index = this.require();
+    return this.save({
+      ...this.bump(index),
+      scope: { ...scope, declaredAt: nowIso() },
+    });
+  }
+
   // ── agent runs ───────────────────────────────────────────────────────────
 
   /** Snapshot the docs, then record the run so its diff has something to compare against. */
@@ -430,6 +477,9 @@ export class DiscoverService {
     const kind = options.kind ?? 'step';
     const runId = options.runId ?? `run-${String(index.runs.length + 1).padStart(3, '0')}`;
     this.snapshotDocs(runId, index);
+    // A scan is the only run that reads outside `docsRoot`, so it is the only
+    // one that can wander into a source repo and write there.
+    if (kind === 'scan') { this.writeSourceFingerprint(runId, index); }
     const run: DiscoverRun = {
       id: runId,
       step: stepId,
@@ -469,7 +519,10 @@ export class DiscoverService {
     // Only a plain step run is scoped to its own files — a scan or a
     // person's direct edit may legitimately touch any doc.
     const allowed = run.kind === 'step' ? getStepSpec(run.step).files.map((f) => f.path) : allDocPaths();
-    const guardrail = checkGuardrails(before.docs, after.docs, beforeIndex, allowed);
+    const guardrail = [
+      ...checkGuardrails(before.docs, after.docs, beforeIndex, allowed),
+      ...this.checkSourceRepos(run, index),
+    ];
     const updated: DiscoverRun = {
       ...run,
       finishedAt: nowIso(),
@@ -688,6 +741,33 @@ export class DiscoverService {
     const prefix = existing.length && !existing.endsWith('\n') ? '\n' : '';
     fs.mkdirSync(this.discoverDir(), { recursive: true });
     fs.appendFileSync(ignoreFile, `${prefix}${rule}\n`);
+  }
+
+  /** Git state of every declared source repo, stored beside the run's snapshot. */
+  private writeSourceFingerprint(runId: string, index: DiscoverIndex): void {
+    const scope = this.effectiveScope(index);
+    if (scope.repos.every((r) => r.path === '.')) { return; }
+    const file = path.join(this.snapshotDir(runId), SOURCE_FINGERPRINT_FILE);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    writeFileAtomic(file, `${JSON.stringify(fingerprintSourceRepos(this.workspaceRoot, scope), null, 2)}\n`);
+  }
+
+  /**
+   * Did this run write into a repo that is source, not blueprint? Silent for
+   * anything but a scan, and silent when the fingerprint is missing — an
+   * older run, or a single-repo blueprint with nothing to compare.
+   */
+  private checkSourceRepos(run: DiscoverRun, index: DiscoverIndex): GuardrailIssue[] {
+    if (run.kind !== 'scan') { return []; }
+    const file = path.join(this.snapshotDir(run.id), SOURCE_FINGERPRINT_FILE);
+    if (!fs.existsSync(file)) { return []; }
+    let before: SourceRepoFingerprint;
+    try {
+      before = JSON.parse(fs.readFileSync(file, 'utf8')) as SourceRepoFingerprint;
+    } catch {
+      return [];
+    }
+    return checkSourceRepoWrites(before, fingerprintSourceRepos(this.workspaceRoot, this.effectiveScope(index)));
   }
 
   private snapshotDocs(runId: string, index: DiscoverIndex): void {
