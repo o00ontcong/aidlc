@@ -444,7 +444,10 @@ export class DiscoverService {
       revertable: true,
       status: 'running',
     };
-    const runs = [...index.runs, run].slice(-MAX_RUNS);
+    const allRuns = [...index.runs, run];
+    const evicted = allRuns.slice(0, Math.max(0, allRuns.length - MAX_RUNS));
+    for (const r of evicted) { fs.rmSync(this.snapshotDir(r.id), { recursive: true, force: true }); }
+    const runs = allRuns.slice(-MAX_RUNS);
     return { index: this.save({ ...index, revision: index.revision + 1, runs }), run };
   }
 
@@ -509,6 +512,8 @@ export class DiscoverService {
       if (fs.existsSync(from)) { fs.cpSync(from, to, { recursive: true }); }
     }
     const reindexed = this.reindexAll({ kind: 'user', id: 'revert' }, runId);
+    // Nothing left to undo back to once the snapshot has been applied.
+    fs.rmSync(snapshotRoot, { recursive: true, force: true });
     return this.save({
       ...reindexed,
       runs: reindexed.runs.map((r) => (r.id === runId ? { ...r, revertable: false, status: 'reverted' as const } : r)),
