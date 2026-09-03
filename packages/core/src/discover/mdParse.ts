@@ -13,7 +13,13 @@ import type { DocFileSpec, SectionKind, SectionSpec } from './DocSpec';
 
 export interface DocItem {
   id: string;
+  /** One-line title on the bullet itself. */
   text: string;
+  /**
+   * Optional body under the bullet — indented continuation lines.
+   * A leading `Description:` / `- **Description:**` label is stripped.
+   */
+  description?: string;
   /** 0-based, inclusive. */
   startLine: number;
   /** 0-based, exclusive. */
@@ -109,6 +115,17 @@ function fencedLines(lines: string[]): Set<number> {
   return inside;
 }
 
+const DESCRIPTION_LABEL_RE = /^(?:-\s+)?(?:\*\*)?description(?:\*\*)?:\s*/i;
+
+function stripDescriptionLabel(line: string): string {
+  return line.replace(DESCRIPTION_LABEL_RE, '').trim();
+}
+
+/** Title plus description — what coverage, search and citations scan. */
+export function itemBody(item: Pick<DocItem, 'text' | 'description'>): string {
+  return [item.text, item.description].filter((part) => (part ?? '').trim()).join('\n');
+}
+
 function trimBlockEnd(lines: string[], start: number, end: number): number {
   let last = end;
   while (last > start && lines[last - 1]!.trim() === '') { last -= 1; }
@@ -173,7 +190,24 @@ function parseSectionBody(
       if (fenced.has(idx)) { section.stray.push(line); continue; }
       const match = ITEM_RE.exec(line);
       if (match) {
-        section.items.push({ id: match[1]!, text: match[2]!.trim(), startLine: idx, endLine: idx + 1 });
+        const descLines: string[] = [];
+        let end = idx + 1;
+        while (end < endLine) {
+          if (fenced.has(end)) { break; }
+          const next = lines[end]!;
+          if (next.trim() === '' || ITEM_RE.test(next) || !/^\s+/.test(next)) { break; }
+          descLines.push(stripDescriptionLabel(next.trim()));
+          end += 1;
+        }
+        const description = descLines.filter(Boolean).join('\n') || undefined;
+        section.items.push({
+          id: match[1]!,
+          text: match[2]!.trim(),
+          description,
+          startLine: idx,
+          endLine: end,
+        });
+        idx = end - 1;
         continue;
       }
       if (line.trim() !== '') { section.stray.push(line); }
@@ -267,7 +301,7 @@ export function itemSignature(entry: DocItem | DocRecord): string {
       .join('\n');
     return `${entry.title}\n${fields}\n${entry.extra.join('\n')}`.trim();
   }
-  return entry.text.trim();
+  return itemBody(entry).trim();
 }
 
 /**

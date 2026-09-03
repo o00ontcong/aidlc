@@ -190,8 +190,8 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
       path: DOC_REQUIREMENTS,
       title: 'Requirements',
       sections: [
-        { key: 'functional', heading: 'Functional requirements', kind: 'items', idPrefix: 'FR', idPattern: plain('FR'), hint: 'One checkable behaviour per line.' },
-        { key: 'nonFunctional', heading: 'Non-functional requirements', kind: 'items', idPrefix: 'NFR', grouped: true, idPattern: grouped('NFR'), hint: 'Group by category: NFR-PERF-01, NFR-A11Y-01, …' },
+        { key: 'functional', heading: 'Functional requirements', kind: 'items', idPrefix: 'FR', idPattern: plain('FR'), hint: 'One checkable behaviour per line, then an indented description of how it is observed.' },
+        { key: 'nonFunctional', heading: 'Non-functional requirements', kind: 'items', idPrefix: 'NFR', grouped: true, idPattern: grouped('NFR'), hint: 'Group by category: NFR-PERF-01, NFR-A11Y-01, …. Add an indented description when the constraint needs more than the title.' },
       ],
     }],
     dod: [
@@ -210,7 +210,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
       title: 'Feature breakdown',
       sections: [
         { key: 'tree', heading: 'Feature tree', kind: 'prose', shape: 'ascii-tree', hint: 'A fenced ```text ASCII tree. Kept verbatim.' },
-        { key: 'features', heading: 'Features', kind: 'items', idPrefix: 'F', grouped: true, idPattern: grouped('F'), hint: 'Group in the id: F-VIDEO-01. Cite the FR ids the feature covers.' },
+        { key: 'features', heading: 'Features', kind: 'items', idPrefix: 'F', grouped: true, idPattern: grouped('F'), hint: 'Group in the id: F-VIDEO-01. Cite the FR ids the feature covers. Add an indented description of what the cluster does.' },
       ],
     }],
     dod: [

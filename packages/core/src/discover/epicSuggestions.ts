@@ -64,6 +64,7 @@ export interface EpicSuggestionInput {
 interface FeatureEntry {
   id: string;
   text: string;
+  description?: string;
 }
 
 interface ModuleEntry {
@@ -92,6 +93,7 @@ export interface DiscoverCoveredItem {
   id: string;
   kind: DiscoverCoverageKind;
   text: string;
+  description?: string;
   status: DiscoverItemCoverageStatus;
   /** Feature group (`VIDEO`) or `Screens`. */
   group: string;
@@ -111,7 +113,7 @@ function sectionItems(ctx: BlueprintContext, file: string, sectionKey: string): 
   const section = doc ? findSection(doc, sectionKey) : undefined;
   if (!section) { return []; }
   return [
-    ...section.items.map((i) => ({ id: i.id, text: i.text })),
+    ...section.items.map((i) => ({ id: i.id, text: i.text, description: i.description })),
     ...section.records.map((r) => ({
       id: r.id,
       text: r.title || r.fields.map((f) => `${f.label}: ${f.value}`).join(' · '),
@@ -301,7 +303,7 @@ function matchFilesForFeature(
   mappings: FeatureEntry[],
   sourceFiles: string[],
 ): string[] {
-  const tokens = searchTokens(feature.id, feature.text);
+  const tokens = searchTokens(feature.id, [feature.text, feature.description].filter(Boolean).join(' '));
   const linked = modules.filter((m) =>
     m.cites.includes(feature.id) || tokens.some((t) => m.title.toLowerCase().includes(t) || m.folder.toLowerCase().includes(t)),
   );
@@ -940,10 +942,11 @@ export function classifyItemCoverage(input: EpicSuggestionInput): DiscoverItemCo
       id: feature.id,
       kind: 'feature',
       text: feature.text,
+      description: feature.description,
       status,
       group: featureGroup(feature.id).toUpperCase() || feature.id,
       coveringFeatureIds: [],
-      coveredFrIds: extractIds(feature.text).filter((id) => id.startsWith('FR-')),
+      coveredFrIds: extractIds([feature.text, feature.description].filter(Boolean).join('\n')).filter((id) => id.startsWith('FR-')),
       matchedFiles: matched,
     };
   });
@@ -954,6 +957,7 @@ export function classifyItemCoverage(input: EpicSuggestionInput): DiscoverItemCo
       id: fr.id,
       kind: 'fr',
       text: fr.text,
+      description: fr.description,
       status: frStatusFrom(covering),
       group: '',
       coveringFeatureIds: covering.map((f) => f.id),

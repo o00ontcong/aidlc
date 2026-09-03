@@ -42,8 +42,9 @@ describe('Discover agent command bodies', () => {
 
   it('teaches exactly the item and record shapes the parser reads', () => {
     const body = discoverCommandBody();
-    expect(body).toContain('- **FR-01** — text');
-    expect(body).toContain('- **NFR-<GROUP>-01** — text');
+    expect(body).toContain('- **FR-01** — title');
+    expect(body).toContain('- **NFR-<GROUP>-01** — title');
+    expect(body).toContain('optional indented description lines');
     expect(body).toContain('one `### UC-01 — Title` block per entry');
     expect(body).toContain('`- **Actor:** value` — required');
     expect(body).toContain('`- **Main flow:**` then nested `  - ` bullets — required');

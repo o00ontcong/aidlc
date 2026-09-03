@@ -60,11 +60,12 @@ function revealTarget(files: string[]): string | undefined {
   return files[0];
 }
 
-function matchesQuery(item: { id: string; text: string; coveringFeatureIds?: string[]; coveredFrIds?: string[]; matchedFiles?: string[] }, query: string): boolean {
+function matchesQuery(item: { id: string; text: string; description?: string; coveringFeatureIds?: string[]; coveredFrIds?: string[]; matchedFiles?: string[] }, query: string): boolean {
   if (!query) { return true; }
   const hay = [
     item.id,
     item.text,
+    item.description ?? '',
     ...(item.coveringFeatureIds ?? []),
     ...(item.coveredFrIds ?? []),
     ...(item.matchedFiles ?? []),
@@ -183,6 +184,9 @@ function ItemRow({ item, copy }: { item: DiscoverCoveredItem; copy: DiscoverCopy
       {item.text.trim() && (
         <p className="text-[11.5px] leading-snug text-foreground">{item.text}</p>
       )}
+      {item.description?.trim() && (
+        <p className="text-[11px] leading-snug text-muted-foreground">{item.description}</p>
+      )}
       <RowMeta item={item} copy={copy} />
     </div>
   );
@@ -290,6 +294,7 @@ function RequirementsStatus({ discover, copy }: { discover: DiscoverSummary; cop
             <div key={item.id} className="space-y-0.5 border-b border-border/30 px-3 py-2 last:border-b-0">
               <code className="rounded border border-border bg-background px-1.5 font-mono text-[9.5px] text-muted-foreground">{item.id}</code>
               {item.text.trim() && <p className="text-[11.5px] leading-snug text-foreground">{item.text}</p>}
+              {item.description?.trim() && <p className="text-[11px] leading-snug text-muted-foreground">{item.description}</p>}
             </div>
           ))}
         </div>
@@ -324,6 +329,9 @@ function FeatureTree({ features, copy }: { features: DiscoverCoveredItem[]; copy
                   </div>
                   {item.text.trim() && (
                     <p className="text-[11.5px] leading-snug text-foreground">{item.text}</p>
+                  )}
+                  {item.description?.trim() && (
+                    <p className="text-[11px] leading-snug text-muted-foreground">{item.description}</p>
                   )}
                   <RowMeta item={item} copy={copy} />
                 </li>

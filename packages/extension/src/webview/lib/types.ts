@@ -745,6 +745,7 @@ export type DiscoverStepId =
 export interface DiscoverItem {
   id: string;
   text: string;
+  description?: string;
   origin: 'ai' | 'human';
   pinned: boolean;
   flagged: boolean;
@@ -931,6 +932,7 @@ export interface DiscoverCoveredItem {
   id: string;
   kind: DiscoverCoverageKind;
   text: string;
+  description?: string;
   status: DiscoverItemCoverageStatus;
   group: string;
   coveringFeatureIds: string[];

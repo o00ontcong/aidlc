@@ -19,8 +19,8 @@ export interface RecordFieldInput {
 
 export type DocOp =
   | { op: 'setProse'; section: string; value: string }
-  | { op: 'addItem'; section: string; id?: string; group?: string; text: string }
-  | { op: 'updateItem'; id: string; text: string }
+  | { op: 'addItem'; section: string; id?: string; group?: string; text: string; description?: string }
+  | { op: 'updateItem'; id: string; text: string; description?: string }
   | { op: 'removeItem'; id: string }
   | { op: 'addRecord'; section: string; id?: string; group?: string; title: string; fields?: RecordFieldInput[] }
   | { op: 'updateRecord'; id: string; title?: string; fields?: RecordFieldInput[] }
@@ -36,6 +36,13 @@ export interface PatchResult {
 
 export function renderItemLine(id: string, text: string): string {
   return `- **${id}** — ${text.trim()}`;
+}
+
+export function renderItemLines(id: string, text: string, description?: string): string[] {
+  const head = renderItemLine(id, text);
+  const desc = description?.trim();
+  if (!desc) { return [head]; }
+  return [head, ...desc.split('\n').map((line) => `  ${line.trim()}`)];
 }
 
 function renderFieldLines(field: RecordFieldInput, spec?: RecordFieldSpec): string[] {
@@ -137,14 +144,15 @@ function applyOne(lines: string[], spec: DocFileSpec, op: DocOp, result: PatchRe
       const id = op.id ?? nextId(section, sectionSpec, op.group);
       if (findItem(doc, id) || findRecord(doc, id)) { result.issues.push(`Id ${id} already exists — not re-used.`); return; }
       const { at, blankBefore } = appendPoint(section);
-      insertBlock(lines, at, [renderItemLine(id, op.text)], blankBefore);
+      insertBlock(lines, at, renderItemLines(id, op.text, op.description), blankBefore);
       result.applied.push({ op: op.op, id });
       return;
     }
     case 'updateItem': {
       const found = findItem(reparse(), op.id);
       if (!found) { result.issues.push(`Item ${op.id} not found.`); return; }
-      lines.splice(found.item.startLine, found.item.endLine - found.item.startLine, renderItemLine(op.id, op.text));
+      const description = op.description !== undefined ? op.description : found.item.description;
+      lines.splice(found.item.startLine, found.item.endLine - found.item.startLine, ...renderItemLines(op.id, op.text, description));
       result.applied.push({ op: op.op, id: op.id });
       return;
     }

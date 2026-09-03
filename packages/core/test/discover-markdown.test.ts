@@ -48,6 +48,57 @@ describe('parseDoc', () => {
     expect(own.prose).toContain('Android tính sau.');
   });
 
+  it('reads an indented description under a requirement or feature', () => {
+    const content = `# Requirements
+
+## Functional requirements
+
+- **FR-01** — User có thể mở video local.
+  Chọn file từ Files; player nạp khung đầu.
+- **FR-02** — User có thể nạp subtitle #1.
+  Description: Một file .srt gắn vào track overlay thứ nhất.
+
+## Non-functional requirements
+`;
+    const items = findSection(parseDoc(content, REQ_SPEC), 'functional')!.items;
+    expect(items[0]).toMatchObject({
+      id: 'FR-01',
+      text: 'User có thể mở video local.',
+      description: 'Chọn file từ Files; player nạp khung đầu.',
+    });
+    expect(items[1]!.description).toBe('Một file .srt gắn vào track overlay thứ nhất.');
+  });
+
+  it('round-trips a description through add and update', () => {
+    const added = applyOps('', REQ_SPEC, [{
+      op: 'addItem',
+      section: 'functional',
+      text: 'Mở video local.',
+      description: 'Chọn file từ Files.',
+    }]);
+    expect(added.content).toContain('- **FR-01** — Mở video local.\n  Chọn file từ Files.');
+    expect(findSection(parseDoc(added.content, REQ_SPEC), 'functional')!.items[0]!.description).toBe('Chọn file từ Files.');
+
+    const updated = applyOps(added.content, REQ_SPEC, [{
+      op: 'updateItem',
+      id: 'FR-01',
+      text: 'Mở video local.',
+      description: 'Chọn file từ Files hoặc Files app.',
+    }]);
+    expect(findSection(parseDoc(updated.content, REQ_SPEC), 'functional')!.items[0]!.description)
+      .toBe('Chọn file từ Files hoặc Files app.');
+
+    const titleOnly = applyOps(updated.content, REQ_SPEC, [{
+      op: 'updateItem',
+      id: 'FR-01',
+      text: 'User mở được video local.',
+    }]);
+    expect(findSection(parseDoc(titleOnly.content, REQ_SPEC), 'functional')!.items[0]).toMatchObject({
+      text: 'User mở được video local.',
+      description: 'Chọn file từ Files hoặc Files app.',
+    });
+  });
+
   it('does not parse item-looking lines inside a fenced block', () => {
     const content = `# Project structure
 

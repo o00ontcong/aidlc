@@ -36,6 +36,7 @@ export interface DiscoverHints {
   openDoc: (path: string) => string;
   addEntry: string;
   itemInput: string;
+  itemDescription: string;
   groupInput: string;
   confirmAdd: string;
   cancelAdd: string;
@@ -160,6 +161,7 @@ export interface DiscoverCopy {
   byAi: string;
   byYou: string;
   newEntryPlaceholder: string;
+  descriptionPlaceholder: string;
   titlePlaceholder: string;
   onePerLine: string;
   cancel: string;
@@ -319,6 +321,7 @@ const HINTS_VI: DiscoverHints = {
   openDoc: (path) => `Mở ${path} trong VS Code editor.`,
   addEntry: 'Thêm một mục mới vào section này và tự cấp ID tiếp theo.',
   itemInput: 'Nhập nội dung mục; Enter để lưu, Esc để huỷ.',
+  itemDescription: 'Mô tả thêm — vì sao mục này có, và cách quan sát/kiểm chứng.',
   groupInput: 'Nhập mã nhóm dùng để tạo ID cho mục mới.',
   confirmAdd: 'Lưu mục mới vào tài liệu.',
   cancelAdd: 'Huỷ việc thêm mục mới.',
@@ -376,6 +379,7 @@ const HINTS_EN: DiscoverHints = {
   openDoc: (path) => `Open ${path} in the VS Code editor.`,
   addEntry: 'Add an entry to this section and allocate its next ID.',
   itemInput: 'Enter the entry text; press Enter to save or Escape to cancel.',
+  itemDescription: 'Extra description — why this entry exists and how to observe it.',
   groupInput: 'Enter the group code used to generate the new entry ID.',
   confirmAdd: 'Save the new entry to the document.',
   cancelAdd: 'Cancel adding the new entry.',
@@ -502,6 +506,7 @@ const VI: DiscoverCopy = {
   byAi: 'ai',
   byYou: 'bạn',
   newEntryPlaceholder: 'Nội dung mục mới…',
+  descriptionPlaceholder: 'Mô tả thêm (không bắt buộc)…',
   titlePlaceholder: 'Tiêu đề…',
   onePerLine: ' (mỗi dòng một ý)',
   cancel: 'Huỷ',
@@ -694,6 +699,7 @@ const EN: DiscoverCopy = {
   byAi: 'ai',
   byYou: 'you',
   newEntryPlaceholder: 'New entry…',
+  descriptionPlaceholder: 'Optional description…',
   titlePlaceholder: 'Title…',
   onePerLine: ' (one per line)',
   cancel: 'Cancel',

@@ -43,7 +43,7 @@ function describeSection(spec: SectionSpec): string[] {
       }
       break;
     case 'items':
-      lines.push(`  - \`## ${spec.heading}\` — bullet list, one entry per line: \`- **${exampleId(spec)}** — text\`.`);
+      lines.push(`  - \`## ${spec.heading}\` — bullet list: \`- **${exampleId(spec)}** — title\`, then optional indented description lines under it.`);
       break;
     case 'records':
       lines.push(`  - \`## ${spec.heading}\` — one \`### ${exampleId(spec)} — Title\` block per entry, each with:`);

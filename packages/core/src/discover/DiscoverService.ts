@@ -146,7 +146,7 @@ function findEntry(doc: DocModel, id: string): FoundEntry | undefined {
 function restoreOp(found: FoundEntry): DocOp {
   if (found.kind === 'item') {
     const item = found.entry as DocItem;
-    return { op: 'addItem', section: found.sectionKey, id: item.id, text: item.text };
+    return { op: 'addItem', section: found.sectionKey, id: item.id, text: item.text, description: item.description };
   }
   if (found.kind === 'prose') {
     return { op: 'setProse', section: found.sectionKey, value: (found.entry as ProseEntry).text };
@@ -719,7 +719,7 @@ export class DiscoverService {
           if (was.kind === 'prose') {
             ops.push({ op: 'setProse', section: was.sectionKey, value: (was.entry as ProseEntry).text });
           } else if (was.kind === 'item') {
-            ops.push({ op: 'updateItem', id, text: (was.entry as DocItem).text });
+            ops.push({ op: 'updateItem', id, text: (was.entry as DocItem).text, description: (was.entry as DocItem).description });
           } else {
             ops.push({
               op: 'updateRecord',
@@ -791,7 +791,7 @@ export class DiscoverService {
           if (was.kind === 'prose') {
             ops.push({ op: 'setProse', section: was.sectionKey, value: (now.entry as ProseEntry).text });
           } else if (was.kind === 'item') {
-            ops.push({ op: 'updateItem', id, text: (now.entry as DocItem).text });
+            ops.push({ op: 'updateItem', id, text: (now.entry as DocItem).text, description: (now.entry as DocItem).description });
           } else {
             ops.push({
               op: 'updateRecord',

@@ -86,14 +86,17 @@ function ItemRow({
 }: { docPath: string; revision: number; item: DiscoverItem; copy: DiscoverCopy; readOnly?: boolean; flagged: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.text);
+  const [descDraft, setDescDraft] = useState(item.description ?? '');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  useEffect(() => { setDraft(item.text); }, [item.text]);
+  useEffect(() => { setDraft(item.text); setDescDraft(item.description ?? ''); }, [item.text, item.description]);
 
   const save = () => {
     const text = draft.trim();
+    const description = descDraft.trim();
     setEditing(false);
-    if (!text || text === item.text) { setDraft(item.text); return; }
-    send({ type: 'applyDiscoverOps', docPath, revision, ops: [{ op: 'updateItem', id: item.id, text }] });
+    if (!text) { setDraft(item.text); setDescDraft(item.description ?? ''); return; }
+    if (text === item.text && description === (item.description ?? '')) { return; }
+    send({ type: 'applyDiscoverOps', docPath, revision, ops: [{ op: 'updateItem', id: item.id, text, description }] });
   };
 
   return (
@@ -103,27 +106,40 @@ function ItemRow({
       </code>
 
       {editing ? (
-        <input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={save}
-          title={copy.hints.itemInput}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { save(); }
-            if (e.key === 'Escape') { setDraft(item.text); setEditing(false); }
-          }}
-          className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-[11.5px] text-foreground"
-        />
+        <div className="min-w-0 flex-1 space-y-1">
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            title={copy.hints.itemInput}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { save(); }
+              if (e.key === 'Escape') { setDraft(item.text); setDescDraft(item.description ?? ''); setEditing(false); }
+            }}
+            className="w-full rounded border border-primary/50 bg-background px-1.5 py-0.5 text-[11.5px] text-foreground"
+          />
+          <textarea
+            value={descDraft}
+            onChange={(e) => setDescDraft(e.target.value)}
+            onBlur={save}
+            placeholder={copy.descriptionPlaceholder}
+            title={copy.hints.itemDescription}
+            rows={2}
+            className="w-full resize-y rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
+          />
+        </div>
       ) : (
         <button
           type="button"
           disabled={readOnly || item.pinned}
           onClick={() => setEditing(true)}
-          className="min-w-0 flex-1 text-left text-[11.5px] leading-snug text-foreground disabled:cursor-default"
+          className="min-w-0 flex-1 text-left disabled:cursor-default"
           title={item.pinned ? copy.pinnedHint : copy.editHint}
         >
-          {item.text}
+          <span className="block text-[11.5px] leading-snug text-foreground">{item.text}</span>
+          {item.description?.trim() && (
+            <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{item.description}</span>
+          )}
         </button>
       )}
 
@@ -168,6 +184,7 @@ function AddItemRow({
   docPath, revision, section, copy, onDone,
 }: { docPath: string; revision: number; section: DiscoverSection; copy: DiscoverCopy; onDone: () => void }) {
   const [text, setText] = useState('');
+  const [description, setDescription] = useState('');
   const [group, setGroup] = useState(groupsInSection(section.items.map((i) => i.id))[0] ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -178,33 +195,50 @@ function AddItemRow({
       type: 'applyDiscoverOps',
       docPath,
       revision,
-      ops: [{ op: 'addItem', section: section.key, text: text.trim(), group: section.grouped ? (group.trim() || 'GEN') : undefined }],
+      ops: [{
+        op: 'addItem',
+        section: section.key,
+        text: text.trim(),
+        description: description.trim() || undefined,
+        group: section.grouped ? (group.trim() || 'GEN') : undefined,
+      }],
     });
     onDone();
   };
 
   return (
-    <div className="flex items-center gap-1.5 border-t border-border/40 bg-secondary/20 px-3 py-1.5">
-      {section.grouped && (
+    <div className="space-y-1 border-t border-border/40 bg-secondary/20 px-3 py-1.5">
+      <div className="flex items-center gap-1.5">
+        {section.grouped && (
+          <input
+            value={group}
+            onChange={(e) => setGroup(e.target.value)}
+            placeholder={copy.groupPlaceholder(section.idPrefix ?? 'ID')}
+            title={copy.hints.groupInput}
+            className="w-24 shrink-0 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase text-foreground"
+          />
+        )}
         <input
-          value={group}
-          onChange={(e) => setGroup(e.target.value)}
-          placeholder={copy.groupPlaceholder(section.idPrefix ?? 'ID')}
-          title={copy.hints.groupInput}
-          className="w-24 shrink-0 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase text-foreground"
+          ref={inputRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { submit(); } if (e.key === 'Escape') { onDone(); } }}
+          placeholder={section.hint ?? copy.newEntryPlaceholder}
+          title={copy.hints.itemInput}
+          className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-[11.5px] text-foreground"
         />
-      )}
-      <input
-        ref={inputRef}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') { submit(); } if (e.key === 'Escape') { onDone(); } }}
-        placeholder={section.hint ?? copy.newEntryPlaceholder}
-        title={copy.hints.itemInput}
-        className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-[11.5px] text-foreground"
+        <button type="button" title={copy.hints.confirmAdd} aria-label={copy.hints.confirmAdd} onClick={submit} className="rounded p-1 text-primary hover:bg-accent"><Check className="h-3.5 w-3.5" /></button>
+        <button type="button" title={copy.hints.cancelAdd} aria-label={copy.hints.cancelAdd} onClick={onDone} className="rounded p-1 text-muted-foreground hover:bg-accent"><X className="h-3.5 w-3.5" /></button>
+      </div>
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Escape') { onDone(); } }}
+        placeholder={copy.descriptionPlaceholder}
+        title={copy.hints.itemDescription}
+        rows={2}
+        className="w-full resize-y rounded border border-border bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground"
       />
-      <button type="button" title={copy.hints.confirmAdd} aria-label={copy.hints.confirmAdd} onClick={submit} className="rounded p-1 text-primary hover:bg-accent"><Check className="h-3.5 w-3.5" /></button>
-      <button type="button" title={copy.hints.cancelAdd} aria-label={copy.hints.cancelAdd} onClick={onDone} className="rounded p-1 text-muted-foreground hover:bg-accent"><X className="h-3.5 w-3.5" /></button>
     </div>
   );
 }

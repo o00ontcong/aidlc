@@ -73,14 +73,20 @@ Hai subtitle hiển thị đồng thời, chỉnh offset từng cái.
 ## Functional requirements
 
 - **FR-01** — User có thể mở video local.
+  Chọn file từ Files; player nạp và hiện khung đầu. Không hỗ trợ URL hay stream.
 - **FR-02** — User có thể nạp subtitle #1.
+  Một file .srt gắn vào track overlay thứ nhất.
 - **FR-03** — User có thể nạp subtitle #2.
+  Track thứ hai độc lập với track một — cùng file hoặc file khác.
 - **FR-04** — Hai subtitle hiển thị đồng thời.
+  Cả hai overlay bám timeline; không che lẫn nhau.
 - **FR-05** — Mỗi subtitle chỉnh được timing offset.
+  Offset từng track, không dùng một offset chung.
 
 ## Non-functional requirements
 
 - **NFR-PERF-01** — Seek dưới 200ms trên file 2GB.
+  Kéo thanh tiến trình phải nhảy khung ngay, không chờ buffer.
 - **NFR-OFFLINE-01** — Chạy hoàn toàn offline.
 - **NFR-A11Y-01** — Cỡ chữ subtitle tối thiểu 16pt.
 `,
@@ -112,9 +118,13 @@ Settings
 ## Features
 
 - **F-VIDEO-01** — Mở, phát, pause, seek, tốc độ — FR-01.
+  Playback cơ bản trên file local: mở từ Files, play/pause, seek, đổi tốc độ.
 - **F-SUB-01** — Nạp hai SRT và hiện cùng lúc — FR-02, FR-03, FR-04.
+  Hai overlay độc lập, cùng timeline, không đè chữ.
 - **F-SUB-02** — Offset từng subtitle — FR-05.
+  Chỉnh lệch thời gian riêng cho từng track.
 - **F-SET-01** — Cỡ chữ, màu, nền.
+  Style subtitle áp dụng chung, lưu local.
 `,
 
   usecases: `# Use cases

@@ -16,7 +16,7 @@ import {
   type DiscoverStepSpec,
   type DodRule,
 } from './DocSpec';
-import { extractIds, findSection, itemSignature, proseEntryId, type DocModel, type DocRecord, type DocSection } from './mdParse';
+import { extractIds, findSection, itemBody, itemSignature, proseEntryId, type DocModel, type DocRecord, type DocSection } from './mdParse';
 import { legacyFormatIssues } from './discoverFormat';
 
 /** Parsed docs keyed by path relative to `docsRoot`. */
@@ -83,7 +83,7 @@ function section(ctx: BlueprintContext, file: string, key: string): DocSection |
 function entriesOf(sec: DocSection | undefined): { id: string; text: string }[] {
   if (!sec) { return []; }
   return [
-    ...sec.items.map((i) => ({ id: i.id, text: i.text })),
+    ...sec.items.map((i) => ({ id: i.id, text: itemBody(i) })),
     ...sec.records.map((r) => ({ id: r.id, text: recordText(r) })),
   ];
 }

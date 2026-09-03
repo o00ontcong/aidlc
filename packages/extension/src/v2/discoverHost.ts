@@ -20,6 +20,7 @@ import {
   getFileSpec,
   getPhase,
   isStepEmpty,
+  itemBody,
   listPhases,
   normalizeStep,
   proseSectionKeyOf,
@@ -49,6 +50,7 @@ import { readYaml, writeYaml } from './yamlIO';
 export interface DiscoverItemUi {
   id: string;
   text: string;
+  description?: string;
   origin: 'ai' | 'human';
   pinned: boolean;
   flagged: boolean;
@@ -174,7 +176,7 @@ function entryText(doc: DocModel | undefined, id: string): string | undefined {
   }
   for (const section of doc.sections) {
     const item = section.items.find((i) => i.id === id);
-    if (item) { return item.text; }
+    if (item) { return itemBody(item); }
     const record = section.records.find((r) => r.id === id);
     if (record) { return record.title || record.fields.map((f) => `${f.label}: ${f.value}`).join(' · '); }
   }
@@ -238,7 +240,12 @@ function toDocUi(
       fields: specByKey.get(section.key)?.fields?.map((f) => ({ label: f.label, list: f.list, required: f.required })),
       prose: section.prose,
       stray: section.stray.length,
-      items: section.items.map((item) => ({ id: item.id, text: item.text, ...flagsFor(item.id) })),
+      items: section.items.map((item) => ({
+        id: item.id,
+        text: item.text,
+        description: item.description,
+        ...flagsFor(item.id),
+      })),
       records: section.records.map((record) => ({
         id: record.id,
         title: record.title,
