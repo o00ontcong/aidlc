@@ -740,7 +740,7 @@ export interface ProjectWorkspaceSummary {
 
 export type DiscoverStepId =
   | 'idea' | 'product' | 'requirements' | 'features' | 'usecases' | 'userflows'
-  | 'datamodel' | 'architecture' | 'techdecisions' | 'structure' | 'plan' | 'skeleton';
+  | 'architecture' | 'datamodel' | 'techdecisions' | 'structure' | 'plan' | 'skeleton';
 
 export interface DiscoverItem {
   id: string;
@@ -792,11 +792,11 @@ export interface DiscoverStep {
   id: DiscoverStepId;
   order: number;
   label: string;
+  labelVi?: string;
   goal: string;
   files: string[];
-  completion: number;
-  canAdvance: boolean;
-  requirements: { id: string; level: string; label: string; passed: boolean; notApplicable?: boolean; detail?: string }[];
+  /** The only user-facing step state: docs already have content, or they do not. */
+  hasContent: boolean;
 }
 
 export interface DiscoverRunSummary {
@@ -805,6 +805,8 @@ export interface DiscoverRunSummary {
   mode: 'fill' | 'refine';
   /** `scan` reconciled every step against the source code in one pass; `edit` wraps a person's direct field edit. */
   kind?: 'step' | 'scan' | 'edit';
+  /** 1 = product, 2 = architecture, 3 = plan. Set on scan runs. */
+  scanPass?: 1 | 2 | 3;
   startedAt: string;
   finishedAt?: string;
   note?: string;
@@ -826,6 +828,11 @@ export type CofofoRecipeId =
   | 'cofofo-bootstrap' | 'cofofo-refresh-context' | 'cofofo-update-rules'
   | 'cofofo-repin-bundle' | 'cofofo-feature' | 'cofofo-bugfix';
 
+/** Delivery recipes a Discover phase may start — not the foundation lifecycle routes. */
+export const DISCOVER_HANDOFF_RECIPE_IDS: CofofoRecipeId[] = [
+  'cofofo-feature', 'cofofo-bugfix',
+];
+
 export const COFOFO_RECIPE_IDS: CofofoRecipeId[] = [
   'cofofo-feature', 'cofofo-bugfix', 'cofofo-bootstrap',
   'cofofo-refresh-context', 'cofofo-update-rules', 'cofofo-repin-bundle',
@@ -841,6 +848,12 @@ export interface DiscoverPhase {
   cites: { id: string; file: string; text: string }[];
   suggestedRecipe: CofofoRecipeId;
   handoff?: { phaseId: string; epicId: string; recipeId: CofofoRecipeId; title: string; at: string };
+  /** Cited features already exist in source — hide the default "create epic" action. */
+  alreadyBuilt?: boolean;
+  builtFiles?: string[];
+  searchTokens?: string[];
+  missingFeatureIds?: string[];
+  scannedFileCount?: number;
 }
 
 /** Mirrors `DiscoverScope` in core — which repos the blueprint describes. */
@@ -852,6 +865,85 @@ export interface DiscoverScopeSummary {
   declaredAt: string;
 }
 
+/** Payload persisted when the user confirms a repo layout (no timestamp). */
+export interface DiscoverScopeDraft {
+  layout: 'single' | 'parent' | 'child';
+  parentPath?: string;
+  repos: { path: string; kind: string; name: string }[];
+  excludes: string[];
+}
+
+export interface RepoCandidateUi {
+  path: string;
+  name: string;
+  kind: string;
+  isRepo: boolean;
+  hasBlueprint: boolean;
+  manifests: string[];
+}
+
+/** Host → webview: open the in-panel repo layout dialog. */
+export interface DiscoverScopeModalOpen {
+  intent: 'scan' | 'edit';
+  mode: 'confirm' | 'wizard';
+  probe: {
+    suggested: 'single' | 'parent' | 'child';
+    self: RepoCandidateUi;
+    children: RepoCandidateUi[];
+    parentPath?: string;
+  };
+  existing?: DiscoverScopeSummary;
+}
+
+/** Host → webview: open the in-panel commit dialog. */
+export interface DiscoverCommitModalOpen {
+  defaultMessage: string;
+  repoName: string;
+  changeCount: number;
+}
+
+export type DiscoverEpicSuggestionKind =
+  | 'no-skeleton'
+  | 'not-implemented'
+  | 'docs-stale'
+  | 'undocumented'
+  | 'doc-gap';
+
+export interface DiscoverEpicSuggestion {
+  id: string;
+  kind: DiscoverEpicSuggestionKind;
+  recipeId: CofofoRecipeId;
+  title: string;
+  description: string;
+  brief: string;
+  summary: string;
+  details: string[];
+  level: 'error' | 'warn' | 'info';
+  featureId?: string;
+  phaseId?: string;
+  docFile?: string;
+}
+
+export type DiscoverItemCoverageStatus = 'in-code' | 'missing' | 'stale';
+export type DiscoverCoverageKind = 'fr' | 'feature' | 'screen';
+
+export interface DiscoverCoveredItem {
+  id: string;
+  kind: DiscoverCoverageKind;
+  text: string;
+  status: DiscoverItemCoverageStatus;
+  group: string;
+  coveringFeatureIds: string[];
+  coveredFrIds: string[];
+  matchedFiles: string[];
+}
+
+export interface DiscoverItemCoverage {
+  sourceFileCount: number;
+  items: DiscoverCoveredItem[];
+  counts: { inCode: number; missing: number; stale: number };
+}
+
 export interface DiscoverSummary {
   id: string;
   title: string;
@@ -861,6 +953,8 @@ export interface DiscoverSummary {
   outputLanguage: 'en' | 'vi';
   /** Absent until the user declares the repo layout — the first scan asks. */
   scope?: DiscoverScopeSummary;
+  /** True when the commit-target repo has uncommitted changes. */
+  hasUncommittedChanges?: boolean;
   currentStep: DiscoverStepId;
   revision: number;
   steps: DiscoverStep[];
@@ -868,6 +962,9 @@ export interface DiscoverSummary {
   devDocs: { path: string; exists: boolean; filePath: string }[];
   extraFiles: Record<string, string[]>;
   issues: { level: string; code: string; message: string; file?: string; id?: string }[];
+  /** Pre-filled epic proposals from docs ↔ code reconciliation. */
+  epicSuggestions: DiscoverEpicSuggestion[];
+  itemCoverage?: DiscoverItemCoverage;
   runs: DiscoverRunSummary[];
   /** Implementation Plan phases, each one a candidate epic. */
   phases: DiscoverPhase[];
@@ -933,6 +1030,11 @@ export interface WorkspaceState {
     noFollowOpen?: boolean;
     followedIds?: string[];
     listWidth?: number;
+  };
+  /** Persisted Discover-tab UI prefs from extension workspaceState. */
+  discoverViewUi?: {
+    railWidth?: number;
+    agentPanelOpen?: boolean;
   };
   /** Curated, read-only architecture model for Architecture Studio. */
   architecture: ArchitectureStudioState;
@@ -1131,20 +1233,20 @@ export interface SprintState {
    * `fromCache`: a cache still inside the refresh window is not stale.
    */
   stale?: boolean;
-  transitionsEnabled: boolean;
   subtasksEnabled: boolean;
-  /** Event → wanted Jira status. Empty string = do nothing for that event. */
-  transitionMapping: {
-    taskCreated: string;
-    review: string;
-    runCompleted: string;
-    runFailed: string;
-  };
-  transitionConfirm: boolean;
   /** Settings still missing, for the unconfigured empty state. */
   missing?: string[];
   /** Non-secret values prefilled into the connect dialog. Never the token. */
   connect: { site: string; email: string };
+  /** The editable half of `aidlc.jira.*`, as the config dialog shows it. */
+  config: {
+    projectKey: string;
+    /** 0 = no board pinned; the first visible board is used. */
+    boardId: number;
+    jql: string;
+    refreshMinutes: number;
+    requestTimeoutSeconds: number;
+  };
 }
 
 export type EpicFilter = 'all' | 'in_progress' | 'pending' | 'done' | 'failed';

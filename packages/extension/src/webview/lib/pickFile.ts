@@ -28,6 +28,31 @@ export function pickFolder(): Promise<string | null> {
   });
 }
 
+export interface ChildRepoFolderPick {
+  path: string;
+  name: string;
+}
+
+/** Multi-select folder picker; paths are relative to the workspace root. */
+export function pickChildRepoFolders(): Promise<ChildRepoFolderPick[] | null> {
+  return new Promise((resolve) => {
+    const requestId = nextRequestId();
+    const off = onHostMessage((msg) => {
+      if (msg.type !== 'pickChildRepoFolders:reply' || msg.requestId !== requestId) { return; }
+      off();
+      if (msg.cancelled) { resolve(null); return; }
+      const folders = Array.isArray(msg.folders) ? msg.folders.flatMap((raw) => {
+        if (!raw || typeof raw !== 'object') { return []; }
+        const f = raw as Record<string, unknown>;
+        if (typeof f.path !== 'string' || typeof f.name !== 'string') { return []; }
+        return [{ path: f.path, name: f.name }];
+      }) : [];
+      resolve(folders);
+    });
+    postMessage({ type: 'pickChildRepoFolders', requestId });
+  });
+}
+
 export interface BugImageResult {
   fileName: string;
   relativePath: string;

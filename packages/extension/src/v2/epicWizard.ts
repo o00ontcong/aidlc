@@ -42,7 +42,6 @@ import {
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 
-import { jiraStatusSync } from './jiraStatusSync';
 import { readYaml, writeYaml, existingIds, type YamlDocument } from './yamlIO';
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -223,10 +222,6 @@ export async function startEpicCommand(): Promise<void> {
             workspaceRoot: root,
           });
           RunStateStore.save(root, runState);
-          // Run creation does not pass through `saveRun()`, so Jira write-back
-          // is told here — otherwise `taskCreated` waits for the first step
-          // action and can be dropped by the never-move-backwards guard.
-          jiraStatusSync.onRunStateSaved(root, runState, doc);
         } catch (err) {
           // Don't fail the whole wizard on run creation — surface a warning
           // and let the user click "Start pipeline run" from the sidebar

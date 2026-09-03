@@ -24,7 +24,7 @@ const PHASES = [...FOUNDATION_PHASES, ...DELIVERY_PHASES] as const;
 type Phase = typeof PHASES[number];
 
 const PHASE_INSTRUCTIONS: Record<Phase, string> = {
-  'scan-stack': 'Read STACK-PROFILE.json as machine evidence. Do not guess an unsupported or second stack. Explain the detected manifest, toolchain, confidence, and generic-SDLC fallback when present.',
+  'scan-stack': 'Read STACK-PROFILE.json as machine evidence. Do not guess an unsupported or second stack. If the profile is closed (no manifest or multiple stacks), the gate fails — keep the evidence, do not continue, and do not switch pipelines.',
   'define-rules': 'Create or edit PROJECT-RULES.json as canonical policy (it will not already exist on a first run), then run `aidlc cofofo render-rules` to regenerate the hash-bound PROJECT-RULES.md and RULE-DRIFT.md. Every blocking rule needs a stable ruleId, machine-checkable matcher, measured scope, and explicit exception expiry.',
   'map-system': 'Map modules, layers, dependency direction, state ownership, entry points, and test seams from concrete source paths. Write ARCHITECTURE-MAP.md and cite evidence.',
   'select-ecc-catalog': 'Review the pinned text-only catalog selection. Reject scripts, hooks, binaries, unknown licenses, unpinned revisions, and assets without a SHA-256 digest.',

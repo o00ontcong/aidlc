@@ -53,6 +53,8 @@ describe('DiscoverService — blueprint lifecycle', () => {
     const idea = fs.readFileSync(service.docFile(DOC_IDEA), 'utf8');
     expect(idea).toContain('## Original sentence\n\nApp xem video hỗ trợ 2 subtitle cùng lúc.');
     expect(idea).toContain('## Minimum MVP');
+    expect(fs.existsSync(service.docFile(DOC_PRODUCT))).toBe(true);
+    expect(fs.readFileSync(service.docFile(DOC_PRODUCT), 'utf8')).toContain('## Target users');
   });
 
   it('is idempotent — a second init keeps the first blueprint', () => {
@@ -126,6 +128,7 @@ describe('DiscoverService — validation and traceability', () => {
 
     service.applyOps(DOC_FEATURES, [
       { op: 'addItem', section: 'features', group: 'sub', text: 'Nạp và hiển thị subtitle — FR-02, FR-03.' },
+      { op: 'setProse', section: 'tree', value: '```text\nVideo\nSubtitle\n```' },
     ], { actor: USER });
     expect(service.stepStatus('features').canAdvance).toBe(true);
   });
@@ -215,7 +218,7 @@ describe('DiscoverService — agent runs', () => {
     );
     fs.writeFileSync(
       service.docFile(DOC_FEATURES),
-      '# Features\n\n## Features\n\n- **F-VIDEO-01** — Phát video — FR-01.\n',
+      '# Feature breakdown\n\n## Feature tree\n\n## Features\n\n- **F-VIDEO-01** — Phát video — FR-01.\n',
       'utf8',
     );
 
@@ -241,7 +244,7 @@ describe('DiscoverService — agent runs', () => {
       const { run } = service.startRun('requirements', { kind });
       fs.writeFileSync(
         service.docFile(DOC_FEATURES),
-        '# Features\n\n## Features\n\n- **F-VIDEO-01** — Phát video — FR-01.\n',
+        '# Feature breakdown\n\n## Feature tree\n\n## Features\n\n- **F-VIDEO-01** — Phát video — FR-01.\n',
         'utf8',
       );
       const finished = service.finishRun(run.id);
@@ -309,18 +312,74 @@ describe('DiscoverService — agent runs', () => {
     expect(fs.readFileSync(ignoreFile, 'utf8')).toContain('snapshots/');
   });
 
-  it('removes a doc the run created when reverting', () => {
+  it('restores a pre-seeded skeleton when reverting a run that filled it', () => {
     const service = seeded();
     const { run } = service.startRun('features');
     fs.writeFileSync(
       service.docFile(DOC_FEATURES),
-      '# Features\n\n## Features\n\n- **F-VIDEO-01** — Phát video.\n',
+      '# Feature breakdown\n\n## Feature tree\n\n## Features\n\n- **F-VIDEO-01** — Phát video.\n',
       'utf8',
     );
     service.finishRun(run.id);
     expect(fs.existsSync(service.docFile(DOC_FEATURES))).toBe(true);
 
     service.revertRun(run.id);
-    expect(fs.existsSync(service.docFile(DOC_FEATURES))).toBe(false);
+    const restored = fs.readFileSync(service.docFile(DOC_FEATURES), 'utf8');
+    expect(restored).toContain('## Feature tree');
+    expect(restored).not.toContain('F-VIDEO-01');
+  });
+
+  it('rewrites old-format docs onto the contract when a step run starts', () => {
+    const service = seeded();
+    fs.writeFileSync(
+      service.docFile(DOC_FEATURES),
+      '# Features\n\n## Features\n\n- **F-LOGIN-01** — Đăng nhập passkey — FR-01.\n',
+      'utf8',
+    );
+
+    service.startRun('features');
+    const afterStep = fs.readFileSync(service.docFile(DOC_FEATURES), 'utf8');
+    expect(afterStep).toContain('# Feature breakdown');
+    expect(afterStep).toContain('## Feature tree');
+    expect(afterStep).toContain('```text');
+    expect(afterStep).toContain('**F-LOGIN-01**');
+  });
+
+  it('rewrites old format before snapshotting a scan, so the review diff is not format-only', () => {
+    const service = seeded();
+    fs.writeFileSync(
+      service.docFile(DOC_FEATURES),
+      '# Features\n\n## Features\n\n- **F-LOGIN-01** — Đăng nhập passkey — FR-01.\n',
+      'utf8',
+    );
+    const { run } = service.startRun('idea', { kind: 'scan', scanPass: 1 });
+    const afterScan = fs.readFileSync(service.docFile(DOC_FEATURES), 'utf8');
+    expect(afterScan).toContain('# Feature breakdown');
+    expect(afterScan).toContain('## Feature tree');
+    expect(afterScan).toContain('**F-LOGIN-01**');
+    expect(fs.existsSync(path.join(service.workspaceRoot, '.aidlc', 'discover', 'scan-brief.md'))).toBe(true);
+
+    const finished = service.finishRun(run.id);
+    expect(finished.diff.added).toEqual([]);
+    expect(finished.diff.updated).toEqual([]);
+    expect(finished.diff.removed).toEqual([]);
+    expect(run.scanPass).toBe(1);
+    expect(run.step).toBe('idea');
+  });
+
+  it('scopes a scan pass to that pass\'s documents', () => {
+    const service = seeded();
+    const { run } = service.startRun('idea', { kind: 'scan', scanPass: 1 });
+    service.applyOps(DOC_TECH_STACK, [{
+      op: 'addRecord',
+      section: 'stack',
+      title: 'Go',
+      fields: [
+        { label: 'Choice', value: 'Go 1.22' },
+        { label: 'Why', value: 'already in the repo' },
+      ],
+    }], { actor: AGENT, runId: run.id });
+    const finished = service.finishRun(run.id);
+    expect(finished.guardrail.some((g) => g.code === 'out-of-scope')).toBe(true);
   });
 });

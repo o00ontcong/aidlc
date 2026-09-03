@@ -5,6 +5,7 @@ import {
   ProjectRulesSchema,
   type ProjectRule,
   type ProjectRules,
+  type StackDescriptor,
   type StackProfile,
 } from './contracts';
 import { selectCatalog } from './Catalog';
@@ -62,37 +63,103 @@ function exceptionApplies(rule: ProjectRule, file: string, now: string): boolean
   );
 }
 
+function layoutPrefix(profile: StackProfile): string {
+  const manifest = profile.evidence.find((item) => item.kind === 'manifest')?.path ?? '.';
+  const manifestDir = path.posix.dirname(manifest);
+  if (manifestDir === '.' || manifest.endsWith('project.pbxproj')) return '';
+  return `${manifestDir}/`;
+}
+
+function commandRules(stack: StackDescriptor, prefix: string): ProjectRule[] {
+  const sourceScope = stack.id === 'ios-swift' ? [`${prefix}Sources/**`] : [`${prefix}**`];
+  const testScope = stack.id === 'ios-swift' ? [`${prefix}Sources/**`, `${prefix}Tests/**`] : [`${prefix}**`];
+  return [
+    {
+      ruleId: 'CMD-1', kind: 'commandId', scope: sourceScope, severity: 'block',
+      rationale: `Every production change must compile with the pinned ${stack.buildCommandId} command.`, exceptions: [],
+      matcher: { commandId: stack.buildCommandId },
+    },
+    {
+      ruleId: 'CMD-2', kind: 'commandId', scope: testScope, severity: 'block',
+      rationale: `Every change must pass the full ${stack.testCommandId} suite.`, exceptions: [],
+      matcher: { commandId: stack.testCommandId },
+    },
+  ];
+}
+
+function layoutRules(stack: StackDescriptor, prefix: string): ProjectRule[] {
+  if (stack.id === 'ios-swift') {
+    return [
+      {
+        ruleId: 'PATH-1', kind: 'path', scope: [`${prefix}Sources/**`, `${prefix}Tests/**`], severity: 'block',
+        rationale: 'Production and test Swift files stay inside the Swift package or Xcode source roots.', exceptions: [],
+        matcher: { allowedRoots: [`${prefix}Sources`, `${prefix}Tests`], forbiddenPaths: ['**/.build/**', '**/DerivedData/**'] },
+      },
+      {
+        ruleId: 'NAME-1', kind: 'naming', scope: [`${prefix}Sources/**/*.swift`, `${prefix}Tests/**/*.swift`], severity: 'warn',
+        rationale: 'Swift type files use UpperCamelCase names.', exceptions: [],
+        matcher: { pattern: '^[A-Z][A-Za-z0-9]*\\.swift$', extensions: ['.swift'] },
+      },
+      {
+        ruleId: 'LAYER-1', kind: 'layering', scope: [`${prefix}Sources/**/Domain/**/*.swift`], severity: 'block',
+        rationale: 'Domain code is independent of SwiftUI presentation.', exceptions: [],
+        matcher: { from: [`${prefix}Sources/**/Domain/**/*.swift`], forbidImports: ['SwiftUI'] },
+      },
+    ];
+  }
+  if (stack.id === 'python') {
+    return [{
+      ruleId: 'PATH-1', kind: 'path', scope: [`${prefix}src/**`, `${prefix}tests/**`], severity: 'block',
+      rationale: 'Production and test Python files stay inside src/ and tests/.', exceptions: [],
+      matcher: { allowedRoots: [`${prefix}src`, `${prefix}tests`], forbiddenPaths: ['**/__pycache__/**', '**/.venv/**', '**/venv/**'] },
+    }];
+  }
+  if (stack.id === 'node-typescript') {
+    return [{
+      ruleId: 'PATH-1', kind: 'path', scope: [`${prefix}src/**`, `${prefix}test/**`, `${prefix}tests/**`], severity: 'block',
+      rationale: 'Production and test TypeScript files stay inside src/ and test roots.', exceptions: [],
+      matcher: {
+        allowedRoots: [`${prefix}src`, `${prefix}test`, `${prefix}tests`],
+        forbiddenPaths: ['**/node_modules/**', '**/dist/**'],
+      },
+    }];
+  }
+  if (stack.id === 'go') {
+    return [{
+      ruleId: 'PATH-1', kind: 'path', scope: [`${prefix}**/*.go`], severity: 'block',
+      rationale: 'Go sources stay outside vendor caches.', exceptions: [],
+      matcher: { allowedRoots: prefix ? [prefix.replace(/\/$/, '')] : [], forbiddenPaths: ['**/vendor/**'] },
+    }];
+  }
+  if (stack.id === 'rust') {
+    return [{
+      ruleId: 'PATH-1', kind: 'path', scope: [`${prefix}src/**`, `${prefix}tests/**`], severity: 'block',
+      rationale: 'Rust sources stay inside src/ and tests/.', exceptions: [],
+      matcher: { allowedRoots: [`${prefix}src`, `${prefix}tests`], forbiddenPaths: ['**/target/**'] },
+    }];
+  }
+  if (stack.id === 'java') {
+    return [{
+      ruleId: 'PATH-1', kind: 'path', scope: [`${prefix}src/**`], severity: 'block',
+      rationale: 'Java/Kotlin sources stay inside src/.', exceptions: [],
+      matcher: { allowedRoots: [`${prefix}src`], forbiddenPaths: ['**/target/**', '**/build/**'] },
+    }];
+  }
+  if (stack.id === 'dotnet') {
+    return [{
+      ruleId: 'PATH-1', kind: 'path', scope: [`${prefix}**/*.cs`], severity: 'block',
+      rationale: 'C# sources stay outside bin/ and obj/.', exceptions: [],
+      matcher: { allowedRoots: prefix ? [prefix.replace(/\/$/, '')] : [], forbiddenPaths: ['**/bin/**', '**/obj/**'] },
+    }];
+  }
+  const exhaustive: never = stack.id;
+  throw new Error(`No default layout rules for stack "${exhaustive}".`);
+}
+
 export function createDefaultRules(profile: StackProfile, foundationRevision: number, now = new Date().toISOString()): ProjectRules {
-  if (profile.mode !== 'cofofo' || !profile.stack) throw new Error('Cannot define CoFoFo rules without one supported stack.');
-  const manifestDir = path.posix.dirname(profile.evidence.find((item) => item.kind === 'manifest')?.path ?? '.');
-  const prefix = manifestDir === '.' ? '' : `${manifestDir}/`;
-  const rules: ProjectRule[] = profile.stack.id === 'ios-swift' ? [
-    {
-      ruleId: 'PATH-1', kind: 'path', scope: [`${prefix}Sources/**`, `${prefix}Tests/**`], severity: 'block',
-      rationale: 'Production and test Swift files stay inside the SwiftPM targets.', exceptions: [],
-      matcher: { allowedRoots: [`${prefix}Sources`, `${prefix}Tests`], forbiddenPaths: ['**/.build/**', '**/DerivedData/**'] },
-    },
-    {
-      ruleId: 'NAME-1', kind: 'naming', scope: [`${prefix}Sources/**/*.swift`, `${prefix}Tests/**/*.swift`], severity: 'warn',
-      rationale: 'Swift type files use UpperCamelCase names.', exceptions: [],
-      matcher: { pattern: '^[A-Z][A-Za-z0-9]*\\.swift$', extensions: ['.swift'] },
-    },
-    {
-      ruleId: 'LAYER-1', kind: 'layering', scope: [`${prefix}Sources/**/Domain/**/*.swift`], severity: 'block',
-      rationale: 'Domain code is independent of SwiftUI presentation.', exceptions: [],
-      matcher: { from: [`${prefix}Sources/**/Domain/**/*.swift`], forbidImports: ['SwiftUI'] },
-    },
-    {
-      ruleId: 'CMD-1', kind: 'commandId', scope: [`${prefix}Sources/**`], severity: 'block',
-      rationale: 'Every production change must compile with the pinned Swift command.', exceptions: [],
-      matcher: { commandId: 'swift.build' },
-    },
-    {
-      ruleId: 'CMD-2', kind: 'commandId', scope: [`${prefix}Sources/**`, `${prefix}Tests/**`], severity: 'block',
-      rationale: 'Every change must pass the full Swift test suite.', exceptions: [],
-      matcher: { commandId: 'swift.test' },
-    },
-  ] : [];
+  if (!profile.stack) throw new Error('Cannot define CoFoFo rules without one supported stack.');
+  const prefix = layoutPrefix(profile);
+  const rules: ProjectRule[] = [...layoutRules(profile.stack, prefix), ...commandRules(profile.stack, prefix)];
   return ProjectRulesSchema.parse({ schemaVersion: 1, foundationRevision, generatedAt: now, rules });
 }
 

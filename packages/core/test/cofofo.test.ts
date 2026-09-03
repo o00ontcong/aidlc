@@ -88,13 +88,18 @@ describe('CoFoFo stack detection and policy', () => {
     expect(validateStackProfile(root, profile)).toContain('src/Package.swift: content changed');
   });
 
-  it('fails closed to generic SDLC for a multi-stack repository', () => {
+  it('fails closed for a multi-stack repository without switching pipelines', () => {
     const root = swiftFixture();
     write(root, 'web/package.json', '{"name":"web","engines":{"node":">=20"}}\n');
     const profile = detectStack(root);
-    expect(profile.mode).toBe('generic-sdlc');
+    expect(profile.mode).toBe('cofofo');
     expect(profile.repositoryKind).toBe('multi-stack');
-    expect(profile.fallback?.pipelineId).toBe('aidlc-workflow-full');
+    expect(profile.stack).toBeUndefined();
+    expect(profile.closed?.reason).toMatch(/does not guess a bundle/);
+    expect(selectCatalog(profile)).toBeNull();
+    const prepared = new CofofoFoundationService(root).prepare();
+    expect(prepared.status).toBe('pending-review');
+    expect(prepared.issues.join('\n')).toMatch(/does not guess a bundle/);
   });
 
   it('ignores an AI provider tool directory bootstrapping its own package.json', () => {
@@ -110,13 +115,19 @@ describe('CoFoFo stack detection and policy', () => {
     expect(profile.stack?.id).toBe('ios-swift');
   });
 
-  it('does not guess an unaudited Xcode command bundle', () => {
+  it('selects the ios-swift catalog for Xcode without guessing destinations', () => {
     const root = temporary();
     write(root, 'Demo.xcodeproj/project.pbxproj', '// !$*UTF8*$!\n');
-    const service = new CofofoFoundationService(root);
-    const result = service.prepare();
-    expect(result.status).toBe('fallback');
-    expect(result.profile?.fallback?.pipelineId).toBe('aidlc-workflow-full');
+    const profile = detectStack(root);
+    expect(profile.mode).toBe('cofofo');
+    expect(profile.stack?.packageManager).toBe('xcode');
+    const selection = selectCatalog(profile);
+    expect(selection?.stackId).toBe('ios-swift');
+    expect(selection?.commands.map((command) => command.id)).toEqual(['swift.xcode-build', 'swift.xcode-test']);
+    expect(selection?.commands.every((command) => !command.args.includes('-destination') && !command.args.includes('-scheme'))).toBe(true);
+    const result = new CofofoFoundationService(root).prepare();
+    expect(result.status).toBe('pending-review');
+    expect(result.profile?.mode).toBe('cofofo');
   });
 
   it('binds PROJECT-RULES.md to canonical JSON and blocks a forbidden import', () => {
@@ -197,6 +208,18 @@ describe('CoFoFo stack detection and policy', () => {
     expect(() => installCatalog({ workspaceRoot: root, profile: detectStack(root), foundationRevision: 1 })).toThrow(/symlink/);
   });
 
+  it('runs CoFoFo and closes scan-stack when no stack manifest exists', () => {
+    const root = temporary();
+    const profile = detectStack(root);
+    expect(profile.mode).toBe('cofofo');
+    expect(profile.repositoryKind).toBe('unsupported');
+    expect(profile.closed?.reason).toMatch(/No supported stack manifest/);
+    expect(selectCatalog(profile)).toBeNull();
+    const prepared = new CofofoFoundationService(root).prepare();
+    expect(prepared.status).toBe('pending-review');
+    expect(prepared.issues.join('\n')).toMatch(/No supported stack manifest/);
+  });
+
   it('keeps memory bounded, unreviewed, and free of credentials', () => {
     expect(validateMemoryHandoff('# Memory\n\nunreviewed\n')).toEqual([]);
     expect(validateMemoryHandoff('# Memory\n\ntoken=super-secret-value-123456\n')).toEqual(expect.arrayContaining([
@@ -204,6 +227,57 @@ describe('CoFoFo stack detection and policy', () => {
       expect.stringMatching(/secret/),
     ]));
     expect(validateMemoryHandoff(`unreviewed\n${'x'.repeat(70_000)}`)).toContainEqual(expect.stringMatching(/exceeds/));
+  });
+});
+
+describe('CoFoFo catalog selection is stack-dynamic', () => {
+  const SHARED = ['ecc-tdd-guide', 'ecc-tdd-workflow', 'ecc-security-review'];
+  const SWIFT_ONLY = ['ecc-swift-reviewer', 'ecc-swift-protocol-di-testing'];
+
+  const fixtures: Array<{ name: string; files: Record<string, string>; stackId: string; testCommand: string }> = [
+    { name: 'python', files: { 'pyproject.toml': '[project]\nname = "demo"\nrequires-python = ">=3.11"\n' }, stackId: 'python', testCommand: 'python.test' },
+    { name: 'node-typescript', files: { 'package.json': '{"name":"demo","engines":{"node":">=20"}}\n' }, stackId: 'node-typescript', testCommand: 'node.test' },
+    { name: 'go', files: { 'go.mod': 'module example.com/demo\n\ngo 1.22\n' }, stackId: 'go', testCommand: 'go.test' },
+    { name: 'rust', files: { 'Cargo.toml': '[package]\nname = "demo"\nversion = "0.1.0"\n' }, stackId: 'rust', testCommand: 'rust.test' },
+    { name: 'java-maven', files: { 'pom.xml': '<project></project>\n' }, stackId: 'java', testCommand: 'java.maven-test' },
+    { name: 'java-gradle', files: { 'build.gradle': 'plugins {}\n' }, stackId: 'java', testCommand: 'java.gradle-test' },
+    { name: 'dotnet', files: { 'Demo.csproj': '<Project><TargetFramework>net8.0</TargetFramework></Project>\n' }, stackId: 'dotnet', testCommand: 'dotnet.test' },
+  ];
+
+  for (const fixture of fixtures) {
+    it(`selects a CoFoFo catalog for ${fixture.name} instead of falling back`, () => {
+      const root = temporary();
+      for (const [relative, content] of Object.entries(fixture.files)) write(root, relative, content);
+      const profile = detectStack(root);
+      expect(profile.mode).toBe('cofofo');
+      expect(profile.stack?.id).toBe(fixture.stackId);
+      const selection = selectCatalog(profile);
+      expect(selection).not.toBeNull();
+      expect(selection!.commands.map((command) => command.id)).toContain(profile.stack!.buildCommandId);
+      expect(selection!.commands.map((command) => command.id)).toContain(fixture.testCommand);
+      expect(selection!.assets.map((asset) => asset.id)).toEqual(expect.arrayContaining(SHARED));
+      for (const id of SWIFT_ONLY) {
+        expect(selection!.assets.map((asset) => asset.id)).not.toContain(id);
+      }
+      const rules = createDefaultRules(profile, 1, '2026-08-28T00:00:00.000Z');
+      expect(rules.rules.some((rule) => rule.kind === 'commandId' && rule.matcher.commandId === fixture.testCommand)).toBe(true);
+      expect(new CofofoFoundationService(root).prepare().status).toBe('pending-review');
+    });
+  }
+
+  it('ignores .opencode/package.json and still catalogs a Python repo', () => {
+    const root = temporary();
+    write(root, 'pyproject.toml', '[project]\nname = "demo"\nrequires-python = ">=3.11"\n');
+    write(root, '.opencode/package.json', '{"name":"opencode-local"}\n');
+    const profile = detectStack(root);
+    expect(profile.mode).toBe('cofofo');
+    expect(profile.stack?.id).toBe('python');
+    expect(profile.repositoryKind).toBe('single-stack');
+    const selection = selectCatalog(profile)!;
+    expect(selection.commands.map((command) => command.id)).toContain('python.test');
+    expect(selection.assets.some((asset) => asset.id === 'ecc-tdd-workflow')).toBe(true);
+    expect(selection.assets.some((asset) => asset.id === 'ecc-swift-protocol-di-testing')).toBe(false);
+    expect(new CofofoFoundationService(root).prepare().status).toBe('pending-review');
   });
 });
 
@@ -225,6 +299,16 @@ function approveCurrentCanvas(root: string, state: RunState, pipeline: PipelineC
 
 describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
   beforeEach(() => RunStateStore.resetBackend());
+
+  it('refuses to mark scan-stack done when detection is closed', () => {
+    const root = swiftFixture();
+    write(root, 'web/package.json', '{"name":"web","engines":{"node":">=20"}}\n');
+    const service = new CofofoFoundationService(root);
+    expect(service.prepare().status).toBe('pending-review');
+    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
+    const run = startRun({ runId: 'FOUNDATION-CLOSED', pipeline: foundation, context: {}, workspaceRoot: root });
+    expect(() => markStepDone({ state: run, pipeline: foundation, workspaceRoot: root })).toThrow(/scan-stack is closed/);
+  });
 
   it('does not demand a catalog Canvas approval for the update-rules route', () => {
     const root = swiftFixture();
@@ -389,9 +473,11 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
 
 describe('CoFoFo ensureRecipesRegistered — Discover is CoFoFo-only regardless of stack detection', () => {
   it('registers the six cofofo-* recipes and both pipelines even for a project with no code at all', () => {
-    const root = temporary(); // no fixture — nothing for detectStack to find, unlike prepare()'s early fallback
+    const root = temporary();
     const service = new CofofoFoundationService(root);
-    expect(service.prepare().status).toBe('fallback'); // confirms this project would NOT get CoFoFo from prepare() alone
+    const prepared = service.prepare();
+    expect(prepared.status).toBe('pending-review');
+    expect(prepared.issues.join('\n')).toMatch(/No supported stack manifest/);
 
     service.ensureRecipesRegistered();
     const config = WorkspaceLoader.load(root).config;

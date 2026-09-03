@@ -260,7 +260,7 @@ function RecordCard({
           type="button"
           disabled={readOnly || record.pinned}
           onClick={() => setEditing(true)}
-          className="min-w-0 flex-1 truncate text-left text-[11.5px] font-medium text-foreground disabled:cursor-default"
+          className="min-w-0 flex-1 whitespace-normal break-words text-left text-[11.5px] font-medium leading-snug text-foreground disabled:cursor-default"
           title={record.pinned ? copy.pinnedHint : copy.editHint}
         >
           {record.title || copy.untitled}

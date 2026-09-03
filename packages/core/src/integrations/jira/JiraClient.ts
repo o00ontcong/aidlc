@@ -28,7 +28,6 @@ import type {
   RawJiraField,
   RawJiraIssue,
   RawJiraSprint,
-  RawJiraTransition,
 } from './JiraTypes';
 import type { CreateMetaField, CreateMetaIssueType } from './createMeta';
 
@@ -215,29 +214,6 @@ export class JiraClient {
       nextPageToken = raw.nextPageToken;
     }
     return out;
-  }
-
-  /** One issue, for refreshing a single ticket after a write. */
-  async issue(key: string, fields: string): Promise<RawJiraIssue> {
-    return this.request<RawJiraIssue>(
-      'GET', `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${encodeURIComponent(fields)}`,
-    );
-  }
-
-  /** Transitions available for THIS issue right now — never cache these. */
-  async transitions(key: string): Promise<RawJiraTransition[]> {
-    const raw = await this.request<{ transitions?: RawJiraTransition[] }>(
-      'GET', `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`,
-    );
-    return Array.isArray(raw.transitions) ? raw.transitions : [];
-  }
-
-  /** Perform a transition. Jira answers 204 with no body. */
-  async transitionIssue(key: string, transitionId: string): Promise<void> {
-    await this.request<void>(
-      'POST', `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`,
-      { transition: { id: transitionId } },
-    );
   }
 
   /** Issue types + field metadata for a project, including what is required. */

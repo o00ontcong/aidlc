@@ -609,13 +609,6 @@ function GateBanner({
           title="Mở form feedback rồi rerun đúng step này (không Approve). Dùng khi artifact sai nhưng chưa muốn reject về step trước."
           onClick={() => setRerunOpen(true)}
         />
-        <Btn
-          label="Chạy auto-review"
-          pad="8px 13px"
-          fs={12.5}
-          title="Chạy validator máy (file tồn tại, marker, build). Không thay Approve của bạn — chỉ báo pass/reject kỹ thuật."
-          onClick={() => postMessage({ type: 'runAutoReview', runId, stepIdx: focusedIdx })}
-        />
       </div>
 
       {gateOpen && !canvasGate && (

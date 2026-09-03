@@ -61,6 +61,7 @@ import {
   captureCofofoEvidenceCommand,
   cofofoDoctorCommand,
   installCofofoFoundationCommand,
+  installCofofoWorkflowCommand,
   prepareCofofoFoundationCommand,
   publishCofofoContextCommand,
   rebaseCofofoRunCommand,
@@ -411,6 +412,10 @@ export function registerV2WorkspaceCommands(
         mode === 'reseed' || mode === 'open-as-is' ? mode : undefined,
       ),
   );
+  const installCofofoWorkflowCmd = vscode.commands.registerCommand(
+    'aidlc.installCofofoWorkflow',
+    () => installCofofoWorkflowCommand(context.extensionPath),
+  );
   const prepareCofofoFoundationCmd = vscode.commands.registerCommand(
     'aidlc.prepareCofofoFoundation',
     () => prepareCofofoFoundationCommand(context.extensionPath),
@@ -639,6 +644,7 @@ export function registerV2WorkspaceCommands(
       loadDemoProjectCmd,
       loadIosDemoProjectCmd,
       loadCofofoWeatherDemoProjectCmd,
+      installCofofoWorkflowCmd,
       prepareCofofoFoundationCmd,
       installCofofoFoundationCmd,
       publishCofofoContextCmd,

@@ -49,8 +49,9 @@ All redesigned commands return the same typed result used by `/aidlc` and the VS
 
 Use this when there is nothing to automate yet — an idea, no code. The Discover
 tab walks one idea through twelve steps (Idea → Product Definition →
-Requirements → Features → Use Cases → User Flow → Data Model → Architecture →
-Tech Decisions → Project Structure → Implementation Plan → Project Skeleton),
+Requirements → Feature Breakdown → Use Cases → User Flow / Screen Flow →
+Architecture → Data / API / Storage → Technical Decisions → Project Structure →
+Implementation Plan → Generate Skeleton),
 writing each step into Markdown under the project's `docs/` tree. Those files
 are the source of truth; the app keeps only an index, per-item provenance and
 one snapshot per agent run under `.aidlc/discover/`.

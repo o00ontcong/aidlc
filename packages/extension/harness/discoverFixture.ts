@@ -24,35 +24,7 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
       "files": [
         "product/IDEA.md"
       ],
-      "completion": 1,
-      "canAdvance": true,
-      "requirements": [
-        {
-          "id": "problem",
-          "level": "required",
-          "label": "Problem",
-          "passed": true
-        },
-        {
-          "id": "users",
-          "level": "required",
-          "label": "At least one user",
-          "passed": true,
-          "detail": "1/1"
-        },
-        {
-          "id": "value",
-          "level": "required",
-          "label": "Core value",
-          "passed": true
-        },
-        {
-          "id": "mvp",
-          "level": "required",
-          "label": "Minimum MVP",
-          "passed": true
-        }
-      ]
+      "hasContent": true
     },
     {
       "id": "product",
@@ -62,50 +34,7 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
       "files": [
         "product/PRODUCT.md"
       ],
-      "completion": 1,
-      "canAdvance": true,
-      "requirements": [
-        {
-          "id": "problem",
-          "level": "required",
-          "label": "Problem",
-          "passed": true
-        },
-        {
-          "id": "targetUsers",
-          "level": "required",
-          "label": "At least one target user",
-          "passed": true,
-          "detail": "1/1"
-        },
-        {
-          "id": "value",
-          "level": "required",
-          "label": "Core value",
-          "passed": true
-        },
-        {
-          "id": "mvpScope",
-          "level": "required",
-          "label": "At least one MVP scope item",
-          "passed": true,
-          "detail": "1/1"
-        },
-        {
-          "id": "outOfScope",
-          "level": "optional",
-          "label": "Out of scope",
-          "passed": true,
-          "detail": "1/1"
-        },
-        {
-          "id": "platforms",
-          "level": "optional",
-          "label": "Platforms",
-          "passed": true,
-          "detail": "1/1"
-        }
-      ]
+      "hasContent": true
     },
     {
       "id": "requirements",
@@ -115,51 +44,17 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
       "files": [
         "product/REQUIREMENTS.md"
       ],
-      "completion": 1,
-      "canAdvance": true,
-      "requirements": [
-        {
-          "id": "functional",
-          "level": "required",
-          "label": "At least 3 functional requirements",
-          "passed": true,
-          "detail": "4/3"
-        },
-        {
-          "id": "nonFunctional",
-          "level": "required",
-          "label": "At least one non-functional requirement",
-          "passed": true,
-          "detail": "1/1"
-        }
-      ]
+      "hasContent": true
     },
     {
       "id": "features",
       "order": 4,
-      "label": "Features",
+      "label": "Feature Breakdown",
       "goal": "Break the requirements into feature groups; every requirement must land in one.",
       "files": [
         "product/FEATURES.md"
       ],
-      "completion": 0,
-      "canAdvance": false,
-      "requirements": [
-        {
-          "id": "features",
-          "level": "required",
-          "label": "At least one feature",
-          "passed": false,
-          "detail": "0/1"
-        },
-        {
-          "id": "coversFr",
-          "level": "required",
-          "label": "Every functional requirement is covered by a feature",
-          "passed": false,
-          "detail": "not covered: FR-01, FR-02, FR-03, FR-05"
-        }
-      ]
+      "hasContent": false
     },
     {
       "id": "usecases",
@@ -169,101 +64,21 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
       "files": [
         "product/USE_CASES.md"
       ],
-      "completion": 1,
-      "canAdvance": true,
-      "requirements": [
-        {
-          "id": "useCases",
-          "level": "required",
-          "label": "At least one use case",
-          "passed": true,
-          "detail": "1/1"
-        },
-        {
-          "id": "useCaseFields",
-          "level": "required",
-          "label": "Every use case has Actor, Trigger and Main flow",
-          "passed": true
-        },
-        {
-          "id": "coversFeatures",
-          "level": "optional",
-          "label": "Every feature has a use case",
-          "passed": true,
-          "notApplicable": true,
-          "detail": "nothing in product/FEATURES.md to cover yet"
-        }
-      ]
+      "hasContent": true
     },
     {
       "id": "userflows",
       "order": 6,
-      "label": "User Flow",
+      "label": "User Flow / Screen Flow",
       "goal": "Lay out the screens and the paths a user takes through them.",
       "files": [
         "product/USER_FLOWS.md"
       ],
-      "completion": 0,
-      "canAdvance": false,
-      "requirements": [
-        {
-          "id": "screens",
-          "level": "required",
-          "label": "At least one screen",
-          "passed": false,
-          "detail": "0/1"
-        },
-        {
-          "id": "flows",
-          "level": "required",
-          "label": "At least one flow",
-          "passed": false,
-          "detail": "0/1"
-        },
-        {
-          "id": "coversUseCases",
-          "level": "required",
-          "label": "Every use case appears in a flow",
-          "passed": false,
-          "detail": "not covered: UC-01"
-        }
-      ]
-    },
-    {
-      "id": "datamodel",
-      "order": 7,
-      "label": "Data Model",
-      "goal": "Name the entities, what persists them, and what crosses the network.",
-      "files": [
-        "architecture/DATA_MODEL.md"
-      ],
-      "completion": 0,
-      "canAdvance": false,
-      "requirements": [
-        {
-          "id": "entities",
-          "level": "required",
-          "label": "At least one entity",
-          "passed": false,
-          "detail": "0/1"
-        },
-        {
-          "id": "entityFields",
-          "level": "required",
-          "label": "Every entity lists its fields",
-          "passed": false
-        },
-        {
-          "id": "storage",
-          "level": "optional",
-          "label": "Storage",
-          "passed": false
-        }
-      ]
+      "hasContent": false
     },
     {
       "id": "architecture",
-      "order": 8,
+      "order": 7,
       "label": "Architecture",
       "goal": "Choose the layering and modules the use cases actually need — never the other way round.",
       "files": [
@@ -271,75 +86,27 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
         "architecture/MODULES.md",
         "architecture/DATA_FLOW.md"
       ],
-      "completion": 0,
-      "canAdvance": false,
-      "requirements": [
-        {
-          "id": "layers",
-          "level": "required",
-          "label": "At least 2 layers",
-          "passed": false,
-          "detail": "0/2"
-        },
-        {
-          "id": "rationale",
-          "level": "required",
-          "label": "Rationale",
-          "passed": false
-        },
-        {
-          "id": "modules",
-          "level": "required",
-          "label": "At least 2 modules",
-          "passed": false,
-          "detail": "0/2"
-        },
-        {
-          "id": "moduleResponsibility",
-          "level": "required",
-          "label": "Every module has a responsibility",
-          "passed": false
-        },
-        {
-          "id": "dataFlow",
-          "level": "optional",
-          "label": "Data flow",
-          "passed": false
-        }
-      ]
+      "hasContent": false
+    },
+    {
+      "id": "datamodel",
+      "order": 8,
+      "label": "Data / API / Storage",
+      "goal": "Sketch the data layer as a general structure — entities, repositories, API and storage — without listing fields or every endpoint.",
+      "files": [
+        "architecture/DATA_MODEL.md"
+      ],
+      "hasContent": false
     },
     {
       "id": "techdecisions",
       "order": 9,
-      "label": "Tech Decisions",
+      "label": "Technical Decisions",
       "goal": "Record the stack and — the part that matters — why each piece was chosen.",
       "files": [
         "architecture/TECH_STACK.md"
       ],
-      "completion": 0,
-      "canAdvance": false,
-      "requirements": [
-        {
-          "id": "stack",
-          "level": "required",
-          "label": "At least 3 stack decisions",
-          "passed": false,
-          "detail": "0/3"
-        },
-        {
-          "id": "stackWhy",
-          "level": "required",
-          "label": "Every stack entry has a Choice and a Why",
-          "passed": false
-        },
-        {
-          "id": "adr",
-          "level": "required",
-          "label": "At least one ADR",
-          "passed": false,
-          "detail": "0/1"
-        }
-      ]
+      "hasContent": false
     },
     {
       "id": "structure",
@@ -349,31 +116,7 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
       "files": [
         "architecture/PROJECT_STRUCTURE.md"
       ],
-      "completion": 0,
-      "canAdvance": false,
-      "requirements": [
-        {
-          "id": "tree",
-          "level": "required",
-          "label": "Folder tree",
-          "passed": false
-        },
-        {
-          "id": "mapsModules",
-          "level": "required",
-          "label": "Every module is mapped to a folder",
-          "passed": true,
-          "notApplicable": true,
-          "detail": "nothing in architecture/MODULES.md to cover yet"
-        },
-        {
-          "id": "naming",
-          "level": "optional",
-          "label": "Naming conventions",
-          "passed": false,
-          "detail": "0/1"
-        }
-      ]
+      "hasContent": false
     },
     {
       "id": "plan",
@@ -383,65 +126,17 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
       "files": [
         "plans/IMPLEMENTATION_PLAN.md"
       ],
-      "completion": 1,
-      "canAdvance": true,
-      "requirements": [
-        {
-          "id": "phases",
-          "level": "required",
-          "label": "At least 3 phases",
-          "passed": true,
-          "detail": "3/3"
-        },
-        {
-          "id": "phaseFields",
-          "level": "required",
-          "label": "Every phase has a Goal and Deliverables",
-          "passed": true
-        },
-        {
-          "id": "coversFeatures",
-          "level": "optional",
-          "label": "Every feature is scheduled into a phase",
-          "passed": true,
-          "notApplicable": true,
-          "detail": "nothing in product/FEATURES.md to cover yet"
-        }
-      ]
+      "hasContent": true
     },
     {
       "id": "skeleton",
       "order": 12,
-      "label": "Project Skeleton",
+      "label": "Generate Skeleton",
       "goal": "List the real files, interfaces, config and tests phase 1 has to create.",
       "files": [
         "plans/SKELETON.md"
       ],
-      "completion": 0,
-      "canAdvance": false,
-      "requirements": [
-        {
-          "id": "files",
-          "level": "required",
-          "label": "At least one file or folder",
-          "passed": false,
-          "detail": "0/1"
-        },
-        {
-          "id": "tests",
-          "level": "optional",
-          "label": "Tests",
-          "passed": false,
-          "detail": "0/1"
-        },
-        {
-          "id": "interfaces",
-          "level": "optional",
-          "label": "Interfaces",
-          "passed": false,
-          "detail": "0/1"
-        }
-      ]
+      "hasContent": false
     }
   ],
   "docs": [
@@ -704,12 +399,23 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
     },
     {
       "path": "product/FEATURES.md",
-      "title": "Features",
+      "title": "Feature breakdown",
       "exists": false,
       "filePath": "/Users/you/project/docs/product/FEATURES.md",
       "step": "features",
-      "raw": "# Features\n\n## Features\n",
+      "raw": "# Feature breakdown\n\n## Feature tree\n\n## Features\n",
       "sections": [
+        {
+          "key": "tree",
+          "heading": "Feature tree",
+          "kind": "prose",
+          "shape": "ascii-tree",
+          "hint": "A fenced ```text ASCII tree. Kept verbatim.",
+          "prose": "",
+          "stray": 0,
+          "items": [],
+          "records": []
+        },
         {
           "key": "features",
           "heading": "Features",
@@ -802,12 +508,23 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
     },
     {
       "path": "product/USER_FLOWS.md",
-      "title": "User flows",
+      "title": "User flow / Screen flow",
       "exists": false,
       "filePath": "/Users/you/project/docs/product/USER_FLOWS.md",
       "step": "userflows",
-      "raw": "# User flows\n\n## Screens\n\n## Flows\n",
+      "raw": "# User flow / Screen flow\n\n## Screen flow\n\n## Screens\n\n## Flows\n",
       "sections": [
+        {
+          "key": "screenFlow",
+          "heading": "Screen flow",
+          "kind": "prose",
+          "shape": "mermaid-flowchart",
+          "hint": "A fenced ```mermaid flowchart TD. Each node is a screen. Kept verbatim.",
+          "prose": "",
+          "stray": 0,
+          "items": [],
+          "records": []
+        },
         {
           "key": "screens",
           "heading": "Screens",
@@ -844,27 +561,29 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
     },
     {
       "path": "architecture/DATA_MODEL.md",
-      "title": "Data model",
+      "title": "Data / API / Storage",
       "exists": false,
       "filePath": "/Users/you/project/docs/architecture/DATA_MODEL.md",
       "step": "datamodel",
-      "raw": "# Data model\n\n## Entities\n\n## Repositories\n\n## API endpoints\n\n## Storage\n",
+      "raw": "# Data / API / Storage\n\n## Overview\n\n## Entities\n\n## Repositories\n\n## API endpoints\n\n## Storage\n",
       "sections": [
+        {
+          "key": "overview",
+          "heading": "Overview",
+          "kind": "prose",
+          "shape": "ascii-tree",
+          "hint": "A fenced ```text tree of the data layer. Areas, not fields or every endpoint.",
+          "prose": "",
+          "stray": 0,
+          "items": [],
+          "records": []
+        },
         {
           "key": "entities",
           "heading": "Entities",
-          "kind": "records",
+          "kind": "items",
           "idPrefix": "E",
-          "fields": [
-            {
-              "label": "Fields",
-              "list": true,
-              "required": true
-            },
-            {
-              "label": "Notes"
-            }
-          ],
+          "hint": "One line per concept or area. Do not list fields.",
           "prose": "",
           "stray": 0,
           "items": [],
@@ -907,8 +626,19 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
       "exists": false,
       "filePath": "/Users/you/project/docs/architecture/ARCHITECTURE.md",
       "step": "architecture",
-      "raw": "# Architecture\n\n## Layers\n\n## Patterns\n\n## Rationale\n",
+      "raw": "# Architecture\n\n## Layering\n\n## Layers\n\n## Patterns\n\n## Rationale\n",
       "sections": [
+        {
+          "key": "layering",
+          "heading": "Layering",
+          "kind": "prose",
+          "shape": "ascii-tree",
+          "hint": "A fenced ```text ASCII stack. Kept verbatim.",
+          "prose": "",
+          "stray": 0,
+          "items": [],
+          "records": []
+        },
         {
           "key": "layers",
           "heading": "Layers",
@@ -995,11 +725,11 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
     },
     {
       "path": "architecture/TECH_STACK.md",
-      "title": "Tech stack",
+      "title": "Technical decisions",
       "exists": false,
       "filePath": "/Users/you/project/docs/architecture/TECH_STACK.md",
       "step": "techdecisions",
-      "raw": "# Tech stack\n\n## Stack\n\n## Open questions\n",
+      "raw": "# Technical decisions\n\n## Stack\n\n## Open questions\n",
       "sections": [
         {
           "key": "stack",
@@ -1207,12 +937,23 @@ export const DISCOVER_FIXTURE: NonNullable<WorkspaceState['discover']> = {
     },
     {
       "path": "plans/SKELETON.md",
-      "title": "Skeleton",
+      "title": "Generate skeleton",
       "exists": false,
       "filePath": "/Users/you/project/docs/plans/SKELETON.md",
       "step": "skeleton",
-      "raw": "# Skeleton\n\n## Files and folders\n\n## Interfaces\n\n## Config\n\n## Tests\n",
+      "raw": "# Generate skeleton\n\n## Skeleton tree\n\n## Files and folders\n\n## Interfaces\n\n## Config\n\n## Tests\n",
       "sections": [
+        {
+          "key": "tree",
+          "heading": "Skeleton tree",
+          "kind": "prose",
+          "shape": "ascii-tree",
+          "hint": "A fenced ```text ASCII tree. Kept verbatim.",
+          "prose": "",
+          "stray": 0,
+          "items": [],
+          "records": []
+        },
         {
           "key": "files",
           "heading": "Files and folders",

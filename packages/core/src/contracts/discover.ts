@@ -19,8 +19,8 @@ export const DISCOVER_STEP_IDS = [
   'features',
   'usecases',
   'userflows',
-  'datamodel',
   'architecture',
+  'datamodel',
   'techdecisions',
   'structure',
   'plan',
@@ -70,13 +70,17 @@ export const DiscoverRunSchema = z.object({
   mode: z.enum(['fill', 'refine']),
   /**
    * `step` (default) touches one step's files, scoped by the guardrail check.
-   * `scan` reconciles every step against the actual source code in one pass,
-   * so the guardrail's allowed-files check widens to the whole blueprint.
+   * `scan` reconciles docs against source in three passes (product →
+   * architecture → plan); `scanPass` is which pass this run is, and the
+   * guardrail allows only that pass's files. Absent `scanPass` means an older
+   * one-shot scan that was allowed to touch every doc.
    * `edit` wraps a person's direct field edit in the same run/diff/keep flow
    * an agent gets — also unscoped, since a person may edit whichever doc
    * they have open, not just one step's files.
    */
   kind: z.enum(['step', 'scan', 'edit']).default('step'),
+  /** 1 = product, 2 = architecture, 3 = plan. Only set on `kind: 'scan'` runs. */
+  scanPass: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   startedAt: IsoTimestampSchema,
   finishedAt: IsoTimestampSchema.optional(),
   note: z.string().optional(),
@@ -95,9 +99,23 @@ export const DiscoverRunSchema = z.object({
 export type DiscoverRun = z.infer<typeof DiscoverRunSchema>;
 
 /**
- * The six CoFoFo recipes a Discover phase can be handed off to. Declared here
- * rather than imported from `../cofofo/contracts` because `contracts/` does
- * not depend on a subsystem; `WorkflowGenerator` is the list's source.
+ * Recipes a Discover Implementation Plan phase may be handed off to.
+ *
+ * CoFoFo exposes two **pipelines** (`cofofo-foundation`, `cofofo-delivery`).
+ * Starting product work uses the two **delivery** recipes only. Foundation
+ * lifecycle recipes (bootstrap / refresh-context / update-rules / repin-bundle)
+ * are not a phase-handoff choice — bootstrap is offered from Kiểm tra when
+ * the skeleton itself is missing.
+ */
+export const DISCOVER_HANDOFF_RECIPE_IDS = [
+  'cofofo-feature',
+  'cofofo-bugfix',
+] as const;
+export type DiscoverHandoffRecipeId = (typeof DISCOVER_HANDOFF_RECIPE_IDS)[number];
+
+/**
+ * Every CoFoFo recipe id, including foundation lifecycle routes. Kept so
+ * recorded handoffs and Kiểm tra suggestions can still name bootstrap.
  */
 export const COFOFO_RECIPE_IDS = [
   'cofofo-bootstrap',
@@ -203,4 +221,8 @@ export type DiscoverIndex = z.infer<typeof DiscoverIndexSchema>;
 
 export function parseDiscoverIndex(raw: unknown): DiscoverIndex {
   return parseContract(DiscoverIndexSchema, raw, 'DiscoverIndex');
+}
+
+export function parseDiscoverScope(raw: unknown): DiscoverScope {
+  return parseContract(DiscoverScopeSchema, raw, 'DiscoverScope');
 }

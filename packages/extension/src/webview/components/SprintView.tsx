@@ -24,7 +24,7 @@ import {
   SprintUnconfigured,
 } from './sprint/SprintEmptyStates';
 import { JiraConnectModal, type JiraConnectResult } from './sprint/JiraConnectModal';
-import { JiraTransitionMapPanel } from './sprint/JiraTransitionMapPanel';
+import { JiraConfigPanel } from './sprint/JiraConfigPanel';
 import { SubtaskPreviewPanel } from './sprint/SubtaskPreviewPanel';
 import { SprintTicketDetail } from './sprint/SprintTicketDetail';
 import { SprintTicketList } from './sprint/SprintTicketList';
@@ -49,18 +49,18 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
     sprints: [],
     tickets: [],
     scope: 'mine' as const,
-    transitionsEnabled: false,
     subtasksEnabled: false,
-    transitionMapping: { taskCreated: '', review: '', runCompleted: '', runFailed: '' },
-    transitionConfirm: true,
     connect: { site: '', email: '' },
+    config: {
+      projectKey: '', boardId: 0, jql: '', refreshMinutes: 10, requestTimeoutSeconds: 20,
+    },
   };
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [sprintMenuOpen, setSprintMenuOpen] = useState(false);
-  const [mapPanelOpen, setMapPanelOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const [subtaskFor, setSubtaskFor] = useState<string | null>(null);
   const [subtaskPlan, setSubtaskPlan] = useState<SubtaskPlan | null>(null);
   const [subtaskResult, setSubtaskResult] = useState<SubtaskCreateOutcome | null>(null);
@@ -180,11 +180,18 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {connectOpen && renderConnectModal()}
-      {mapPanelOpen && (
-        <JiraTransitionMapPanel
+      {configOpen && (
+        <JiraConfigPanel
           sprint={sprint}
-          onChange={(patch) => postMessage({ type: 'sprintSetTransitionConfig', ...patch })}
-          onClose={() => setMapPanelOpen(false)}
+          onSave={(config) => {
+            postMessage({ type: 'sprintSetConfig', config });
+            // The host answers a save with a forced refresh, so the panel would
+            // be re-rendering against values it just sent. Close instead.
+            setConfigOpen(false);
+          }}
+          onReconnect={() => { setConfigOpen(false); openConnect(); }}
+          onOpenSettings={() => postMessage({ type: 'sprintOpenSettings' })}
+          onClose={() => setConfigOpen(false)}
         />
       )}
       {subtaskFor && (
@@ -225,7 +232,7 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
           postMessage({ type: 'sprintSelectBoard', boardId });
         }}
         onRefresh={() => refresh()}
-        onSettings={() => setMapPanelOpen(true)}
+        onSettings={() => setConfigOpen(true)}
       />
 
       <FilterBar
@@ -311,12 +318,11 @@ export function SprintView({ state }: { state: SprintState | undefined }) {
             ticket={selected}
             stale={stale}
             subtasksEnabled={sprint.subtasksEnabled}
-            transitionsEnabled={sprint.transitionsEnabled}
             onStartTask={(ticket) => postMessage({ type: 'sprintStartTask', key: ticket.key })}
             onOpenLinked={(epicId) => postMessage({ type: 'sprintOpenLinkedTask', epicId })}
             onOpenExternal={(url) => postMessage({ type: 'openExternalUrl', url })}
             onCopyKey={(key) => postMessage({ type: 'copyCommand', command: key })}
-            onOpenTransitionSettings={() => setMapPanelOpen(true)}
+            onOpenConfig={() => setConfigOpen(true)}
             onOpenSubtasks={() => openSubtaskPanel(selected!.key)}
           />
         </div>

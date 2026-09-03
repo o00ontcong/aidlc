@@ -34,27 +34,36 @@ export const StackDescriptorSchema = z.object({
   buildCommandId: z.string().min(1),
   testCommandId: z.string().min(1),
 }).strict();
+export type StackDescriptor = z.infer<typeof StackDescriptorSchema>;
 
 export const StackProfileSchema = z.object({
   schemaVersion: z.literal(1),
-  mode: z.enum(['cofofo', 'generic-sdlc']),
+  mode: z.literal('cofofo'),
   repositoryKind: z.enum(['single-stack', 'multi-stack', 'unsupported', 'ambiguous']),
   stack: StackDescriptorSchema.optional(),
   candidates: z.array(CofofoStackIdSchema),
   evidence: z.array(StackEvidenceSchema),
   confidence: z.number().min(0).max(1),
-  fallback: z.object({ pipelineId: z.literal('aidlc-workflow-full'), reason: z.string().min(1) }).strict().optional(),
+  closed: z.object({ reason: z.string().min(1) }).strict().optional(),
   detectedAt: z.string().datetime(),
 }).strict().superRefine((profile, ctx) => {
-  if (profile.mode === 'cofofo') {
-    if (profile.repositoryKind !== 'single-stack' || !profile.stack || profile.candidates.length !== 1) {
-      ctx.addIssue({ code: 'custom', message: 'CoFoFo mode requires exactly one supported stack.' });
+  if (profile.repositoryKind === 'single-stack') {
+    if (!profile.stack || profile.candidates.length !== 1) {
+      ctx.addIssue({ code: 'custom', message: 'single-stack requires exactly one stack descriptor.' });
+    }
+    if (profile.closed) {
+      ctx.addIssue({ code: 'custom', message: 'single-stack profile cannot be closed.' });
     }
     if (profile.confidence < 0.9) {
-      ctx.addIssue({ code: 'custom', message: 'CoFoFo mode requires confidence >= 0.9.' });
+      ctx.addIssue({ code: 'custom', message: 'single-stack requires confidence >= 0.9.' });
     }
-  } else if (!profile.fallback) {
-    ctx.addIssue({ code: 'custom', message: 'generic-sdlc mode must explain its fallback.' });
+  } else {
+    if (profile.stack) {
+      ctx.addIssue({ code: 'custom', message: 'Closed stack detection must not guess a stack descriptor.' });
+    }
+    if (!profile.closed) {
+      ctx.addIssue({ code: 'custom', message: 'Non-single-stack detection must record a closed reason.' });
+    }
   }
 });
 export type StackProfile = z.infer<typeof StackProfileSchema>;
@@ -192,12 +201,11 @@ export type BundleBinding = z.infer<typeof BundleBindingSchema>;
 export const CofofoFoundationStateSchema = z.object({
   schemaVersion: z.literal(1),
   revision: z.number().int().positive(),
-  status: z.enum(['pending-review', 'ready', 'stale', 'fallback']),
+  status: z.enum(['pending-review', 'ready', 'stale']),
   route: z.enum(['bootstrap', 'refresh-context', 'update-rules', 'repin-bundle']),
   stackProfilePath: RelativePathSchema,
   contextManifestPath: RelativePathSchema.optional(),
   contextManifestHash: Sha256Schema.optional(),
-  fallbackPipelineId: z.literal('aidlc-workflow-full').optional(),
   publishedAt: z.string().datetime(),
 }).strict();
 export type CofofoFoundationState = z.infer<typeof CofofoFoundationStateSchema>;

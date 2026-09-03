@@ -31,7 +31,7 @@ function fitZoomForViewport(viewport: HTMLElement, svg: SVGSVGElement): number {
 
 type PanState = { pointerId: number; clientX: number; clientY: number; x: number; y: number };
 
-export function useSvgDiagramViewport(svgHtml: string | undefined) {
+export function useSvgDiagramViewport(svgHtml: string | undefined, relayoutToken?: string | number | boolean) {
   const [zoom, setZoom] = useState(100);
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -63,7 +63,7 @@ export function useSvgDiagramViewport(svgHtml: string | undefined) {
       return;
     }
     applyTransform();
-  }, [svgHtml, applyTransform]);
+  }, [svgHtml, applyTransform, relayoutToken]);
 
   useEffect(() => {
     applyTransform(zoom);

@@ -111,8 +111,7 @@ files ngoài các thư mục fixture sở hữu.
 
 ## Phạm vi MVP
 
-Runtime catalog đã audit hiện hỗ trợ **repository SwiftPM đơn stack**.
-Xcode-project-only, multi-stack, monorepo, stack chưa có catalog, hoặc phát hiện
-mơ hồ đều fail closed về `aidlc-workflow-full`; không đoán lệnh build.
-Không có network fetch trong pipeline. Mở rộng stack cần một catalog + command
-allow-list được audit riêng, không chỉ thêm tên stack.
+Runtime CoFoFo chạy trên **mọi stack detector đã biết**, catalog lọc theo
+stack. Multi-stack, monorepo, hoặc không có manifest: `scan-stack` fail-closed,
+không đoán bundle và không chuyển sang pipeline khác. Không có network fetch
+trong pipeline. Destinations/schemes Xcode không bị bịa.

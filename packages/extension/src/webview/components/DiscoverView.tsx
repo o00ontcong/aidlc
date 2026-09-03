@@ -6,18 +6,66 @@
  * docs/design/discover-tab/discover-tab-wireframe.html.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BookOpen, Compass, ScanSearch } from 'lucide-react';
-import type { WorkspaceState } from '@/lib/types';
-import { postMessage } from '@/lib/bridge';
+import type { DiscoverCommitModalOpen, DiscoverScopeModalOpen, WorkspaceState } from '@/lib/types';
+import { onHostMessage, postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 import { DiscoverWorkspace } from './discover/DiscoverWorkspace';
+import { DiscoverScopeModal } from './discover/DiscoverScopeModal';
+import { DiscoverCommitModal } from './discover/DiscoverCommitModal';
 
 export function DiscoverView({ state }: { state: WorkspaceState }) {
   const language = (state.displayLanguage ?? 'en') as DiscoverLanguage;
-  return state.discover
-    ? <DiscoverWorkspace discover={state.discover} language={language} />
-    : <EmptyState language={language} />;
+  const [scopeModal, setScopeModal] = useState<DiscoverScopeModalOpen | null>(null);
+  const [commitModal, setCommitModal] = useState<DiscoverCommitModalOpen | null>(null);
+
+  useEffect(() => {
+    return onHostMessage((msg) => {
+      if (msg.type === 'openDiscoverScopeModal') {
+        setScopeModal({
+          intent: msg.intent === 'edit' ? 'edit' : 'scan',
+          mode: msg.mode === 'confirm' ? 'confirm' : 'wizard',
+          probe: msg.probe as DiscoverScopeModalOpen['probe'],
+          existing: msg.existing as DiscoverScopeModalOpen['existing'],
+        });
+      }
+      if (msg.type === 'openDiscoverCommitModal') {
+        setCommitModal({
+          defaultMessage: String(msg.defaultMessage ?? ''),
+          repoName: String(msg.repoName ?? ''),
+          changeCount: Number(msg.changeCount ?? 0),
+        });
+      }
+    });
+  }, []);
+
+  return (
+    <div className="h-full min-h-0">
+      {state.discover
+        ? <DiscoverWorkspace
+            discover={state.discover}
+            language={language}
+            savedRailWidth={state.discoverViewUi?.railWidth}
+            savedAgentPanelOpen={state.discoverViewUi?.agentPanelOpen}
+          />
+        : <EmptyState language={language} />}
+      {scopeModal && (
+        <DiscoverScopeModal
+          open={scopeModal}
+          language={language}
+          onClose={() => setScopeModal(null)}
+        />
+      )}
+      {commitModal && (
+        <DiscoverCommitModal
+          open={commitModal}
+          language={language}
+          onClose={() => setCommitModal(null)}
+        />
+      )}
+    </div>
+  );
 }
 
 function EmptyState({ language }: { language: DiscoverLanguage }) {

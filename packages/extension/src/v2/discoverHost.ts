@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { discoverRepoIsDirty } from './discoverGitCommit';
 import {
   assemblePipeline,
   CofofoFoundationService,
@@ -18,13 +19,19 @@ import {
   DISCOVER_STEPS,
   getFileSpec,
   getPhase,
+  isStepEmpty,
   listPhases,
   normalizeStep,
   proseSectionKeyOf,
   renderPhaseIntent,
   scaffoldEpic,
+  suggestEpics,
+  findEpicSuggestion,
+  classifyPhaseWork,
+  classifyItemCoverage,
   suggestRecipeForPhase,
   WorkspaceLoader,
+  DISCOVER_HANDOFF_RECIPE_IDS,
   type CofofoRecipeId,
   type DiscoverHandoff,
   type DiscoverPhase,
@@ -34,6 +41,8 @@ import {
   type DiscoverRun,
   type DiscoverStepId,
   type DocModel,
+  type EpicSuggestion,
+  type DiscoverItemCoverage,
 } from '@aidlc/core';
 import { readYaml, writeYaml } from './yamlIO';
 
@@ -88,11 +97,11 @@ export interface DiscoverStepUi {
   id: DiscoverStepId;
   order: number;
   label: string;
+  labelVi?: string;
   goal: string;
   files: string[];
-  completion: number;
-  canAdvance: boolean;
-  requirements: { id: string; level: string; label: string; passed: boolean; notApplicable?: boolean; detail?: string }[];
+  /** The only user-facing step state: docs already have content, or they do not. */
+  hasContent: boolean;
 }
 
 export interface DiscoverPhaseUi extends DiscoverPhase {
@@ -100,6 +109,13 @@ export interface DiscoverPhaseUi extends DiscoverPhase {
   suggestedRecipe: CofofoRecipeId;
   /** Set once this phase has become an epic. */
   handoff?: DiscoverHandoff;
+  /** Cited features (or skeleton) already exist on disk — do not offer a new implement-epic. */
+  alreadyBuilt?: boolean;
+  /** Sample of matching source paths that justified `alreadyBuilt`. */
+  builtFiles?: string[];
+  searchTokens?: string[];
+  missingFeatureIds?: string[];
+  scannedFileCount?: number;
 }
 
 export interface DiscoverUi {
@@ -122,6 +138,10 @@ export interface DiscoverUi {
   devDocs: { path: string; exists: boolean; filePath: string }[];
   extraFiles: Record<string, string[]>;
   issues: { level: string; code: string; message: string; file?: string; id?: string }[];
+  /** Pre-filled epic proposals from docs ↔ code reconciliation (Kiểm tra panel). */
+  epicSuggestions: EpicSuggestion[];
+  /** Per-FR / feature / screen inventory for steps 3, 4 and 6. */
+  itemCoverage: DiscoverItemCoverage;
   runs: DiscoverRun[];
   /** Implementation Plan phases, each one a candidate epic. */
   phases: DiscoverPhaseUi[];
@@ -132,6 +152,8 @@ export interface DiscoverUi {
     updated: DiscoverDiffRowUi[];
     removed: DiscoverDiffRowUi[];
   };
+  /** Whether the commit-target repo has local git changes. */
+  hasUncommittedChanges: boolean;
 }
 
 export interface DiscoverDiffRowUi {
@@ -256,22 +278,19 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
     docsRoot: index.docsRoot,
     docsRootPath,
     outputLanguage: index.outputLanguage,
-    scope: index.scope,
+    scope: service.declaredScope(),
+    hasUncommittedChanges: discoverRepoIsDirty(root, service.declaredScope()),
     currentStep: index.currentStep,
     revision: index.revision,
-    steps: DISCOVER_STEPS.map((step) => {
-      const status = service.stepStatus(step.id, ctx);
-      return {
-        id: step.id,
-        order: step.order,
-        label: step.label,
-        goal: step.goal,
-        files: step.files.map((f) => f.path),
-        completion: status.completion,
-        canAdvance: status.canAdvance,
-        requirements: status.requirements,
-      };
-    }),
+    steps: DISCOVER_STEPS.map((step) => ({
+      id: step.id,
+      order: step.order,
+      label: step.label,
+      labelVi: step.labelVi,
+      goal: step.goal,
+      files: step.files.map((f) => f.path),
+      hasContent: !isStepEmpty(ctx, step.id),
+    })),
     docs: [...ctx.docs.keys()].map((docPath) => toDocUi(service, index, ctx, docPath)),
     devDocs: DEV_DOCS.map((rel) => ({
       path: rel,
@@ -280,12 +299,40 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
     })),
     extraFiles: ctx.extraFiles,
     issues: service.validate(ctx),
+    epicSuggestions: suggestEpics({
+      workspaceRoot: root,
+      ctx,
+      index,
+      scope: service.declaredScope(),
+    }),
+    itemCoverage: classifyItemCoverage({
+      workspaceRoot: root,
+      ctx,
+      index,
+      scope: service.declaredScope(),
+    }),
     runs: [...index.runs].reverse().slice(0, 20),
-    phases: listPhases(ctx).map((phase, idx) => ({
-      ...phase,
-      suggestedRecipe: suggestRecipeForPhase(phase, idx === 0),
-      handoff: index.handoffs.find((h) => h.phaseId === phase.id),
-    })),
+    phases: (() => {
+      const workById = new Map(classifyPhaseWork({
+        workspaceRoot: root,
+        ctx,
+        index,
+        scope: service.declaredScope(),
+      }).map((w) => [w.phaseId, w]));
+      return listPhases(ctx).map((phase, idx) => {
+        const work = workById.get(phase.id);
+        return {
+          ...phase,
+          suggestedRecipe: suggestRecipeForPhase(phase, idx === 0),
+          handoff: index.handoffs.find((h) => h.phaseId === phase.id),
+          alreadyBuilt: work?.alreadyBuilt ?? false,
+          builtFiles: work?.matchedFiles ?? [],
+          searchTokens: work?.tokens ?? [],
+          missingFeatureIds: work?.missingFeatureIds ?? [],
+          scannedFileCount: work?.scannedFileCount ?? 0,
+        };
+      });
+    })(),
     activeRun,
   };
 }
@@ -361,6 +408,9 @@ export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): 
   if (!phase) { throw new Error(`Phase ${input.phaseId} is not in the Implementation Plan.`); }
   const existing = service.handoffFor(phase.id, index);
   if (existing) { throw new Error(`${phase.id} đã được bàn giao cho ${existing.epicId}.`); }
+  if (!(DISCOVER_HANDOFF_RECIPE_IDS as readonly string[]).includes(input.recipeId)) {
+    throw new Error('Bàn giao phase chỉ dùng cofofo-feature hoặc cofofo-bugfix.');
+  }
 
   const doc = readYaml(root);
   if (!doc) { throw new Error('workspace.yaml is missing — open the Builder tab first.'); }
@@ -400,6 +450,69 @@ export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): 
   });
 
   service.recordHandoff({ phaseId: phase.id, epicId, recipeId: input.recipeId, title });
+  return { epicId, intentPath: path.join(result.artifactsDir, 'INTENT.md') };
+}
+
+export interface ScaffoldSuggestionInput {
+  suggestionId: string;
+}
+
+/**
+ * Start an epic from a Kiểm tra suggestion — all fields are pre-filled; the
+ * webview only sends the suggestion id and the host recomputes the brief.
+ */
+export function scaffoldEpicFromSuggestion(root: string, input: ScaffoldSuggestionInput): ScaffoldPhaseResult {
+  const service = new DiscoverService(root);
+  const index = service.require();
+  const ctx = service.readBlueprint(index);
+  const suggestion = findEpicSuggestion({
+    workspaceRoot: root,
+    ctx,
+    index,
+    scope: service.declaredScope(),
+  }, input.suggestionId);
+  if (!suggestion) { throw new Error(`Suggestion ${input.suggestionId} không còn hợp lệ — hãy tải lại Kiểm tra.`); }
+
+  const doc = readYaml(root);
+  if (!doc) { throw new Error('workspace.yaml is missing — open the Builder tab first.'); }
+
+  new CofofoFoundationService(root).ensureRecipesRegistered();
+  const config = WorkspaceLoader.load(root).config;
+
+  const epicId = nextEpicId(root, doc);
+  const pipeline = assemblePipeline(config, { recipeId: suggestion.recipeId, pipelineId: epicId });
+  doc.pipelines.push(pipeline as unknown as Record<string, unknown>);
+  writeYaml(root, doc);
+
+  const foundation = new CofofoFoundationService(root).inspect().snapshot;
+
+  const result = scaffoldEpic({
+    workspaceRoot: root,
+    doc,
+    epicId,
+    title: suggestion.title,
+    description: suggestion.description,
+    target: { kind: 'pipeline', id: epicId },
+    agents: pipeline.steps.map((step) => normalizeStep(step).agent),
+    inputs: {},
+    pipeline,
+    discoverProvenance: {
+      id: index.id,
+      revision: index.revision,
+      foundation: foundation ?? { revision: 0, manifestPath: '', manifestHash: 'unpublished', capturedAt: new Date().toISOString() },
+      brief: suggestion.brief,
+    },
+  });
+
+  if (suggestion.phaseId) {
+    service.recordHandoff({
+      phaseId: suggestion.phaseId,
+      epicId,
+      recipeId: suggestion.recipeId,
+      title: suggestion.title,
+    });
+  }
+
   return { epicId, intentPath: path.join(result.artifactsDir, 'INTENT.md') };
 }
 

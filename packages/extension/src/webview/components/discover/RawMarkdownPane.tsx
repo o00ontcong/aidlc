@@ -1,6 +1,5 @@
-/* Editing the file itself. The structured view is a convenience over the same
- * Markdown, so a person who would rather just type must be able to — including
- * writing sections the spec does not know about.
+/* Editing the Markdown file itself — including sections the spec does not
+ * know about.
  */
 
 import { useEffect, useState } from 'react';

@@ -72,12 +72,12 @@ interface TemplateRef {
  * CoFoFo is a built-in generated workflow, not a static preset: it first
  * inspects the repository's stack, then writes its Foundation and Delivery
  * source pipelines. Keep it beside the other built-ins, but route activation
- * to Foundation preparation rather than the static-preset installer.
+ * to the pipeline installer rather than the static-preset installer.
  */
 const COFOFO_BUILTIN_TEMPLATE: TemplateRef = {
   id: 'cofofo-workflow',
   name: 'CoFoFo Workflow',
-  description: 'Stack-aware Foundation + Feature/Bugfix recipes. Prepare Foundation first.',
+  description: 'Stack-aware Foundation + Feature/Bugfix recipes. Installs pipelines only.',
 };
 
 /** Resolved artifact path with existence check, surfaced in the run card. */
@@ -439,7 +439,7 @@ function listTemplates(
       if (p.builtin) { builtinTemplates.push(ref); } else { projectTemplates.push(ref); }
     }
     // Static presets arrive from PresetStore. CoFoFo is added here because
-    // its stack-specific assets only exist after Foundation preparation.
+    // its stack-specific pipelines are generated on apply, not stored as a preset.
     builtinTemplates.push(COFOFO_BUILTIN_TEMPLATE);
     return { builtinTemplates, projectTemplates };
   } catch {
@@ -645,7 +645,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         const id = String(msg.id ?? '');
         if (!id) { return; }
         if (id === COFOFO_BUILTIN_TEMPLATE.id) {
-          await vscode.commands.executeCommand('aidlc.prepareCofofoFoundation');
+          await vscode.commands.executeCommand('aidlc.installCofofoWorkflow');
           return;
         }
         await vscode.commands.executeCommand(

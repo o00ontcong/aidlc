@@ -44,6 +44,7 @@ import {
   validatePlanRuleReferences,
   validateProjectRules,
 } from '../cofofo/RuleEngine';
+import { validateStackProfile } from '../cofofo/StackDetector';
 
 export class PipelineRunError extends Error {
   constructor(message: string, public readonly missing?: string[]) {
@@ -461,12 +462,39 @@ export function markStepDone(args: {
     }
   }
 
+  const phase = norm.name ?? norm.agent;
+  if (
+    phase === 'scan-stack'
+    || phase === 'define-rules'
+    || phase === 'select-ecc-catalog'
+    || phase === 'install-ecc-assets'
+    || phase === 'publish-context'
+  ) {
+    try {
+      const profile = StackProfileSchema.parse(JSON.parse(
+        fs.readFileSync(path.join(workspaceRoot, 'docs/project/foundation/STACK-PROFILE.json'), 'utf8'),
+      ));
+      const issues = validateStackProfile(workspaceRoot, profile);
+      if (issues.length) {
+        throw new PipelineRunError(
+          'scan-stack is closed; CoFoFo does not guess a bundle.',
+          issues,
+        );
+      }
+    } catch (error) {
+      if (error instanceof PipelineRunError) throw error;
+      throw new PipelineRunError(
+        `Step "${step.agent}" could not validate stack detection.`,
+        [error instanceof Error ? error.message : String(error)],
+      );
+    }
+  }
+
   // CoFoFo's process rules are enforced by core rather than trusted to the
   // provider's Markdown. Planning must cite the canonical blocking rules;
   // production/refactor/verify boundaries re-run structural policy; memory is
   // bounded, secret-screened, and remains explicitly unreviewed.
   if (pipeline.foundation?.mode === 'cofofo') {
-    const phase = norm.name ?? norm.agent;
     try {
       if (phase === 'create-plan') {
         const rules = ProjectRulesSchema.parse(JSON.parse(

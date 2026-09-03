@@ -45,8 +45,7 @@ function printInspection(service: CofofoFoundationService, json = false): void {
     console.log(JSON.stringify(inspection, null, 2));
     return;
   }
-  const icon = inspection.status === 'ready' ? chalk.green('✔')
-    : inspection.status === 'fallback' ? chalk.yellow('↪') : chalk.yellow('●');
+  const icon = inspection.status === 'ready' ? chalk.green('✔') : chalk.yellow('●');
   console.log(`${icon} Foundation: ${chalk.bold(inspection.status)}`);
   if (inspection.state) console.log(`  revision: ${inspection.state.revision} · route: ${inspection.state.route}`);
   if (inspection.profile?.stack) console.log(`  stack: ${inspection.profile.stack.id} · confidence: ${inspection.profile.confidence}`);
@@ -71,9 +70,9 @@ export function registerCofofo(program: Command): void {
         const service = foundationService(root);
         const inspection = service.prepare({ route: opts.route as typeof routes[number], force: opts.force });
         console.log(chalk.green('✔') + ` CoFoFo preparation completed at revision ${inspection.state?.revision}.`);
-        if (inspection.status === 'fallback') {
-          printInspection(service);
-          return;
+        if (inspection.issues.length) {
+          for (const issue of inspection.issues) console.log(chalk.yellow(`  ✘ ${issue}`));
+          console.log(chalk.dim(`  next: ${inspection.nextAction}`));
         }
         if (opts.start) {
           const ws = WorkspaceLoader.load(root);
@@ -97,7 +96,7 @@ export function registerCofofo(program: Command): void {
     });
 
   command.command('status')
-    .description('Inspect Foundation freshness, manifest hashes, and fallback status')
+    .description('Inspect Foundation freshness, manifest hashes, and scan-stack gate')
     .option('--json', 'Print machine-readable JSON')
     .action((opts: { json?: boolean }, action: Command) => {
       try { printInspection(foundationService(resolveWorkspaceRoot(action)), Boolean(opts.json)); }

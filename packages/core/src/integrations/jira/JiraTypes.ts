@@ -85,12 +85,6 @@ export interface RawJiraBoard {
   type?: string;
 }
 
-export interface RawJiraTransition {
-  id?: string;
-  name?: string;
-  to?: RawJiraStatus;
-}
-
 export interface RawJiraField {
   id?: string;
   name?: string;
@@ -154,15 +148,6 @@ export interface JiraSprint {
 export interface JiraBoard {
   id: number;
   name: string;
-}
-
-export interface JiraTransition {
-  id: string;
-  /** Transition name ("Start Progress"). Not the destination status. */
-  name: string;
-  /** Destination status name — what callers actually match on. */
-  toStatus: string;
-  toCategory: JiraStatusCategory;
 }
 
 /**

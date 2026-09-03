@@ -2,7 +2,7 @@
  * everything is derived from the state payload the extension already sent.
  */
 
-import type { DiscoverDoc, DiscoverSummary, DiscoverStep } from '@/lib/types';
+import type { DiscoverDoc, DiscoverSummary } from '@/lib/types';
 
 /** Same token shape the core parser uses — `FR-01`, `NFR-PERF-02`. */
 const ID_TOKEN = /\b([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{2,})\b/g;
@@ -11,26 +11,13 @@ export function extractIds(text: string): string[] {
   return [...new Set([...text.matchAll(ID_TOKEN)].map((m) => m[1]!))];
 }
 
-export type StepGlyph = 'done' | 'current' | 'upcoming';
-
-export function stepGlyph(step: DiscoverStep, discover: DiscoverSummary): StepGlyph {
-  const currentOrder = discover.steps.find((s) => s.id === discover.currentStep)?.order ?? 1;
-  if (step.id === discover.currentStep) { return 'current'; }
-  return step.order < currentOrder ? 'done' : 'upcoming';
-}
-
-export const GLYPH_CHAR: Record<StepGlyph, string> = {
-  done: '✓',
-  current: '●',
-  upcoming: '○',
-};
-
-export function missingRequirements(step: DiscoverStep) {
-  return step.requirements.filter((r) => r.level === 'required' && !r.notApplicable && !r.passed);
-}
-
 export function docsForStep(discover: DiscoverSummary, stepId: string): DiscoverDoc[] {
   return discover.docs.filter((d) => d.step === stepId);
+}
+
+/** True when the step already has content — the only step state the UI acts on. */
+export function stepHasContent(discover: DiscoverSummary, stepId: string): boolean {
+  return discover.steps.find((s) => s.id === stepId)?.hasContent === true;
 }
 
 export function issuesFor(discover: DiscoverSummary, file: string, id?: string) {
@@ -84,10 +71,6 @@ export function shortTime(iso?: string): string {
   if (Number.isNaN(d.getTime())) { return ''; }
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(d.getHours())}:${pad(d.getMinutes())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
-}
-
-export function pct(value: number): string {
-  return `${Math.round(value * 100)}%`;
 }
 
 /** Group prefix of a grouped id: `F-VIDEO-01` → `VIDEO`. */

@@ -17,6 +17,7 @@ import {
   type DodRule,
 } from './DocSpec';
 import { extractIds, findSection, itemSignature, proseEntryId, type DocModel, type DocRecord, type DocSection } from './mdParse';
+import { legacyFormatIssues } from './discoverFormat';
 
 /** Parsed docs keyed by path relative to `docsRoot`. */
 export type Blueprint = Map<string, DocModel>;
@@ -240,6 +241,14 @@ export function validateBlueprint(ctx: BlueprintContext, index?: DiscoverIndex):
   }
 
   if (index) { issues.push(...staleDocIssues(ctx, index)); }
+
+  for (const [docPath, doc] of ctx.docs) {
+    const fileSpec = getFileSpec(docPath);
+    if (!fileSpec) { continue; }
+    for (const issue of legacyFormatIssues(doc, fileSpec)) {
+      issues.push({ level: 'error', code: issue.code, file: issue.file, message: issue.message });
+    }
+  }
   return issues;
 }
 

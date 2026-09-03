@@ -84,7 +84,7 @@ export function previewCatalogInstall(args: {
   const root = fs.realpathSync(path.resolve(args.workspaceRoot));
   const selection = selectCatalog(args.profile);
   if (!selection) {
-    throw new CofofoInstallError(`No audited CoFoFo catalog is available for ${args.profile.stack?.id ?? 'this repository'}.`);
+    throw new CofofoInstallError(`CoFoFo catalog selection requires a single detected stack; got ${args.profile.stack?.id ?? args.profile.repositoryKind}.`);
   }
   const catalogRoot = args.catalogRoot ?? builtinCofofoCatalogRoot();
   const ids = new Set<string>();
@@ -143,7 +143,7 @@ export function installCatalog(args: {
   }
   const selection = selectCatalog(args.profile);
   if (!selection) {
-    throw new CofofoInstallError(`No audited CoFoFo catalog is available for ${args.profile.stack?.id ?? 'this repository'}.`);
+    throw new CofofoInstallError(`CoFoFo catalog selection requires a single detected stack; got ${args.profile.stack?.id ?? args.profile.repositoryKind}.`);
   }
   const manifest = installSelection(root, selection, args.foundationRevision, {
     force: args.force,

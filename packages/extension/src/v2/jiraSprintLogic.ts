@@ -8,12 +8,10 @@
  */
 
 import {
-  DEFAULT_TRANSITION_MAPPING,
   type JiraBoard,
   type JiraErrorKind,
   type JiraSprint,
   type JiraTicket,
-  type TransitionMapping,
   JiraApiError,
 } from '@aidlc/core';
 
@@ -27,12 +25,7 @@ export interface JiraSettings {
   jql: string;
   refreshMinutes: number;
   requestTimeoutSeconds: number;
-  transitionsEnabled: boolean;
   subtasksEnabled: boolean;
-  /** Event → wanted Jira status. Empty string = do nothing for that event. */
-  transitionMapping: TransitionMapping;
-  /** Ask before each write. A Done-category move always asks regardless. */
-  transitionConfirm: boolean;
 }
 
 export type SprintScope = 'mine' | 'team';
@@ -69,15 +62,24 @@ export interface SprintState {
    * action would sit disabled for the whole refresh window after every reopen.
    */
   stale: boolean;
-  transitionsEnabled: boolean;
   subtasksEnabled: boolean;
-  /** Mirrored so the mapping panel can render without a second round trip. */
-  transitionMapping: TransitionMapping;
-  transitionConfirm: boolean;
   /** Human-readable reason the view is unconfigured. */
   missing?: string[];
   /** Non-secret values prefilled into the connect dialog. Never the token. */
   connect: { site: string; email: string };
+  /**
+   * The editable half of `aidlc.jira.*`, mirrored so the config dialog renders
+   * without a second round trip. Never the token — that lives in SecretStorage
+   * and is only ever written, never read back into a state we post.
+   */
+  config: {
+    projectKey: string;
+    /** 0 = no board pinned; the first visible board is used. */
+    boardId: number;
+    jql: string;
+    refreshMinutes: number;
+    requestTimeoutSeconds: number;
+  };
 }
 
 /** What we persist between sessions. Deliberately no credentials. */
@@ -101,11 +103,11 @@ export const EMPTY_SPRINT_STATE: SprintState = {
   tickets: [],
   scope: 'mine',
   stale: false,
-  transitionsEnabled: false,
   subtasksEnabled: false,
-  transitionMapping: DEFAULT_TRANSITION_MAPPING,
-  transitionConfirm: true,
   connect: { site: '', email: '' },
+  config: {
+    projectKey: '', boardId: 0, jql: '', refreshMinutes: 10, requestTimeoutSeconds: 20,
+  },
 };
 
 /**
@@ -378,11 +380,15 @@ export function buildSprintState(input: BuildSprintStateInput): SprintState {
   const { settings, hasToken, scope } = input;
   const base = {
     scope,
-    transitionsEnabled: settings.transitionsEnabled,
     subtasksEnabled: settings.subtasksEnabled,
-    transitionMapping: settings.transitionMapping,
-    transitionConfirm: settings.transitionConfirm,
     connect: { site: settings.site, email: settings.email },
+    config: {
+      projectKey: settings.projectKey,
+      boardId: settings.boardId,
+      jql: settings.jql,
+      refreshMinutes: settings.refreshMinutes,
+      requestTimeoutSeconds: settings.requestTimeoutSeconds,
+    },
   };
 
   const missing = missingJiraSettings(settings, hasToken);

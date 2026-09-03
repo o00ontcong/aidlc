@@ -42,12 +42,12 @@ export interface SprintTicketDetailProps {
   /** Tickets could not be re-verified — writes and task creation are blocked. */
   stale: boolean;
   subtasksEnabled: boolean;
-  transitionsEnabled: boolean;
   onStartTask: (ticket: SprintTicket) => void;
   onOpenLinked: (epicId: string) => void;
   onOpenExternal: (url: string) => void;
   onCopyKey: (key: string) => void;
-  onOpenTransitionSettings: () => void;
+  /** Open the Jira config dialog. */
+  onOpenConfig: () => void;
   onOpenSubtasks: () => void;
 }
 
@@ -55,12 +55,11 @@ export function SprintTicketDetail({
   ticket,
   stale,
   subtasksEnabled,
-  transitionsEnabled,
   onStartTask,
   onOpenLinked,
   onOpenExternal,
   onCopyKey,
-  onOpenTransitionSettings,
+  onOpenConfig,
   onOpenSubtasks,
 }: SprintTicketDetailProps) {
   if (!ticket) {
@@ -224,14 +223,13 @@ export function SprintTicketDetail({
 
         <button
           type="button"
-          onClick={onOpenTransitionSettings}
+          onClick={onOpenConfig}
           className="ml-auto text-[11px] text-muted-foreground hover:text-foreground"
         >
-          Ghi ngược trạng thái:{' '}
-          <b className={transitionsEnabled ? 'text-primary' : 'text-muted-foreground'}>
-            {transitionsEnabled ? 'bật' : 'tắt'}
-          </b>
-          {subtasksEnabled && <span className="text-primary"> · subtask bật</span>}
+          Cấu hình Jira
+          <span className={subtasksEnabled ? 'text-primary' : 'text-muted-foreground'}>
+            {subtasksEnabled ? ' · subtask bật' : ' · subtask tắt'}
+          </span>
         </button>
       </div>
     </div>

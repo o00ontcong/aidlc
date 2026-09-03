@@ -14,9 +14,9 @@ branch has been merged, published, or manually signed off for release.
   `docs/COFOFO_WORKFLOW_PROPOSAL.html`.
 - [x] Implement the two-tier model: reusable Foundation plus generated
   feature/bugfix delivery pipelines.
-- [x] Restrict the audited runtime MVP to one SwiftPM stack and fail closed to
-  `aidlc-workflow-full` for multi-stack, monorepo, Xcode-only, unsupported, or
-  ambiguous repositories.
+- [x] Restrict the runtime to one detected stack per repository and fail
+  closed on `scan-stack` for multi-stack, monorepo, unsupported, or ambiguous
+  repositories. CoFoFo does not switch to `aidlc-workflow-full`.
 - [x] Keep `PROJECT-RULES.json` canonical; generate `PROJECT-RULES.md` with a
   source marker/hash and reject a stale hand-written view.
 - [x] Restrict executable validation to pinned `commandId` values. Project
@@ -190,13 +190,13 @@ extras. See `docs/COFOFO_BUNDLE_BINDING_PLAN.md` for the milestone design.
 
 ### Deliberate post-MVP scope
 
-- [ ] Add a separately audited Xcode `xcodebuild` catalog (schemes,
-  destinations and simulator/device handling); Xcode-only currently falls back.
-- [ ] Audit and ship additional single-stack catalogs. Detection recognizes
-  Node, Python, Go, Rust, Java and .NET, but recognition alone never unlocks an
-  unaudited command/asset bundle.
+- [ ] Add Xcode scheme/destination handling for `xcodebuild` evidence; Xcode
+  already selects the ios-swift catalog and a declared command allow-list, but
+  destinations are not guessed.
+- [ ] Vendor additional stack-specific ECC Markdown (Python/Node/Go/…) on top
+  of the shared TDD/security assets already selected for every detected stack.
 - [ ] Design content-addressed composite Foundations for monorepos/multi-stack
-  repositories; the MVP intentionally falls back.
+  repositories; `scan-stack` still fails closed until then.
 - [ ] Add greenfield-only `design-architecture` and `scaffold-project` routes.
 - [ ] Decide whether to vendor selected system-design-primer case studies; if
   adopted, pin a revision and satisfy CC BY 4.0 attribution/change notices.

@@ -145,4 +145,17 @@ describe('CoFoFo bundle binding (C1 — schema + catalog map)', () => {
       foundationRevision: 1,
     })).toThrow(/missing catalog id/);
   });
+
+  it('bindingForSelection uses shared TDD skills for Python without Swift extras', () => {
+    const root = temporary();
+    write(root, 'pyproject.toml', '[project]\nname = "demo"\nrequires-python = ">=3.11"\n');
+    const profile = detectStack(root);
+    const selection = selectCatalog(profile)!;
+    expect(selection.stackId).toBe('python');
+    const binding = bindingForSelection(selection);
+    expect(binding.roles.developer).toEqual(['ecc-tdd-workflow', 'ecc-tdd-guide']);
+    expect(binding.phases.implement).toEqual(['ecc-tdd-workflow']);
+    expect(binding.roles['fresh-reviewer']).toEqual(['ecc-security-review']);
+    expect(JSON.stringify(binding)).not.toContain('ecc-swift');
+  });
 });

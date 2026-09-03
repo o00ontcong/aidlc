@@ -24,7 +24,7 @@ import { builtinCofofoCatalogRoot, selectCatalog } from './Catalog';
 import { diagnoseCofofoBinding, type CofofoDoctorIssue } from './CofofoDoctor';
 import { renderProviderContext } from './ProviderContext';
 import { composeWorkspaceFromBundle } from './WorkspaceComposer';
-import { detectStack, validateStackProfile } from './StackDetector';
+import { detectStack, stackGateIssues, validateStackProfile } from './StackDetector';
 import {
   renderProjectRules,
   validateProjectRules,
@@ -60,7 +60,7 @@ const FILES = {
 export type FoundationRoute = 'bootstrap' | 'refresh-context' | 'update-rules' | 'repin-bundle';
 
 export interface CofofoFoundationInspection {
-  status: 'missing' | 'pending-review' | 'ready' | 'stale' | 'fallback';
+  status: 'missing' | 'pending-review' | 'ready' | 'stale';
   state: CofofoFoundationState | null;
   profile: StackProfile | null;
   manifest: ContextManifest | null;
@@ -95,14 +95,14 @@ function profileMarkdown(profile: StackProfile): string {
   if (profile.stack) {
     lines.push(`- Stack: **${profile.stack.id}**`, `- Language: ${profile.stack.language}`, `- Version: ${profile.stack.version}`, `- Package manager: ${profile.stack.packageManager}`, `- Build system: ${profile.stack.buildSystem}`);
   }
-  if (profile.fallback) lines.push('', '## Fallback', '', `${profile.fallback.reason} Use ${profile.fallback.pipelineId}.`);
+  if (profile.closed) lines.push('', '## Closed', '', profile.closed.reason, '', 'CoFoFo does not guess a bundle. Resolve to a single stack and re-run scan-stack.');
   lines.push('', '## Machine Evidence', '', ...profile.evidence.map((item) => `- ${item.path} — ${item.observed} — ${item.sha256}`), '');
   return lines.join('\n');
 }
 
 function catalogSelectionMarkdown(profile: StackProfile, catalogRoot: string): string {
   const selection = selectCatalog(profile);
-  if (!selection) return '# ECC Catalog Selection\n\nNo audited text bundle is available; use generic SDLC.\n';
+  if (!selection) return '# ECC Catalog Selection\n\nscan-stack is closed; no catalog is selected. CoFoFo does not guess a bundle.\n';
   const lines = [
     '# ECC Catalog Selection', '',
     `Pinned revision: ${selection.revision}`, '',
@@ -122,11 +122,35 @@ function stateOf(root: string): CofofoFoundationState | null {
   return readJson(root, COFOFO_STATE_PATH, (value) => CofofoFoundationStateSchema.parse(value));
 }
 
+/** Recipes that slice `cofofo-foundation` into an epic-owned pipeline id. */
+const COFOFO_FOUNDATION_RECIPES = new Set([
+  'cofofo-bootstrap',
+  'cofofo-refresh-context',
+  'cofofo-update-rules',
+  'cofofo-repin-bundle',
+]);
+
+/**
+ * True for the shared `cofofo-foundation` pipeline and for epic-materialized
+ * slices that keep `materialized_from_recipe` pointing at a Foundation recipe.
+ * Epic runs use ids like `EPIC-001` while still carrying the Canvas gates.
+ */
+function isCofofoFoundationRunPipeline(pipeline: {
+  id: string;
+  materialized_from_recipe?: string;
+}): boolean {
+  if (pipeline.id === 'cofofo-foundation') return true;
+  return typeof pipeline.materialized_from_recipe === 'string'
+    && COFOFO_FOUNDATION_RECIPES.has(pipeline.materialized_from_recipe);
+}
+
 function assertCanvasApproved(root: string, runId: string, stepName: string): void {
   const state = RunStateStore.load(root, runId);
   if (!state) throw new CofofoFoundationError(`Foundation run "${runId}" does not exist.`);
   const pipeline = state.pipelineSnapshot?.pipeline;
-  if (!pipeline || pipeline.id !== 'cofofo-foundation') throw new CofofoFoundationError(`Run "${runId}" is not a CoFoFo foundation run.`);
+  if (!pipeline || !isCofofoFoundationRunPipeline(pipeline)) {
+    throw new CofofoFoundationError(`Run "${runId}" is not a CoFoFo foundation run.`);
+  }
   const index = pipeline.steps.findIndex((step) => (normalizeStep(step).name ?? normalizeStep(step).agent) === stepName);
   const step = state.steps[index];
   if (index < 0 || !step || step.status !== 'approved' || step.canvasReview?.verdict !== 'approve') {
@@ -228,40 +252,21 @@ export class CofofoFoundationService {
     writeJson(this.workspaceRoot, FILES.stackJson, profile);
     writeAtomic(resolveInside(this.workspaceRoot, FILES.stackMarkdown), profileMarkdown(profile));
 
-    const selection = selectCatalog(profile);
-    if (profile.mode !== 'cofofo' || !selection) {
-      const fallbackProfile: StackProfile = selection ? profile : StackProfileSchema.parse({
-        ...profile,
-        mode: 'generic-sdlc',
-        repositoryKind: profile.repositoryKind === 'single-stack' ? 'unsupported' : profile.repositoryKind,
-        stack: undefined,
-        confidence: Math.min(profile.confidence, 0.5),
-        fallback: { pipelineId: 'aidlc-workflow-full', reason: `No audited catalog is installed for ${profile.stack?.id ?? 'the detected repository'}.` },
-      });
-      if (fallbackProfile !== profile) {
-        writeJson(this.workspaceRoot, FILES.stackJson, fallbackProfile);
-        writeAtomic(resolveInside(this.workspaceRoot, FILES.stackMarkdown), profileMarkdown(fallbackProfile));
-      }
-      const fallbackState = CofofoFoundationStateSchema.parse({
-        schemaVersion: 1, revision, status: 'fallback', route,
-        stackProfilePath: FILES.stackJson, fallbackPipelineId: 'aidlc-workflow-full', publishedAt: now,
-      });
-      writeJson(this.workspaceRoot, COFOFO_STATE_PATH, fallbackState);
-      return { status: 'fallback', state: fallbackState, profile: fallbackProfile, manifest: null, issues: [fallbackProfile.fallback!.reason], nextAction: 'Use the existing aidlc-workflow-full pipeline.' };
+    const gate = stackGateIssues(profile);
+    if (selectCatalog(profile)) {
+      // PROJECT-RULES.json/md, RULE-DRIFT.md, and ARCHITECTURE-MAP.md are
+      // deliberately NOT pre-seeded here. Deciding real policy and mapping real
+      // architecture is the `define-rules`/`map-system` phases' job once a
+      // human actually starts and runs the `cofofo-foundation` epic — every
+      // other step in this codebase already creates its own `produces` files
+      // fresh during the step (see ArtifactReview.ts), and Canvas review is the
+      // real safety net regardless of whether a draft existed beforehand.
+      // ECC catalog selection stays pre-computed here: unlike rules/
+      // architecture, it's a deterministic lookup (`selectCatalog`) that
+      // `select-ecc-catalog` reviews/audits rather than authors from scratch —
+      // the same kind of machine evidence as the stack detection above.
+      writeAtomic(resolveInside(this.workspaceRoot, FILES.selection), catalogSelectionMarkdown(profile, this.catalogRoot));
     }
-
-    // PROJECT-RULES.json/md, RULE-DRIFT.md, and ARCHITECTURE-MAP.md are
-    // deliberately NOT pre-seeded here. Deciding real policy and mapping real
-    // architecture is the `define-rules`/`map-system` phases' job once a
-    // human actually starts and runs the `cofofo-foundation` epic — every
-    // other step in this codebase already creates its own `produces` files
-    // fresh during the step (see ArtifactReview.ts), and Canvas review is the
-    // real safety net regardless of whether a draft existed beforehand.
-    // ECC catalog selection stays pre-computed here: unlike rules/
-    // architecture, it's a deterministic lookup (`selectCatalog`) that
-    // `select-ecc-catalog` reviews/audits rather than authors from scratch —
-    // the same kind of machine evidence as the stack detection above.
-    writeAtomic(resolveInside(this.workspaceRoot, FILES.selection), catalogSelectionMarkdown(profile, this.catalogRoot));
 
     installCofofoPhaseSkills(this.workspaceRoot);
     const workspacePath = resolveInside(this.workspaceRoot, '.aidlc/workspace.yaml');
@@ -277,23 +282,22 @@ export class CofofoFoundationService {
     });
     writeJson(this.workspaceRoot, COFOFO_STATE_PATH, pending);
     return {
-      status: 'pending-review', state: pending, profile, manifest: null, issues: [],
-      nextAction: 'Start a cofofo-foundation epic from the Epics tab, then review rules/architecture/catalog in Canvas.',
+      status: 'pending-review', state: pending, profile, manifest: null, issues: gate,
+      nextAction: gate.length
+        ? 'scan-stack is closed: resolve to a single stack and re-run. CoFoFo does not guess a bundle.'
+        : 'Start a cofofo-foundation epic from the Epics tab, then review rules/architecture/catalog in Canvas.',
     };
   }
 
   /**
    * Registers the six CoFoFo recipes and the `cofofo-foundation`/
-   * `cofofo-delivery` pipelines into `.aidlc/workspace.yaml` unconditionally
-   * — unlike `prepare()`, this never falls back to `aidlc-workflow-full`
-   * based on stack detection. The Discover tab is CoFoFo-only by design (see
-   * `docs/DISCOVER_TAB_PLAN.md`): its handoff proposes `cofofo-*` recipe ids
-   * regardless of whether this project has been through `prepare()` yet, so
-   * those recipes must exist the moment a route needs one — even for a
-   * project with no code yet. An empty `scan-stack` result is itself valid
-   * machine evidence that phase is built to narrate ("Explain ... the
-   * generic-SDLC fallback when present" — see `WorkflowGenerator.ts`'s
-   * `PHASE_INSTRUCTIONS['scan-stack']`), not a reason to withhold the recipe.
+   * `cofofo-delivery` pipelines into `.aidlc/workspace.yaml`. The Discover tab
+   * is CoFoFo-only: its handoff proposes `cofofo-*` recipe ids regardless of
+   * whether this project has been through `prepare()` yet, so those recipes
+   * must exist the moment a route needs one — even for a project with no
+   * code yet. An empty or multi-stack `scan-stack` result is machine evidence
+   * that closes the gate; it is not a reason to withhold the recipe or
+   * route to another pipeline.
    *
    * Idempotent: merges into whatever `workspace.yaml` already has (via
    * `generatedCofofoWorkspace`) and only seeds `stack.json` when one doesn't
@@ -322,15 +326,15 @@ export class CofofoFoundationService {
     if (hasCatalogStep) assertCanvasApproved(this.workspaceRoot, runId, 'select-ecc-catalog');
     const state = stateOf(this.workspaceRoot);
     const profile = readJson(this.workspaceRoot, FILES.stackJson, (value) => StackProfileSchema.parse(value));
-    if (!state || !profile || state.status === 'fallback') throw new CofofoFoundationError('Prepare a supported CoFoFo foundation before installing.');
+    if (!state || !profile || !profile.stack) throw new CofofoFoundationError('Prepare a single-stack CoFoFo foundation before installing.');
     if (state.route === 'bootstrap') assertCanvasApproved(this.workspaceRoot, runId, 'define-rules');
     return installCatalog({ workspaceRoot: this.workspaceRoot, profile, foundationRevision: state.revision, force, catalogRoot: this.catalogRoot });
   }
 
   previewInstall(): ReturnType<typeof previewCatalogInstall> {
     const profile = readJson(this.workspaceRoot, FILES.stackJson, (value) => StackProfileSchema.parse(value));
-    if (!profile || profile.mode !== 'cofofo') {
-      throw new CofofoFoundationError('Prepare a supported CoFoFo foundation before previewing the install.');
+    if (!profile?.stack) {
+      throw new CofofoFoundationError('Prepare a single-stack CoFoFo foundation before previewing the install.');
     }
     return previewCatalogInstall({ workspaceRoot: this.workspaceRoot, profile, catalogRoot: this.catalogRoot });
   }
@@ -340,6 +344,9 @@ export class CofofoFoundationService {
     const profile = readJson(this.workspaceRoot, FILES.stackJson, (value) => StackProfileSchema.parse(value));
     const rules = readJson(this.workspaceRoot, FILES.rulesJson, (value) => ProjectRulesSchema.parse(value));
     if (!state || !profile || !rules) throw new CofofoFoundationError('Prepare CoFoFo before rendering project rules.');
+    if (!profile.stack) {
+      throw new CofofoFoundationError('Cannot render CoFoFo project rules until scan-stack is open on a single stack.');
+    }
     if (rules.foundationRevision !== state.revision) {
       throw new CofofoFoundationError(
         `PROJECT-RULES.json targets Foundation revision ${rules.foundationRevision}; expected ${state.revision}.`,
@@ -378,7 +385,7 @@ export class CofofoFoundationService {
 
     const selection = selectCatalog(profile);
     if (!selection) {
-      throw new CofofoFoundationError('No audited catalog selection is available for this stack.');
+      throw new CofofoFoundationError('CoFoFo catalog selection is required for a detected single stack.');
     }
     const binding = buildBundleBinding({
       selection,
@@ -482,8 +489,21 @@ export class CofofoFoundationService {
       return { status: 'stale', state: null, profile: null, manifest: null, issues: [error instanceof Error ? error.message : String(error)], nextAction: 'Run `aidlc cofofo prepare --route refresh-context`.' };
     }
     if (!state) return { status: 'missing', state: null, profile, manifest, issues: ['CoFoFo foundation state is missing.'], nextAction: 'Run `aidlc cofofo prepare`.' };
-    if (state.status === 'fallback') return { status: 'fallback', state, profile, manifest: null, issues: [profile?.fallback?.reason ?? 'Unsupported repository.'], nextAction: 'Use aidlc-workflow-full.' };
-    if (!manifest || state.status === 'pending-review') return { status: 'pending-review', state, profile, manifest, issues: manifest ? [] : ['Context has not been published.'], nextAction: manifest ? 'Approve publish-context in Canvas and activate.' : 'Complete the foundation pipeline and publish context.' };
+    if (!manifest || state.status === 'pending-review') {
+      const gate = profile ? stackGateIssues(profile) : [];
+      const issues = [
+        ...(manifest ? [] : ['Context has not been published.']),
+        ...gate,
+      ];
+      return {
+        status: 'pending-review', state, profile, manifest, issues,
+        nextAction: gate.length
+          ? 'scan-stack is closed: resolve to a single stack and re-run. CoFoFo does not guess a bundle.'
+          : manifest
+            ? 'Approve publish-context in Canvas and activate.'
+            : 'Complete the foundation pipeline and publish context.',
+      };
+    }
     const issues = validateContext(this.workspaceRoot, manifest);
     const doctorIssues = diagnoseCofofoBinding(this.workspaceRoot);
     for (const issue of doctorIssues) {

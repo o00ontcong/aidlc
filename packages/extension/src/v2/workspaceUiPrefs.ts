@@ -34,9 +34,17 @@ export interface EpicsViewPrefs {
   listWidth?: number;
 }
 
+export interface DiscoverViewPrefs {
+  /** Pipeline 12-step rail width in px. */
+  railWidth?: number;
+  /** Right-hand agent panel. Absent / false = hidden (the default). */
+  agentPanelOpen?: boolean;
+}
+
 export interface WorkspaceUiPrefs {
   lastView?: WorkspaceUiView;
   epicsView?: EpicsViewPrefs;
+  discoverView?: DiscoverViewPrefs;
 }
 
 const KEY = 'aidlc.workspace.uiPrefs';
@@ -66,6 +74,15 @@ class WorkspaceUiPrefsStore {
     await this.context.workspaceState.update(KEY, {
       ...prev,
       epicsView: { ...(prev.epicsView ?? {}), ...patch },
+    });
+  }
+
+  async patchDiscoverView(patch: DiscoverViewPrefs): Promise<void> {
+    if (!this.context) { return; }
+    const prev = this.get();
+    await this.context.workspaceState.update(KEY, {
+      ...prev,
+      discoverView: { ...(prev.discoverView ?? {}), ...patch },
     });
   }
 }

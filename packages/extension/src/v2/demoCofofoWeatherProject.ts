@@ -392,8 +392,8 @@ function seedActiveFoundation(
   const contextPath = path.join(foundationDir, 'CONTEXT-MANIFEST.json');
 
   const profile = detectStack(root, detectedAt);
-  if (profile.mode !== 'cofofo' || !profile.stack) {
-    throw new Error('SkyCast demo must be detected as one audited SwiftPM stack.');
+  if (!profile.stack) {
+    throw new Error('SkyCast demo must be detected as one SwiftPM stack.');
   }
   writeJson(stackJson, profile);
   writeFile(path.join(foundationDir, 'STACK-PROFILE.md'), [

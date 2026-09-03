@@ -1,6 +1,7 @@
 # Kế hoạch: nạp ticket sprint từ Jira vào AIDLC Workspace
 
-> **Trạng thái: P0–P4 đã implement xong.** Còn lại là kiểm thử tay trên Jira site thật (§13).
+> **Trạng thái: P0–P4 đã implement xong; P3 (ghi ngược trạng thái) sau đó đã gỡ** — xem §9 và §12.
+> Còn lại là kiểm thử tay trên Jira site thật (§13).
 >
 > Wireframe kèm theo: [`docs/wireframes/jira-sprint-view.html`](wireframes/jira-sprint-view.html)
 > Mẫu subtask: [`packages/core/templates/jira/subtask-template.yaml`](../packages/core/templates/jira/subtask-template.yaml)
@@ -8,8 +9,8 @@
 ## 1. Mục tiêu
 
 Mở VS Code, bấm một tab, thấy đúng những ticket Jira đang assign cho mình trong sprint đang chạy,
-chọn một cái là có ngay một AIDLC task với brief đã điền sẵn — Jira tự biết là mình đã bắt đầu làm,
-và bộ subtask theo đúng mẫu của team được tạo dưới ticket đó.
+chọn một cái là có ngay một AIDLC task với brief đã điền sẵn, và bộ subtask theo đúng mẫu của team
+được tạo dưới ticket đó.
 
 Ba quyết định đã chốt:
 
@@ -17,7 +18,7 @@ Ba quyết định đã chốt:
 | --- | --- |
 | Vị trí UI | Tab **Sprint** cấp cao mới trong `WorkspaceShell`, cạnh Project / Tasks |
 | Kết nối | Jira Cloud REST + Agile API, API token lưu trong VS Code `SecretStorage` |
-| Phạm vi ghi | Chuyển trạng thái **và** tạo subtask theo mẫu Confluence STT/Sub-task |
+| Phạm vi ghi | Chỉ tạo subtask theo mẫu Confluence STT/Sub-task — AIDLC không tự đổi trạng thái ticket |
 
 ### Trong phạm vi
 
@@ -27,12 +28,13 @@ Ba quyết định đã chốt:
 - Chi tiết ticket: description (ADF → markdown), acceptance criteria, labels, epic cha, points.
 - Từ ticket tạo AIDLC task với id/title/description prefill, neo liên kết qua `inputs.jira`.
 - Hiển thị ticket nào đã nối với task nào, và task đó đang ở bước mấy.
-- Đẩy trạng thái Jira theo tiến độ pipeline, mặc định **tắt**, có bảng mapping và có xác nhận.
+- Sửa cấu hình `aidlc.jira.*` ngay trong tab (dialog config), thay vì phải mở settings thô.
 - **Tạo subtask theo mẫu** dưới ticket: đề xuất theo domain, preview, tick chọn, tạo hàng loạt.
 - **Import mẫu từ Confluence** thành file YAML trong repo, có diff để review trước khi lưu.
 
 ### Ngoài phạm vi (lần này)
 
+- **Đẩy trạng thái Jira theo tiến độ pipeline** — đã implement ở P3 rồi gỡ, xem §9.
 - Jira Server / Data Center (chỉ nhắm Cloud).
 - Comment kết quả pipeline lên ticket, tạo ticket cấp cao, log work, đổi assignee.
 - Cập nhật lại subtask đã tạo từ artifact sinh ra sau đó (xem §14 — bước kế tiếp).
@@ -47,7 +49,7 @@ chính comment trong code đã nói lý do: headless `claude` chỉ thấy MCP s
 không thấy claude.ai connector — nên hàm đó phải mang theo cả một mảng `refusalSignals` để đoán xem
 model có đang xin lỗi thay vì trả dữ liệu hay không.
 
-Với một danh sách 20–50 ticket cần status, points, assignee, transition khả dụng, thì:
+Với một danh sách 20–50 ticket cần status, points, assignee, thì:
 
 - REST: một request, ~300–800 ms, JSON có schema, lỗi là HTTP status rõ ràng.
 - MCP qua agent: vài chục giây, output là prose cần parse, và fail theo cách không phân biệt được
@@ -64,24 +66,23 @@ gì với key nào để không tạo trùng lần sau.
 ┌───────────────────────── extension host ─────────────────────────┐
 │  jiraCredentials.ts     context.secrets  ← API token             │
 │  jiraSprintService.ts   fetch + cache (workspaceState) + refresh │
-│  jiraStatusSync.ts      hook từ saveRun() → transition           │
 │  jiraSubtaskService.ts  plan → preview → bulk create → ledger    │
 │         │  postMessage 'sprintState'          ▲ 'sprintRefresh'  │
 └─────────┼──────────────────────────────────────┼─────────────────┘
           ▼                                      │
 ┌──────── webview (React) ─────────────────────────────────────────┐
 │  SprintView.tsx → SprintTicketList / SprintTicketDetail          │
-│  SubtaskPreviewPanel · JiraConnectModal · JiraTransitionMapPanel │
+│  SubtaskPreviewPanel · JiraConnectModal · JiraConfigPanel        │
 └──────────────────────────────────────────────────────────────────┘
           ▲
 ┌─────────┴──────── @aidlc/core (thuần, test được) ────────────────┐
-│  JiraClient · sprintQuery · adfToMarkdown · transitions          │
+│  JiraClient · sprintQuery · adfToMarkdown                        │
 │  subtaskTemplate · subtaskPlanner · adfBuilder                   │
 │  ConfluenceClient · templateImporter                             │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Nguyên tắc: mọi thứ **thuần** (build JQL, parse issue, flatten ADF, chọn transition, resolve
+Nguyên tắc: mọi thứ **thuần** (build JQL, parse issue, flatten ADF, resolve
 template, sinh ADF subtask) nằm trong `@aidlc/core` và có unit test; extension host chỉ lo
 credential, cache, message và VS Code UI. Không dependency mới — Node 20 đã có `fetch` toàn cục,
 `js-yaml` và `zod` đã là dependency của core.
@@ -99,17 +100,15 @@ Thêm vào `contributes.configuration` của `packages/extension/package.json`:
 | `aidlc.jira.jql` | string | `""` | override JQL, khi bỏ trống dùng mặc định ở §5 |
 | `aidlc.jira.refreshMinutes` | number | `10` | tự làm mới khi tab Sprint đang mở |
 | `aidlc.jira.requestTimeoutSeconds` | number | `20` | timeout mỗi request |
-| `aidlc.jira.transitions.enabled` | boolean | `false` | bật ghi ngược trạng thái |
-| `aidlc.jira.transitions.onTaskCreated` | string | `"In Progress"` | |
-| `aidlc.jira.transitions.onReview` | string | `"In Review"` | |
-| `aidlc.jira.transitions.onRunCompleted` | string | `""` | rỗng = không làm gì |
-| `aidlc.jira.transitions.onRunFailed` | string | `""` | rỗng = không làm gì (mặc định) |
-| `aidlc.jira.transitions.confirm` | boolean | `true` | hỏi trước mỗi lần ghi |
 | `aidlc.jira.subtasks.enabled` | boolean | `false` | bật tạo subtask |
 | `aidlc.jira.subtasks.templatePath` | string | `.aidlc/jira-subtask-template.yaml` | |
 | `aidlc.jira.subtasks.confluencePageUrl` | string | `""` | nguồn để re-import mẫu |
 | `aidlc.jira.subtasks.issueTypeName` | string | `"auto"` | `auto` = resolve từ createmeta |
 | `aidlc.jira.subtasks.assignToMe` | boolean | `true` | |
+
+Năm key giữa (`projectKey` → `requestTimeoutSeconds`) cùng `subtasks.enabled` sửa được ngay trong
+dialog config của tab Sprint (§9). `site` / `email` chỉ đi qua dialog kết nối, vì chúng phải được
+Jira xác thực cùng token. Phần `subtasks.*` còn lại nằm ở settings thô, mở từ chính dialog đó.
 
 **API token không bao giờ nằm trong settings.** Lưu qua `context.secrets` với key
 `aidlc.jira.apiToken`. `settings.json` bị commit và bị Settings Sync mang đi nơi khác; SecretStorage
@@ -143,7 +142,6 @@ Auth: `Authorization: Basic base64(email:apiToken)`, `Accept: application/json`.
 | Issue trong sprint | `GET /rest/agile/1.0/sprint/{sprintId}/issue?fields=…&maxResults=100` |
 | Không có board | `POST /rest/api/3/search/jql` (endpoint phân trang mới, thay cho `GET /rest/api/3/search` đã deprecate) |
 | Resolve field points | `GET /rest/api/3/field` → tìm name `Story Points` / `Story point estimate` |
-| Transition khả dụng | `GET /rest/api/3/issue/{key}/transitions` |
 | Metadata tạo issue | `GET /rest/api/3/issue/createmeta/{projectIdOrKey}/issuetypes` |
 | Trang mẫu Confluence | `GET /wiki/api/v2/pages/{id}?body-format=storage` |
 
@@ -151,7 +149,6 @@ Auth: `Authorization: Basic base64(email:apiToken)`, `Accept: application/json`.
 
 | Việc | Endpoint |
 | --- | --- |
-| Chuyển trạng thái | `POST /rest/api/3/issue/{key}/transitions` body `{"transition":{"id":"<id>"}}` → 204 |
 | Tạo nhiều subtask | `POST /rest/api/3/issue/bulk` body `{"issueUpdates":[…]}` (tối đa 50) |
 | Tạo một subtask | `POST /rest/api/3/issue` |
 
@@ -167,7 +164,7 @@ Toggle “Cả team” bỏ mệnh đề `assignee`, và đánh dấu `isMine` p
 cộng id custom field của story points (khác nhau theo site, nên phải resolve rồi cache — thường là
 `customfield_10016` nhưng **không được hardcode**).
 
-Sáu chi tiết dễ vỡ, phải xử lý ngay từ đầu:
+Năm chi tiết dễ vỡ, phải xử lý ngay từ đầu:
 
 1. **Description là ADF**, không phải text. API v3 trả `{"type":"doc","version":1,"content":[…]}`.
    Cần `adfToMarkdown()` trong core, vì text này chảy thẳng vào brief của task. Phạm vi node cần hỗ trợ:
@@ -183,10 +180,7 @@ Sáu chi tiết dễ vỡ, phải xử lý ngay từ đầu:
    `createmeta`, lấy entry có `subtask === true`; nhiều hơn một thì lấy theo config.
 4. **Field bắt buộc theo project.** `createmeta` cho biết field nào `required` mà không có default.
    Thiếu thì **chặn trước khi gọi API** và liệt kê ra, thay vì để Jira trả 400 rồi đoán.
-5. **Transition phải resolve theo tên đích, theo từng issue.** Transition id là của workflow, không
-   phải của status, và khác nhau giữa các project. Lấy danh sách transition của issue, khớp
-   `to.name` (case-insensitive) với tên trạng thái đã cấu hình; không khớp thì bỏ qua + log cảnh báo.
-6. **429.** Jira Cloud giới hạn theo cost và trả `Retry-After`. `JiraClient` retry tối đa 2 lần với
+5. **429.** Jira Cloud giới hạn theo cost và trả `Retry-After`. `JiraClient` retry tối đa 2 lần với
    backoff theo header đó, rồi mới báo lỗi.
 
 ## 6. Mẫu subtask
@@ -308,8 +302,12 @@ export interface SprintState {
   errorMessage?: string;
   lastSyncedAt?: string;
   fromCache?: boolean;
-  transitionsEnabled: boolean;
   subtasksEnabled: boolean;
+  /** Nửa sửa được của `aidlc.jira.*`, để dialog config render không cần round trip. */
+  config: {
+    projectKey: string; boardId: number; jql: string;
+    refreshMinutes: number; requestTimeoutSeconds: number;
+  };
   /** Cảnh báo khi mẫu Confluence đã đổi so với contentHash đã lưu. */
   templateStale?: boolean;
 }
@@ -324,7 +322,7 @@ export interface SprintState {
 (`packages/extension/src/webview/lib/types.ts:639`). Đặt `inputs.jira = "ACME-4830"` là đủ:
 
 - Badge liên kết trong Sprint view = join `tickets[].key` với `epics[].inputs.jira`.
-- `jiraStatusSync` tìm ticket key của một run bằng cách đọc `inputs.json` của epic tương ứng.
+- `jiraSubtaskService` tìm ticket key của một epic bằng cách đọc `inputs.json` của epic đó.
 
 `demoProject.ts` vốn đã ghi `jira:` vào `inputs.json`, nên quy ước này không phải phát minh mới.
 
@@ -339,9 +337,6 @@ export interface SprintState {
   "subtasks": [
     { "domain": "Backend", "key": "ACME-4855", "createdAt": "2026-08-22T09:14:02Z",
       "templateHash": "sha256:…" }
-  ],
-  "transitions": [
-    { "at": "2026-08-22T09:13:58Z", "event": "taskCreated", "from": "To Do", "to": "In Progress" }
   ]
 }
 ```
@@ -365,7 +360,8 @@ Webview → host (thêm `case` vào `workspaceWebview.handleMessage`):
 | `sprintPlanSubtasks` | `{ key: string }` → host trả `subtaskDrafts` |
 | `sprintCreateSubtasks` | `{ key: string, drafts: SubtaskDraft[] }` |
 | `sprintImportTemplate` | — |
-| `sprintSetTransitionConfig` | `{ enabled, onTaskCreated, onReview, onRunCompleted, confirm }` |
+| `sprintSetConfig` | `{ config: { projectKey?, boardId?, jql?, refreshMinutes?, requestTimeoutSeconds?, subtasksEnabled? } }` — chỉ field đã đổi |
+| `sprintOpenSettings` | — (mở settings thô `aidlc.jira`) |
 
 Host → webview:
 
@@ -379,33 +375,37 @@ Host → webview:
 `sprintStartTask` không tạo task ngay — nó chỉ mở `StartEpicModal` đã prefill. `sprintCreateSubtasks`
 cũng không tự chạy: nó là kết quả của một lần bấm trong panel preview.
 
-## 9. Ghi ngược trạng thái
+## 9. Cấu hình Jira ngay trong tab (thay cho ghi ngược trạng thái)
 
-Điểm nối duy nhất: `saveRun()` tại `packages/extension/src/v2/runCommands.ts:64`. Mọi chuyển trạng
-thái run trong extension đều đi qua đó (markStepDone, approveStep, rejectStep, skipStep…), nên chỉ
-cần một hook, không phải rải khắp nơi.
+Ghi ngược trạng thái **đã gỡ**. Nó từng là P3 (§12) với bảng mapping event → status, hook một dòng
+trong `saveRun()`, và ledger `transitions[]` trong `jira.json`. Lý do gỡ: đó là đường ghi tự động
+duy nhất lên board của cả team — mọi thứ quanh nó (mặc định tắt, hỏi trước, không lùi trạng thái,
+Done luôn hỏi, ledger chống double-fire) tồn tại chỉ để làm cho một hành vi tự động trở nên an toàn,
+và cái giá đó không xứng với việc tự tay kéo ticket. AIDLC giờ **không tự đổi trạng thái ticket**;
+đường ghi duy nhất còn lại là tạo subtask, có preview và mặc định tắt.
 
-```
-saveRun(root, next)
-  ├─ RunStateStore.save
-  ├─ mirrorRunStateToEpic
-  └─ void jiraStatusSync.onRunStateSaved(root, prev, next)   ← mới, không bao giờ block
-```
+Đúng dialog cũ (mở từ “Jira settings” trong header, và từ chỉ thị ở footer chi tiết ticket) giờ hiện
+chính khối `aidlc.jira.*` để sửa tại chỗ. Có nó vì tab Sprint là nơi một giá trị sai lộ ra: danh
+sách rỗng thường là `boardId`, `projectKey` hoặc `jql`, mà `settings.json` không nói được là cái nào.
 
-`jiraStatusSync.onRunStateSaved()`:
+Hai nửa, cố ý khác nhau:
 
-1. Thoát ngay nếu `aidlc.jira.transitions.enabled === false` (mặc định).
-2. Suy ra event từ `prev → next`: task vừa tạo · vào bước review đầu tiên · run completed · run failed.
-3. Đọc `inputs.json` của epic → không có `jira` thì thoát.
-4. Tra tên status đích trong config; rỗng thì thoát.
-5. `GET /issue/{key}/transitions`, khớp `to.name`; không khớp → cảnh báo một lần, không throw.
-6. Nếu `confirm === true` (hoặc status đích thuộc `statusCategory === 'done'`): hỏi qua
-   `showInformationMessage` với `Chuyển` / `Không lần này` / `Tắt hẳn`.
-7. `POST` transition, ghi vào `jira.json` và một dòng vào Output channel.
+- **Credential** (site · email · token) chỉ đọc ở đây, sửa qua dialog kết nối — ba giá trị đó chỉ có
+  nghĩa khi được xác thực cùng nhau, và `verifyAndStoreJiraCredentials()` là chỗ duy nhất chạm vào
+  token. Token không bao giờ được đọc ra để hiển thị.
+- **Cấu hình thường** (`projectKey` · `boardId` · `jql` · `refreshMinutes` ·
+  `requestTimeoutSeconds` · `subtasks.enabled`) sửa cục bộ trong form, ghi khi bấm **Lưu**.
 
-Quy tắc: transition sang trạng thái **Done luôn phải hỏi**, kể cả khi `confirm = false` — đó là hành
-động khó rút lại và người khác trong team nhìn thấy. Lỗi ghi Jira không bao giờ làm fail một run:
-log + toast cảnh báo, hết.
+Ba quyết định:
+
+1. **Ghi theo Save, không theo từng ký tự.** Mỗi `config.update` bắn config watcher trong
+   `extension.ts`, và watcher đó force refresh sprint — ghi theo keystroke là một request Jira cho
+   mỗi ký tự. Lưu xong thì đóng dialog, vì refresh sẽ đẩy về đúng state vừa gửi.
+2. **Chỉ gửi field đã đổi.** `.vscode/settings.json` nhận đúng key người dùng sửa, không bị đổ cả
+   khối mặc định vào.
+3. **Scope Workspace.** Repo này đọc project / board nào là thuộc tính của repo, không của máy —
+   cùng scope mà site/email đang dùng. Chưa mở folder thì `config.update` throw, và host báo lỗi
+   thay vì để dialog trông như đã lưu.
 
 ## 10. Tạo subtask
 
@@ -449,7 +449,6 @@ Hai chặn cứng:
 | `packages/core/src/integrations/jira/adfToMarkdown.ts` | flatten ADF (đọc) |
 | `packages/core/src/integrations/jira/adfBuilder.ts` | sinh ADF từ model mẫu (ghi), có `taskList` |
 | `packages/core/src/integrations/jira/sprintQuery.ts` | build JQL, chọn `fields`, resolve field points, parse issue |
-| `packages/core/src/integrations/jira/transitions.ts` | chọn transition theo tên status đích |
 | `packages/core/src/integrations/jira/subtaskTemplate.ts` | schema zod + load/validate + resolve placeholder |
 | `packages/core/src/integrations/jira/subtaskPlanner.ts` | ticket + pipeline + ledger → `SubtaskDraft[]` |
 | `packages/core/src/integrations/jira/createMeta.ts` | resolve issue type subtask + field bắt buộc |
@@ -460,15 +459,13 @@ Hai chặn cứng:
 | `packages/core/test/jira-adf.test.ts` | ADF đọc: mọi loại node + node lạ |
 | `packages/core/test/jira-adf-builder.test.ts` | ADF ghi: 5 mục, `taskList`, `rule` |
 | `packages/core/test/jira-sprint-query.test.ts` | JQL, parse issue, points field, sprint rỗng |
-| `packages/core/test/jira-transitions.test.ts` | khớp tên, không khớp, trùng tên |
 | `packages/core/test/jira-subtask-template.test.ts` | schema, placeholder allowlist, hash |
 | `packages/core/test/jira-subtask-planner.test.ts` | `when` theo label, dedupe, `blockedBy` |
 | `packages/core/test/confluence-template-import.test.ts` | parse trang STT/Sub-task thật (fixture) |
 | `packages/extension/src/v2/jiraCredentials.ts` | SecretStorage + wizard connect/disconnect/test |
 | `packages/extension/src/v2/jiraSprintService.ts` | fetch, cache `workspaceState`, auto-refresh |
-| `packages/extension/src/v2/jiraStatusSync.ts` | write-back trạng thái (§9) |
 | `packages/extension/src/v2/jiraSprintLogic.ts` | logic thuần Sprint view (config, cache, linkage) |
-| `packages/extension/src/v2/jiraStatusSyncLogic.ts` | logic thuần write-back + ledger |
+| `packages/extension/src/v2/jiraLedger.ts` | logic thuần của ledger `jira.json` |
 | `packages/extension/src/v2/jiraSubtaskLogic.ts` | logic thuần subtask (steps, guard chọn draft) |
 | `packages/extension/src/v2/jiraSubtaskService.ts` | plan / create / ledger `jira.json` (§10) |
 | `packages/extension/src/v2/jiraTemplateImport.ts` | command import mẫu từ Confluence + diff |
@@ -478,19 +475,18 @@ Hai chặn cứng:
 | `packages/extension/src/webview/components/sprint/SubtaskPreviewPanel.tsx` | draft + tick + cảnh báo |
 | `packages/extension/src/webview/components/sprint/SprintEmptyStates.tsx` | 4 trạng thái ở §C wireframe |
 | `packages/extension/src/webview/components/sprint/JiraConnectModal.tsx` | dialog kết nối một form, lỗi hiện tại chỗ |
-| `packages/extension/src/webview/components/sprint/JiraTransitionMapPanel.tsx` | bảng mapping |
+| `packages/extension/src/webview/components/sprint/JiraConfigPanel.tsx` | dialog cấu hình `aidlc.jira.*` (§9) |
 
 ### Sửa
 
 | File | Thay đổi |
 | --- | --- |
-| `packages/extension/package.json` | 17 config key + 7 command + menu |
+| `packages/extension/package.json` | 12 config key + 7 command + menu |
 | `packages/extension/src/extension.ts` | đăng ký command, truyền `context.secrets` xuống webview |
 | `packages/extension/src/webview/lib/types.ts` | `WorkspaceView += 'sprint'`, `JiraTicket`, `SubtaskDraft`, `SprintState` |
 | `packages/extension/src/webview/components/WorkspaceShell.tsx` | pill Sprint + route + `prefill` cho StartEpicModal |
 | `packages/extension/src/webview/components/StartEpicModal.tsx` | prop `prefill?` + khối “subtask sẽ tạo” |
 | `packages/extension/src/v2/workspaceWebview.ts` | 12 `case` mới + push `sprint` vào state |
-| `packages/extension/src/v2/runCommands.ts` | 1 dòng hook trong `saveRun()` |
 | `packages/core/src/index.ts` | export module jira + confluence |
 | `packages/extension/templates/jira/subtask-template.yaml` | mirror bản core (theo pattern sẵn có) |
 
@@ -510,7 +506,6 @@ sạch, và cả suite của core vẫn xanh (810 test / 68 file).
 | `integrations/jira/adfToMarkdown.ts` | `jira-adf.test.ts` (41) |
 | `integrations/jira/adfBuilder.ts` | `jira-adf-builder.test.ts` (19) |
 | `integrations/jira/sprintQuery.ts` | `jira-sprint-query.test.ts` (54) |
-| `integrations/jira/transitions.ts` | `jira-transitions.test.ts` (25) |
 | `integrations/jira/createMeta.ts` | `jira-create-meta.test.ts` (20) |
 | `integrations/jira/subtaskTemplate.ts` | `jira-subtask-template.test.ts` (42) |
 | `integrations/jira/subtaskPlanner.ts` | `jira-subtask-planner.test.ts` (30) |
@@ -584,41 +579,27 @@ token thì thấy empty state liệt kê thứ còn thiếu, không phải lỗi
 Còn: kiểm tra tay rằng `docs/epics/<ID>/inputs.json` có `"jira": "<KEY>"` sau khi tạo task, và badge
 xuất hiện mà không cần refresh Jira.
 
-### P3 — ghi ngược trạng thái ✅ **xong**
+### P3 — ghi ngược trạng thái ⛔ **đã ship rồi gỡ**
 
-`jiraStatusSyncLogic.ts` (thuần, 38 test), `jiraStatusSync.ts` (vscode), `JiraTransitionMapPanel.tsx`,
-hook một dòng trong `saveRun()`, ledger `docs/epics/<ID>/jira.json`. 160 test extension xanh, cả hai
-typecheck sạch, cả hai bundle build được.
+Từng có: `jiraStatusSyncLogic.ts` (thuần, 38 test), `jiraStatusSync.ts` (vscode),
+`JiraTransitionMapPanel.tsx`, hook một dòng trong `saveRun()`, và mảng `transitions[]` trong
+`docs/epics/<ID>/jira.json`.
 
-**Ledger là bộ nhớ, không cần diff `prev`.** `saveRun()` chỉ đưa cho ta state mới. Thay vì đọc thêm
-một lần để diff — vẫn sẽ double-fire khi cùng một state được lưu hai lần — quyết định dựa vào
-`jira.json`, nơi ghi lại những gì đã làm. Nhờ vậy idempotent theo thiết kế: lưu lại nhiều lần, reload
-window, hay chạy run thứ hai cho cùng epic đều không re-fire được transition đã xong.
+Đã gỡ hết: hai file trên, panel mapping, sáu key `aidlc.jira.transitions.*`, `transitions.ts` của
+core cùng test của nó, và ba call site `onRunStateSaved` (saveRun, epic wizard, “Start pipeline
+run”). `JiraClient` bỏ luôn `transitions()` / `transitionIssue()` / `issue()` — cả ba chỉ tồn tại
+cho đường ghi này. `jiraStatusSyncLogic.ts` đổi tên thành `jiraLedger.ts` và chỉ còn phần subtask,
+vì đó là thứ duy nhất còn ghi vào `jira.json`.
 
-Năm quy tắc, theo đúng thứ tự ưu tiên trong code:
+Hai điều đáng giữ lại từ lần này:
 
-1. **Mặc định tắt** — `aidlc.jira.transitions.enabled` gác toàn bộ. Đây là ghi lên board người khác đang xem.
-2. **Không bao giờ chặn run** — mọi nhánh lỗi đều log rồi return. Jira sập, token bị thu hồi, workflow
-   thiếu status: không cái nào được làm fail pipeline người dùng đang chạy.
-3. **Done luôn hỏi** — kể cả khi `confirm` tắt, và hỏi bằng modal. Đóng ticket thì cả team thấy và khó rút lại.
-4. **Không lùi trạng thái** — một `taskCreated` phát lại không được kéo ticket từ In Review về In Progress.
-5. **Luôn để lại vết** — mọi lần thử, kể cả những lần không làm gì, đều có một dòng Output và một
-   entry trong `jira.json`.
+- **Cả bộ luật an toàn là dấu hiệu, không phải thành tựu.** Mặc định tắt, hỏi trước mỗi lần, không
+  lùi trạng thái, Done luôn hỏi, ledger chống double-fire — năm luật cho *một* hành vi tự động.
+  Khi hàng rào nhiều hơn tính năng thì chính tính năng đó là chỗ nên xem lại.
+- **Ledger vẫn đúng chỗ.** `jira.json` sinh ra cho write-back nhưng có giá trị độc lập: nó là thứ
+  chặn tạo trùng subtask. Gỡ write-back không cần gỡ ledger, chỉ cần thu hẹp nó.
 
-Ba chi tiết đáng ghi lại:
-
-- **`declined` tính là đã xử lý, `failed` thì không.** Người dùng bấm “không lần này” thì lần lưu sau
-  hỏi lại là nhè nhẹ quấy rầy; còn lỗi Jira tạm thời thì đáng được thử lại ở step kế tiếp.
-- **Chọn event xa nhất khi nhiều event cùng thoả.** Một run ta chỉ thấy sau khi nó đã completed không
-  nên bị dắt qua từng trạng thái trung gian.
-- **Bảng mapping tự làm thay vì đẩy sang VS Code settings.** Bốn event là một *chuỗi*; bốn dòng
-  settings rời rạc không trả lời được câu “ticket của tôi sẽ đi qua những trạng thái nào”. Panel cũng
-  đặt hai luật khó thấy ngay cạnh control chúng chi phối. Ô nhập status là free text có gợi ý từ chính
-  các status thấy trong sprint — dropdown sẽ là đoán, vì destination hợp lệ do workflow từng issue quyết định.
-
-*Xong khi:* ✅ hook nằm ở một chỗ duy nhất · ✅ workflow thiếu transition đích → cảnh báo + `skipped`
-trong ledger, run không bị ảnh hưởng · ✅ tắt mặc định · ✅ mọi lần ghi có một dòng Output + một entry
-`jira.json`. Còn cần thử tay: bật mapping rồi tạo task trên site thật để thấy ticket sang In Progress.
+Chỗ dialog đó giờ là **dialog cấu hình Jira** (§9).
 
 ### P4 — subtask theo mẫu ✅ **xong**
 
@@ -659,23 +640,21 @@ xem subtask hiện lên Jira.
 - **Unit (core, vitest).** ADF đọc: từng loại node + node lạ. ADF ghi: 5 mục, `taskList`, `rule`,
   inline code cho labels. Build JQL theo scope/board/override. Parse issue thiếu field
   (`description: null`, không assignee, không points). Resolve field points khi site đặt tên khác.
-  Chọn transition khi trùng tên / không có / khác case. Map HTTP status → `errorKind`. Template:
+  Map HTTP status → `errorKind`. Template:
   schema hợp lệ / thiếu field / placeholder ngoài allowlist. Planner: `when` theo label, dedupe theo
   ledger và theo `existingSubtasks`, `blockedBy` từ createmeta. Importer: parse fixture chính là
   trang STT/Sub-task.
 - **Host.** `jiraSprintService` với `fetch` bị stub: cache hit/miss, TTL, huỷ request đang bay khi
-  đổi sprint. `jiraStatusSync`: bảng quyết định `prev → next` → event, và nhánh “tắt thì không gọi
-  mạng”. `jiraSubtaskService`: bulk trả lỗi từng index → ghi ledger đúng phần đã tạo.
+  đổi sprint. `jiraSubtaskService`: bulk trả lỗi từng index → ghi ledger đúng phần đã tạo.
 - **Tay, trên Jira site thật.** Site có board scrum + sprint active; site không có board (JQL path);
-  token bị thu hồi giữa phiên; sprint 50+ ticket (phân trang); project có workflow tuỳ biến không có
-  “In Progress”; project có field bắt buộc custom; ticket vốn đã có subtask tạo tay.
+  token bị thu hồi giữa phiên; sprint 50+ ticket (phân trang); project có field bắt buộc custom;
+  ticket vốn đã có subtask tạo tay.
 
 ## 14. Rủi ro
 
 | Rủi ro | Giảm thiểu |
 | --- | --- |
 | Custom field points khác nhau theo site | Resolve qua `/rest/api/3/field` rồi cache; không hardcode |
-| Transition id khác nhau theo workflow | Khớp theo `to.name` từng issue, thiếu thì bỏ qua + cảnh báo |
 | Issue type subtask khác tên theo site | Resolve từ `createmeta` theo `subtask === true` |
 | Field bắt buộc của project làm create fail | Đối chiếu `createmeta` trước, chặn ở UI kèm tên field |
 | Tạo subtask trùng khi bấm lại / rerun | Ledger `jira.json` + đối chiếu `existingSubtasks` theo prefix |
@@ -683,7 +662,7 @@ xem subtask hiện lên Jira.
 | ADF phức tạp làm brief bị mất nội dung | Flatten có test theo từng loại node; node lạ vẫn lấy được text |
 | Trang Confluence đổi mà mẫu chưa đổi | `contentHash` → cảnh báo `templateStale`, không tự áp |
 | Nội dung trang wiki bị coi là chỉ thị | Importer chỉ trích cấu trúc; placeholder qua allowlist; không LLM nào hành động theo nội dung trang |
-| Ghi sai lên Jira của team | Cả hai đường ghi mặc định tắt, có preview + confirm, Done luôn hỏi, mọi lần ghi đều log |
+| Ghi sai lên Jira của team | Chỉ còn một đường ghi (subtask), mặc định tắt, có preview, mọi lần ghi đều log |
 | Token rò rỉ | Chỉ SecretStorage, không log, không đưa vào `SprintState` gửi sang webview |
 | Rate limit 429 | Retry theo `Retry-After` 2 lần, sau đó hiện banner + dùng cache |
 | Endpoint `/rest/api/3/search` đã deprecate | Dùng `POST /rest/api/3/search/jql`; đường board/agile là đường chính |
@@ -696,11 +675,11 @@ xem subtask hiện lên Jira.
 | P0 | ~450 LOC core + ~200 LOC host + test |
 | P1 | ~550 LOC React + ~250 LOC service |
 | P2 | ~150 LOC (join dữ liệu + prop prefill) |
-| P3 | ~300 LOC + bảng mapping |
+| P3 | ~300 LOC + bảng mapping — **đã gỡ**, xem §12 |
 | P4 | ~600 LOC core (template/planner/adfBuilder/importer) + ~350 LOC panel + test |
 
-Bấm được sớm nhất sau P1. P2–P4 là phần biến nó thành một vòng làm việc khép kín: chọn ticket → có
-task → Jira biết mình đang làm → subtask theo đúng quy ước của team đã nằm dưới ticket.
+Bấm được sớm nhất sau P1. P2 và P4 là phần biến nó thành một vòng làm việc khép kín: chọn ticket →
+có task → subtask theo đúng quy ước của team đã nằm dưới ticket.
 
 ## 16. Bước kế tiếp (không làm lần này)
 

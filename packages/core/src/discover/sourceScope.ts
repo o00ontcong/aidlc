@@ -286,36 +286,86 @@ function git(cwd: string, args: string[]): string | undefined {
   }
 }
 
-export function fingerprintSourceRepos(root: string, scope: DiscoverScope | undefined): SourceRepoFingerprint {
+export function fingerprintSourceRepos(
+  root: string,
+  scope: DiscoverScope | undefined,
+  options: { docsRoot?: string } = {},
+): SourceRepoFingerprint {
+  const docsRoot = options.docsRoot ?? 'docs';
+  const repos = scope?.repos.length ? scope.repos : [{ path: '.', kind: 'app' } as DiscoverSourceRepo];
   const out: SourceRepoFingerprint = {};
-  for (const repo of scope?.repos ?? []) {
+  for (const repo of repos) {
     const dir = repo.path === '.' ? root : path.join(root, repo.path);
     if (!fs.existsSync(dir)) { continue; }
     const head = git(dir, ['rev-parse', 'HEAD']) ?? '';
     const status = git(dir, ['status', '--porcelain']) ?? '';
-    out[repo.path] = head === '' && status === '' ? '' : `${head.trim()}\n${status}`;
+    const filtered = repo.path === '.' ? filterBlueprintPorcelain(status, docsRoot) : status;
+    out[repo.path] = head.trim() === '' && filtered.trim() === '' ? '' : `${head.trim()}\n${filtered}`;
   }
   return out;
 }
 
 /**
- * Compare two fingerprints. The blueprint's own repo (`.`) is skipped: a scan
- * is *supposed* to dirty it — that's where the docs live.
+ * Compare two fingerprints. Docs and `.aidlc/` in the blueprint repo (`.`)
+ * are ignored — a scan is *supposed* to dirty those. Source edits in that
+ * same repo (layout `single`) and any edit in a child source repo are not.
  */
 export function checkSourceRepoWrites(
   before: SourceRepoFingerprint,
   after: SourceRepoFingerprint,
+  options: { docsRoot?: string } = {},
 ): GuardrailIssue[] {
+  const docsRoot = options.docsRoot ?? 'docs';
   const issues: GuardrailIssue[] = [];
   for (const [repoPath, was] of Object.entries(before)) {
-    if (repoPath === '.') { continue; }
     const now = after[repoPath];
-    if (now === undefined || was === now) { continue; }
+    if (now === undefined) { continue; }
+    const left = repoPath === '.' ? normalizeBlueprintFingerprint(was, docsRoot) : was;
+    const right = repoPath === '.' ? normalizeBlueprintFingerprint(now, docsRoot) : now;
+    if (left === right) { continue; }
     issues.push({
       code: 'source-repo-written',
       file: repoPath,
-      message: `${repoPath} is a source repo, not part of this blueprint, and the run changed files inside it — review it with git before keeping.`,
+      message: repoPath === '.'
+        ? `This scan changed source files outside ${docsRoot}/ and .aidlc/ — review them with git before keeping.`
+        : `${repoPath} is a source repo, not part of this blueprint, and the run changed files inside it — review it with git before keeping.`,
     });
   }
   return issues;
+}
+
+/** Drop porcelain lines that live under the blueprint docs or AIDLC sidecar. */
+export function filterBlueprintPorcelain(status: string, docsRoot = 'docs'): string {
+  return status.split(/\r?\n/).filter((line) => {
+    if (!line.trim()) { return false; }
+    const rel = porcelainPath(line);
+    return !rel || !isBlueprintScratchPath(rel, docsRoot);
+  }).join('\n');
+}
+
+export function isBlueprintScratchPath(rel: string, docsRoot = 'docs'): boolean {
+  const n = rel.replace(/\\/g, '/').replace(/^\.\//, '');
+  const d = docsRoot.replace(/\\/g, '/').replace(/\/$/, '');
+  return n === d || n.startsWith(`${d}/`) || n === '.aidlc' || n.startsWith('.aidlc/');
+}
+
+function normalizeBlueprintFingerprint(fingerprint: string, docsRoot: string): string {
+  const nl = fingerprint.indexOf('\n');
+  const head = (nl === -1 ? fingerprint : fingerprint.slice(0, nl)).trim();
+  const status = nl === -1 ? '' : fingerprint.slice(nl + 1);
+  const filtered = filterBlueprintPorcelain(status, docsRoot).trim();
+  return filtered === '' ? head : `${head}\n${filtered}`;
+}
+
+/** Path column of a `git status --porcelain` line, including renames. */
+function porcelainPath(line: string): string | undefined {
+  if (line.length < 4) { return undefined; }
+  let rest = line.slice(3);
+  const arrow = rest.lastIndexOf(' -> ');
+  if (arrow !== -1) { rest = rest.slice(arrow + 4); }
+  rest = rest.trim();
+  if (rest.startsWith('"') && rest.endsWith('"')) {
+    rest = rest.slice(1, -1).replace(/\\"/g, '"');
+  }
+  return rest || undefined;
 }

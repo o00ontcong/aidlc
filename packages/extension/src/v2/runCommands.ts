@@ -59,7 +59,6 @@ import type { PipelineConfig, ReviewGate, RunState } from '@aidlc/core';
 
 import { readYaml } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
-import { jiraStatusSync } from './jiraStatusSync';
 
 /**
  * Save the runtime RunState file AND mirror its display fields + per-step
@@ -78,10 +77,6 @@ function saveRun(workspaceRoot: string, next: RunState): void {
       `AIDLC: failed to mirror run state into epic state.json — ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  // Every run-state change in the extension passes through here, so this is the
-  // one place Jira write-back needs to hook. Fire-and-forget by design: it is
-  // off by default, and a Jira problem must never fail the run.
-  jiraStatusSync.onRunStateSaved(workspaceRoot, next, doc);
 }
 
 function stepIdxMatchingSlash(state: RunState, slash: string, pipeline?: PipelineConfig): number {
@@ -389,6 +384,14 @@ export async function runAutoReviewCommand(runIdArg?: string, stepIdxArg?: numbe
 
   const stepIdx = resolveStepIdx(state, stepIdxArg, 'awaiting_auto_review');
   const step = state.steps[stepIdx];
+  if (step.status !== 'awaiting_auto_review') {
+    void vscode.window.showErrorMessage(
+      step.status === 'awaiting_review'
+        ? `Step "${step.agent}" is waiting on Canvas/human review, not auto-review. Use Review in Canvas.`
+        : `Step "${step.agent}" is "${step.status}", expected "awaiting_auto_review".`,
+    );
+    return;
+  }
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `Auto-reviewing "${step.agent}"…`, cancellable: false },
     async () => {

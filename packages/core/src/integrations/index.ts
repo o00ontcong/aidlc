@@ -6,13 +6,12 @@
  * injectable `fetch` so the logic around them stays unit-testable.
  */
 
-// Jira — sprint reading, status write-back, subtask creation.
+// Jira — sprint reading and subtask creation.
 export * from './jira/JiraTypes';
 export * from './jira/JiraClient';
 export * from './jira/adfToMarkdown';
 export * from './jira/adfBuilder';
 export * from './jira/sprintQuery';
-export * from './jira/transitions';
 export * from './jira/createMeta';
 export * from './jira/subtaskTemplate';
 export * from './jira/subtaskPlanner';

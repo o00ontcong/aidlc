@@ -8,8 +8,8 @@
  * scaffolding (`.aidlc/`, `.claude/`, `.cursor/`) that reads like source but
  * describes the tooling. Guessing wrong produces a blueprint about the wrong
  * product, which is worse than no blueprint at all — so the layout is declared
- * here, written into `.aidlc/discover/index.json`, and reused by every later
- * scan until the user re-declares it.
+ * here, written into `.aidlc/discover/scope.json` (and the blueprint index when
+ * one exists), and reused by every later scan until the user re-declares it.
  *
  * `core/discover/sourceScope.ts` proposes; this wizard only confirms.
  */
@@ -45,6 +45,8 @@ interface Copy {
   noChildren: string;
   outsideRoot: string;
   saved: (summary: string) => string;
+  useSaved: (summary: string) => string;
+  editSaved: string;
 }
 
 const COPY: Record<Lang, Copy> = {
@@ -66,6 +68,8 @@ const COPY: Record<Lang, Copy> = {
     noChildren: 'Không tìm thấy repo con nào bên trong workspace — chọn folder thủ công.',
     outsideRoot: 'Folder này nằm ngoài workspace; đường dẫn sẽ được lưu tương đối (..).',
     saved: (summary) => `AIDLC Discover: đã lưu cấu trúc repo — ${summary}`,
+    useSaved: (summary) => `Dùng cấu hình đã lưu — ${summary}`,
+    editSaved: 'Chỉnh sửa cấu hình…',
   },
   en: {
     layoutTitle: 'How is this repo laid out? (decides what source a scan may read)',
@@ -85,6 +89,8 @@ const COPY: Record<Lang, Copy> = {
     noChildren: 'No child repo found inside the workspace — pick a folder by hand.',
     outsideRoot: 'That folder is outside the workspace; its path is stored relative (..).',
     saved: (summary) => `AIDLC Discover: repo layout saved — ${summary}`,
+    useSaved: (summary) => `Use saved layout — ${summary}`,
+    editSaved: 'Change layout…',
   },
 };
 
@@ -92,6 +98,40 @@ type ScopeDraft = Omit<DiscoverScope, 'declaredAt'>;
 
 interface LayoutItem extends vscode.QuickPickItem { layout: DiscoverScope['layout'] }
 interface RepoItem extends vscode.QuickPickItem { candidate?: RepoCandidate; browse?: true }
+interface SavedScopeItem extends vscode.QuickPickItem { action: 'use' | 'edit' }
+
+export type DiscoverScopeResolve =
+  | { action: 'saved'; scope: DiscoverScope }
+  | { action: 'declared'; scope: ScopeDraft };
+
+/**
+ * First scan: full wizard, then persist. Later scans: reuse saved layout or
+ * open the wizard to edit — cancelled at any step yields `undefined`.
+ */
+export async function resolveDiscoverScopeForScan(
+  root: string,
+  lang: Lang,
+  existing?: DiscoverScope,
+): Promise<DiscoverScopeResolve | undefined> {
+  if (!existing) {
+    const draft = await promptForDiscoverScope(root, lang);
+    return draft ? { action: 'declared', scope: draft } : undefined;
+  }
+  const t = COPY[lang];
+  const summary = describeScope(existing, lang);
+  const items: SavedScopeItem[] = [
+    { action: 'use', label: t.useSaved(summary), description: t.suggested },
+    { action: 'edit', label: t.editSaved, alwaysShow: true },
+  ];
+  const pick = await vscode.window.showQuickPick(items, {
+    placeHolder: t.useSaved(summary),
+    ignoreFocusOut: true,
+  });
+  if (!pick) { return undefined; }
+  if (pick.action === 'use') { return { action: 'saved', scope: existing }; }
+  const draft = await promptForDiscoverScope(root, lang, existing);
+  return draft ? { action: 'declared', scope: draft } : undefined;
+}
 
 /**
  * Run the wizard. Resolves `undefined` when the user escapes at any point —

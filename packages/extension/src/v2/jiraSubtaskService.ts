@@ -55,7 +55,7 @@ import {
   parseLedger,
   ticketKeyFromInputs,
   type JiraLedger,
-} from './jiraStatusSyncLogic';
+} from './jiraLedger';
 
 const LEDGER_FILENAME = 'jira.json';
 const DEFAULT_TEMPLATE_PATH = '.aidlc/jira-subtask-template.yaml';

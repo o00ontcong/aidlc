@@ -29,7 +29,7 @@ export function DiffView({
   }
 
   const total = active.added.length + active.updated.length + active.removed.length;
-  const stepLabel = active.run.kind === 'scan' ? copy.scanBadge : active.run.step;
+  const stepLabel = active.run.kind === 'scan' ? copy.scanPassBadge(active.run.scanPass) : active.run.step;
 
   return (
     <Modal

@@ -4,8 +4,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ExternalLink, FolderTree, Play, RefreshCw, ScanSearch } from 'lucide-react';
-import type { DiscoverStepId, DiscoverSummary } from '@/lib/types';
+import { AlertTriangle, ExternalLink, FolderTree, GitCommit, MessageSquare, PanelRight, Play, RefreshCw, Rocket, ScanSearch } from 'lucide-react';
+import type { DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 import { AgentPanel } from './AgentPanel';
@@ -14,25 +14,50 @@ import { DocsMode } from './DocsMode';
 import { MarkdownLite } from './MarkdownLite';
 import { RawMarkdownPane } from './RawMarkdownPane';
 import { HandoffPanel } from './HandoffPanel';
-import { SectionCard } from './SectionCard';
-import { StepRail } from './StepRail';
-import { docsForStep, missingRequirements, pct } from './lib';
+import { StepStatusView, stepHasStatusView } from './StepStatusView';
+import { DISCOVER_RAIL_DEFAULT_WIDTH, DISCOVER_RAIL_MAX_WIDTH, DISCOVER_RAIL_MIN_WIDTH, StepRail } from './StepRail';
+import { docsForStep, stepHasContent } from './lib';
+import { cn } from '@/lib/utils';
 
 type Mode = 'pipeline' | 'docs' | 'checks';
-type StepPane = 'structured' | 'raw' | 'preview';
+type StepPane = 'raw' | 'preview';
 
-export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSummary; language: DiscoverLanguage }) {
+function clampRailWidth(value: number): number {
+  return Math.max(DISCOVER_RAIL_MIN_WIDTH, Math.min(DISCOVER_RAIL_MAX_WIDTH, Math.round(value)));
+}
+
+export function DiscoverWorkspace({
+  discover, language, savedRailWidth, savedAgentPanelOpen,
+}: {
+  discover: DiscoverSummary;
+  language: DiscoverLanguage;
+  savedRailWidth?: number;
+  savedAgentPanelOpen?: boolean;
+}) {
   const copy = discoverCopy(language);
   const [mode, setMode] = useState<Mode>('pipeline');
   const [viewing, setViewing] = useState<DiscoverStepId>(discover.currentStep);
-  const [pane, setPane] = useState<StepPane>('structured');
+  const [pane, setPane] = useState<StepPane>('preview');
   const [diffOpen, setDiffOpen] = useState(false);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(savedAgentPanelOpen === true);
+  const [railWidth, setRailWidth] = useState(() => {
+    if (typeof savedRailWidth !== 'number' || !Number.isFinite(savedRailWidth)) {
+      return DISCOVER_RAIL_DEFAULT_WIDTH;
+    }
+    return clampRailWidth(savedRailWidth);
+  });
+
+  const persistAgentPanel = (open: boolean) => {
+    setAgentPanelOpen(open);
+    postMessage({ type: 'persistDiscoverUi', discoverView: { agentPanelOpen: open } });
+  };
 
   // Follow real workflow moves; selecting a step in the rail is navigation only.
   useEffect(() => { setViewing(discover.currentStep); }, [discover.currentStep]);
 
   const step = discover.steps.find((s) => s.id === viewing) ?? discover.steps[0]!;
   const active = discover.activeRun;
+  const suggestions = discover.epicSuggestions ?? [];
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -59,16 +84,29 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
         <span className="ml-auto flex items-center gap-1.5">
           <button
             type="button"
+            onClick={() => postMessage({ type: 'commitDiscoverChanges' })}
+            title={copy.hints.commitAll}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition',
+              discover.hasUncommittedChanges
+                ? 'border-primary bg-primary font-semibold text-primary-foreground hover:bg-primary/90'
+                : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+          >
+            <GitCommit className="h-3 w-3" />{copy.commitAll}
+          </button>
+          <button
+            type="button"
             onClick={() => setMode(mode === 'checks' ? 'pipeline' : 'checks')}
             title={copy.hints.showChecks}
             className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
-              discover.issues.length
+              suggestions.length
                 ? 'border-warning/50 bg-warning/10 text-warning hover:bg-warning/20'
                 : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
             }`}
           >
-            {discover.issues.length > 0 && <AlertTriangle className="h-3 w-3" />}
-            {copy.checks} {discover.issues.length}
+            {suggestions.length > 0 && <AlertTriangle className="h-3 w-3" />}
+            {copy.checks} {suggestions.length}
           </button>
           <button
             type="button"
@@ -105,6 +143,19 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
           </button>
           <button
             type="button"
+            onClick={() => persistAgentPanel(!agentPanelOpen)}
+            title={agentPanelOpen ? copy.hints.hideAgentPanel : copy.hints.showAgentPanel}
+            aria-pressed={agentPanelOpen}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition ${
+              agentPanelOpen
+                ? 'border-primary bg-primary/10 font-semibold text-foreground'
+                : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
+            }`}
+          >
+            <PanelRight className="h-3 w-3" />{copy.agent}
+          </button>
+          <button
+            type="button"
             onClick={() => postMessage({ type: 'runDiscoverPipeline' })}
             title={copy.hints.runPipeline}
             className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
@@ -120,7 +171,7 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
             {active.run.kind === 'edit' ? copy.editBanner(active.run.id, active.run.mode) : copy.runBanner(active.run.id, active.run.mode)}
           </span>
           {active.run.kind === 'scan' && (
-            <span className="rounded bg-warning/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{copy.scanBadge}</span>
+            <span className="rounded bg-warning/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{copy.scanPassBadge(active.run.scanPass)}</span>
           )}
           <span>
             +{active.added.length} ~{active.updated.length} −{active.removed.length}
@@ -133,14 +184,41 @@ export function DiscoverWorkspace({ discover, language }: { discover: DiscoverSu
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {mode === 'checks' && <ChecksView discover={discover} copy={copy} onBack={() => setMode('pipeline')} />}
         {mode === 'docs' && <DocsMode discover={discover} copy={copy} />}
         {mode === 'pipeline' && (
-          <div className="grid h-full min-h-0" style={{ gridTemplateColumns: 'clamp(148px, 17vw, 216px) minmax(0,1fr) clamp(186px, 21vw, 262px)' }}>
-            <StepRail discover={discover} viewing={viewing} copy={copy} onSelect={setViewing} />
-            <StepDetail discover={discover} stepId={viewing} pane={pane} copy={copy} onPane={setPane} />
-            <AgentPanel discover={discover} copy={copy} onOpenDiff={() => setDiffOpen(true)} />
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <StepRail
+              discover={discover}
+              viewing={viewing}
+              copy={copy}
+              width={railWidth}
+              onWidthChange={setRailWidth}
+              onWidthCommit={(next) => {
+                setRailWidth(next);
+                postMessage({ type: 'persistDiscoverUi', discoverView: { railWidth: next } });
+              }}
+              onSelect={(id) => {
+                setViewing(id);
+                if (id !== discover.currentStep) {
+                  postMessage({ type: 'setDiscoverStep', step: id });
+                }
+              }}
+            />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <StepDetail discover={discover} stepId={viewing} pane={pane} copy={copy} onPane={setPane} />
+            </div>
+            {agentPanelOpen && (
+              <div className="flex min-h-0 shrink-0 flex-col overflow-hidden" style={{ width: 'clamp(186px, 21vw, 262px)' }}>
+                <AgentPanel
+                  discover={discover}
+                  copy={copy}
+                  onOpenDiff={() => setDiffOpen(true)}
+                  onClose={() => persistAgentPanel(false)}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -161,52 +239,40 @@ function StepDetail({
 }) {
   const step = discover.steps.find((s) => s.id === stepId)!;
   const docs = docsForStep(discover, stepId);
-  const missing = missingRequirements(step);
-  const isCurrent = stepId === discover.currentStep;
-  // The last step has nowhere to advance to — "next step" would be a no-op.
-  const isLastStep = step.order >= Math.max(...discover.steps.map((s) => s.order));
-  // Only problems with the entry itself. "Not covered" is about a document
-  // that has not been written yet, so marking every requirement with it would
-  // put a warning on the whole list before the next step even starts.
-  const flaggedIds = new Set(
-    discover.issues.filter((i) => i.id && i.code === 'dangling-ref').map((i) => i.id!),
-  );
+  const hasContent = stepHasContent(discover, stepId);
 
   return (
-    <div className="flex min-h-0 flex-col">
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <header className="mb-2">
           <p className="text-[9.5px] font-bold tracking-[0.09em] text-muted-foreground">{copy.selectedStep}</p>
           <div className="flex flex-wrap items-baseline gap-2">
-            <h2 className="text-sm font-bold text-foreground">{step.order} · {step.label}</h2>
+            <h2 className="text-sm font-bold text-foreground">{step.order} · {copy.stepTitle(step)}</h2>
             {step.files.map((file) => (
               <code key={file} className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{file}</code>
             ))}
-            {isCurrent && (
-              <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-primary">{pct(step.completion)}</span>
-            )}
           </div>
           <p className="mt-0.5 text-[11px] text-muted-foreground">{step.goal}</p>
         </header>
 
         <div className="mb-2 flex gap-1">
-          {(['structured', 'raw', 'preview'] as const).map((p) => (
+          {(['preview', 'raw'] as const).map((p) => (
             <button
               key={p}
               type="button"
               onClick={() => onPane(p)}
-              title={p === 'structured' ? copy.hints.showStructured : p === 'raw' ? copy.hints.showRaw : copy.hints.showPreview}
+              title={p === 'raw' ? copy.hints.showRaw : copy.hints.showPreview}
               className={`rounded border px-2 py-0.5 text-[10.5px] transition ${
                 pane === p ? 'border-border bg-secondary font-semibold text-foreground' : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
             >
-              {p === 'structured' ? copy.viewStructured : p === 'raw' ? copy.viewMarkdown : copy.viewPreview}
+              {p === 'raw' ? copy.viewMarkdown : copy.viewPreview}
             </button>
           ))}
         </div>
 
         <div className="space-y-3">
-          {(stepId === 'plan' || stepId === 'skeleton') && pane === 'structured' && (
+          {stepId === 'skeleton' && (
             <HandoffPanel discover={discover} copy={copy} />
           )}
           {docs.map((doc) => (
@@ -214,32 +280,32 @@ function StepDetail({
               {docs.length > 1 && (
                 <p className="font-mono text-[10px] text-muted-foreground">{doc.path}</p>
               )}
-              {pane === 'structured' && doc.sections.map((section) => (
-                <SectionCard
-                  key={section.key}
-                  docPath={doc.path}
-                  revision={discover.revision}
-                  section={section}
-                  copy={copy}
-                  flaggedIds={flaggedIds}
-                />
-              ))}
               {pane === 'raw' && <RawMarkdownPane doc={doc} revision={discover.revision} copy={copy} />}
-              {pane === 'preview' && (
+              {pane === 'preview' && stepHasStatusView(stepId) && (
+                <StepStatusView discover={discover} stepId={stepId} copy={copy} doc={doc} />
+              )}
+              {pane === 'preview' && !stepHasStatusView(stepId) && (
                 <div className="rounded-md border border-border bg-card px-3 py-1"><MarkdownLite source={doc.raw} /></div>
               )}
             </div>
           ))}
+          {stepId === 'plan' && (
+            <HandoffPanel discover={discover} copy={copy} />
+          )}
         </div>
       </div>
 
-      <footer className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2">
-        <p className="text-[11px] text-muted-foreground">
-          {missing.length === 0
-            ? <span className="text-success">{copy.doneWhen}: ✓</span>
-            : <>{copy.missing}: <span className="text-warning">{missing.map((m) => m.label + (m.detail ? ` (${m.detail})` : '')).join(' · ')}</span></>}
-        </p>
-        <span className="ml-auto flex items-center gap-2">
+      <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-2">
+        {hasContent ? (
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'chatDiscoverStep', step: stepId })}
+            title={copy.hints.chatStep}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            <MessageSquare className="h-3 w-3" />{copy.chatStep}
+          </button>
+        ) : (
           <button
             type="button"
             onClick={() => postMessage({ type: 'runDiscoverStep', step: stepId })}
@@ -248,18 +314,7 @@ function StepDetail({
           >
             <Play className="h-3 w-3" />{copy.runStep}
           </button>
-          {isCurrent && !isLastStep && (
-            <button
-              type="button"
-              disabled={!step.canAdvance}
-              title={step.canAdvance ? copy.hints.advanceStep : copy.nextStepBlocked}
-              onClick={() => postMessage({ type: 'advanceDiscoverStep' })}
-              className="rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {copy.nextStep}
-            </button>
-          )}
-        </span>
+        )}
       </footer>
     </div>
   );
@@ -268,44 +323,71 @@ function StepDetail({
 function ChecksView({
   discover, copy, onBack,
 }: { discover: DiscoverSummary; copy: ReturnType<typeof discoverCopy>; onBack: () => void }) {
-  const byFile = new Map<string, typeof discover.issues>();
-  for (const issue of discover.issues) {
-    const key = issue.file ?? '—';
-    byFile.set(key, [...(byFile.get(key) ?? []), issue]);
-  }
+  const suggestions = discover.epicSuggestions ?? [];
   return (
     <div className="h-full overflow-y-auto px-5 py-4">
       <header className="mb-3 flex items-baseline gap-2">
-        <h2 className="text-sm font-bold text-foreground">{copy.checks} · {discover.issues.length}</h2>
+        <h2 className="text-sm font-bold text-foreground">{copy.checks} · {suggestions.length}</h2>
         <button type="button" title={copy.hints.back} onClick={onBack} className="ml-auto rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent">{copy.back}</button>
       </header>
-      {discover.issues.length === 0 && <p className="text-xs text-success">✓</p>}
-      {[...byFile].map(([file, issues]) => (
-        <section key={file} className="mb-3 overflow-hidden rounded-lg border border-border">
-          <header className="flex items-center gap-2 border-b border-border/70 bg-secondary/40 px-3 py-1.5">
-            <code className="font-mono text-[10.5px] text-foreground">{file}</code>
-            <span className="text-[10px] text-muted-foreground">· {issues.length}</span>
-            <button
-              type="button"
-              onClick={() => postMessage({ type: 'openDiscoverDoc', docPath: file })}
-              title={copy.hints.openDoc(file)}
-              className="ml-auto text-[10.5px] text-muted-foreground hover:text-foreground hover:underline"
-            >
-              {copy.openInEditor}
-            </button>
-          </header>
-          <ul>
-            {issues.map((issue, idx) => (
-              <li key={`${issue.code}-${idx}`} className="flex items-start gap-2 border-b border-border/40 px-3 py-1.5 text-[11px] last:border-b-0">
-                <code className={`shrink-0 rounded px-1 font-mono text-[9.5px] ${issue.level === 'error' ? 'bg-destructive/15 text-destructive' : 'bg-secondary text-muted-foreground'}`}>
-                  {issue.code}
-                </code>
-                <span className="text-foreground">{issue.message}</span>
-              </li>
+      <p className="mb-4 text-[11px] leading-relaxed text-muted-foreground">{copy.checksHint}</p>
+      {suggestions.length === 0 && <p className="text-xs text-success">{copy.checksEmpty}</p>}
+      <ul className="space-y-3">
+        {suggestions.map((s) => (
+          <SuggestionCard key={s.id} suggestion={s} copy={copy} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SuggestionCard({ suggestion, copy }: { suggestion: DiscoverEpicSuggestion; copy: ReturnType<typeof discoverCopy> }) {
+  const levelClass = suggestion.level === 'error'
+    ? 'border-destructive/40 bg-destructive/5'
+    : suggestion.level === 'warn'
+      ? 'border-warning/40 bg-warning/5'
+      : 'border-border bg-card';
+  return (
+    <li className={`overflow-hidden rounded-lg border ${levelClass}`}>
+      <header className="flex flex-wrap items-start gap-2 border-b border-border/50 px-3 py-2">
+        <code className="shrink-0 rounded bg-secondary px-1.5 py-0.5 font-mono text-[9.5px] text-muted-foreground">
+          {copy.suggestionKind(suggestion.kind)}
+        </code>
+        <span className="min-w-0 flex-1 text-[11.5px] font-semibold text-foreground">{suggestion.title}</span>
+        <code className="shrink-0 rounded border border-border bg-secondary/60 px-1.5 font-mono text-[9px] text-muted-foreground">
+          {suggestion.recipeId.replace('cofofo-', '')}
+        </code>
+      </header>
+      <div className="space-y-1.5 px-3 py-2">
+        <p className="text-[11px] text-foreground">{suggestion.summary}</p>
+        {suggestion.details.length > 0 && (
+          <ul className="space-y-0.5 border-l-2 border-border/60 pl-2.5">
+            {suggestion.details.map((d, i) => (
+              <li key={i} className="text-[10.5px] text-muted-foreground">{d}</li>
             ))}
           </ul>
-        </section>
-      ))}
-    </div>
+        )}
+        {suggestion.docFile && (
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'openDiscoverDoc', docPath: suggestion.docFile! })}
+            title={copy.hints.openDoc(suggestion.docFile)}
+            className="text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+          >
+            {copy.openInEditor}: {suggestion.docFile}
+          </button>
+        )}
+      </div>
+      <footer className="flex justify-end border-t border-border/40 px-3 py-1.5">
+        <button
+          type="button"
+          title={copy.hints.createEpic}
+          onClick={() => postMessage({ type: 'scaffoldEpicFromSuggestion', suggestionId: suggestion.id })}
+          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90"
+        >
+          <Rocket className="h-3 w-3" />{copy.startEpicFromCheck}
+        </button>
+      </footer>
+    </li>
   );
 }

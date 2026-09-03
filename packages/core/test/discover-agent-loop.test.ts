@@ -9,6 +9,9 @@ import {
   discoverCommandBody,
   discoverPipelineCommandBody,
   discoverDevDocsCommandBody,
+  discoverScanCommandBody,
+  discoverChatCommandBody,
+  discoverCommitCommandBody,
   syncPipelineCommandsForProvider,
   builtinTemplatesRoot,
   DISCOVER_STEPS,
@@ -44,6 +47,38 @@ describe('Discover agent command bodies', () => {
     expect(body).toContain('one `### UC-01 — Title` block per entry');
     expect(body).toContain('`- **Actor:** value` — required');
     expect(body).toContain('`- **Main flow:**` then nested `  - ` bullets — required');
+    expect(body).toContain('flowchart TD');
+    expect(body).toContain('```mermaid');
+    expect(body).toContain('## Overview');
+    expect(body).not.toContain('Every entity lists its fields');
+  });
+
+  it('lists the 12 steps in guide order with bilingual titles and a worked example each', () => {
+    expect(DISCOVER_STEPS.map((s) => s.id)).toEqual([
+      'idea', 'product', 'requirements', 'features', 'usecases', 'userflows',
+      'architecture', 'datamodel', 'techdecisions', 'structure', 'plan', 'skeleton',
+    ]);
+    expect(DISCOVER_STEPS.map((s) => s.label)).toEqual([
+      'Idea',
+      'Product Definition',
+      'Requirements',
+      'Feature Breakdown',
+      'Use Cases',
+      'User Flow / Screen Flow',
+      'Architecture',
+      'Data / API / Storage',
+      'Technical Decisions',
+      'Project Structure',
+      'Implementation Plan',
+      'Generate Skeleton',
+    ]);
+    const body = discoverCommandBody();
+    expect(body).toContain('## Feature tree');
+    expect(body).toContain('Write it like this');
+    expect(body).toContain('Headings stay in English');
+    expect(body).toContain('Generate Skeleton');
+    expect(body).not.toContain('Idea to Project\nSkeleton');
+    expect(body).toContain('Old format is a bug');
   });
 
   it('states the rules that keep an agent from clobbering the user', () => {
@@ -54,6 +89,14 @@ describe('Discover agent command bodies', () => {
     expect(body).toContain('are the source of truth');
   });
 
+  it('makes a scan rewrite old format and forbids inventing product facts', () => {
+    const body = discoverScanCommandBody();
+    expect(body).toContain('first scan and every later scan');
+    expect(body).toContain('Format is not a product fact');
+    expect(body).toContain('Old format is a bug');
+    expect(body).toContain('do not invent product facts');
+  });
+
   it('makes the pipeline variant read the current step instead of remembering it', () => {
     const body = discoverPipelineCommandBody();
     expect(body).toContain('.aidlc/discover/index.json');
@@ -61,11 +104,27 @@ describe('Discover agent command bodies', () => {
     expect(body).toContain('Never attempt two steps in one turn.');
   });
 
+  it('opens a conversation with the step as context and waits for the human', () => {
+    const body = discoverChatCommandBody();
+    expect(body).toContain('Do not write or rewrite any document on this first turn');
+    expect(body).toContain('wait');
+    for (const step of DISCOVER_STEPS) {
+      expect(body).toContain(`\`${step.id}\``);
+    }
+  });
+
   it('derives the development docs from the stack rather than inventing them', () => {
     const body = discoverDevDocsCommandBody();
     expect(body).toContain('development/CODING_RULES.md');
-    expect(body).toContain('do the Tech Decisions step');
+    expect(body).toContain('do the Technical Decisions step');
     expect(body).not.toContain('IDEA.md');
+  });
+
+  it('tells the agent to stage and commit everything, not just write a message', () => {
+    const body = discoverCommitCommandBody();
+    expect(body).toContain('git add -A');
+    expect(body).toContain('**Do not** push');
+    expect(body).toContain('Do the commit. Do not stop at a proposed');
   });
 
   it('installs all three commands for a provider with no pipeline yet', () => {
@@ -79,6 +138,8 @@ describe('Discover agent command bodies', () => {
     expect(fs.existsSync(path.join(dir, 'aidlc-discover.md'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'aidlc-discover-pipeline.md'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'aidlc-discover-dev-docs.md'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'aidlc-discover-chat.md'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'aidlc-discover-commit.md'))).toBe(true);
   });
 });
 

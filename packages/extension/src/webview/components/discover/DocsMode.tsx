@@ -170,7 +170,7 @@ function FileInfo({ discover, doc, copy }: { discover: DiscoverSummary; doc: Dis
       <section className="mt-2 rounded-lg border border-border bg-card p-2.5">
         <h4 className="truncate text-[11.5px] font-semibold text-foreground">{doc.path.split('/').pop()}</h4>
         <p className="mt-1 text-[10.5px] text-muted-foreground">
-          {copy.belongsTo}: {step?.order} · {step?.label}
+          {copy.belongsTo}: {step?.order} · {step ? copy.stepTitle(step) : ''}
         </p>
         <p className="text-[10.5px] text-muted-foreground">
           {doc.exists ? `${copy.lastEdited}: ${shortTime(doc.updatedAt) || '—'}${doc.lastRunId ? ` · ${doc.lastRunId}` : ''}` : copy.neverWritten}

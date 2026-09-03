@@ -30,7 +30,6 @@ import {
   testJiraConnectionCommand,
 } from './v2/jiraCredentials';
 import { jiraSprintService } from './v2/jiraSprintService';
-import { jiraStatusSync } from './v2/jiraStatusSync';
 import { jiraSubtaskService } from './v2/jiraSubtaskService';
 import { importJiraSubtaskTemplateCommand } from './v2/jiraTemplateImport';
 import { registerTokenMonitor } from './v2/tokenMonitor';
@@ -105,7 +104,6 @@ export function activate(context: vscode.ExtensionContext): void {
   // webview panel is constructed with only an extensionUri.
   jiraCredentials.init(context);
   jiraSprintService.init(context, output);
-  jiraStatusSync.init(output);
   jiraSubtaskService.init(context.extensionPath, output);
   context.subscriptions.push(
     vscode.commands.registerCommand('aidlc.connectJira', () => connectJiraCommand()),
@@ -351,9 +349,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // Ported from claude-token-monitor (https://github.com/novapizza/claude-token-monitor).
   registerTokenMonitor(context, output, context.extensionUri);
 
-  // AIDLC Monitor — optional agent observability via agents-observe. Adds a
-  // status bar item that polls the observe server and a unified Monitor panel
-  // (Token Usage / Agents tabs). No-op surface when the server isn't running.
+  // AIDLC Monitor — Command Palette entry for the unified Monitor panel
+  // (Token Usage / Agents). No status-bar item.
   registerAidlcMonitor(context, output, context.extensionUri);
 
   // AST graph — auto-downloads ast-graph CLI, scans workspace in the

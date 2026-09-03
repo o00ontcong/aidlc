@@ -23,11 +23,15 @@ import {
   PROVIDER_MANAGED_TASK_COMMAND,
 } from './ProviderManagedTaskCommand';
 import {
+  discoverChatCommandBody,
   discoverCommandBody,
+  discoverCommitCommandBody,
   discoverDevDocsCommandBody,
   discoverPipelineCommandBody,
   discoverScanCommandBody,
+  DISCOVER_CHAT_COMMAND_NAME,
   DISCOVER_COMMAND_NAME,
+  DISCOVER_COMMIT_COMMAND_NAME,
   DISCOVER_DEV_DOCS_COMMAND_NAME,
   DISCOVER_PIPELINE_COMMAND_NAME,
   DISCOVER_SCAN_COMMAND_NAME,
@@ -268,8 +272,18 @@ export function syncDiscoverCommandsForProvider(
     },
     {
       name: DISCOVER_SCAN_COMMAND_NAME,
-      description: `Reconcile every step's docs against the actual source code in one pass. Usage: /${DISCOVER_SCAN_COMMAND_NAME} [note]`,
+      description: `Reconcile one pass of Discover docs against source. Usage: /${DISCOVER_SCAN_COMMAND_NAME} pass=<1|2|3> layout=<single|parent|child> repos=<path:kind,...> brief=.aidlc/discover/scan-brief.md`,
       body: discoverScanCommandBody(),
+    },
+    {
+      name: DISCOVER_CHAT_COMMAND_NAME,
+      description: `Open a conversation about one Discover step with its docs as context. Usage: /${DISCOVER_CHAT_COMMAND_NAME} <step> [note]`,
+      body: discoverChatCommandBody(),
+    },
+    {
+      name: DISCOVER_COMMIT_COMMAND_NAME,
+      description: `Stage and commit every local change in the Discover git root. Usage: /${DISCOVER_COMMIT_COMMAND_NAME} <git-root>`,
+      body: discoverCommitCommandBody(),
     },
   ]) {
     const file = writeStandaloneCommand(root, providerId, entry.name, entry.description, entry.body, overwrite, mappedModel, true);

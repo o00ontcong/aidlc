@@ -28,6 +28,14 @@ export interface SectionSpec {
   /** The literal `## ` heading text written into the Markdown. */
   heading: string;
   kind: SectionKind;
+  /**
+   * `ascii-tree` sections must be a fenced ```text block (Feature tree,
+   * Layering, Folder tree, Skeleton tree, Data flow, Data overview).
+   * `mermaid-flowchart` sections must be a fenced ```mermaid `flowchart TD`
+   * (Screen flow). An essay or a missing heading here is a bug — scan/fill
+   * rewrite it.
+   */
+  shape?: 'ascii-tree' | 'mermaid-flowchart';
   /** Prefix used when minting the next id, e.g. `FR` → `FR-03`. */
   idPrefix?: string;
   /**
@@ -79,7 +87,10 @@ export interface DodRule {
 export interface DiscoverStepSpec {
   id: DiscoverStepId;
   order: number;
+  /** English title — written into `#` headings and the agent command. */
   label: string;
+  /** Vietnamese title shown next to `label` in the Discover rail. */
+  labelVi: string;
   /** One line of intent, reused by the agent command body and the UI. */
   goal: string;
   files: DocFileSpec[];
@@ -121,6 +132,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
     id: 'idea',
     order: 1,
     label: 'Idea',
+    labelVi: 'Ý tưởng',
     goal: 'Pin down the problem, who has it, the core value, and the smallest MVP.',
     files: [{
       path: DOC_IDEA,
@@ -144,6 +156,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
     id: 'product',
     order: 2,
     label: 'Product Definition',
+    labelVi: 'Định nghĩa sản phẩm',
     goal: 'Turn the idea into a product definition: problem, users, value, platforms, MVP scope, non-goals.',
     files: [{
       path: DOC_PRODUCT,
@@ -171,6 +184,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
     id: 'requirements',
     order: 3,
     label: 'Requirements',
+    labelVi: 'Yêu cầu',
     goal: 'State verifiable functional requirements plus the non-functional ones that constrain them.',
     files: [{
       path: DOC_REQUIREMENTS,
@@ -188,16 +202,19 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
   {
     id: 'features',
     order: 4,
-    label: 'Features',
+    label: 'Feature Breakdown',
+    labelVi: 'Chia feature',
     goal: 'Break the requirements into feature groups; every requirement must land in one.',
     files: [{
       path: DOC_FEATURES,
-      title: 'Features',
+      title: 'Feature breakdown',
       sections: [
+        { key: 'tree', heading: 'Feature tree', kind: 'prose', shape: 'ascii-tree', hint: 'A fenced ```text ASCII tree. Kept verbatim.' },
         { key: 'features', heading: 'Features', kind: 'items', idPrefix: 'F', grouped: true, idPattern: grouped('F'), hint: 'Group in the id: F-VIDEO-01. Cite the FR ids the feature covers.' },
       ],
     }],
     dod: [
+      { id: 'tree', level: 'required', label: 'Feature tree', rule: { kind: 'proseFilled', file: DOC_FEATURES, section: 'tree' } },
       { id: 'features', level: 'required', label: 'At least one feature', rule: { kind: 'minItems', file: DOC_FEATURES, section: 'features', count: 1 } },
       {
         id: 'coversFr',
@@ -211,6 +228,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
     id: 'usecases',
     order: 5,
     label: 'Use Cases',
+    labelVi: 'Luồng nghiệp vụ',
     goal: 'Turn each important feature into system behaviour: actor, trigger, main flow.',
     files: [{
       path: DOC_USE_CASES,
@@ -252,12 +270,14 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
   {
     id: 'userflows',
     order: 6,
-    label: 'User Flow',
+    label: 'User Flow / Screen Flow',
+    labelVi: 'Luồng màn hình',
     goal: 'Lay out the screens and the paths a user takes through them.',
     files: [{
       path: DOC_USER_FLOWS,
-      title: 'User flows',
+      title: 'User flow / Screen flow',
       sections: [
+        { key: 'screenFlow', heading: 'Screen flow', kind: 'prose', shape: 'mermaid-flowchart', hint: 'A fenced ```mermaid flowchart TD. Each node is a screen. Kept verbatim.' },
         { key: 'screens', heading: 'Screens', kind: 'items', idPrefix: 'SCR', idPattern: plain('SCR') },
         {
           key: 'flows',
@@ -274,6 +294,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
       ],
     }],
     dod: [
+      { id: 'screenFlow', level: 'required', label: 'Screen flow', rule: { kind: 'proseFilled', file: DOC_USER_FLOWS, section: 'screenFlow' } },
       { id: 'screens', level: 'required', label: 'At least one screen', rule: { kind: 'minItems', file: DOC_USER_FLOWS, section: 'screens', count: 1 } },
       { id: 'flows', level: 'required', label: 'At least one flow', rule: { kind: 'minRecords', file: DOC_USER_FLOWS, section: 'flows', count: 1 } },
       {
@@ -285,46 +306,17 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
     ],
   },
   {
-    id: 'datamodel',
-    order: 7,
-    label: 'Data Model',
-    goal: 'Name the entities, what persists them, and what crosses the network.',
-    files: [{
-      path: DOC_DATA_MODEL,
-      title: 'Data model',
-      sections: [
-        {
-          key: 'entities',
-          heading: 'Entities',
-          kind: 'records',
-          idPrefix: 'E',
-          idPattern: plain('E'),
-          fields: [
-            { label: 'Fields', list: true, required: true },
-            { label: 'Notes' },
-          ],
-        },
-        { key: 'repositories', heading: 'Repositories', kind: 'items', idPrefix: 'REPO', idPattern: plain('REPO') },
-        { key: 'api', heading: 'API endpoints', kind: 'items', idPrefix: 'API', idPattern: plain('API') },
-        { key: 'storage', heading: 'Storage', kind: 'prose' },
-      ],
-    }],
-    dod: [
-      { id: 'entities', level: 'required', label: 'At least one entity', rule: { kind: 'minRecords', file: DOC_DATA_MODEL, section: 'entities', count: 1 } },
-      { id: 'entityFields', level: 'required', label: 'Every entity lists its fields', rule: { kind: 'recordFields', file: DOC_DATA_MODEL, section: 'entities', fields: ['Fields'] } },
-      { id: 'storage', level: 'optional', label: 'Storage', rule: { kind: 'proseFilled', file: DOC_DATA_MODEL, section: 'storage' } },
-    ],
-  },
-  {
     id: 'architecture',
-    order: 8,
+    order: 7,
     label: 'Architecture',
+    labelVi: 'Kiến trúc',
     goal: 'Choose the layering and modules the use cases actually need — never the other way round.',
     files: [
       {
         path: DOC_ARCHITECTURE,
         title: 'Architecture',
         sections: [
+          { key: 'layering', heading: 'Layering', kind: 'prose', shape: 'ascii-tree', hint: 'A fenced ```text ASCII stack. Kept verbatim.' },
           { key: 'layers', heading: 'Layers', kind: 'items', idPrefix: 'L', idPattern: plain('L') },
           { key: 'patterns', heading: 'Patterns', kind: 'items', idPrefix: 'PAT', idPattern: plain('PAT') },
           { key: 'rationale', heading: 'Rationale', kind: 'prose', hint: 'Why this shape fits these use cases.' },
@@ -351,10 +343,11 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
       {
         path: DOC_DATA_FLOW,
         title: 'Data flow',
-        sections: [{ key: 'dataFlow', heading: 'Data flow', kind: 'prose' }],
+        sections: [{ key: 'dataFlow', heading: 'Data flow', kind: 'prose', shape: 'ascii-tree', hint: 'A fenced ```text ASCII flow. Kept verbatim.' }],
       },
     ],
     dod: [
+      { id: 'layering', level: 'required', label: 'Layering', rule: { kind: 'proseFilled', file: DOC_ARCHITECTURE, section: 'layering' } },
       { id: 'layers', level: 'required', label: 'At least 2 layers', rule: { kind: 'minItems', file: DOC_ARCHITECTURE, section: 'layers', count: 2 } },
       { id: 'rationale', level: 'required', label: 'Rationale', rule: { kind: 'proseFilled', file: DOC_ARCHITECTURE, section: 'rationale' } },
       { id: 'modules', level: 'required', label: 'At least 2 modules', rule: { kind: 'minRecords', file: DOC_MODULES, section: 'modules', count: 2 } },
@@ -363,13 +356,37 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
     ],
   },
   {
+    id: 'datamodel',
+    order: 8,
+    label: 'Data / API / Storage',
+    labelVi: 'Dữ liệu / API / Storage',
+    goal: 'Sketch the data layer as a general structure — entities, repositories, API and storage — without listing fields or every endpoint.',
+    files: [{
+      path: DOC_DATA_MODEL,
+      title: 'Data / API / Storage',
+      sections: [
+        { key: 'overview', heading: 'Overview', kind: 'prose', shape: 'ascii-tree', hint: 'A fenced ```text tree of the data layer. Areas, not fields or every endpoint.' },
+        { key: 'entities', heading: 'Entities', kind: 'items', idPrefix: 'E', idPattern: plain('E'), hint: 'One line per concept or area. Do not list fields.' },
+        { key: 'repositories', heading: 'Repositories', kind: 'items', idPrefix: 'REPO', idPattern: plain('REPO'), hint: 'One line per area, not every protocol.' },
+        { key: 'api', heading: 'API endpoints', kind: 'items', idPrefix: 'API', idPattern: plain('API'), hint: 'Group by area — not every path.' },
+        { key: 'storage', heading: 'Storage', kind: 'prose' },
+      ],
+    }],
+    dod: [
+      { id: 'overview', level: 'required', label: 'Overview', rule: { kind: 'proseFilled', file: DOC_DATA_MODEL, section: 'overview' } },
+      { id: 'entities', level: 'required', label: 'At least one entity', rule: { kind: 'minItems', file: DOC_DATA_MODEL, section: 'entities', count: 1 } },
+      { id: 'storage', level: 'optional', label: 'Storage', rule: { kind: 'proseFilled', file: DOC_DATA_MODEL, section: 'storage' } },
+    ],
+  },
+  {
     id: 'techdecisions',
     order: 9,
-    label: 'Tech Decisions',
+    label: 'Technical Decisions',
+    labelVi: 'Quyết định kỹ thuật',
     goal: 'Record the stack and — the part that matters — why each piece was chosen.',
     files: [{
       path: DOC_TECH_STACK,
-      title: 'Tech stack',
+      title: 'Technical decisions',
       sections: [
         {
           key: 'stack',
@@ -397,12 +414,13 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
     id: 'structure',
     order: 10,
     label: 'Project Structure',
+    labelVi: 'Cấu trúc project',
     goal: 'Design the folder tree the modules map onto — after the modules exist, not before.',
     files: [{
       path: DOC_PROJECT_STRUCTURE,
       title: 'Project structure',
       sections: [
-        { key: 'tree', heading: 'Folder tree', kind: 'prose', hint: 'A fenced block. Kept verbatim.' },
+        { key: 'tree', heading: 'Folder tree', kind: 'prose', shape: 'ascii-tree', hint: 'A fenced ```text ASCII tree. Kept verbatim.' },
         { key: 'naming', heading: 'Naming conventions', kind: 'items', idPrefix: 'NC', idPattern: plain('NC') },
         { key: 'mapping', heading: 'Module mapping', kind: 'items', idPrefix: 'MAP', idPattern: plain('MAP'), hint: 'One line per module: cite its M-id and the folder it owns.' },
       ],
@@ -422,6 +440,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
     id: 'plan',
     order: 11,
     label: 'Implementation Plan',
+    labelVi: 'Kế hoạch triển khai',
     goal: 'Slice the build into phases in dependency order — never hand the whole project over at once.',
     files: [{
       path: DOC_IMPLEMENTATION_PLAN,
@@ -439,6 +458,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
             { label: 'Deliverables', list: true, required: true },
             { label: 'Definition of done', list: true },
           ],
+          hint: 'Cite F- / FR- ids. After a scan, phases still cover every existing feature (they are the record) — the handoff UI will not offer those as new implement-epics.',
         },
       ],
     }],
@@ -456,12 +476,14 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
   {
     id: 'skeleton',
     order: 12,
-    label: 'Project Skeleton',
+    label: 'Generate Skeleton',
+    labelVi: 'Sinh skeleton',
     goal: 'List the real files, interfaces, config and tests phase 1 has to create.',
     files: [{
       path: DOC_SKELETON,
-      title: 'Skeleton',
+      title: 'Generate skeleton',
       sections: [
+        { key: 'tree', heading: 'Skeleton tree', kind: 'prose', shape: 'ascii-tree', hint: 'A fenced ```text ASCII tree. Kept verbatim.' },
         { key: 'files', heading: 'Files and folders', kind: 'items', idPrefix: 'SK', idPattern: plain('SK') },
         { key: 'interfaces', heading: 'Interfaces', kind: 'items', idPrefix: 'IF', idPattern: plain('IF') },
         { key: 'config', heading: 'Config', kind: 'items', idPrefix: 'CFG', idPattern: plain('CFG') },
@@ -469,6 +491,7 @@ export const DISCOVER_STEPS: DiscoverStepSpec[] = [
       ],
     }],
     dod: [
+      { id: 'tree', level: 'required', label: 'Skeleton tree', rule: { kind: 'proseFilled', file: DOC_SKELETON, section: 'tree' } },
       { id: 'files', level: 'required', label: 'At least one file or folder', rule: { kind: 'minItems', file: DOC_SKELETON, section: 'files', count: 1 } },
       { id: 'tests', level: 'optional', label: 'Tests', rule: { kind: 'minItems', file: DOC_SKELETON, section: 'tests', count: 1 } },
       { id: 'interfaces', level: 'optional', label: 'Interfaces', rule: { kind: 'minItems', file: DOC_SKELETON, section: 'interfaces', count: 1 } },

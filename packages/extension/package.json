@@ -46,7 +46,7 @@
         {
           "id": "aidlc",
           "title": "AIDLC Workspace",
-          "icon": "media/aidlc-workspace-activitybar.svg"
+          "icon": "media/workflow-networking-svgrepo-com.svg"
         }
       ]
     },
@@ -55,7 +55,7 @@
         {
           "id": "aidlcSidebar",
           "name": "Workspace",
-          "icon": "media/aidlc-workspace-activitybar.svg",
+          "icon": "media/workflow-networking-svgrepo-com.svg",
           "type": "webview"
         }
       ]
@@ -414,17 +414,12 @@
           "minimum": 1,
           "description": "Window the cost-suggestion engine scans (in days). Older logs are skipped — they don't reflect current habits."
         },
-        "aidlc.monitor.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a status bar item that polls the agents-observe server and opens the unified Monitor panel (Token Usage + Agents). Has no effect when agents-observe isn't running."
-        },
         "aidlc.monitor.pollIntervalSeconds": {
           "type": "number",
           "default": 10,
           "minimum": 5,
           "maximum": 300,
-          "description": "How often to poll the agents-observe server (GET /api/status) for the status bar and Monitor panel (seconds). Polling pauses while the window is unfocused."
+          "description": "How often the Monitor panel polls the agents-observe server (GET /api/status), in seconds."
         },
         "aidlc.astGraph.enabled": {
           "type": "boolean",
@@ -494,31 +489,6 @@
           "default": 20,
           "description": "Per-request timeout for Jira and Confluence API calls."
         },
-        "aidlc.jira.transitions.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Push AIDLC pipeline progress back to Jira as status transitions. Off by default — this writes to your team's board."
-        },
-        "aidlc.jira.transitions.onTaskCreated": {
-          "type": "string",
-          "default": "In Progress",
-          "description": "Jira status to move a ticket to when an AIDLC task is created from it. Empty = do nothing."
-        },
-        "aidlc.jira.transitions.onReview": {
-          "type": "string",
-          "default": "In Review",
-          "description": "Jira status to move a ticket to when the run reaches its first review gate. Empty = do nothing."
-        },
-        "aidlc.jira.transitions.onRunCompleted": {
-          "type": "string",
-          "default": "",
-          "description": "Jira status to move a ticket to when the run completes. Empty = do nothing. A transition into a Done category always asks for confirmation."
-        },
-        "aidlc.jira.transitions.confirm": {
-          "type": "boolean",
-          "default": true,
-          "description": "Ask before each Jira status transition."
-        },
         "aidlc.jira.subtasks.enabled": {
           "type": "boolean",
           "default": false,
@@ -543,11 +513,6 @@
           "type": "boolean",
           "default": true,
           "description": "Assign created subtasks to the authenticated account."
-        },
-        "aidlc.jira.transitions.onRunFailed": {
-          "type": "string",
-          "default": "",
-          "description": "Jira status to move a ticket to when the run fails. Empty = do nothing (the default: a failed run is usually still in progress)."
         }
       }
     },

@@ -165,6 +165,28 @@ describe('a declared scope', () => {
     expect(effective.repos).toEqual([{ path: '.', kind: 'backend', name: path.basename(root) }]);
     // …without writing that assumption to disk, so the wizard still asks.
     expect(service.scope()).toBeUndefined();
+    expect(service.declaredScope()).toBeUndefined();
+  });
+
+  it('persists scope.json before a blueprint exists and reuses it on init', () => {
+    const root = newRoot();
+    fakeRepo(root, 'app');
+    write(root, 'app/Package.swift', '');
+
+    const service = new DiscoverService(root);
+    expect(service.exists()).toBe(false);
+
+    const saved = service.persistDeclaredScope({
+      layout: 'parent',
+      repos: [{ path: 'app', kind: 'mobile', name: 'app' }],
+      excludes: [],
+    });
+    expect(saved.declaredAt).toBeTruthy();
+    expect(service.declaredScope()?.layout).toBe('parent');
+    expect(service.scope()).toBeUndefined();
+
+    service.init({ seedSentence: 'OtenPass.', actor: USER });
+    expect(service.scope()?.repos).toEqual([{ path: 'app', kind: 'mobile', name: 'app' }]);
   });
 
   it('labels a source-less repo `app` rather than leaving the kind empty', () => {
@@ -184,8 +206,18 @@ describe('checkSourceRepoWrites', () => {
     expect(issues[0]!.file).toBe('app');
   });
 
-  it('ignores the blueprint\'s own repo, which a scan is meant to change', () => {
-    expect(checkSourceRepoWrites({ '.': 'head-a\n' }, { '.': 'head-a\n M docs/product/IDEA.md\n' })).toEqual([]);
+  it('ignores docs and .aidlc edits in the blueprint repo, but flags source edits', () => {
+    expect(checkSourceRepoWrites(
+      { '.': 'head-a\n' },
+      { '.': 'head-a\n M docs/product/IDEA.md\n?? .aidlc/discover/scan-brief.md\n' },
+    )).toEqual([]);
+    const issues = checkSourceRepoWrites(
+      { '.': 'head-a\n' },
+      { '.': 'head-a\n M src/auth.ts\n' },
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.code).toBe('source-repo-written');
+    expect(issues[0]!.file).toBe('.');
   });
 
   it('stays quiet when git could not be asked, or a repo vanished mid-run', () => {
@@ -208,7 +240,8 @@ describe('generated Discover command files', () => {
     syncDiscoverCommandsForProvider(root, 'claude');
     const fresh = fs.readFileSync(file, 'utf8');
     expect(fresh).toContain('aidlc:generated aidlc-discover-scan');
-    expect(fresh).toContain('scope.repos');
+    expect(fresh).toContain('pass=<1|2|3>');
+    expect(fresh).toContain('.aidlc/discover/scan-brief.md');
 
     // A stale body from an older extension version.
     fs.writeFileSync(file, '# AIDLC Discover Agent — Scan existing project\n\nExplore the real codebase.\n');

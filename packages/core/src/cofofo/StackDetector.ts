@@ -151,7 +151,7 @@ export function detectStack(workspaceRoot: string, now = new Date().toISOString(
   if (repositoryKind !== 'single-stack') {
     return StackProfileSchema.parse({
       schemaVersion: 1,
-      mode: 'generic-sdlc',
+      mode: 'cofofo',
       repositoryKind,
       candidates,
       evidence: hits.flatMap((hit) => hit.primary.map((relative) => ({
@@ -161,11 +161,10 @@ export function detectStack(workspaceRoot: string, now = new Date().toISOString(
         observed: `${hit.definition.id} manifest`,
       }))),
       confidence: candidates.length === 0 ? 0 : 0.5,
-      fallback: {
-        pipelineId: 'aidlc-workflow-full',
+      closed: {
         reason: candidates.length === 0
           ? 'No supported stack manifest was found.'
-          : 'Multiple stack/package roots were found; CoFoFo MVP supports one stack only.',
+          : 'Multiple stack/package roots were found; CoFoFo does not guess a bundle.',
       },
       detectedAt: now,
     });
@@ -194,6 +193,16 @@ export function detectStack(workspaceRoot: string, now = new Date().toISOString(
   });
 }
 
+/** Reasons the scan-stack gate must stay closed. Empty means the profile may proceed. */
+export function stackGateIssues(profile: StackProfile): string[] {
+  if (profile.closed) return [profile.closed.reason];
+  if (profile.repositoryKind !== 'single-stack' || !profile.stack) {
+    return ['Stack detection is closed; CoFoFo does not guess a bundle.'];
+  }
+  if (profile.confidence < 0.9) return ['confidence is below 0.9'];
+  return [];
+}
+
 /** Re-check every evidence file instead of trusting a previously written profile. */
 export function validateStackProfile(workspaceRoot: string, profile: StackProfile): string[] {
   const parsed = StackProfileSchema.parse(profile);
@@ -203,7 +212,14 @@ export function validateStackProfile(workspaceRoot: string, profile: StackProfil
     if (!fs.existsSync(absolute)) issues.push(`${evidence.path}: missing`);
     else if (hashFile(absolute) !== evidence.sha256) issues.push(`${evidence.path}: content changed`);
   }
-  if (parsed.mode === 'cofofo' && parsed.confidence < 0.9) issues.push('confidence is below 0.9');
+  issues.push(...stackGateIssues(parsed));
+  const live = detectStack(workspaceRoot);
+  if (live.repositoryKind !== parsed.repositoryKind) {
+    issues.push(`STACK-PROFILE.json repositoryKind is ${parsed.repositoryKind}; live detection is ${live.repositoryKind}.`);
+  }
+  if (parsed.stack && live.stack && parsed.stack.id !== live.stack.id) {
+    issues.push(`STACK-PROFILE.json stack ${parsed.stack.id} does not match live ${live.stack.id}.`);
+  }
   return issues;
 }
 

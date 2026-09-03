@@ -477,7 +477,7 @@
             <span class="btn solid">▸ Start task in AIDLC <span class="cal" style="background:var(--on-acc);color:var(--acc)">7</span></span>
             <span class="btn">↗ Mở trên Jira</span>
             <span class="btn ghost">⧉ Copy key</span>
-            <span class="hint" style="margin-left:auto">Ghi ngược trạng thái: <b style="color:var(--acc)">bật</b> <span class="cal">8</span></span>
+            <span class="hint" style="margin-left:auto">Cấu hình Jira<b style="color:var(--acc)"> · subtask bật</b> <span class="cal">8</span></span>
           </div>
         </div>
       </div>
@@ -490,7 +490,7 @@
       <li><span class="cal">5</span><div>Badge liên kết. Nguồn dữ liệu đã có sẵn: <code>EpicSummary.inputs.jira</code> đọc từ <code>docs/epics/&lt;ID&gt;/inputs.json</code> — không cần store mới. Click badge là nhảy sang tab Tasks tại đúng task đó.</div></li>
       <li><span class="cal">6</span><div>Jira API v3 trả description dạng ADF (JSON). Cần một bộ flatten ADF → markdown trong <code>@aidlc/core</code>, vì description này chảy thẳng vào brief của task.</div></li>
       <li><span class="cal">7</span><div>Hành động chính → mở <code>StartEpicModal</code> đã prefill (mục D). Ticket đã có task thì nút này đổi thành <b>Mở EPIC-012</b>.</div></li>
-      <li><span class="cal">8</span><div>Chỉ thị trạng thái write-back cho ticket này; click mở bảng mapping (mục E).</div></li>
+      <li><span class="cal">8</span><div>Chỉ thị đường ghi duy nhất còn lại (tạo subtask) đang bật hay tắt; click mở dialog cấu hình (mục E).</div></li>
     </ul>
   </section>
 
@@ -656,7 +656,7 @@
       </div>
     </div>
     <ul class="notes">
-      <li><span class="cal">9</span><div><code>inputs.jira</code> là sợi dây neo hai chiều: badge liên kết ở mục B và write-back ở mục E đều đọc từ đây. <code>scaffoldEpic</code> đã ghi <code>inputs</code> vào <code>inputs.json</code>, nên không cần đổi schema.</div></li>
+      <li><span class="cal">9</span><div><code>inputs.jira</code> là sợi dây neo: badge liên kết ở mục B và ledger subtask (mục F) đều đọc từ đây. <code>scaffoldEpic</code> đã ghi <code>inputs</code> vào <code>inputs.json</code>, nên không cần đổi schema.</div></li>
       <li><span class="cal">10</span><div>Lần ghi Jira đầu tiên luôn hiện ra và cho phép từ chối — ghi ra hệ thống ngoài thì phải nhìn thấy được, không im lặng.</div></li>
       <li><span class="cal">11</span><div>Đề xuất theo <b>domain</b>, không theo từng step — taxonomy của trang STT/Sub-task là theo domain, còn một subtask cho mỗi step trong 7 step thì ra một ticket đầy rác. Tick sẵn theo <code>plan:</code> trong file mẫu; “xem trước nội dung” mở panel ở mục F.</div></li>
     </ul>
@@ -664,60 +664,89 @@
 
   <!-- ══════════════════════════════════════════════════════════ -->
   <section>
-    <div class="sec-head"><span class="sec-num">E</span><h2>Ghi ngược trạng thái — bảng mapping</h2></div>
+    <div class="sec-head"><span class="sec-num">E</span><h2>Dialog cấu hình Jira</h2></div>
     <p class="sec-cap">
-      Nằm trong Jira settings, và mở được từ chỉ thị ở footer mục B. Mặc định <b>tắt</b>; bật rồi thì
-      mỗi lần chuyển trạng thái đều ghi log vào Output channel để truy vết được.
+      Mở từ “Jira settings” ở header mục A, và từ chỉ thị ở footer mục B. Đây là khối
+      <code>aidlc.jira.*</code> sửa được ngay tại chỗ dùng — vì tab Sprint chính là nơi một giá trị
+      sai lộ ra: danh sách rỗng thường là <code>boardId</code>, <code>projectKey</code> hay
+      <code>jql</code>. <b>Ghi ngược trạng thái đã gỡ</b> <span class="cal">12</span>. Ghi theo <b>Save</b>,
+      không theo từng ký tự — mỗi <code>config.update</code> bắn config watcher, mà watcher force
+      refresh sprint; và chỉ field đã đổi được gửi đi.
     </p>
     <div class="frame frame-scroll"><div class="frame-inner">
       <div class="sprint-head">
         <div class="sprint-title-row">
-          <span style="font-size:13px;font-weight:600">Jira · ghi ngược trạng thái</span>
-          <span class="tgl" style="margin-left:auto"><span class="switch"></span> Bật cho project này</span>
+          <span style="font-size:13px;font-weight:600">Jira · cấu hình</span>
+          <span class="hint" style="margin-left:auto">lưu ở scope Workspace — <code>.vscode/settings.json</code></span>
         </div>
       </div>
-      <table class="map">
-        <thead><tr>
-          <th style="width:38%">Sự kiện AIDLC</th><th style="width:4%"></th>
-          <th style="width:30%">Trạng thái Jira</th><th>Ghi chú</th>
-        </tr></thead>
-        <tbody>
-          <tr>
-            <td class="m">task được tạo từ ticket</td><td class="arrow">→</td>
-            <td class="m">In Progress <span class="caret">▾</span></td>
-            <td class="hint">chỉ khi ticket đang To Do</td>
-          </tr>
-          <tr>
-            <td class="m">run tới bước review đầu tiên</td><td class="arrow">→</td>
-            <td class="m">In Review <span class="caret">▾</span></td>
-            <td class="hint">bỏ qua nếu ticket đã ở đó hoặc xa hơn</td>
-          </tr>
-          <tr>
-            <td class="m">run completed</td><td class="arrow">→</td>
-            <td class="m">Done <span class="caret">▾</span></td>
-            <td class="hint">cần xác nhận <span class="cal">12</span></td>
-          </tr>
-          <tr>
-            <td class="m">run failed / bị reject</td><td class="arrow">→</td>
-            <td class="m" style="color:var(--txt3)">(không đổi) <span class="caret">▾</span></td>
-            <td class="hint">mặc định không làm gì</td>
-          </tr>
-        </tbody>
-      </table>
-      <div style="padding:13px 16px;display:grid;gap:10px">
-        <div class="banner warn">
-          <span>!</span>
-          <div>Tên trạng thái được <b>resolve theo transition khả dụng của từng issue</b>
-            (<code style="font-family:var(--mono)">GET /issue/{key}/transitions</code>), không hardcode id —
-            workflow mỗi project mỗi khác. Không tìm thấy transition thì bỏ qua + cảnh báo, không nổ.
-            <span class="cal">13</span></div>
+      <div style="padding:14px 16px;display:grid;gap:16px">
+        <div>
+          <span class="lbl">Kết nối</span>
+          <div class="fld" style="display:flex;align-items:center;gap:12px">
+            <div>
+              <div style="font-family:var(--mono);font-size:11.5px">silvertiger.atlassian.net</div>
+              <div class="hint">cong@silvertiger.ae · token trong SecretStorage</div>
+            </div>
+            <span class="btn sm" style="margin-left:auto">⚿ Đổi / kết nối lại <span class="cal">13</span></span>
+          </div>
         </div>
-        <div class="tgl"><span class="switch off"></span> Comment kết quả pipeline lên ticket <span class="hint">— ngoài phạm vi lần này</span></div>
+
+        <div>
+          <span class="lbl">Truy vấn</span>
+          <div class="two">
+            <div>
+              <span class="lbl">Project key</span>
+              <div class="fld mono">ACME</div>
+              <div class="hint">Dùng để tìm board. Rỗng = mọi project account thấy.</div>
+            </div>
+            <div>
+              <span class="lbl">Board id</span>
+              <div class="fld mono">42</div>
+              <div class="hint">0 = board đầu tiên. Đang thấy: ACME Scrum #42, Platform #7.</div>
+            </div>
+          </div>
+          <div style="margin-top:11px">
+            <span class="lbl">JQL override</span>
+            <div class="fld mono ph">project = ACME AND sprint IN openSprints()</div>
+            <div class="hint">Rỗng = query mặc định. Có giá trị thì thay thế toàn bộ, kể cả board/sprint đang chọn.</div>
+          </div>
+        </div>
+
+        <div>
+          <span class="lbl">Đồng bộ</span>
+          <div class="two">
+            <div>
+              <span class="lbl">Refresh (phút)</span>
+              <div class="fld mono">10</div>
+              <div class="hint">0 = chỉ refresh tay.</div>
+            </div>
+            <div>
+              <span class="lbl">Timeout (giây)</span>
+              <div class="fld mono">20</div>
+              <div class="hint">Cho mỗi request Jira / Confluence.</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <span class="lbl">Ghi lên Jira</span>
+          <div class="tgl"><span class="switch off"></span> Cho phép tạo subtask từ template</div>
+          <div class="hint" style="margin-top:5px">
+            Mặc định tắt — đây là ghi lên board cả team đang xem. Ngoài subtask, AIDLC không tự động
+            thay đổi gì trên Jira.
+          </div>
+        </div>
+      </div>
+      <div class="dt-foot">
+        <span class="btn solid">Lưu</span>
+        <span class="btn ghost">Đóng</span>
+        <span class="hint" style="margin-left:auto">Mở toàn bộ setting <code>aidlc.jira</code> ↗</span>
       </div>
     </div></div>
     <ul class="notes">
-      <li><span class="cal">12</span><div>Chuyển sang Done là thao tác khó rút lại và người khác nhìn thấy → luôn hỏi, kể cả khi write-back đang bật.</div></li>
-      <li><span class="cal">13</span><div>Điểm nối duy nhất trong code: <code>saveRun()</code> tại <a href="packages/extension/src/v2/runCommands.ts">runCommands.ts:64</a> — mọi chuyển trạng thái run trong extension đều đi qua đây.</div></li>
+      <li><span class="cal">12</span><div>Bảng mapping event → status từng ở đúng chỗ này. Gỡ cùng toàn bộ write-back: mặc định tắt, hỏi trước, không lùi trạng thái, Done luôn hỏi, ledger chống double-fire — năm hàng rào cho một hành vi tự động, không xứng giá so với việc tự kéo ticket.</div></li>
+      <li><span class="cal">13</span><div>Site · email · token chỉ đọc ở đây, sửa qua dialog kết nối (nút “Kết nối Jira” ở mục C) — ba giá trị đó chỉ có nghĩa khi được Jira xác thực cùng nhau. Token không bao giờ được đọc ra để hiện.</div></li>
     </ul>
   </section>
 

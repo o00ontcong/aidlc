@@ -7,6 +7,7 @@ import {
   DiscoverService,
   getPhase,
   listPhases,
+  renderBootstrapIntent,
   renderPhaseIntent,
   suggestRecipeForPhase,
   DOC_ARCHITECTURE,
@@ -14,6 +15,7 @@ import {
   DOC_IMPLEMENTATION_PLAN,
   DOC_PRODUCT,
   DOC_REQUIREMENTS,
+  DOC_SKELETON,
   DOC_TECH_STACK,
   type ActorRef,
 } from '../src';
@@ -84,10 +86,20 @@ describe('Discover phases', () => {
     expect(second.cites[0]!.file).toBe(DOC_REQUIREMENTS);
   });
 
-  it('suggests the foundation recipe for a skeleton phase and a feature recipe otherwise', () => {
+  it('suggests a delivery recipe — feature by default, never a foundation lifecycle route', () => {
     const phases = listPhases(blueprint().readBlueprint());
-    expect(suggestRecipeForPhase(phases[0]!, true)).toBe('cofofo-bootstrap');
+    expect(suggestRecipeForPhase(phases[0]!, true)).toBe('cofofo-feature');
     expect(suggestRecipeForPhase(phases[1]!, false)).toBe('cofofo-feature');
+    expect(suggestRecipeForPhase({
+      ...phases[1]!,
+      title: 'Nền tảng phiên và hạ tầng network',
+      goal: 'Session + network.',
+    })).toBe('cofofo-feature');
+    expect(suggestRecipeForPhase({
+      ...phases[1]!,
+      title: 'Sửa lỗi MFA timeout',
+      goal: 'Fix bug đăng nhập.',
+    })).toBe('cofofo-bugfix');
   });
 });
 
@@ -124,6 +136,28 @@ describe('renderPhaseIntent', () => {
     expect(intent).not.toContain('## Architecture');
     expect(intent).not.toContain('## Tech stack');
     expect(intent).toContain('## Deliverables\n\n_(none)_');
+  });
+});
+
+describe('renderBootstrapIntent', () => {
+  it('snapshots skeleton + stack from Discover instead of saying the project is empty', () => {
+    const service = blueprint();
+    service.applyOps(DOC_SKELETON, [
+      { op: 'addItem', section: 'files', text: '`App/Sources/App.swift` — entry' },
+    ], { actor: USER });
+    const ctx = service.readBlueprint();
+    const intent = renderBootstrapIntent(ctx, service.require(), {
+      missingPaths: ['App/Sources/App.swift'],
+      foundationReady: false,
+    });
+
+    expect(intent).toContain('# Generate Skeleton & CoFoFo Foundation');
+    expect(intent).toContain('## Skeleton (plans/SKELETON.md)');
+    expect(intent).toContain('App/Sources/App.swift');
+    expect(intent).toContain('**TECH-01** — Language (Choice: Swift · Why: Nền tảng iOS.)');
+    expect(intent).toContain('this epic creates them');
+    expect(intent).toContain('It is not a Discover failure.');
+    expect(intent).not.toMatch(/Project chưa có skeleton hoặc CoFoFo foundation chưa sẵn sàng/);
   });
 });
 

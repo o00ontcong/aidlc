@@ -265,31 +265,6 @@ describe('retryAfterMs', () => {
   });
 });
 
-describe('transitions', () => {
-  it('returns the transitions array', async () => {
-    const { c } = client([{ body: { transitions: [{ id: '11', name: 'Start' }] } }]);
-    expect(await c.transitions('ACME-1')).toHaveLength(1);
-  });
-
-  it('tolerates a payload with no transitions key', async () => {
-    const { c } = client([{ body: {} }]);
-    expect(await c.transitions('ACME-1')).toEqual([]);
-  });
-
-  it('POSTs the transition id and accepts an empty 204 body', async () => {
-    const { c, calls } = client([{ status: 204, text: '' }]);
-    await c.transitionIssue('ACME-1', '31');
-    expect(calls[0].method).toBe('POST');
-    expect(calls[0].body).toEqual({ transition: { id: '31' } });
-  });
-
-  it('url-encodes an odd issue key', async () => {
-    const { c, calls } = client([{ body: { transitions: [] } }]);
-    await c.transitions('ACME 1/2');
-    expect(calls[0].url).toContain('ACME%201%2F2');
-  });
-});
-
 describe('agile pagination', () => {
   it('stops on a short page', async () => {
     const { c, calls } = client([{ body: { values: [{ id: 1 }, { id: 2 }] } }]);

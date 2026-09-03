@@ -189,9 +189,18 @@ import {
   DISCOVER_PIPELINE_COMMAND_NAME,
   DISCOVER_DEV_DOCS_COMMAND_NAME,
   DISCOVER_SCAN_COMMAND_NAME,
+  DISCOVER_CHAT_COMMAND_NAME,
+  DISCOVER_COMMIT_COMMAND_NAME,
   DISCOVER_STEPS,
+  probeRepoLayout,
+  deriveScanSeedSentence,
+  formatDiscoverScanArgs,
+  nextScanPass,
+  getScanPass,
+  isScanPassId,
   type DiscoverScope,
-  COFOFO_RECIPE_IDS,
+  type ScanPassId,
+  DISCOVER_HANDOFF_RECIPE_IDS,
   epicsRoot,
   EpicScaffoldError,
   installAnnotationTools,
@@ -204,11 +213,11 @@ import {
   buildDiscoverUi,
   isDiscoverDocPath,
   scaffoldEpicFromPhase,
+  scaffoldEpicFromSuggestion,
   type DiscoverUi,
 } from './discoverHost';
 import { jiraCredentials, verifyAndStoreJiraCredentials } from './jiraCredentials';
 import { jiraSprintService } from './jiraSprintService';
-import { jiraStatusSync } from './jiraStatusSync';
 import { jiraSubtaskService } from './jiraSubtaskService';
 import { issueBrowseUrl } from './jiraSubtaskLogic';
 import { buildTicketBrief, type EpicLinkSource, type SprintState } from './jiraSprintLogic';
@@ -261,7 +270,8 @@ import type {
   DiscoverStepId,
   DocOp,
 } from '@aidlc/core';
-import { promptForDiscoverScope, scopeSavedMessage } from './discoverScopeWizard';
+import { scopeSavedMessage } from './discoverScopeWizard';
+import { executeDiscoverCommit, prepareDiscoverCommitDialog, resolveDiscoverCommitRoot, type DiscoverCommitCopy } from './discoverGitCommit';
 import { promptStepConfig, type PipelineStepConfigDraft } from './wizards';
 import {
   listEpics,
@@ -271,7 +281,7 @@ import {
   type EpicSummary as CoreEpicSummary,
 } from './epicsList';
 import { themeManager } from './themeManager';
-import { workspaceUiPrefs, type EpicsViewPrefs } from './workspaceUiPrefs';
+import { workspaceUiPrefs, type DiscoverViewPrefs, type EpicsViewPrefs } from './workspaceUiPrefs';
 import {
   rejectStepInlineCommand,
   rerunStepInlineCommand,
@@ -332,75 +342,76 @@ function withDiscoverEditReview(
   if (runId) { service.finishRun(runId); }
 }
 
+function discoverCommitCopy(language: 'en' | 'vi'): DiscoverCommitCopy {
+  if (language === 'vi') {
+    return {
+      notRepo: (dir) => `Không phải git repo: ${dir}`,
+      nothing: (dir) => `Không có thay đổi để commit trong ${dir}.`,
+      success: (dir, hash) => `AIDLC Discover: đã commit ${hash} trong ${path.basename(dir)}.`,
+      failed: (detail) => `Commit thất bại: ${detail}`,
+    };
+  }
+  return {
+    notRepo: (dir) => `Not a git repo: ${dir}`,
+    nothing: (dir) => `Nothing to commit in ${dir}.`,
+    success: (dir, hash) => `AIDLC Discover: committed ${hash} in ${path.basename(dir)}.`,
+    failed: (detail) => `Commit failed: ${detail}`,
+  };
+}
+
 /**
- * Ask for the repo layout and store it. Returns the declared scope, or
- * `undefined` when the user escaped — callers must treat that as "do nothing",
- * never as "scan anyway".
- *
- * `service` is omitted when no blueprint exists yet: there is nothing to write
- * the scope into, so it is handed back for `init` to persist.
+ * Push repo-layout dialog state to the webview. QuickPick from a focused
+ * webview panel is unreliable, so configuration happens in-panel.
  */
-async function declareDiscoverScope(root: string, service?: DiscoverService): Promise<DiscoverScope | undefined> {
-  const language = resolveDisplayLanguage();
-  const draft = await promptForDiscoverScope(root, language, service?.scope());
-  if (!draft) { return undefined; }
-  const scope: DiscoverScope = { ...draft, declaredAt: new Date().toISOString() };
-  if (service?.exists()) {
+function discoverScopeModalPayload(root: string, intent: 'scan' | 'edit') {
+  const service = new DiscoverService(root);
+  const existing = service.declaredScope();
+  const probe = probeRepoLayout(root);
+  return {
+    type: 'openDiscoverScopeModal' as const,
+    intent,
+    mode: (intent === 'scan' && existing ? 'confirm' : 'wizard') as 'confirm' | 'wizard',
+    probe: {
+      suggested: probe.suggested,
+      self: probe.self,
+      children: probe.children,
+      parentPath: probe.parentPath,
+    },
+    existing,
+  };
+}
+
+async function continueDiscoverScan(
+  root: string,
+  scope: DiscoverScope,
+  extensionUri: string,
+  refresh: () => void,
+  pass: ScanPassId = 1,
+): Promise<void> {
+  const service = new DiscoverService(root);
+  if (!service.exists()) {
     try {
-      service.setScope(draft);
+      service.init({
+        seedSentence: deriveScanSeedSentence(root, scope),
+        outputLanguage: resolveDisplayLanguage(),
+        scope,
+        actor: { kind: 'user', id: 'vscode-user' },
+      });
     } catch (error) {
       void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
-      return undefined;
+      return;
     }
   }
-  void vscode.window.showInformationMessage(scopeSavedMessage(draft, language));
-  return scope;
-}
-
-/**
- * A one-line seed for a blueprint bootstrapped by scanning existing source
- * code, when no seed sentence was ever typed by a person.
- *
- * Best-effort, in the order that names a product rather than a checkout: the
- * README's title, then a `package.json` name/description — read from a source
- * repo rather than the workspace root, since a parent repo holding only docs
- * has no manifest of its own — and the folder name last, which is what makes a
- * blueprint end up called something like `repo_for_loop_engine`.
- */
-function deriveScanSeedSentence(root: string, scope?: DiscoverScope): string {
-  const heading = readmeTitle(root);
-  if (heading) { return heading; }
-  const dirs = [root, ...(scope?.repos ?? []).map((r) => (r.path === '.' ? root : path.join(root, r.path)))];
-  for (const dir of dirs) {
-    try {
-      const pkgPath = path.join(dir, 'package.json');
-      if (!fs.existsSync(pkgPath)) { continue; }
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { name?: string; description?: string };
-      const name = typeof pkg.name === 'string' ? pkg.name : undefined;
-      const description = typeof pkg.description === 'string' ? pkg.description.trim() : '';
-      if (name && description) { return `${name}: ${description}`; }
-      if (name) { return name; }
-    } catch {
-      // Malformed package.json — try the next source repo.
-    }
+  const index = service.require();
+  try {
+    service.startRun(index.currentStep, { kind: 'scan', scanPass: pass });
+  } catch (error) {
+    void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
+    return;
   }
-  return path.basename(root);
-}
-
-/** The first `# ` heading of the root README, when there is one. */
-function readmeTitle(root: string): string | undefined {
-  for (const name of ['README.md', 'readme.md', 'README.MD']) {
-    const file = path.join(root, name);
-    if (!fs.existsSync(file)) { continue; }
-    try {
-      const heading = fs.readFileSync(file, 'utf8').split(/\r?\n/).find((line) => /^#\s+\S/.test(line));
-      const title = heading?.replace(/^#\s+/, '').trim();
-      if (title) { return title; }
-    } catch {
-      // Unreadable README — fall through.
-    }
-  }
-  return undefined;
+  const args = formatDiscoverScanArgs({ pass, scope });
+  runSlashCommandInProvider(`/${DISCOVER_SCAN_COMMAND_NAME} ${args}`, root, extensionUri);
+  refresh();
 }
 
 // ── Webview-side type shapes (must mirror src/webview/lib/types.ts) ───────
@@ -660,6 +671,8 @@ interface WorkspaceState {
   epicsDir: string;
   /** Persisted Epics-list UI prefs (follow/search/filter) from workspaceState. */
   epicsViewUi?: EpicsViewPrefs;
+  /** Persisted Discover-tab UI prefs (step-rail width) from workspaceState. */
+  discoverViewUi?: DiscoverViewPrefs;
   architecture: ArchitectureStudioStateUi;
   displayLanguage: 'en' | 'vi';
   /** Active agent CLI provider — mirrored from sidebar config. */
@@ -733,6 +746,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
       epicsViewUi: workspaceUiPrefs.get().epicsView,
+      discoverViewUi: workspaceUiPrefs.get().discoverView,
       architecture: emptyArchitectureStudio('Open a project to view its architecture.'),
       displayLanguage: resolveDisplayLanguage(),
       providerConfig,
@@ -825,6 +839,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
       epicsDir: DEFAULT_EPICS_DIR,
       epicsViewUi: workspaceUiPrefs.get().epicsView,
+      discoverViewUi: workspaceUiPrefs.get().discoverView,
       architecture,
       displayLanguage: resolveDisplayLanguage(),
       providerConfig,
@@ -906,6 +921,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     epicMemoryHookEnabled: isEpicMemoryHookEnabled(os.homedir()),
     epicsDir: epicRoot,
     epicsViewUi: workspaceUiPrefs.get().epicsView,
+    discoverViewUi: workspaceUiPrefs.get().discoverView,
     architecture,
     displayLanguage: resolveDisplayLanguage(),
     providerConfig,
@@ -2298,13 +2314,6 @@ export class WorkspaceWebview {
         return;
       }
 
-      case 'advanceDiscoverStep': {
-        const root = this.getRootOrWarn();
-        if (!root) { return; }
-        this.handleDiscoverMutation(() => { new DiscoverService(root).advanceStep(); });
-        return;
-      }
-
       case 'setDiscoverStep': {
         const root = this.getRootOrWarn();
         const step = typeof msg.step === 'string' ? msg.step as DiscoverStepId : undefined;
@@ -2313,6 +2322,7 @@ export class WorkspaceWebview {
         return;
       }
 
+      case 'chatDiscoverStep':
       case 'runDiscoverStep':
       case 'runDiscoverPipeline': {
         const root = this.getRootOrWarn();
@@ -2325,16 +2335,20 @@ export class WorkspaceWebview {
         const requested = typeof msg.step === 'string' ? msg.step as DiscoverStepId : undefined;
         const step = requested && DISCOVER_STEPS.some((s) => s.id === requested) ? requested : service.require().currentStep;
         const note = typeof msg.note === 'string' ? msg.note.trim() : '';
-        try {
-          // Snapshot BEFORE the agent starts — the diff and every undo hang off it.
-          service.startRun(step, { note: note || undefined });
-        } catch (error) {
-          void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
-          return;
+        if (msg.type !== 'chatDiscoverStep') {
+          try {
+            // Snapshot BEFORE the agent starts — the diff and every undo hang off it.
+            service.startRun(step, { note: note || undefined });
+          } catch (error) {
+            void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
+            return;
+          }
         }
         const slash = msg.type === 'runDiscoverPipeline'
           ? `/${DISCOVER_PIPELINE_COMMAND_NAME}${note ? ` ${note}` : ''}`
-          : `/${DISCOVER_COMMAND_NAME} ${step}${note ? ` ${note}` : ''}`;
+          : msg.type === 'chatDiscoverStep'
+            ? `/${DISCOVER_CHAT_COMMAND_NAME} ${step}${note ? ` ${note}` : ''}`
+            : `/${DISCOVER_COMMAND_NAME} ${step}${note ? ` ${note}` : ''}`;
         runSlashCommandInProvider(slash, root, this.extensionUri.fsPath);
         this.refresh();
         return;
@@ -2343,51 +2357,132 @@ export class WorkspaceWebview {
       case 'declareDiscoverScope': {
         const root = this.getRootOrWarn();
         if (!root) { return; }
-        await declareDiscoverScope(root, new DiscoverService(root));
-        this.refresh();
+        void this.panel.webview.postMessage(discoverScopeModalPayload(root, 'edit'));
         return;
       }
 
       case 'scanDiscoverProject': {
         const root = this.getRootOrWarn();
         if (!root) { return; }
-        const service = new DiscoverService(root);
-        // Which repos this blueprint is about, asked once and reused after
-        // that. Declared BEFORE the blueprint is bootstrapped, because the
-        // answer is what a sensible title is derived from — and because a
-        // scan with an undeclared scope is the bug this whole flow exists to
-        // stop, so an escaped wizard must start no run at all.
-        let scope = service.scope();
-        if (!scope) {
-          const declared = await declareDiscoverScope(root, service.exists() ? service : undefined);
-          if (!declared) { this.refresh(); return; }
-          scope = declared;
-        }
-        // Existing project, no blueprint yet: bootstrap it from what's on
-        // disk instead of asking the user to type a seed sentence first.
-        if (!service.exists()) {
-          try {
-            service.init({
-              seedSentence: deriveScanSeedSentence(root, scope),
-              outputLanguage: resolveDisplayLanguage(),
-              scope,
-              actor: { kind: 'user', id: 'vscode-user' },
-            });
-          } catch (error) {
-            void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
-            return;
-          }
-        }
-        const index = service.require();
+        void this.panel.webview.postMessage(discoverScopeModalPayload(root, 'scan'));
+        return;
+      }
+
+      case 'submitDiscoverScope': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const raw = msg.scope;
+        if (!raw || typeof raw !== 'object') { return; }
+        const draft = raw as {
+          layout?: unknown;
+          parentPath?: unknown;
+          repos?: unknown;
+          excludes?: unknown;
+        };
+        if (draft.layout !== 'single' && draft.layout !== 'parent' && draft.layout !== 'child') { return; }
+        if (!Array.isArray(draft.repos) || draft.repos.length === 0) { return; }
+        const repos = draft.repos.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') { return []; }
+          const r = entry as { path?: unknown; kind?: unknown; name?: unknown };
+          if (typeof r.path !== 'string' || typeof r.kind !== 'string') { return []; }
+          return [{
+            path: r.path,
+            kind: r.kind.trim(),
+            name: typeof r.name === 'string' ? r.name : r.path,
+          }];
+        });
+        if (repos.length === 0 || repos.some((r) => !r.kind)) { return; }
+        const scopeInput = {
+          layout: draft.layout as DiscoverScope['layout'],
+          parentPath: typeof draft.parentPath === 'string' ? draft.parentPath : undefined,
+          repos,
+          excludes: Array.isArray(draft.excludes) ? draft.excludes.filter((e): e is string => typeof e === 'string') : [],
+        };
+        const language = resolveDisplayLanguage();
         try {
-          // Snapshot BEFORE the agent starts — the diff and every undo hang off it.
-          service.startRun(index.currentStep, { kind: 'scan' });
+          const scope = new DiscoverService(root).persistDeclaredScope(scopeInput);
+          void vscode.window.showInformationMessage(scopeSavedMessage(scopeInput, language));
+          if (msg.intent === 'scan') {
+            await continueDiscoverScan(root, scope, this.extensionUri.fsPath, () => this.refresh());
+          } else {
+            this.refresh();
+          }
         } catch (error) {
           void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
-          return;
         }
-        runSlashCommandInProvider(`/${DISCOVER_SCAN_COMMAND_NAME}`, root, this.extensionUri.fsPath);
-        this.refresh();
+        return;
+      }
+
+      case 'useDiscoverScopeSaved': {
+        const root = this.getRootOrWarn();
+        if (!root || msg.intent !== 'scan') { return; }
+        const scope = new DiscoverService(root).declaredScope();
+        if (!scope) { return; }
+        await continueDiscoverScan(root, scope, this.extensionUri.fsPath, () => this.refresh());
+        return;
+      }
+
+      case 'cancelDiscoverScope':
+        return;
+
+      case 'commitDiscoverChanges': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const service = new DiscoverService(root);
+        const language = resolveDisplayLanguage();
+        const prepared = prepareDiscoverCommitDialog(
+          root,
+          service.declaredScope(),
+          service.load()?.title,
+          discoverCommitCopy(language),
+        );
+        if (prepared === 'not-repo' || prepared === 'clean') { return; }
+        void this.panel.webview.postMessage({ type: 'openDiscoverCommitModal', ...prepared });
+        return;
+      }
+
+      case 'submitDiscoverCommit': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const message = typeof msg.message === 'string' ? msg.message : '';
+        if (!message.trim()) { return; }
+        const service = new DiscoverService(root);
+        const language = resolveDisplayLanguage();
+        const ok = await executeDiscoverCommit(
+          root,
+          service.declaredScope(),
+          message,
+          discoverCommitCopy(language),
+        );
+        if (ok) { this.refresh(); }
+        return;
+      }
+
+      case 'cancelDiscoverCommit':
+        return;
+
+      case 'agentDiscoverCommit': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const service = new DiscoverService(root);
+        const language = resolveDisplayLanguage();
+        const copy = discoverCommitCopy(language);
+        const prepared = prepareDiscoverCommitDialog(
+          root,
+          service.declaredScope(),
+          service.load()?.title,
+          copy,
+        );
+        if (prepared === 'not-repo' || prepared === 'clean') { return; }
+        const dir = resolveDiscoverCommitRoot(root, service.declaredScope());
+        const rel = path.relative(root, dir).split(path.sep).join('/') || '.';
+        const arg = /[\s"']/.test(rel) ? `"${rel.replace(/"/g, '\\"')}"` : rel;
+        runSlashCommandInProvider(`/${DISCOVER_COMMIT_COMMAND_NAME} ${arg}`, root, this.extensionUri.fsPath);
+        void vscode.window.showInformationMessage(
+          language === 'vi'
+            ? 'AIDLC Discover: agent đang commit mọi thay đổi…'
+            : 'AIDLC Discover: agent is committing every change…',
+        );
         return;
       }
 
@@ -2404,12 +2499,32 @@ export class WorkspaceWebview {
         const root = this.getRootOrWarn();
         const runId = typeof msg.runId === 'string' ? msg.runId : '';
         if (!root || !runId) { return; }
+        let nextPass: ScanPassId | undefined;
+        let nextScope: DiscoverScope | undefined;
         this.handleDiscoverMutation(() => {
           const service = new DiscoverService(root);
           if (msg.type === 'finishDiscoverRun') { service.finishRun(runId); }
-          if (msg.type === 'keepDiscoverRun') { service.keepRun(runId); }
+          if (msg.type === 'keepDiscoverRun') {
+            const kept = service.require().runs.find((r) => r.id === runId);
+            service.keepRun(runId);
+            if (kept?.kind === 'scan' && isScanPassId(kept.scanPass)) {
+              nextPass = nextScanPass(kept.scanPass);
+              nextScope = service.declaredScope() ?? service.effectiveScope();
+            }
+          }
           if (msg.type === 'revertDiscoverRun') { service.revertRun(runId); }
         });
+        if (msg.type === 'keepDiscoverRun' && nextPass && nextScope) {
+          const language = resolveDisplayLanguage();
+          const spec = getScanPass(nextPass);
+          const label = language === 'vi' ? spec.labelVi : spec.label;
+          void vscode.window.showInformationMessage(
+            language === 'vi'
+              ? `AIDLC Discover: bắt đầu quét bước ${nextPass}/3 — ${label}`
+              : `AIDLC Discover: starting scan pass ${nextPass}/3 — ${label}`,
+          );
+          await continueDiscoverScan(root, nextScope, this.extensionUri.fsPath, () => this.refresh(), nextPass);
+        }
         return;
       }
 
@@ -2455,15 +2570,31 @@ export class WorkspaceWebview {
         return;
       }
 
+      case 'scaffoldEpicFromSuggestion': {
+        const root = this.getRootOrWarn();
+        const suggestionId = typeof msg.suggestionId === 'string' ? msg.suggestionId : '';
+        if (!root || !suggestionId) { return; }
+        try {
+          const { epicId } = scaffoldEpicFromSuggestion(root, { suggestionId });
+          this.refresh();
+          void vscode.window.showInformationMessage(`AIDLC Discover: đã tạo ${epicId} từ Kiểm tra.`);
+          this.setView('epics');
+          void this.panel.webview.postMessage({ type: 'selectEpic', epicId });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
       case 'scaffoldEpicFromPhase': {
         const root = this.getRootOrWarn();
         const phaseId = typeof msg.phaseId === 'string' ? msg.phaseId : '';
         const recipeId = typeof msg.recipeId === 'string' ? msg.recipeId : '';
-        if (!root || !phaseId || !COFOFO_RECIPE_IDS.includes(recipeId as (typeof COFOFO_RECIPE_IDS)[number])) { return; }
+        if (!root || !phaseId || !DISCOVER_HANDOFF_RECIPE_IDS.includes(recipeId as (typeof DISCOVER_HANDOFF_RECIPE_IDS)[number])) { return; }
         try {
           const { epicId } = scaffoldEpicFromPhase(root, {
             phaseId,
-            recipeId: recipeId as (typeof COFOFO_RECIPE_IDS)[number],
+            recipeId: recipeId as (typeof DISCOVER_HANDOFF_RECIPE_IDS)[number],
             title: typeof msg.title === 'string' ? msg.title : undefined,
           });
           this.refresh();
@@ -2495,6 +2626,24 @@ export class WorkspaceWebview {
         return;
       }
 
+      case 'revealDiscoverSource': {
+        const root = this.getRootOrWarn();
+        const rel = typeof msg.path === 'string' ? msg.path : '';
+        if (!root || !rel) { return; }
+        const abs = path.isAbsolute(rel) ? rel : path.resolve(root, rel);
+        const relative = path.relative(root, abs);
+        if (relative.startsWith('..') || path.isAbsolute(relative)) {
+          void vscode.window.showWarningMessage('AIDLC: source path must be inside the open workspace.');
+          return;
+        }
+        if (!fs.existsSync(abs)) {
+          void vscode.window.showWarningMessage(`Path not found: ${rel}`);
+          return;
+        }
+        await vscode.commands.executeCommand('revealInExplorer', vscode.Uri.file(abs));
+        return;
+      }
+
       case 'reloadDiscover': {
         const root = this.getRootOrWarn();
         if (root) { absorbDocChanges(root); }
@@ -2507,6 +2656,14 @@ export class WorkspaceWebview {
         if (!raw || typeof raw !== 'object') { return; }
         const patch = raw as EpicsViewPrefs;
         void workspaceUiPrefs.patchEpicsView(patch);
+        return;
+      }
+
+      case 'persistDiscoverUi': {
+        const raw = msg.discoverView;
+        if (!raw || typeof raw !== 'object') { return; }
+        const patch = raw as DiscoverViewPrefs;
+        void workspaceUiPrefs.patchDiscoverView(patch);
         return;
       }
 
@@ -2545,33 +2702,51 @@ export class WorkspaceWebview {
         await vscode.commands.executeCommand('workbench.action.openSettings', 'aidlc.jira');
         return;
 
-      case 'sprintSetTransitionConfig': {
-        // Written at Workspace scope: which statuses a board uses is a property
-        // of this project, not of the user's machine.
+      case 'sprintSetConfig': {
+        // Written at Workspace scope: which project / board / JQL this repo
+        // reads is a property of the repo, not of the user's machine — same
+        // scope `verifyAndStoreJiraCredentials` uses for site and email.
         const config = vscode.workspace.getConfiguration('aidlc.jira');
         const target = vscode.ConfigurationTarget.Workspace;
-        if (typeof msg.enabled === 'boolean') {
-          await config.update('transitions.enabled', msg.enabled, target);
-        }
-        if (typeof msg.confirm === 'boolean') {
-          await config.update('transitions.confirm', msg.confirm, target);
-        }
-        const mapping = msg.mapping as Record<string, unknown> | undefined;
-        if (mapping && typeof mapping === 'object') {
-          const keys: Array<[string, string]> = [
-            ['taskCreated', 'transitions.onTaskCreated'],
-            ['review', 'transitions.onReview'],
-            ['runCompleted', 'transitions.onRunCompleted'],
-            ['runFailed', 'transitions.onRunFailed'],
-          ];
-          for (const [field, setting] of keys) {
-            if (typeof mapping[field] === 'string') {
-              await config.update(setting, String(mapping[field]), target);
+        const patch = msg.config as Record<string, unknown> | undefined;
+        if (!patch || typeof patch !== 'object') { return; }
+
+        const strings: Array<[string, string]> = [
+          ['projectKey', 'projectKey'],
+          ['jql', 'jql'],
+        ];
+        // Clamped rather than rejected: a 0-second timeout would break every
+        // call, and the dialog is not the place to argue about it.
+        const numbers: Array<[string, string, number]> = [
+          ['boardId', 'boardId', 0],
+          ['refreshMinutes', 'refreshMinutes', 0],
+          ['requestTimeoutSeconds', 'requestTimeoutSeconds', 1],
+        ];
+        try {
+          for (const [field, setting] of strings) {
+            if (typeof patch[field] === 'string') {
+              await config.update(setting, String(patch[field]).trim(), target);
             }
           }
+          for (const [field, setting, min] of numbers) {
+            if (patch[field] === undefined) { continue; }
+            const value = Number(patch[field]);
+            if (!Number.isFinite(value)) { continue; }
+            await config.update(setting, Math.max(min, Math.round(value)), target);
+          }
+          if (typeof patch.subtasksEnabled === 'boolean') {
+            await config.update('subtasks.enabled', patch.subtasksEnabled, target);
+          }
+        } catch (err) {
+          // Writing Workspace scope needs an open folder. Say so instead of
+          // leaving the dialog looking like it saved.
+          void vscode.window.showErrorMessage(
+            `Không lưu được cấu hình Jira: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return;
         }
         // The config watcher in extension.ts refreshes the sprint state, which
-        // is what carries the new mapping back to the panel.
+        // is what carries the saved values back to the panel.
         return;
       }
 
@@ -3308,6 +3483,36 @@ export class WorkspaceWebview {
         });
         const folderPath = picked && picked.length > 0 ? picked[0].fsPath : null;
         void this.panel.webview.postMessage({ type: 'pickFolder:reply', requestId, folderPath });
+        return;
+      }
+      case 'pickChildRepoFolders': {
+        const requestId = String(msg.requestId ?? '');
+        if (!requestId) { return; }
+        const root = this.getRootOrWarn();
+        if (!root) {
+          void this.panel.webview.postMessage({ type: 'pickChildRepoFolders:reply', requestId, cancelled: true, folders: [] });
+          return;
+        }
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: true,
+          defaultUri: vscode.Uri.file(root),
+          openLabel: 'Pick child repo folders',
+          title: 'Pick child repo folders',
+        });
+        if (!picked || picked.length === 0) {
+          void this.panel.webview.postMessage({ type: 'pickChildRepoFolders:reply', requestId, cancelled: true, folders: [] });
+          return;
+        }
+        const folders = picked.map((uri) => {
+          const relative = path.relative(root, uri.fsPath).split(path.sep).join('/');
+          return {
+            path: relative === '' ? '.' : relative,
+            name: path.basename(uri.fsPath),
+          };
+        });
+        void this.panel.webview.postMessage({ type: 'pickChildRepoFolders:reply', requestId, folders });
         return;
       }
       // GH-67: add a local folder to VS Code's multi-root workspace.
@@ -4585,14 +4790,6 @@ export class WorkspaceWebview {
       return;
     }
 
-    // The run is born here rather than through `saveRun()`, so Jira write-back
-    // has to be told by hand — otherwise a ticket turned into a task sits in its
-    // old status until the first step action, and by then `review` may have
-    // fired first and the backwards guard drops `taskCreated` for good.
-    if (scaffolded?.runState) {
-      jiraStatusSync.onRunStateSaved(root, scaffolded.runState, doc);
-    }
-
     // GH-67: add workspace-mode projects to VS Code via a named .code-workspace file.
     const wsProjects = (extraProjects ?? []).filter(
       (p) => (p.mode === 'workspace' || p.mode === 'clone') && p.ref,
@@ -5725,8 +5922,6 @@ export class WorkspaceWebview {
       const runState = startRun({ runId: epicId, pipeline, context, workspaceRoot: root });
       RunStateStore.save(root, runState);
       mirrorRunStateToEpic(root, runState, readYaml(root));
-      // Same reason as in `startEpicInline`: run creation bypasses `saveRun()`.
-      jiraStatusSync.onRunStateSaved(root, runState, doc);
       void vscode.window.showInformationMessage(
         `Pipeline run "${epicId}" started — current step: ${runState.steps[runState.currentStepIdx].agent}.`,
       );

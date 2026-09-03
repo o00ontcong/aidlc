@@ -9,7 +9,18 @@
  */
 
 import type { CofofoRecipeId, DiscoverIndex } from '../contracts/discover';
-import { DOC_IMPLEMENTATION_PLAN } from './DocSpec';
+import {
+  DOC_ARCHITECTURE,
+  DOC_DATA_MODEL,
+  DOC_FEATURES,
+  DOC_IDEA,
+  DOC_IMPLEMENTATION_PLAN,
+  DOC_MODULES,
+  DOC_PRODUCT,
+  DOC_PROJECT_STRUCTURE,
+  DOC_SKELETON,
+  DOC_TECH_STACK,
+} from './DocSpec';
 import { extractIds, findSection, type DocRecord } from './mdParse';
 import type { Blueprint, BlueprintContext } from './validate';
 
@@ -88,16 +99,28 @@ export function getPhase(ctx: BlueprintContext, phaseId: string): DiscoverPhase 
 }
 
 /**
- * A phase that lays the ground rather than adding behaviour wants the
- * foundation recipe. Everything else is a feature — a person can override,
- * and the tab makes them confirm either way.
+ * True when the phase is about materializing the project skeleton — used by
+ * Kiểm tra, not by the handoff recipe picker. Avoids the word "nền tảng"
+ * because product phases use it for domain layers (session platform, etc.).
  */
-export function suggestRecipeForPhase(phase: DiscoverPhase, isFirst: boolean): CofofoRecipeId {
+export function isSkeletonPhase(phase: DiscoverPhase, isFirst: boolean): boolean {
   const text = `${phase.title} ${phase.goal} ${phase.deliverables.join(' ')}`.toLowerCase();
-  if (/\b(skeleton|scaffold|bootstrap|foundation|khởi tạo|nền tảng|dựng khung)\b/.test(text)) {
-    return 'cofofo-bootstrap';
+  if (/\b(skeleton|scaffold|bootstrap|khởi tạo|dựng khung|generate skeleton)\b/.test(text)) {
+    return true;
   }
-  if (isFirst && /\b(project setup|setup|cấu hình dự án)\b/.test(text)) { return 'cofofo-bootstrap'; }
+  return isFirst && /\b(project setup|cấu hình dự án)\b/.test(text);
+}
+
+/**
+ * A Discover phase hands off to a delivery recipe: feature (new behaviour) or
+ * bugfix (wrong behaviour). Foundation lifecycle recipes are not a choice here
+ * — "nền tảng" in a product phase title means a domain layer, not cofofo-bootstrap.
+ */
+export function suggestRecipeForPhase(phase: DiscoverPhase, _isFirst?: boolean): CofofoRecipeId {
+  const text = `${phase.title} ${phase.goal} ${phase.deliverables.join(' ')}`.toLowerCase();
+  if (/\b(bugfix|hotfix|regression|sửa lỗi|vá lỗi|fix bug)\b/.test(text)) {
+    return 'cofofo-bugfix';
+  }
   return 'cofofo-feature';
 }
 
@@ -174,17 +197,161 @@ export function renderPhaseIntent(ctx: BlueprintContext, index: DiscoverIndex, p
     lines.push('');
   }
 
-  const problem = prose(ctx, 'product/PRODUCT.md', 'problem') || prose(ctx, 'product/IDEA.md', 'problem');
-  const value = prose(ctx, 'product/PRODUCT.md', 'value') || prose(ctx, 'product/IDEA.md', 'value');
-  if (problem || value) {
+  pushSharedBlueprintContext(lines, ctx);
+  pushBlueprintFooter(lines, ctx, index);
+  return finalizeIntent(lines);
+}
+
+export interface BootstrapIntentInput {
+  missingPaths?: string[];
+  foundationReady?: boolean;
+}
+
+/**
+ * INTENT.md for a cofofo-bootstrap epic started from Kiểm tra.
+ *
+ * After Discover's 12 steps the skeleton spec already lives in the blueprint
+ * (`SKELETON.md`, `PROJECT_STRUCTURE.md`, `TECH_STACK.md`, phase 1). This
+ * snapshot is that spec — not a complaint that the files do not exist yet.
+ */
+export function renderBootstrapIntent(
+  ctx: BlueprintContext,
+  index: DiscoverIndex,
+  input: BootstrapIntentInput = {},
+): string {
+  const phases = listPhases(ctx);
+  const phase1 = phases[0];
+  const skFiles = items(ctx, DOC_SKELETON, 'files');
+  const skInterfaces = items(ctx, DOC_SKELETON, 'interfaces');
+  const skConfig = items(ctx, DOC_SKELETON, 'config');
+  const skTests = items(ctx, DOC_SKELETON, 'tests');
+  const deliverables = [
+    ...skFiles,
+    ...skInterfaces,
+    ...skConfig,
+    ...skTests,
+    ...(phase1?.deliverables ?? []),
+    'CoFoFo foundation: scan-stack → map-system → publish-context',
+    'CONTEXT-MANIFEST.json published, foundation status = ready',
+  ];
+  const dod = [
+    ...(phase1?.definitionOfDone ?? []),
+    'Mọi mục trong plans/SKELETON.md tồn tại trên disk',
+    'Cây thư mục khớp architecture/PROJECT_STRUCTURE.md',
+    'CoFoFo foundation status = ready',
+    'CONTEXT-MANIFEST.json published',
+  ];
+  const filled = [...ctx.docs.entries()]
+    .filter(([, doc]) => doc.exists)
+    .map(([file]) => file);
+
+  const lines: string[] = [
+    '# Generate Skeleton & CoFoFo Foundation',
+    '',
+    `- **Blueprint:** ${index.id} — ${index.title}`,
+    `- **Blueprint revision:** ${index.revision}`,
+    `- **Source:** Kiểm tra ← Discover (${filled.length} documents)`,
+    `- **Recipe:** cofofo-bootstrap`,
+    '',
+    '## Goal',
+    '',
+    phase1?.goal
+      || 'Materialize the Discover blueprint onto disk: folder tree, skeleton files, interfaces, config, tests, and CoFoFo foundation.',
+    '',
+    '## Deliverables',
+    '',
+    ...bullets(deliverables),
+    '',
+    '## Definition of done',
+    '',
+    ...bullets(dod),
+    '',
+  ];
+
+  if (phase1) {
+    lines.push(
+      '## Implementation plan — phase 1',
+      '',
+      `- **${phase1.id}** — ${phase1.title}`,
+      ...(phase1.goal ? [`- Goal: ${phase1.goal}`] : []),
+      ...phase1.deliverables.map((d) => `- ${d}`),
+      '',
+    );
+    if (phases.length > 1) {
+      lines.push('## Later phases (out of scope for this epic)', '');
+      for (const p of phases.slice(1)) {
+        lines.push(`- **${p.id}** — ${p.title}${p.goal ? `: ${p.goal}` : ''}`);
+      }
+      lines.push('');
+    }
+  }
+
+  const features = items(ctx, DOC_FEATURES, 'features');
+  if (features.length) {
+    lines.push('## Features in scope for the skeleton', '', ...features.map((f) => `- ${f}`), '');
+  }
+
+  const overview = prose(ctx, DOC_DATA_MODEL, 'overview');
+  const entities = items(ctx, DOC_DATA_MODEL, 'entities');
+  if (overview || entities.length) {
+    lines.push('## Data model', '');
+    if (overview) { lines.push(overview, ''); }
+    if (entities.length) { lines.push(...entities.map((e) => `- ${e}`), ''); }
+  }
+
+  pushSharedBlueprintContext(lines, ctx);
+
+  const mapping = items(ctx, DOC_PROJECT_STRUCTURE, 'mapping');
+  if (mapping.length) {
+    lines.push('## Module mapping', '', ...mapping.map((m) => `- ${m}`), '');
+  }
+
+  if (skFiles.length || skInterfaces.length || skConfig.length || skTests.length) {
+    lines.push('## Skeleton (plans/SKELETON.md)', '');
+    if (skFiles.length) { lines.push('### Files and folders', '', ...skFiles.map((s) => `- ${s}`), ''); }
+    if (skInterfaces.length) { lines.push('### Interfaces', '', ...skInterfaces.map((s) => `- ${s}`), ''); }
+    if (skConfig.length) { lines.push('### Config', '', ...skConfig.map((s) => `- ${s}`), ''); }
+    if (skTests.length) { lines.push('### Tests', '', ...skTests.map((s) => `- ${s}`), ''); }
+  }
+
+  if (input.missingPaths?.length) {
+    lines.push(
+      '## Docs vs disk',
+      '',
+      `${input.missingPaths.length} path declared in the blueprint are not on disk yet — this epic creates them:`,
+      '',
+      ...input.missingPaths.slice(0, 24).map((p) => `- \`${p}\``),
+      '',
+    );
+  }
+
+  if (input.foundationReady === false) {
+    lines.push(
+      '## CoFoFo foundation',
+      '',
+      'Foundation is not published yet. That is expected on a greenfield workspace: this bootstrap epic is what produces it (scan-stack, map-system, publish-context). It is not a Discover failure.',
+      '',
+    );
+  }
+
+  pushBlueprintFooter(lines, ctx, index);
+  return finalizeIntent(lines);
+}
+
+function pushSharedBlueprintContext(lines: string[], ctx: BlueprintContext): void {
+  const problem = prose(ctx, DOC_PRODUCT, 'problem') || prose(ctx, DOC_IDEA, 'problem');
+  const value = prose(ctx, DOC_PRODUCT, 'value') || prose(ctx, DOC_IDEA, 'value');
+  const mvp = prose(ctx, DOC_IDEA, 'mvp');
+  if (problem || value || mvp) {
     lines.push('## Product context', '');
     if (problem) { lines.push('### Problem', '', problem, ''); }
     if (value) { lines.push('### Core value', '', value, ''); }
+    if (mvp) { lines.push('### Minimum MVP', '', mvp, ''); }
   }
 
-  const layers = items(ctx, 'architecture/ARCHITECTURE.md', 'layers');
-  const rationale = prose(ctx, 'architecture/ARCHITECTURE.md', 'rationale');
-  const modules = records(ctx, 'architecture/MODULES.md', 'modules');
+  const layers = items(ctx, DOC_ARCHITECTURE, 'layers');
+  const rationale = prose(ctx, DOC_ARCHITECTURE, 'rationale');
+  const modules = records(ctx, DOC_MODULES, 'modules');
   if (layers.length || rationale || modules.length) {
     lines.push('## Architecture', '');
     if (layers.length) { lines.push('### Layers', '', ...layers.map((l) => `- ${l}`), ''); }
@@ -192,12 +359,14 @@ export function renderPhaseIntent(ctx: BlueprintContext, index: DiscoverIndex, p
     if (rationale) { lines.push('### Why', '', rationale, ''); }
   }
 
-  const stack = records(ctx, 'architecture/TECH_STACK.md', 'stack');
+  const stack = records(ctx, DOC_TECH_STACK, 'stack');
   if (stack.length) { lines.push('## Tech stack', '', ...stack.map((t) => `- ${t}`), ''); }
 
-  const tree = prose(ctx, 'architecture/PROJECT_STRUCTURE.md', 'tree');
+  const tree = prose(ctx, DOC_PROJECT_STRUCTURE, 'tree');
   if (tree) { lines.push('## Project structure', '', tree, ''); }
+}
 
+function pushBlueprintFooter(lines: string[], ctx: BlueprintContext, index: DiscoverIndex): void {
   lines.push(
     '## Blueprint documents',
     '',
@@ -209,6 +378,8 @@ export function renderPhaseIntent(ctx: BlueprintContext, index: DiscoverIndex, p
     '',
     '_Snapshot taken when this epic was created. Editing the blueprint afterwards does not change this file._',
   );
+}
 
+function finalizeIntent(lines: string[]): string {
   return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`;
 }

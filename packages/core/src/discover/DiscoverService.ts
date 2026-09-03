@@ -16,6 +16,7 @@ import type { ActorRef } from '../contracts/common';
 import { nowIso } from '../contracts/common';
 import {
   parseDiscoverIndex,
+  parseDiscoverScope,
   type DiscoverHandoff,
   type DiscoverIndex,
   type DiscoverItemMeta,
@@ -33,12 +34,22 @@ import {
   type DocFileSpec,
 } from './DocSpec';
 import { applyOps, renderEmptyDoc, type DocOp, type PatchResult } from './mdPatch';
+import { normalizeDiscoverDoc } from './discoverFormat';
 import {
   checkSourceRepoWrites,
   fingerprintSourceRepos,
   singleRepoScope,
   type SourceRepoFingerprint,
 } from './sourceScope';
+import {
+  collectScanInventory,
+  isScanPassId,
+  renderDiscoverScanBrief,
+  scanPassDocPaths,
+  scanPassFirstStep,
+  writeDiscoverScanBrief,
+  type ScanPassId,
+} from './discoverScan';
 import { itemSignature, parseDoc, proseSectionKeyOf, type DocItem, type DocModel, type DocRecord } from './mdParse';
 import {
   checkGuardrails,
@@ -57,6 +68,8 @@ import {
 
 const DISCOVER_DIR = '.aidlc/discover';
 const INDEX_FILE = 'index.json';
+/** Persists a declared repo layout even before a blueprint exists. */
+const SCOPE_FILE = 'scope.json';
 const SNAPSHOTS_DIR = 'snapshots';
 /**
  * Inside a run's snapshot dir: the git state of every declared source repo at
@@ -161,6 +174,7 @@ export class DiscoverService {
 
   discoverDir(): string { return path.join(this.workspaceRoot, DISCOVER_DIR); }
   indexFile(): string { return path.join(this.discoverDir(), INDEX_FILE); }
+  scopeFile(): string { return path.join(this.discoverDir(), SCOPE_FILE); }
   snapshotDir(runId: string): string { return path.join(this.discoverDir(), SNAPSHOTS_DIR, runId); }
 
   docsRoot(index?: DiscoverIndex): string {
@@ -210,7 +224,7 @@ export class DiscoverService {
       seedSentence: input.seedSentence.trim(),
       docsRoot: input.docsRoot ?? 'docs',
       outputLanguage: input.outputLanguage ?? 'en',
-      scope: input.scope,
+      scope: input.scope ?? this.declaredScope(),
       currentStep: 'idea',
       revision: 0,
       docs: {},
@@ -221,6 +235,7 @@ export class DiscoverService {
       updatedAt: now,
     };
     const saved = this.save(index);
+    this.writeEmptySkeletons(saved);
     // The seed sentence is content, so it belongs in the doc, not the sidecar.
     return this.applyOps(
       'product/IDEA.md',
@@ -228,6 +243,34 @@ export class DiscoverService {
       { actor: input.actor },
       saved,
     ).index;
+  }
+
+  /** Create every pipeline file with the declared headings so an agent fills rather than invents structure. */
+  private writeEmptySkeletons(index: DiscoverIndex): void {
+    for (const spec of DISCOVER_STEPS.flatMap((step) => step.files)) {
+      const file = this.docFile(spec.path, index);
+      if (fs.existsSync(file)) { continue; }
+      writeFileAtomic(file, renderEmptyDoc(spec));
+    }
+  }
+
+  /**
+   * Fold on-disk docs onto the current DocSpec (H1, declared `##` headings,
+   * fenced ASCII trees and mermaid screen flows). Called from `startRun` after the snapshot so a scan
+   * or step run always starts from the new format; old titles are bugs.
+   */
+  private rewriteLegacyFormat(index: DiscoverIndex, onlyPaths?: string[]): void {
+    const related = this.readBlueprint(index).docs;
+    const paths = onlyPaths ?? allDocPaths();
+    for (const docPath of paths) {
+      const spec = getFileSpec(docPath);
+      if (!spec) { continue; }
+      const file = this.docFile(docPath, index);
+      if (!fs.existsSync(file)) { continue; }
+      const before = fs.readFileSync(file, 'utf8');
+      const after = normalizeDiscoverDoc(before, spec, related);
+      if (after !== before) { writeFileAtomic(file, after); }
+    }
   }
 
   // ── reading docs ─────────────────────────────────────────────────────────
@@ -436,9 +479,25 @@ export class DiscoverService {
 
   // ── source scope ─────────────────────────────────────────────────────────
 
-  /** The declared repo layout, or `undefined` while the user has never been asked. */
+  /** The declared repo layout stored in the blueprint index, if any. */
   scope(index?: DiscoverIndex): DiscoverScope | undefined {
     return (index ?? this.load())?.scope;
+  }
+
+  /**
+   * The layout the user confirmed — from the blueprint index or from
+   * `.aidlc/discover/scope.json` when no blueprint exists yet.
+   */
+  declaredScope(): DiscoverScope | undefined {
+    const fromIndex = this.scope();
+    if (fromIndex) { return fromIndex; }
+    const file = this.scopeFile();
+    if (!fs.existsSync(file)) { return undefined; }
+    try {
+      return parseDiscoverScope(JSON.parse(fs.readFileSync(file, 'utf8')));
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -456,13 +515,24 @@ export class DiscoverService {
    * Record which repos this blueprint describes. Overwrites wholesale: the
    * user re-declares a layout when the repo tree changes, and merging a stale
    * repo list into a new one would quietly keep a repo that has moved away.
+   *
+   * Also writes `.aidlc/discover/scope.json` so a layout survives before a
+   * blueprint is bootstrapped and is reused on later scans.
    */
+  persistDeclaredScope(scope: Omit<DiscoverScope, 'declaredAt'>): DiscoverScope {
+    const full: DiscoverScope = { ...scope, declaredAt: nowIso() };
+    fs.mkdirSync(this.discoverDir(), { recursive: true });
+    writeFileAtomic(this.scopeFile(), `${JSON.stringify(full, null, 2)}\n`);
+    const index = this.load();
+    if (index) {
+      this.save({ ...this.bump(index), scope: full });
+    }
+    return full;
+  }
+
   setScope(scope: Omit<DiscoverScope, 'declaredAt'>): DiscoverIndex {
-    const index = this.require();
-    return this.save({
-      ...this.bump(index),
-      scope: { ...scope, declaredAt: nowIso() },
-    });
+    this.persistDeclaredScope(scope);
+    return this.require();
   }
 
   // ── agent runs ───────────────────────────────────────────────────────────
@@ -470,23 +540,33 @@ export class DiscoverService {
   /** Snapshot the docs, then record the run so its diff has something to compare against. */
   startRun(
     stepId: DiscoverStepId,
-    options: { note?: string; runId?: string; kind?: 'step' | 'scan' | 'edit' } = {},
+    options: { note?: string; runId?: string; kind?: 'step' | 'scan' | 'edit'; scanPass?: ScanPassId } = {},
   ): { index: DiscoverIndex; run: DiscoverRun } {
     const index = this.require();
     const ctx = this.readBlueprint(index);
     const kind = options.kind ?? 'step';
+    const scanPass = kind === 'scan' ? (isScanPassId(options.scanPass) ? options.scanPass : 1) : undefined;
+    const runStep = scanPass ? scanPassFirstStep(scanPass) : stepId;
     const runId = options.runId ?? `run-${String(index.runs.length + 1).padStart(3, '0')}`;
+    // Format rewrite on a scan happens BEFORE the snapshot so the review diff
+    // is "what the code says", not "we renamed a heading". Step runs still
+    // rewrite after the snapshot so a fill/refine diff can show the fix.
+    if (kind === 'scan') {
+      this.rewriteLegacyFormat(index);
+      this.writeScanBrief(scanPass!, index);
+    }
     this.snapshotDocs(runId, index);
-    // A scan is the only run that reads outside `docsRoot`, so it is the only
-    // one that can wander into a source repo and write there.
     if (kind === 'scan') { this.writeSourceFingerprint(runId, index); }
+    if (kind === 'step') {
+      this.rewriteLegacyFormat(index, getStepSpec(stepId).files.map((f) => f.path));
+    }
     const run: DiscoverRun = {
       id: runId,
-      step: stepId,
-      // A scan reconciles every step against the real codebase in one pass —
-      // "fill vs refine" is decided per step inside that pass, not up front.
+      step: runStep,
+      // A scan's fill-vs-refine is decided per step inside the pass, not up front.
       mode: kind === 'scan' ? 'refine' : (isStepEmpty(ctx, stepId) ? 'fill' : 'refine'),
       kind,
+      scanPass,
       startedAt: nowIso(),
       note: options.note,
       diff: { added: [], updated: [], removed: [] },
@@ -518,7 +598,11 @@ export class DiscoverService {
     const diff = diffBlueprints(before.docs, after.docs);
     // Only a plain step run is scoped to its own files — a scan or a
     // person's direct edit may legitimately touch any doc.
-    const allowed = run.kind === 'step' ? getStepSpec(run.step).files.map((f) => f.path) : allDocPaths();
+    const allowed = run.kind === 'step'
+      ? getStepSpec(run.step).files.map((f) => f.path)
+      : run.kind === 'scan' && isScanPassId(run.scanPass)
+        ? scanPassDocPaths(run.scanPass)
+        : allDocPaths();
     const guardrail = [
       ...checkGuardrails(before.docs, after.docs, beforeIndex, allowed),
       ...this.checkSourceRepos(run, index),
@@ -729,27 +813,39 @@ export class DiscoverService {
   }
 
   /**
-   * Keep run snapshots out of `git status` in the host project. Idempotent:
-   * appends a rule to `.aidlc/.gitignore` (creating it if needed) the first
-   * time a snapshot is taken, mirroring GitRunStateStore.ensureIgnored.
+   * Keep run snapshots and the generated scan brief out of `git status`.
+   * Idempotent: appends each missing rule to `.aidlc/discover/.gitignore`.
    */
   private ensureSnapshotsIgnored(): void {
-    const rule = `${SNAPSHOTS_DIR}/`;
+    const rules = [`${SNAPSHOTS_DIR}/`, 'scan-brief.md'];
     const ignoreFile = path.join(this.discoverDir(), '.gitignore');
     const existing = fs.existsSync(ignoreFile) ? fs.readFileSync(ignoreFile, 'utf8') : '';
-    if (existing.split(/\r?\n/).includes(rule)) { return; }
+    const have = new Set(existing.split(/\r?\n/).filter(Boolean));
+    const missing = rules.filter((rule) => !have.has(rule));
+    if (missing.length === 0) { return; }
     const prefix = existing.length && !existing.endsWith('\n') ? '\n' : '';
     fs.mkdirSync(this.discoverDir(), { recursive: true });
-    fs.appendFileSync(ignoreFile, `${prefix}${rule}\n`);
+    fs.appendFileSync(ignoreFile, `${prefix}${missing.join('\n')}\n`);
+  }
+
+  /** Host-built file list the scan agent is told to treat as the only source. */
+  private writeScanBrief(pass: ScanPassId, index: DiscoverIndex): void {
+    this.ensureSnapshotsIgnored();
+    const scope = this.effectiveScope(index);
+    const inventory = collectScanInventory(this.workspaceRoot, scope, index.docsRoot);
+    writeDiscoverScanBrief(this.workspaceRoot, renderDiscoverScanBrief({
+      inventory,
+      pass,
+      docsRoot: index.docsRoot,
+    }));
   }
 
   /** Git state of every declared source repo, stored beside the run's snapshot. */
   private writeSourceFingerprint(runId: string, index: DiscoverIndex): void {
     const scope = this.effectiveScope(index);
-    if (scope.repos.every((r) => r.path === '.')) { return; }
     const file = path.join(this.snapshotDir(runId), SOURCE_FINGERPRINT_FILE);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeFileAtomic(file, `${JSON.stringify(fingerprintSourceRepos(this.workspaceRoot, scope), null, 2)}\n`);
+    writeFileAtomic(file, `${JSON.stringify(fingerprintSourceRepos(this.workspaceRoot, scope, { docsRoot: index.docsRoot }), null, 2)}\n`);
   }
 
   /**
@@ -767,7 +863,11 @@ export class DiscoverService {
     } catch {
       return [];
     }
-    return checkSourceRepoWrites(before, fingerprintSourceRepos(this.workspaceRoot, this.effectiveScope(index)));
+    return checkSourceRepoWrites(
+      before,
+      fingerprintSourceRepos(this.workspaceRoot, this.effectiveScope(index), { docsRoot: index.docsRoot }),
+      { docsRoot: index.docsRoot },
+    );
   }
 
   private snapshotDocs(runId: string, index: DiscoverIndex): void {

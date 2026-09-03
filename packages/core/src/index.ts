@@ -67,7 +67,9 @@ export {
   type DiscoverSourceRepo,
   type CofofoRecipeId,
   COFOFO_RECIPE_IDS,
+  DISCOVER_HANDOFF_RECIPE_IDS,
   parseDiscoverIndex,
+  parseDiscoverScope,
 } from './contracts';
 
 export {

@@ -90,6 +90,26 @@ function currentPhase(state: RunState, pipeline: PipelineConfig): string {
   return raw ? normalizeStep(raw).name ?? normalizeStep(raw).agent : '(missing)';
 }
 
+/**
+ * Sidebar "CoFoFo Workflow" apply — register pipelines/recipes only.
+ * No foundation-route picker, no epic/run scaffold; the human starts that later.
+ */
+export async function installCofofoWorkflowCommand(extensionPath: string): Promise<void> {
+  const root = rootOrWarn();
+  if (!root) return;
+  try {
+    serviceFor(root, extensionPath).ensureRecipesRegistered();
+    void vscode.commands.executeCommand('aidlc.refreshSidebar');
+    void vscode.window.showInformationMessage(
+      'CoFoFo pipelines and recipes installed (cofofo-foundation, cofofo-delivery, cofofo-feature, cofofo-bugfix). Create a New Epic when you\'re ready.',
+    );
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      `CoFoFo install failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 export async function prepareCofofoFoundationCommand(extensionPath: string): Promise<void> {
   const root = rootOrWarn();
   if (!root) return;
@@ -108,11 +128,10 @@ export async function prepareCofofoFoundationCommand(extensionPath: string): Pro
   try {
     const service = serviceFor(root, extensionPath);
     const inspection = service.prepare({ route: choice.route });
-    if (inspection.status === 'fallback') {
+    if (inspection.issues.length) {
       void vscode.window.showWarningMessage(
-        `CoFoFo safely fell back to ${inspection.state?.fallbackPipelineId ?? 'aidlc-workflow-full'}: ${inspection.issues.join('; ')}`,
+        `CoFoFo scan-stack is closed: ${inspection.issues.join('; ')}`,
       );
-      return;
     }
     const generated = WorkspaceLoader.load(root).config.pipelines
       .find((pipeline) => pipeline.id === 'cofofo-foundation');

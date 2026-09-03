@@ -15,7 +15,7 @@ Discover đưa **một ý tưởng** đi qua 12 bước cho tới khi có đủ 
 
 Nếu mục tiêu là **từ một idea → ra được bộ khung project đủ rõ để bắt đầu code**, đặc biệt khi dùng AI coding agent, tôi khuyên đi theo pipeline:
 
-**Idea → Product Definition → Requirements → Features → Use Cases → Architecture → Data/API → UI Flow → Project Structure → Implementation Plan → Skeleton**
+**Idea → Product Definition → Requirements → Feature Breakdown → Use Cases → User Flow / Screen Flow → Architecture → Data / API / Storage → Technical Decisions → Project Structure → Implementation Plan → Generate Skeleton**
 
 Ví dụ quy trình đầy đủ:
 
@@ -105,19 +105,17 @@ Ví dụ quy trình đầy đủ:
    Đây là bước rất quan trọng vì nó biến "feature" thành **hành vi hệ thống**.
 
 6. **User Flow / Screen Flow**
-   Xác định user đi qua app thế nào:
+   Xác định user đi qua app thế nào. Vẽ bằng mermaid `flowchart TD` — mỗi
+   node là một màn hình:
 
-   ```text
-   Launch
-      ↓
-   Home
-      ↓
-   Select Video
-      ↓
-   Player
-      ├── Subtitle 1
-      ├── Subtitle 2
-      └── Settings
+   ```mermaid
+   flowchart TD
+       Launch([Launch]) --> Home
+       Home --> SelectVideo[Select Video]
+       SelectVideo --> Player
+       Player --> Subtitle1[Subtitle 1]
+       Player --> Subtitle2[Subtitle 2]
+       Player --> Settings
    ```
 
 7. **Architecture**
@@ -148,27 +146,18 @@ Ví dụ quy trình đầy đủ:
    Không nên làm ngược kiểu **chọn Clean Architecture trước rồi mới cố nhét idea vào architecture**.
 
 8. **Data / API / Storage**
-   Xác định:
+   Chỉ cần khung tổng quát — chưa liệt kê entity, field hay endpoint cụ thể:
 
    ```text
-   Entities
-   Models
-   Repository interfaces
-   API endpoints
-   Local database
-   Cache
-   File storage
-   UserDefaults/Keychain
-   ```
-
-   Ví dụ:
-
-   ```text
-   Video
-   Subtitle
-   SubtitleCue
-   SubtitleStyle
-   PlaybackState
+   Data
+   ├── Entities / Models
+   ├── Repository interfaces
+   ├── API
+   └── Storage
+       ├── Local database
+       ├── Cache
+       ├── File storage
+       └── Secrets / preferences
    ```
 
 9. **Technical Decisions**
@@ -253,21 +242,22 @@ project
                       │
              ┌────────┴────────┐
              ▼                 ▼
-          FEATURES       NON-FUNCTIONAL
+    FEATURE BREAKDOWN   NON-FUNCTIONAL
              │
              ▼
           USE CASES
              │
-        ┌────┴─────┐
-        ▼          ▼
-    USER FLOW    DATA MODEL
-        │          │
-        └────┬─────┘
+             ▼
+    USER FLOW / SCREEN FLOW
+             │
              ▼
         ARCHITECTURE
              │
              ▼
-       TECH DECISIONS
+    DATA / API / STORAGE
+             │
+             ▼
+     TECHNICAL DECISIONS
              │
              ▼
       PROJECT STRUCTURE
@@ -276,7 +266,7 @@ project
     IMPLEMENTATION PLAN
              │
              ▼
-      PROJECT SKELETON
+     GENERATE SKELETON
              │
              ▼
         START CODING
@@ -308,7 +298,7 @@ docs/
 
 Như vậy coding agent không phải **đoán** product, architecture hay coding convention mỗi lần làm task.
 
-Nếu làm nghiêm túc một project mới, tôi xem **`Project Skeleton` là output của quá trình phân tích**, chứ không phải điểm bắt đầu. Với workflow dùng AI, phần từ **Idea → Requirements → Architecture → Implementation Plan** thường quyết định chất lượng code nhiều hơn việc chọn agent nào.
+Nếu làm nghiêm túc một project mới, tôi xem **Generate Skeleton là output của quá trình phân tích**, chứ không phải điểm bắt đầu. Với workflow dùng AI, phần từ **Idea → Requirements → Architecture → Implementation Plan** thường quyết định chất lượng code nhiều hơn việc chọn agent nào.
 
 ---
 
@@ -319,18 +309,18 @@ không được đụng file của bước khác.
 
 | # | Bước | File | Xong khi |
 |---|---|---|---|
-| 1 | Idea | `product/IDEA.md` | Có Problem, ≥1 user, Core value, Minimum MVP |
-| 2 | Product Definition | `product/PRODUCT.md` | Problem, ≥1 target user, Core value, ≥1 MVP scope |
-| 3 | Requirements | `product/REQUIREMENTS.md` | ≥3 functional, ≥1 non-functional |
-| 4 | Features | `product/FEATURES.md` | ≥1 feature; **mọi FR được một feature phủ** |
-| 5 | Use Cases | `product/USE_CASES.md` | ≥1 use case, mỗi cái đủ Actor/Trigger/Main flow |
-| 6 | User Flow | `product/USER_FLOWS.md` | ≥1 screen, ≥1 flow, mọi UC xuất hiện trong một flow |
-| 7 | Data Model | `architecture/DATA_MODEL.md` | ≥1 entity, mỗi entity liệt kê field |
-| 8 | Architecture | `architecture/ARCHITECTURE.md`, `MODULES.md`, `DATA_FLOW.md` | ≥2 layer, có Rationale, ≥2 module có responsibility |
-| 9 | Tech Decisions | `architecture/TECH_STACK.md`, `architecture/ADR/` | ≥3 lựa chọn stack đều có lý do, ≥1 ADR |
-| 10 | Project Structure | `architecture/PROJECT_STRUCTURE.md` | Có cây thư mục, mọi module được map |
-| 11 | Implementation Plan | `plans/IMPLEMENTATION_PLAN.md` | ≥3 phase, mỗi phase có Goal và Deliverables |
-| 12 | Project Skeleton | `plans/SKELETON.md` | ≥1 file/folder cần tạo |
+| 1 | Idea — Ý tưởng | `product/IDEA.md` | Có Problem, ≥1 user, Core value, Minimum MVP |
+| 2 | Product Definition — Định nghĩa sản phẩm | `product/PRODUCT.md` | Problem, ≥1 target user, Core value, ≥1 MVP scope |
+| 3 | Requirements — Yêu cầu | `product/REQUIREMENTS.md` | ≥3 functional, ≥1 non-functional |
+| 4 | Feature Breakdown — Chia feature | `product/FEATURES.md` | Có cây feature; ≥1 feature; **mọi FR được một feature phủ** |
+| 5 | Use Cases — Luồng nghiệp vụ | `product/USE_CASES.md` | ≥1 use case, mỗi cái đủ Actor/Trigger/Main flow |
+| 6 | User Flow / Screen Flow | `product/USER_FLOWS.md` | Có mermaid `flowchart TD`; ≥1 screen, ≥1 flow, mọi UC xuất hiện trong một flow |
+| 7 | Architecture — Kiến trúc | `architecture/ARCHITECTURE.md`, `MODULES.md`, `DATA_FLOW.md` | Có layering; ≥2 layer, có Rationale, ≥2 module có responsibility |
+| 8 | Data / API / Storage | `architecture/DATA_MODEL.md` | Có khung Overview; ≥1 entity (một dòng / vùng — không liệt kê field) |
+| 9 | Technical Decisions — Quyết định kỹ thuật | `architecture/TECH_STACK.md`, `architecture/ADR/` | ≥3 lựa chọn stack đều có lý do, ≥1 ADR |
+| 10 | Project Structure — Cấu trúc project | `architecture/PROJECT_STRUCTURE.md` | Có cây thư mục, mọi module được map |
+| 11 | Implementation Plan — Kế hoạch triển khai | `plans/IMPLEMENTATION_PLAN.md` | ≥3 phase, mỗi phase có Goal và Deliverables |
+| 12 | Generate Skeleton — Sinh skeleton | `plans/SKELETON.md` | Có skeleton tree; ≥1 file/folder cần tạo |
 
 Ngoài 12 bước còn có `development/CODING_RULES.md`, `TESTING_RULES.md`,
 `GIT_WORKFLOW.md` — sinh bằng nút **Sinh tài liệu phát triển** sau khi đã chốt
@@ -346,7 +336,11 @@ kiểm tra, chứ không phải đã đạt.
 format lại cả file.
 
 - `#` là tiêu đề tài liệu, `##` là section — **chỉ dùng các heading trong bảng
-  của mỗi bước**.
+  của mỗi bước**. Cây ASCII (feature tree, layering, data overview, folder tree,
+  skeleton tree) nằm trong fenced ` ```text ` dưới đúng heading đó. Screen flow
+  nằm trong fenced ` ```mermaid ` `flowchart TD` — mỗi node là một màn hình.
+  Đó là cách trình bày để review; ID (`FR-01`, `F-VIDEO-01`, `UC-01`, …) là
+  cách app theo dõi từng mục.
 - Mục dạng danh sách:
 
   ```markdown
@@ -356,7 +350,7 @@ format lại cả file.
   - **FR-02** — User có thể nạp subtitle #1.
   ```
 
-- Mục nhiều trường (use case, phase, entity, ADR, stack) dùng `###` + bullet có nhãn:
+- Mục nhiều trường (use case, phase, ADR, stack) dùng `###` + bullet có nhãn:
 
   ```markdown
   ### UC-01 — Open video
@@ -428,8 +422,12 @@ Panel **Kiểm tra** tính lại mỗi lần tài liệu đổi:
 
 ## 6. Bàn giao sang Epic
 
-Ở bước 11 và 12 có khối **Bàn giao sang Epic**: **mỗi phase của Implementation
-Plan thành một Epic riêng**, không đưa cả project cho agent làm một lần.
+Ở bước 11 (sau bản kế hoạch) và bước 12 (trước skeleton) có khối **Bàn giao
+sang Epic**. **Mỗi phase còn việc** của Implementation Plan thành một Epic
+riêng. Phase (hoặc feature) **đã có mã nguồn** được đánh dấu *Đã có trong
+code* — không hiện nút Tạo Epic implement lại. Sau khi quét một project có sẵn,
+FEATURES.md mô tả những gì code đang làm; bàn giao chỉ còn các phase chưa có
+trên disk.
 
 Khi tạo Epic, app ghi `INTENT.md` vào `artifacts/` của Epic đó, gồm: goal,
 deliverables, definition of done, các phase phụ thuộc, mọi mục mà phase có nhắc
@@ -437,8 +435,9 @@ tới (đã tra ra nội dung), cộng product context, architecture, tech stack
 thư mục. **Đây là ảnh chụp** — sửa blueprint sau đó không làm đổi file này, vì
 Canvas gate `requirement` của Epic đọc chính nó.
 
-Recipe do bạn chọn (app chỉ gợi ý): `cofofo-bootstrap` cho phase dựng nền,
-`cofofo-feature` cho phase thêm hành vi. Một phase chỉ bàn giao được một lần.
+Recipe chỉ hai lựa chọn delivery: `cofofo-feature` (hành vi mới) hoặc
+`cofofo-bugfix` (sửa hành vi sai). Các recipe foundation (`bootstrap`,
+`refresh-context`, `update-rules`, `repin-bundle`) không thuộc bàn giao phase.
 
 ## 7. Quy tắc an toàn
 
@@ -455,10 +454,10 @@ Recipe do bạn chọn (app chỉ gợi ý): `cofofo-bootstrap` cho phase dựng
 ## 8. Checklist nhanh
 
 - [ ] Nhập một câu mô tả sản phẩm để tạo blueprint.
-- [ ] Với mỗi bước: chạy agent hoặc tự điền, xem diff, giữ hoặc hoàn tác.
+- [ ] Với mỗi bước: chạy agent (bước trống) hoặc trao đổi với agent (bước đã có nội dung), xem diff, giữ hoặc hoàn tác.
 - [ ] Ghim những mục bạn không muốn agent đụng tới.
-- [ ] Xem panel Kiểm tra trước khi sang bước tiếp; sửa những cảnh báo còn ý nghĩa.
-- [ ] Sang bước tiếp chỉ khi phần "Còn thiếu" đã sạch.
+- [ ] Xem panel Kiểm tra; sửa những cảnh báo còn ý nghĩa.
+- [ ] Chọn bước trên rail 12 bước — không có nút sang bước tiếp.
 - [ ] Ở bước 9, sinh `development/*.md` cho coding agent.
 - [ ] Ở bước 11, chia phase theo đúng thứ tự phụ thuộc.
 - [ ] Bàn giao từng phase thành Epic, theo dõi tiếp ở tab Công việc.

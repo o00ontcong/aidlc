@@ -186,7 +186,7 @@ export function captureEvidence(args: {
 }): CofofoEvidenceRecord {
   const root = fs.realpathSync(path.resolve(args.workspaceRoot));
   const selection = selectCatalog(args.profile);
-  if (!selection) throw new CofofoEvidenceError('No audited command allow-list exists for this stack.');
+  if (!selection) throw new CofofoEvidenceError('Command allow-list requires a single detected stack.');
   const records = readEvidenceLedger(root, args.runId);
   if (args.stageRevisions[args.stage] !== args.stepRevision) {
     throw new CofofoEvidenceError(`Evidence revision for stage "${args.stage}" does not match its live run step.`);
