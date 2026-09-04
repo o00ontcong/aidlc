@@ -15,11 +15,6 @@ export function docsForStep(discover: DiscoverSummary, stepId: string): Discover
   return discover.docs.filter((d) => d.step === stepId);
 }
 
-/** True when the step already has content — the only step state the UI acts on. */
-export function stepHasContent(discover: DiscoverSummary, stepId: string): boolean {
-  return discover.steps.find((s) => s.id === stepId)?.hasContent === true;
-}
-
 export function issuesFor(discover: DiscoverSummary, file: string, id?: string) {
   return discover.issues.filter((i) => i.file === file && (id === undefined || i.id === id));
 }

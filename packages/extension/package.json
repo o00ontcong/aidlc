@@ -239,44 +239,14 @@
         "category": "AIDLC"
       },
       {
-        "command": "aidlc.prepareCofofoFoundation",
-        "title": "CoFoFo: Prepare Foundation",
-        "icon": "$(layers-active)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.installCofofoFoundation",
-        "title": "CoFoFo: Install Reviewed ECC Assets",
-        "icon": "$(package)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.publishCofofoContext",
-        "title": "CoFoFo: Publish Provider Context",
-        "icon": "$(broadcast)",
-        "category": "AIDLC"
-      },
-      {
-        "command": "aidlc.activateCofofoFoundation",
-        "title": "CoFoFo: Activate Reviewed Foundation",
-        "icon": "$(pass-filled)",
-        "category": "AIDLC"
-      },
-      {
         "command": "aidlc.showCofofoStatus",
-        "title": "CoFoFo: Show Foundation Status",
+        "title": "CoFoFo: Show Legacy Foundation Status (compat)",
         "icon": "$(info)",
         "category": "AIDLC"
       },
       {
-        "command": "aidlc.renderCofofoRules",
-        "title": "CoFoFo: Render Project Rules and Drift",
-        "icon": "$(symbol-ruler)",
-        "category": "AIDLC"
-      },
-      {
         "command": "aidlc.rebaseCofofoRun",
-        "title": "CoFoFo: Rebase Delivery Run to Active Foundation",
+        "title": "CoFoFo: Rebase Delivery Run to Latest Context",
         "icon": "$(git-pull-request-go-to-changes)",
         "category": "AIDLC"
       },

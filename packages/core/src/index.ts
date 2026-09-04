@@ -232,8 +232,10 @@ export {
   applyArtifactReviewVerdict,
   auditCanvasApprovals,
   cofofoFoundationIssues,
+  discoverContextIssues,
   lostCofofoGateSnapshotIssues,
   rebaseRunToCurrentFoundation,
+  rebaseRunToCurrentDiscoverContext,
   PipelineRunError,
 } from './runs/PipelineRunner';
 export type { CanvasVerdict, CanvasApprovalIssue } from './runs/PipelineRunner';

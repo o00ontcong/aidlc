@@ -3,11 +3,9 @@
  * built-in workflows' agents + skills into `~/.claude/agents/` and
  * `~/.claude/skills/`.
  *
- * Activation only installs the default workflow (SDLC pipeline) to avoid
- * polluting the user's global Claude folder with all 8 stack-specialized
- * variants. This command lets users opt in to additional workflows on
- * demand, or top up after deleting a file by accident (the installer is
- * idempotent — re-installing an intact workflow is a no-op).
+ * These are optional legacy/static presets. CoFoFo is the extension default
+ * and keeps its generated assets project-local, so it never participates in
+ * this global installer. Static workflows remain opt-in and idempotent.
  */
 
 import * as vscode from 'vscode';

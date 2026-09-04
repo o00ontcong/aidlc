@@ -189,7 +189,6 @@ import {
   DISCOVER_PIPELINE_COMMAND_NAME,
   DISCOVER_DEV_DOCS_COMMAND_NAME,
   DISCOVER_SCAN_COMMAND_NAME,
-  DISCOVER_CHAT_COMMAND_NAME,
   DISCOVER_COMMIT_COMMAND_NAME,
   DISCOVER_STEPS,
   probeRepoLayout,
@@ -206,9 +205,12 @@ import {
   installAnnotationTools,
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
-  isCofofoSourcePipelineId,
+  isCofofoPipelineId,
   isRogueCofofoPipelineId,
+  generatedCofofoWorkspace,
+  CofofoFoundationService,
 } from '@aidlc/core';
+import { DEFAULT_PIPELINE_ID, orderDefaultPipelines } from '../defaultWorkflow';
 import {
   absorbDocChanges,
   buildDiscoverUi,
@@ -245,7 +247,7 @@ import {
   readProjectWorkspace,
   type ProjectWorkspaceSummary,
 } from './projectWorkspace';
-import { uninstallWorkflowGlobalsByIds, installWorkflowGlobalsByIds } from './globalDefaultsInstaller';
+import { uninstallWorkflowGlobalsByIds } from './globalDefaultsInstaller';
 import { PresetStore } from './presetStore';
 import {
   reconcileValidatorConflictsCommand,
@@ -478,11 +480,13 @@ interface PipelineStepSummary {
   skills?: string[];
   enabled: boolean;
   produces: string[];
+  produces_contains?: string[];
   requires: string[];
   depends_on?: string[];
   human_review: boolean;
   auto_review: boolean;
   auto_review_runner?: string;
+  auto_review_timeout_ms?: number;
 }
 
 interface PipelineSummary {
@@ -491,7 +495,7 @@ interface PipelineSummary {
   on_failure: 'stop' | 'continue';
   builtin?: boolean;
   name?: string;
-  /** CoFoFo source template — not startable; use a recipe instead. */
+  /** Legacy source template marker. Current CoFoFo pipelines are startable. */
   templateOnly?: boolean;
 }
 
@@ -675,6 +679,8 @@ interface WorkspaceState {
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
+  /** New Task choices, including CoFoFo defaults not materialized yet. */
+  startPipelines?: PipelineSummary[];
   recipes: RecipeSummary[];
   epics: EpicSummaryUi[];
   agentMeta: Record<string, AgentMeta>;
@@ -687,7 +693,7 @@ interface WorkspaceState {
   runIds: string[];
   /** Built-in skill templates surfaced for the inline AddSkill modal. */
   skillTemplates: SkillTemplateRef[];
-  /** Built-in AIDLC SDLC pipeline — prefilled by the Add-pipeline modal. */
+  /** Default CoFoFo Feature pipeline — prefilled by the Add-pipeline modal. */
   defaultPipeline?: PipelineSummary;
   /** Suggested next sequential id for the inline Start-Epic modal. */
   nextEpicId: string;
@@ -756,6 +762,68 @@ function buildRecipeSummary(
   };
 }
 
+function pipelineDisplayName(id: string): string | undefined {
+  if (id === 'cofofo-foundation') { return 'CoFoFo Foundation'; }
+  if (id === 'cofofo-feature') { return 'CoFoFo Feature'; }
+  if (id === 'cofofo-bugfix') { return 'CoFoFo Bugfix'; }
+  return undefined;
+}
+
+function toPipelineSummary(pipeline: PipelineConfig, builtin = false): PipelineSummary {
+  const id = String(pipeline.id);
+  return {
+    id,
+    on_failure: pipeline.on_failure === 'continue' ? 'continue' : 'stop',
+    builtin: builtin || isCofofoPipelineId(id)
+      || BUILTIN_WORKFLOWS.some((workflow) => workflow.pipelineId === id),
+    name: pipelineDisplayName(id),
+    steps: Array.isArray(pipeline.steps)
+      ? (pipeline.steps as PipelineStepConfig[]).map((raw) => {
+          const norm = normalizeStep(raw);
+          return {
+            agent: norm.agent,
+            name: norm.name,
+            model: norm.model,
+            skills: norm.skills,
+            enabled: norm.enabled,
+            produces: norm.produces,
+            produces_contains: norm.produces_contains,
+            requires: norm.requires,
+            depends_on: norm.depends_on,
+            human_review: norm.human_review,
+            auto_review: norm.auto_review,
+            auto_review_runner: norm.auto_review_runner,
+            auto_review_timeout_ms: norm.auto_review_timeout_ms,
+          };
+        })
+      : [],
+  };
+}
+
+function defaultCofofoWorkspace(workspaceName: string) {
+  return generatedCofofoWorkspace({ name: workspaceName || 'CoFoFo Workspace' });
+}
+
+function defaultCofofoPipelines(workspaceName: string): PipelineSummary[] {
+  return orderDefaultPipelines(
+    defaultCofofoWorkspace(workspaceName).pipelines
+      .filter((pipeline) => isCofofoPipelineId(pipeline.id))
+      .map((pipeline) => toPipelineSummary(pipeline, true)),
+  );
+}
+
+function mergeStartPipelines(
+  cofofoDefaults: PipelineSummary[],
+  configured: PipelineSummary[],
+): PipelineSummary[] {
+  const configuredById = new Map(configured.map((pipeline) => [pipeline.id, pipeline]));
+  const merged = [
+    ...cofofoDefaults.map((pipeline) => configuredById.get(pipeline.id) ?? pipeline),
+    ...configured.filter((pipeline) => !isCofofoPipelineId(pipeline.id)),
+  ];
+  return orderDefaultPipelines(merged);
+}
+
 function buildState(initialView: WorkspaceView): WorkspaceState {
   const folder = vscode.workspace.workspaceFolders?.[0];
   const providerConfig = buildProviderConfigUi(folder?.uri.fsPath);
@@ -793,11 +861,25 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
   const discover = buildDiscoverUi(root);
   const discovered = discoverAssets(root);
   const architecture = readArchitectureStudio(root);
+  const cofofoWorkspace = defaultCofofoWorkspace(folder.name);
+  const cofofoPipelines = defaultCofofoPipelines(folder.name);
 
-  // agent display metadata + slash commands — only AIDLC agents have these
-  // since they're declared in workspace.yaml.
+  // New Task can use CoFoFo before it has been written to workspace.yaml, so
+  // seed its display metadata virtually. Configured entries then override it.
   const agentMeta: Record<string, AgentMeta> = {};
   const slashCommandsByAgent: Record<string, string> = {};
+  for (const a of cofofoWorkspace.agents) {
+    const id = String(a.id);
+    const capabilities = Array.isArray(a.capabilities) ? a.capabilities.map(String).filter(Boolean) : [];
+    agentMeta[id] = {
+      name: typeof a.name === 'string' ? a.name : id,
+      description: typeof a.description === 'string' ? a.description : '',
+      inputs: typeof a.inputs === 'string' ? a.inputs : '',
+      outputs: typeof a.outputs === 'string' ? a.outputs : '',
+      artifact: typeof a.artifact === 'string' ? a.artifact : '',
+      capabilities: capabilities.length > 0 ? capabilities : undefined,
+    };
+  }
   if (doc) {
     for (const a of doc.agents) {
       const id = String(a.id);
@@ -819,6 +901,16 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       }
     }
   }
+  const commandSources = [
+    ...(doc?.slash_commands ?? []),
+    ...cofofoWorkspace.slash_commands,
+  ];
+  for (const c of commandSources) {
+    const agent = (c as { agent?: unknown }).agent;
+    if (typeof c.name === 'string' && typeof agent === 'string' && !slashCommandsByAgent[agent]) {
+      slashCommandsByAgent[agent] = c.name;
+    }
+  }
 
   const epics = listEpics(root, doc).map((e) => toEpicSummaryUi(e, root));
 
@@ -832,9 +924,8 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     const agents = mergeAgents(null, root, discovered.agents);
     const skills = mergeSkills(null, root, discovered.skills);
     const epicIds0 = listEpicIdsFromDir(root, 'docs/epics');
-    // No workspace yet: still offer the built-in common pipeline + Auto recipes
-    // in Start Epic. Picking either materializes the workspace at Start time
-    // (ensureBuiltinInWorkspace), so the user skips a separate "init" step.
+    // No workspace yet: CoFoFo leads New Task, followed by optional static
+    // presets. The selected workflow is materialized only when starting.
     const builtinPipelines: PipelineSummary[] = getAllBuiltinPipelineSummaries().map((p) => ({
       id: p.id,
       name: p.name,
@@ -846,6 +937,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
         human_review: s.human_review, auto_review: s.auto_review,
       })),
     }));
+    const startPipelines = mergeStartPipelines(cofofoPipelines, builtinPipelines);
     return {
       hasFolder: true,
       workspaceName: folder.name,
@@ -853,16 +945,18 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       projectWorkspace,
       discover,
       agents, skills,
-      pipelines: builtinPipelines,
+      pipelines: startPipelines,
+      startPipelines,
       recipes: getBuiltinRecipeSummaries(),
       epics,
       agentMeta, slashCommandsByAgent,
       agentsCount: agents.length,
       skillsCount: skills.length,
-      pipelinesCount: builtinPipelines.length,
+      pipelinesCount: startPipelines.length,
       epicsCount: epics.length,
       runIds: listRunIds(root),
       skillTemplates: SKILL_TEMPLATE_REFS,
+      defaultPipeline: cofofoPipelines.find((pipeline) => pipeline.id === DEFAULT_PIPELINE_ID),
       nextEpicId: suggestNextEpicId(epicIds0),
       existingEpicIds: epicIds0,
       requirementRuns: scanRequirementRuns(root),
@@ -886,38 +980,8 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     .filter((p) => !p.materialized_from_recipe)
     // Only three CoFoFo pipelines are legal; prune legacy delivery/recipe ids.
     .filter((p) => !isRogueCofofoPipelineId(String(p.id)))
-    .map((p) => ({
-    id: String(p.id),
-    on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
-    builtin: isCofofoSourcePipelineId(String(p.id))
-      || BUILTIN_WORKFLOWS.some((w) => w.pipelineId === String(p.id)),
-    name: String(p.id) === 'cofofo-foundation'
-      ? 'CoFoFo Foundation'
-      : String(p.id) === 'cofofo-feature'
-        ? 'CoFoFo Feature'
-        : String(p.id) === 'cofofo-bugfix'
-          ? 'CoFoFo Bugfix'
-          : undefined,
-    steps: Array.isArray(p.steps)
-      ? (p.steps as PipelineStepConfig[]).map((raw) => {
-          const norm = normalizeStep(raw);
-          return {
-            agent: norm.agent,
-            name: norm.name,
-            skills: norm.skills,
-            enabled: norm.enabled,
-            produces: norm.produces,
-            produces_contains: norm.produces_contains,
-            requires: norm.requires,
-            depends_on: norm.depends_on,
-            human_review: norm.human_review,
-            auto_review: norm.auto_review,
-            auto_review_runner: norm.auto_review_runner,
-            auto_review_timeout_ms: norm.auto_review_timeout_ms,
-          };
-        })
-      : [],
-    }));
+    .map((pipeline) => toPipelineSummary(pipeline as PipelineConfig));
+  const startPipelines = mergeStartPipelines(cofofoPipelines, pipelines);
 
   // Recipes → summaries, resolving each to its source pipeline's agents so
   // the modal can show step count + capability prompts without re-deriving.
@@ -935,7 +999,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     configExists: true,
     projectWorkspace,
     discover,
-    agents, skills, pipelines, recipes, epics,
+    agents, skills, pipelines, startPipelines, recipes, epics,
     agentMeta, slashCommandsByAgent,
     agentsCount: agents.length,
     skillsCount: skills.length,
@@ -943,9 +1007,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     epicsCount: epics.length,
     runIds: listRunIds(root),
     skillTemplates: SKILL_TEMPLATE_REFS,
-    defaultPipeline: BUILTIN_WORKFLOWS[0]
-      ? getBuiltinPipelineSummary(BUILTIN_WORKFLOWS[0])
-      : undefined,
+    defaultPipeline: cofofoPipelines.find((pipeline) => pipeline.id === DEFAULT_PIPELINE_ID),
     nextEpicId: suggestNextEpicId(epicIds),
     existingEpicIds: epicIds,
     requirementRuns: scanRequirementRuns(root),
@@ -2355,7 +2417,6 @@ export class WorkspaceWebview {
         return;
       }
 
-      case 'chatDiscoverStep':
       case 'runDiscoverStep':
       case 'runDiscoverPipeline': {
         const root = this.getRootOrWarn();
@@ -2368,20 +2429,16 @@ export class WorkspaceWebview {
         const requested = typeof msg.step === 'string' ? msg.step as DiscoverStepId : undefined;
         const step = requested && DISCOVER_STEPS.some((s) => s.id === requested) ? requested : service.require().currentStep;
         const note = typeof msg.note === 'string' ? msg.note.trim() : '';
-        if (msg.type !== 'chatDiscoverStep') {
-          try {
-            // Snapshot BEFORE the agent starts — the diff and every undo hang off it.
-            service.startRun(step, { note: note || undefined });
-          } catch (error) {
-            void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
-            return;
-          }
+        try {
+          // Snapshot BEFORE the agent starts — the diff and every undo hang off it.
+          service.startRun(step, { note: note || undefined });
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
+          return;
         }
         const slash = msg.type === 'runDiscoverPipeline'
           ? `/${DISCOVER_PIPELINE_COMMAND_NAME}${note ? ` ${note}` : ''}`
-          : msg.type === 'chatDiscoverStep'
-            ? `/${DISCOVER_CHAT_COMMAND_NAME} ${step}${note ? ` ${note}` : ''}`
-            : `/${DISCOVER_COMMAND_NAME} ${step}${note ? ` ${note}` : ''}`;
+          : `/${DISCOVER_COMMAND_NAME} ${step}${note ? ` ${note}` : ''}`;
         runSlashCommandInProvider(slash, root, this.extensionUri.fsPath);
         this.refresh();
         return;
@@ -2893,11 +2950,15 @@ export class WorkspaceWebview {
         return;
       }
       case 'applyPreset':  await vscode.commands.executeCommand('aidlc.applyPreset');   return;
-      case 'initSdlcPreset':
-        await vscode.commands.executeCommand('aidlc.applyPreset', 'aidlc-workflow', true);
+      case 'ensureCofofoDefault': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        this.ensureDefaultCofofoWorkflow(root);
+        this.refresh();
         return;
-      // GH-67: open a project folder first, then apply the SDLC preset.
-      case 'openProjectAndApplyPreset': {
+      }
+      // GH-67: open a project folder first, then ensure project-local CoFoFo.
+      case 'openProjectAndEnsureCofofo': {
         const folderPath = String(msg.folderPath ?? '').trim();
         if (!folderPath) { return; }
         const uri = vscode.Uri.file(folderPath);
@@ -2905,9 +2966,9 @@ export class WorkspaceWebview {
         if (!existing.some((f) => f.uri.fsPath === uri.fsPath)) {
           vscode.workspace.updateWorkspaceFolders(existing.length, 0, { uri });
         }
-        // Wait for workspace activation then apply the preset + refresh.
-        setTimeout(async () => {
-          await vscode.commands.executeCommand('aidlc.applyPreset', 'aidlc-workflow', true);
+        // Wait for workspace activation then materialize CoFoFo + refresh.
+        setTimeout(() => {
+          this.ensureDefaultCofofoWorkflow(folderPath);
           this.refresh();
         }, 300);
         return;
@@ -3374,6 +3435,11 @@ export class WorkspaceWebview {
         const pipelineId = String(msg.pipelineId ?? '');
         const runId = String(msg.runId ?? '');
         if (!pipelineId || !runId) { return; }
+        if (isCofofoPipelineId(pipelineId)) {
+          const root = this.getRootOrWarn();
+          if (!root) { return; }
+          this.ensureDefaultCofofoWorkflow(root);
+        }
         await startPipelineRunInlineCommand(pipelineId, runId);
         return;
       }
@@ -3384,15 +3450,10 @@ export class WorkspaceWebview {
         return;
       }
       case 'loadDefaultPipelineAssets': {
-        // "Load AIDLC default" in the Add-pipeline modal prefills steps that
-        // reference the built-in agents/skills — make sure those exist so they
-        // don't show up as "(missing)". Installs the SDLC workflow's global
-        // agent + skill files (~/.claude); a refresh re-surfaces them.
-        const builtin = BUILTIN_WORKFLOWS[0];
-        if (builtin) {
-          installWorkflowGlobalsByIds(this.extensionUri.fsPath, [builtin.id]);
-          this.refresh();
-        }
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        this.ensureDefaultCofofoWorkflow(root);
+        this.refresh();
         return;
       }
       case 'editPipelineInline': {
@@ -4264,6 +4325,12 @@ export class WorkspaceWebview {
     void vscode.window.showInformationMessage(`Agent "${id}" updated.`);
   }
 
+  /** Materialize the generated CoFoFo workflow and provider assets locally. */
+  private ensureDefaultCofofoWorkflow(root: string): void {
+    const catalogRoot = path.join(this.extensionUri.fsPath, 'templates', 'cofofo', 'catalog');
+    new CofofoFoundationService(root, catalogRoot).ensureWorkflowRegistered();
+  }
+
   /**
    * Ensure a built-in workflow preset is installed in this workspace. If
    * workspace.yaml doesn't exist, applies the full preset. If it exists but
@@ -4764,6 +4831,9 @@ export class WorkspaceWebview {
           ].join('\n'));
         });
         return;
+      }
+      if (isCofofoPipelineId(targetId)) {
+        this.ensureDefaultCofofoWorkflow(root);
       }
       const builtinWorkflow = getBuiltinWorkflowByPipelineId(targetId);
       if (builtinWorkflow) { this.ensureBuiltinInWorkspace(root, builtinWorkflow); }

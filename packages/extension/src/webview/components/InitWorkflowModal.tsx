@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Sparkles, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
+import { DEFAULT_WORKFLOW_ID } from '../../defaultWorkflow';
 
 interface Option {
   workflowId: string | null;
@@ -14,15 +15,15 @@ interface Option {
 
 const OPTIONS: Option[] = [
   {
-    workflowId: 'aidlc-workflow',
-    title: 'AIDLC Workflow',
+    workflowId: DEFAULT_WORKFLOW_ID,
+    title: 'CoFoFo Workflow',
     badge: 'Recommended',
     description:
-      'Engineering + QA tracks run concurrently and meet at execute-test. PO / Tech Lead / Developer / QA.',
+      'Evidence-first workflow with shared project context, explicit review gates, and project-local assets.',
     bullets: [
-      'plan → (design → implement+unit-test) ∥ (test-plan → generate-test-cases) → execute-test+report',
-      '6 steps, DAG shape (multiple in flight at once)',
-      'Ends at execute-test — no release / monitor / doc-sync',
+      'Three startable pipelines: Foundation, Feature, and Bugfix',
+      'Canvas review + RED / GREEN / VERIFY evidence gates',
+      'Ready automatically inside the project — no separate installation',
     ],
     icon: <Sparkles className="h-4 w-4" />,
   },
@@ -56,7 +57,7 @@ export function InitWorkflowModal({
 
   return (
     <Modal
-      title="Initialize AIDLC workspace"
+      title="Initialize CoFoFo workspace"
       subtitle="Pick a starting workflow. You can edit, add, or delete steps afterwards."
       onClose={onClose}
       onSubmit={submit}

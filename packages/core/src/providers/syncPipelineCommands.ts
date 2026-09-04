@@ -23,13 +23,11 @@ import {
   PROVIDER_MANAGED_TASK_COMMAND,
 } from './ProviderManagedTaskCommand';
 import {
-  discoverChatCommandBody,
   discoverCommandBody,
   discoverCommitCommandBody,
   discoverDevDocsCommandBody,
   discoverPipelineCommandBody,
   discoverScanCommandBody,
-  DISCOVER_CHAT_COMMAND_NAME,
   DISCOVER_COMMAND_NAME,
   DISCOVER_COMMIT_COMMAND_NAME,
   DISCOVER_DEV_DOCS_COMMAND_NAME,
@@ -274,11 +272,6 @@ export function syncDiscoverCommandsForProvider(
       name: DISCOVER_SCAN_COMMAND_NAME,
       description: `Reconcile one pass of Discover docs against source. Usage: /${DISCOVER_SCAN_COMMAND_NAME} pass=<1|2|3> layout=<single|parent|child> repos=<path:kind,...> brief=.aidlc/discover/scan-brief.md`,
       body: discoverScanCommandBody(),
-    },
-    {
-      name: DISCOVER_CHAT_COMMAND_NAME,
-      description: `Open a conversation about one Discover step with its docs as context. Usage: /${DISCOVER_CHAT_COMMAND_NAME} <step> [note]`,
-      body: discoverChatCommandBody(),
     },
     {
       name: DISCOVER_COMMIT_COMMAND_NAME,

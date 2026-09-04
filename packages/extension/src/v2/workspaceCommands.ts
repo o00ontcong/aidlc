@@ -23,7 +23,9 @@ import {
   installWorkflowGlobalsByIds,
   writeBuiltinAutoReviewValidators,
   builtinTemplatesRoot,
+  CofofoFoundationService,
 } from '@aidlc/core';
+import { DEFAULT_WORKFLOW_ID } from '../defaultWorkflow';
 
 import {
   addSkillCommand,
@@ -57,16 +59,11 @@ import { loadDemoProjectCommand } from './demoProject';
 import { loadIosDemoProjectCommand } from './demoIosProject';
 import { loadCofofoWeatherDemoProjectCommand } from './demoCofofoWeatherProject';
 import {
-  activateCofofoFoundationCommand,
   captureCofofoEvidenceCommand,
   cofofoDoctorCommand,
-  installCofofoFoundationCommand,
-  installCofofoWorkflowCommand,
-  prepareCofofoFoundationCommand,
-  publishCofofoContextCommand,
+  ensureCofofoWorkflowCommand,
   rebaseCofofoRunCommand,
   reportCofofoBugCommand,
-  renderCofofoRulesCommand,
   showCofofoStatusCommand,
 } from './cofofoCommands';
 import { reconcileValidatorConflictsCommand } from './providerManagedRunCommands';
@@ -412,33 +409,15 @@ export function registerV2WorkspaceCommands(
         mode === 'reseed' || mode === 'open-as-is' ? mode : undefined,
       ),
   );
-  const installCofofoWorkflowCmd = vscode.commands.registerCommand(
+  // Kept as a compatibility command id. CoFoFo is now a project-local
+  // default, and this command performs the same idempotent ensure path.
+  const ensureCofofoWorkflowCmd = vscode.commands.registerCommand(
     'aidlc.installCofofoWorkflow',
-    () => installCofofoWorkflowCommand(context.extensionPath),
-  );
-  const prepareCofofoFoundationCmd = vscode.commands.registerCommand(
-    'aidlc.prepareCofofoFoundation',
-    () => prepareCofofoFoundationCommand(context.extensionPath),
-  );
-  const installCofofoFoundationCmd = vscode.commands.registerCommand(
-    'aidlc.installCofofoFoundation',
-    () => installCofofoFoundationCommand(context.extensionPath),
-  );
-  const publishCofofoContextCmd = vscode.commands.registerCommand(
-    'aidlc.publishCofofoContext',
-    () => publishCofofoContextCommand(context.extensionPath),
-  );
-  const activateCofofoFoundationCmd = vscode.commands.registerCommand(
-    'aidlc.activateCofofoFoundation',
-    () => activateCofofoFoundationCommand(context.extensionPath),
+    () => ensureCofofoWorkflowCommand(context.extensionPath),
   );
   const showCofofoStatusCmd = vscode.commands.registerCommand(
     'aidlc.showCofofoStatus',
     () => showCofofoStatusCommand(context.extensionPath),
-  );
-  const renderCofofoRulesCmd = vscode.commands.registerCommand(
-    'aidlc.renderCofofoRules',
-    () => renderCofofoRulesCommand(context.extensionPath),
   );
   const rebaseCofofoRunCmd = vscode.commands.registerCommand(
     'aidlc.rebaseCofofoRun',
@@ -644,13 +623,8 @@ export function registerV2WorkspaceCommands(
       loadDemoProjectCmd,
       loadIosDemoProjectCmd,
       loadCofofoWeatherDemoProjectCmd,
-      installCofofoWorkflowCmd,
-      prepareCofofoFoundationCmd,
-      installCofofoFoundationCmd,
-      publishCofofoContextCmd,
-      activateCofofoFoundationCmd,
+      ensureCofofoWorkflowCmd,
       showCofofoStatusCmd,
-      renderCofofoRulesCmd,
       rebaseCofofoRunCmd,
       captureCofofoEvidenceCmd,
       reportCofofoBugCmd,
@@ -851,11 +825,16 @@ async function initWorkspace(
     chosenEmpty = true;
   } else {
     const picks: PipelinePick[] = [
+      {
+        label: '$(star-full) CoFoFo Workflow',
+        description: 'Recommended',
+        detail: 'Project-local Foundation, Feature, and Bugfix pipelines with evidence and Canvas gates.',
+        workflowId: DEFAULT_WORKFLOW_ID,
+      },
       ...BUILTIN_WORKFLOWS.map((w) => {
-        const recommended = w.id === 'aidlc-workflow';
         return {
-          label: recommended ? `$(star-full) ${w.name}` : w.name,
-          description: recommended ? 'Recommended' : '',
+          label: w.name,
+          description: 'Optional preset',
           detail: w.description,
           workflowId: w.id,
         } satisfies PipelinePick;
@@ -875,6 +854,24 @@ async function initWorkspace(
     if (!picked) { return; }
     chosenWorkflowId = picked.workflowId;
     chosenEmpty = !picked.workflowId;
+  }
+
+  if (chosenWorkflowId === DEFAULT_WORKFLOW_ID) {
+    try {
+      const catalogRoot = path.join(context.extensionPath, 'templates', 'cofofo', 'catalog');
+      new CofofoFoundationService(root, catalogRoot).ensureWorkflowRegistered();
+      output.appendLine(`[init] ensured project-local CoFoFo workflow in ${root}`);
+      void vscode.window.showInformationMessage(
+        'CoFoFo workspace is ready with Foundation, Feature, and Bugfix pipelines.',
+      );
+      void vscode.commands.executeCommand('aidlc.openBuilder');
+      openGettingStartedGuide(context);
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `AIDLC: failed to prepare CoFoFo — ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return;
   }
 
   if (chosenWorkflowId) {

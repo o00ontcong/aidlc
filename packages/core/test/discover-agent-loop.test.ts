@@ -10,7 +10,6 @@ import {
   discoverPipelineCommandBody,
   discoverDevDocsCommandBody,
   discoverScanCommandBody,
-  discoverChatCommandBody,
   discoverCommitCommandBody,
   syncPipelineCommandsForProvider,
   builtinTemplatesRoot,
@@ -108,15 +107,6 @@ describe('Discover agent command bodies', () => {
     expect(body).toContain('Never attempt two steps in one turn.');
   });
 
-  it('opens a conversation with the step as context and waits for the human', () => {
-    const body = discoverChatCommandBody();
-    expect(body).toContain('Do not write or rewrite any document on this first turn');
-    expect(body).toContain('wait');
-    for (const step of DISCOVER_STEPS) {
-      expect(body).toContain(`\`${step.id}\``);
-    }
-  });
-
   it('derives the development docs from the stack rather than inventing them', () => {
     const body = discoverDevDocsCommandBody();
     expect(body).toContain('development/CODING_RULES.md');
@@ -142,7 +132,6 @@ describe('Discover agent command bodies', () => {
     expect(fs.existsSync(path.join(dir, 'aidlc-discover.md'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'aidlc-discover-pipeline.md'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'aidlc-discover-dev-docs.md'))).toBe(true);
-    expect(fs.existsSync(path.join(dir, 'aidlc-discover-chat.md'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'aidlc-discover-commit.md'))).toBe(true);
   });
 });

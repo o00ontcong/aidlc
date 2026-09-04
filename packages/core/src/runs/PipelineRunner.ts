@@ -37,6 +37,7 @@ import type { ReviewBundle } from './ArtifactReview';
 import { checkBundleCurrent } from './ArtifactReview';
 import { snapshotPipeline } from './PipelineSnapshot';
 import { CofofoFoundationService } from '../cofofo/FoundationService';
+import { DiscoverContextPublisher, type DiscoverContextRef } from '../discover/DiscoverContextPublisher';
 import { persistCofofoBugReportArtifact } from '../cofofo/bugReport';
 import { requireAcceptedEvidence } from '../cofofo/EvidenceLedger';
 import { ProjectRulesSchema, StackProfileSchema } from '../cofofo/contracts';
@@ -66,6 +67,8 @@ export function startRun(args: {
   context: Record<string, string>;
   /** Required for pipelines that pin a CoFoFo foundation. */
   workspaceRoot?: string;
+  /** Optional explicit ref supplied by a Discover handoff. The pack on disk remains authoritative. */
+  discoverContext?: DiscoverContextRef;
 }): RunState {
   const { runId, pipeline, context } = args;
   if (pipeline.steps.length === 0) {
@@ -73,6 +76,7 @@ export function startRun(args: {
   }
   const now = new Date().toISOString();
   let cofofoFoundation;
+  let discoverContext: DiscoverContextRef | undefined;
   if (pipeline.foundation) {
     if (!args.workspaceRoot) {
       throw new PipelineRunError(`Pipeline "${pipeline.id}" requires a CoFoFo foundation; startRun needs workspaceRoot.`);
@@ -90,6 +94,31 @@ export function startRun(args: {
         `Pipeline foundation manifest "${pipeline.foundation.manifest}" does not match the active CoFoFo manifest "${cofofoFoundation.manifestPath}".`,
       );
     }
+  }
+  if (pipeline.discover_context) {
+    if (!args.workspaceRoot) {
+      throw new PipelineRunError(`Pipeline "${pipeline.id}" requires Discover Context; startRun needs workspaceRoot.`);
+    }
+    const packPath = context.context_pack;
+    const publisher = new DiscoverContextPublisher(args.workspaceRoot);
+    const inspection = publisher.inspect();
+    if (inspection.status !== 'ready' || !inspection.context) {
+      throw new PipelineRunError(`Pipeline "${pipeline.id}" requires a READY Discover Context. ${inspection.nextAction}`, inspection.issues.map((issue) => issue.message));
+    }
+    if (!packPath) {
+      throw new PipelineRunError(`Pipeline "${pipeline.id}" requires a task-specific Discover context pack. Create the task from Discover or import it into a published Discover phase.`);
+    }
+    const pack = publisher.loadContextPack(packPath);
+    if (!pack) {
+      throw new PipelineRunError(`Discover context pack "${packPath}" is missing or unsafe.`);
+    }
+    if (pack.contextRef.contextHash !== inspection.context.contextHash || pack.contextRef.discoverRevision !== inspection.context.discoverRevision) {
+      throw new PipelineRunError('Discover context pack is not based on the current published context. Publish or recreate the task slice.');
+    }
+    if (args.discoverContext && args.discoverContext.packHash !== pack.contextRef.packHash) {
+      throw new PipelineRunError('The supplied Discover context ref does not match the task context pack.');
+    }
+    discoverContext = pack.contextRef;
   }
 
   // DAG roots: every step without a `depends_on` opens up at start time.
@@ -120,6 +149,7 @@ export function startRun(args: {
     pipelineId: pipeline.id,
     pipelineSnapshot: snapshotPipeline(pipeline, now),
     cofofoFoundation,
+    discoverContext,
     context: { ...context },
     startedAt: now,
     updatedAt: now,
@@ -147,6 +177,32 @@ export function cofofoFoundationIssues(args: {
   if (inspection.snapshot.manifestHash !== pinned.manifestHash) issues.push('foundation manifest content changed');
   if (inspection.snapshot.manifestPath !== pinned.manifestPath) issues.push('foundation manifest path changed');
   return issues;
+}
+
+/**
+ * Report context drift without silently changing the task. Delivery runs pin
+ * `state.discoverContext`; callers surface this as Stale and offer an explicit
+ * rebase rather than blocking the pinned run against a moving latest pointer.
+ */
+export function discoverContextIssues(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  workspaceRoot: string;
+}): string[] {
+  if (!args.pipeline.discover_context) { return []; }
+  const pinned = args.state.discoverContext;
+  if (!pinned) { return ['run has no pinned Discover context ref']; }
+  const inspection = new DiscoverContextPublisher(args.workspaceRoot).inspect();
+  if (!inspection.context) {
+    return [`Discover Context is ${inspection.status}`];
+  }
+  if (inspection.context.discoverRevision !== pinned.discoverRevision) {
+    return [`Discover revision changed from ${pinned.discoverRevision} to ${inspection.context.discoverRevision}`];
+  }
+  if (inspection.context.contextHash !== pinned.contextHash) {
+    return ['Discover context manifest content changed'];
+  }
+  return [];
 }
 
 function foundationRecovery(issue: string): 'rebase' | 'prepare' {
@@ -1140,6 +1196,66 @@ export function rebaseRunToCurrentFoundation(args: {
     { at: now, from: previous, to: current, previouslyApprovedSteps },
   ];
   next.cofofoFoundation = current;
+  const usesDag = args.pipeline.steps.some((step) => normalizeStep(step).depends_on.length > 0);
+  for (let index = 0; index < next.steps.length; index += 1) {
+    const record = next.steps[index]!;
+    const root = usesDag ? normalizeStep(args.pipeline.steps[index]!).depends_on.length === 0 : index === 0;
+    next.steps[index] = {
+      ...record,
+      revision: record.revision + 1,
+      status: root ? 'awaiting_work' : 'pending',
+      startedAt: root ? now : undefined,
+      finishedAt: undefined,
+      artifactsProduced: [],
+      autoReviewVerdict: undefined,
+      canvasReview: undefined,
+      reviewDisposition: undefined,
+      reviewBundleRevision: undefined,
+      rejectReason: undefined,
+      lastFailureId: undefined,
+    };
+  }
+  next.currentStepIdx = Math.max(0, next.steps.findIndex((step) => step.status === 'awaiting_work'));
+  next.status = 'running';
+  return next;
+}
+
+/**
+ * Explicitly rebase a delivery run to the latest READY Discover revision.
+ * This is deliberately destructive to completed step approvals in the same
+ * way as the legacy Foundation rebase: their evidence was reviewed against a
+ * different task context. The old state remains in step history and the
+ * append-only `discoverContextRebases` audit trail.
+ */
+export function rebaseRunToCurrentDiscoverContext(args: {
+  state: RunState;
+  pipeline: PipelineConfig;
+  workspaceRoot: string;
+}): RunState {
+  if (!args.pipeline.discover_context) {
+    throw new PipelineRunError(`Pipeline "${args.pipeline.id}" has no Discover Context gate.`);
+  }
+  const previous = args.state.discoverContext;
+  if (!previous) {
+    throw new PipelineRunError('Run has no pinned Discover context ref. Start a new task from Discover.');
+  }
+  const publisher = new DiscoverContextPublisher(args.workspaceRoot);
+  const pack = publisher.createContextPack({
+    taskKind: args.pipeline.id === 'cofofo-bugfix' ? 'bugfix' : 'feature',
+    phaseId: previous.phaseId,
+    bugScopeId: previous.bugScopeId,
+  });
+  const current = pack.contextRef;
+  if (current.packHash === previous.packHash) { return clone(args.state); }
+  const now = new Date().toISOString();
+  const next = clone(args.state);
+  const previouslyApprovedSteps = next.steps.filter((step) => step.status === 'approved').map((step) => step.stepIdx);
+  next.discoverContextRebases = [
+    ...(next.discoverContextRebases ?? []),
+    { at: now, from: previous, to: current, previouslyApprovedSteps },
+  ];
+  next.discoverContext = current;
+  next.context.context_pack = publisher.contextPackPath(current.packHash);
   const usesDag = args.pipeline.steps.some((step) => normalizeStep(step).depends_on.length > 0);
   for (let index = 0; index < next.steps.length; index += 1) {
     const record = next.steps[index]!;

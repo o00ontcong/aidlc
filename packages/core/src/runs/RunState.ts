@@ -269,6 +269,8 @@ export interface RunState {
   pipelineSnapshot?: import('./PipelineSnapshot').PipelineSnapshot;
   /** CoFoFo context pinned when this delivery run started. */
   cofofoFoundation?: import('../cofofo/contracts').CofofoFoundationSnapshot;
+  /** Immutable Discover revision + compact task slice pinned at start. */
+  discoverContext?: import('../discover/DiscoverContextPublisher').DiscoverContextRef;
   /** Original epic for a CoFoFo bugfix run; verified at creation time. */
   relatesTo?: string;
   /** Audit trail for mandatory rebases after a Foundation revision changes. */
@@ -276,6 +278,13 @@ export interface RunState {
     at: string;
     from: import('../cofofo/contracts').CofofoFoundationSnapshot;
     to: import('../cofofo/contracts').CofofoFoundationSnapshot;
+    previouslyApprovedSteps: number[];
+  }>;
+  /** Audit trail for explicit task rebases onto a newer Discover revision. */
+  discoverContextRebases?: Array<{
+    at: string;
+    from: import('../discover/DiscoverContextPublisher').DiscoverContextRef;
+    to: import('../discover/DiscoverContextPublisher').DiscoverContextRef;
     previouslyApprovedSteps: number[];
   }>;
   /**

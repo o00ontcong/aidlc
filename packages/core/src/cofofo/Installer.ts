@@ -14,7 +14,7 @@ import {
 import { hashFile } from './hash';
 import { resolveInside, writeAtomic } from './paths';
 
-const MANIFEST_PATH = 'docs/project/foundation/INSTALLED-ASSETS.json';
+const MANIFEST_PATH = '.aidlc/discover/runtime/ecc-assets.json';
 const INSTALL_ROOT = '.aidlc/cofofo/vendor/ecc';
 const TRANSACTION_ROOT = '.aidlc/cofofo/transactions';
 const BACKUP_ROOT = '.aidlc/cofofo/backups';

@@ -292,6 +292,16 @@ const PipelineFoundationGateSchema = z.object({
   state: z.string().min(1).default('.aidlc/cofofo/foundation.json'),
 }).strict();
 
+/**
+ * Delivery context published by Discover. Unlike the legacy CoFoFo Foundation
+ * gate this is a revisioned, content-addressed Discover snapshot; a task pins
+ * one context pack when it starts and never follows latest implicitly.
+ */
+const PipelineDiscoverContextGateSchema = z.object({
+  manifest: z.string().min(1).default('.aidlc/discover/published-context.json'),
+  packDirectory: z.string().min(1).default('.aidlc/discover/context-packs'),
+}).strict();
+
 const PipelineSchema = z.object({
   id: z.string().min(1),
   steps: z.array(PipelineStepSchema).min(1),
@@ -305,6 +315,8 @@ const PipelineSchema = z.object({
   budget: PipelineBudgetSchema.optional(),
   /** Pin and continuously re-check a current CoFoFo foundation revision. */
   foundation: PipelineFoundationGateSchema.optional(),
+  /** Pin a published Discover Context and require a task-specific context pack. */
+  discover_context: PipelineDiscoverContextGateSchema.optional(),
 });
 
 // ── Recipes ────────────────────────────────────────────────────────

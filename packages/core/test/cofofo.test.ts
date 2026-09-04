@@ -1,43 +1,30 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   CofofoFoundationService,
-  RunStateStore,
   WorkspaceLoader,
-  applyArtifactReviewVerdict,
-  assemblePipeline,
-  buildReviewBundle,
-  canStartStep,
   createDefaultRules,
   detectStack,
   generatedCofofoWorkspace,
-  foundationPipelineForRoute,
-  hashFile,
   installCatalog,
-  markStepDone,
   normalizeStep,
   previewCatalogInstall,
-  rebaseRunToCurrentFoundation,
   resolveInside,
   rollbackCatalog,
   renderProjectRules,
   rulesSourceHash,
-  startRun,
   validateProjectRules,
   validateRulesMarkdown,
   validateMemoryHandoff,
   validateStackProfile,
-  ContextManifestV2Schema,
   COFOFO_BUNDLE_BINDING_PATH,
   diagnoseCofofoBinding,
   renderProviderContext,
   buildBundleBinding,
   selectCatalog,
-  type PipelineConfig,
-  type RunState,
 } from '../src';
 
 function temporary(): string {
@@ -48,22 +35,6 @@ function write(root: string, relative: string, content: string): void {
   const absolute = path.join(root, relative);
   fs.mkdirSync(path.dirname(absolute), { recursive: true });
   fs.writeFileSync(absolute, content, 'utf8');
-}
-
-/**
- * `prepare()` no longer pre-seeds these — a real `define-rules`/`map-system`
- * step run by an agent would produce them. Tests have no agent to call, so
- * they simulate that step's output directly before marking it done, exactly
- * like `write()` above stands in for any other agent-written artifact.
- */
-function simulateDefineRules(root: string, revision = 1): void {
-  const rules = createDefaultRules(detectStack(root), revision, new Date().toISOString());
-  write(root, 'docs/project/foundation/PROJECT-RULES.json', JSON.stringify(rules, null, 2));
-  write(root, 'docs/project/foundation/PROJECT-RULES.md', renderProjectRules(rules));
-  write(root, 'docs/project/foundation/RULE-DRIFT.md', '# Rule Drift\n\n## Findings\n\n- No current violations.\n');
-}
-function simulateMapSystem(root: string): void {
-  write(root, 'docs/project/foundation/ARCHITECTURE-MAP.md', '# Architecture Map\n\n## Layer Map\n\n- (test placeholder)\n');
 }
 
 function swiftFixture(): string {
@@ -97,9 +68,6 @@ describe('CoFoFo stack detection and policy', () => {
     expect(profile.stack).toBeUndefined();
     expect(profile.closed?.reason).toMatch(/does not guess a bundle/);
     expect(selectCatalog(profile)).toBeNull();
-    const prepared = new CofofoFoundationService(root).prepare();
-    expect(prepared.status).toBe('pending-review');
-    expect(prepared.issues.join('\n')).toMatch(/does not guess a bundle/);
   });
 
   it('ignores an AI provider tool directory bootstrapping its own package.json', () => {
@@ -125,60 +93,38 @@ describe('CoFoFo stack detection and policy', () => {
     expect(selection?.stackId).toBe('ios-swift');
     expect(selection?.commands.map((command) => command.id)).toEqual(['swift.xcode-build', 'swift.xcode-test']);
     expect(selection?.commands.every((command) => !command.args.includes('-destination') && !command.args.includes('-scheme'))).toBe(true);
-    const result = new CofofoFoundationService(root).prepare();
-    expect(result.status).toBe('pending-review');
-    expect(result.profile?.mode).toBe('cofofo');
   });
 
   it('binds PROJECT-RULES.md to canonical JSON and blocks a forbidden import', () => {
     const root = swiftFixture();
     const profile = detectStack(root);
     const workspace = generatedCofofoWorkspace({ version: '1.0', name: 'Demo' });
-    expect(workspace.pipelines.find((pipeline) => pipeline.id === 'cofofo-feature')?.foundation?.mode).toBe('cofofo');
-    // define-rules writes this for real during a run; simulate it here first
-    // so prepare()'s command-file hash embedding has something real to hash.
+    expect(workspace.pipelines.find((pipeline) => pipeline.id === 'cofofo-feature')?.discover_context).toBeDefined();
     const rules = createDefaultRules(profile, 1, '2026-08-28T00:00:00.000Z');
     const markdown = renderProjectRules(rules);
-    write(root, 'docs/project/foundation/PROJECT-RULES.json', JSON.stringify(rules, null, 2));
-    write(root, 'docs/project/foundation/PROJECT-RULES.md', markdown);
-    const service = new CofofoFoundationService(root);
-    service.prepare({ now: '2026-08-28T00:00:00.000Z' });
     expect(markdown).toContain(rulesSourceHash(rules));
     expect(validateRulesMarkdown(rules, markdown)).toEqual([]);
     expect(validateProjectRules({ workspaceRoot: root, rules, profile }).some((issue) => issue.ruleId === 'LAYER-1')).toBe(false);
-    expect(fs.readFileSync(path.join(root, '.codex/skills/aidlc-cofofo-feature-create-plan/SKILL.md'), 'utf8'))
-      .toContain(hashFile(path.join(root, 'docs/project/foundation/PROJECT-RULES.json')));
 
     write(root, 'src/Sources/Demo/Domain/City.swift', 'import SwiftUI\npublic struct City {}\n');
     expect(validateProjectRules({ workspaceRoot: root, rules, profile })).toContainEqual(expect.objectContaining({ ruleId: 'LAYER-1', severity: 'block' }));
   });
 
-  it('builds the exact phase slice for every Foundation route', () => {
+  it('generates exactly two public delivery pipelines with a Discover context gate', () => {
     const workspace = generatedCofofoWorkspace({ version: '1.0', name: 'Demo' });
-    const pipeline = workspace
-      .pipelines.find((item) => item.id === 'cofofo-foundation')!;
-    expect(foundationPipelineForRoute(pipeline, 'refresh-context').steps.map((step) => typeof step === 'string' ? step : step.name))
-      .toEqual(['scan-stack', 'map-system', 'publish-context']);
-    expect(foundationPipelineForRoute(pipeline, 'update-rules').steps.map((step) => typeof step === 'string' ? step : step.name))
-      .toEqual(['define-rules', 'publish-context']);
-    expect(foundationPipelineForRoute(pipeline, 'repin-bundle').steps.map((step) => typeof step === 'string' ? step : step.name))
-      .toEqual(['select-ecc-catalog', 'install-ecc-assets', 'publish-context']);
+    expect(workspace.pipelines.map((pipeline) => pipeline.id).sort()).toEqual(['cofofo-bugfix', 'cofofo-feature']);
     const feature = workspace.pipelines.find((item) => item.id === 'cofofo-feature')!;
     const bugfix = workspace.pipelines.find((item) => item.id === 'cofofo-bugfix')!;
-    const requirement = feature.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'requirement') as { human_review?: boolean; review?: { artifacts: string[] } };
-    const red = bugfix.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'reproduce') as { human_review?: boolean; review?: { artifacts: string[] } };
-    const diagnose = bugfix.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'diagnose') as { requires?: string[]; produces_contains?: string[] };
-    expect(requirement).toMatchObject({ human_review: true, review: { artifacts: [
-      'docs/epics/{epic}/artifacts/INTENT.md',
-      'docs/epics/{epic}/artifacts/EVIDENCE.md',
-      'docs/epics/{epic}/artifacts/OPTIONS.md',
-      'docs/epics/{epic}/artifacts/REQUIREMENT.md',
-    ] } });
-    expect(red).toMatchObject({ human_review: true, review: { artifacts: ['docs/epics/{epic}/artifacts/RED-EVIDENCE.md'] } });
-    expect(diagnose.requires).toContain('docs/epics/{epic}/artifacts/BUG-REPORT.md');
-    expect(diagnose.produces_contains).toContain('## Resume From');
-    expect(feature.steps.map((s) => normalizeStep(s).name)).toEqual(['requirement', 'create-plan', 'implement', 'test']);
+    expect(feature.discover_context?.manifest).toBe('.aidlc/discover/published-context.json');
+    expect(bugfix.discover_context?.manifest).toBe('.aidlc/discover/published-context.json');
+    expect(feature.steps.map((s) => normalizeStep(s).name)).toEqual(['analyze', 'create-plan', 'implement', 'test']);
     expect(bugfix.steps.map((s) => normalizeStep(s).name)).toEqual(['diagnose', 'reproduce', 'implement', 'test']);
+    const analyze = feature.steps.find((step) => normalizeStep(step).name === 'analyze') as { requires?: string[]; produces_contains?: string[] };
+    expect(analyze.requires).toContain('{context_pack}');
+    expect(analyze.produces_contains).toContain('## Scope');
+    const diagnose = bugfix.steps.find((step) => normalizeStep(step).name === 'diagnose') as { requires?: string[]; produces_contains?: string[] };
+    expect(diagnose.requires).toEqual(expect.arrayContaining(['{context_pack}', 'docs/epics/{epic}/artifacts/BUG-REPORT.md']));
+    expect(diagnose.produces_contains).toContain('## Resume From');
   });
 
   it('previews installs without writing, detects drift, and restores a rollback backup', () => {
@@ -215,9 +161,6 @@ describe('CoFoFo stack detection and policy', () => {
     expect(profile.repositoryKind).toBe('unsupported');
     expect(profile.closed?.reason).toMatch(/No supported stack manifest/);
     expect(selectCatalog(profile)).toBeNull();
-    const prepared = new CofofoFoundationService(root).prepare();
-    expect(prepared.status).toBe('pending-review');
-    expect(prepared.issues.join('\n')).toMatch(/No supported stack manifest/);
   });
 
   it('keeps memory bounded, unreviewed, and free of credentials', () => {
@@ -261,7 +204,6 @@ describe('CoFoFo catalog selection is stack-dynamic', () => {
       }
       const rules = createDefaultRules(profile, 1, '2026-08-28T00:00:00.000Z');
       expect(rules.rules.some((rule) => rule.kind === 'commandId' && rule.matcher.commandId === fixture.testCommand)).toBe(true);
-      expect(new CofofoFoundationService(root).prepare().status).toBe('pending-review');
     });
   }
 
@@ -277,212 +219,17 @@ describe('CoFoFo catalog selection is stack-dynamic', () => {
     expect(selection.commands.map((command) => command.id)).toContain('python.test');
     expect(selection.assets.some((asset) => asset.id === 'ecc-tdd-workflow')).toBe(true);
     expect(selection.assets.some((asset) => asset.id === 'ecc-swift-protocol-di-testing')).toBe(false);
-    expect(new CofofoFoundationService(root).prepare().status).toBe('pending-review');
   });
 });
 
-function approveCurrentCanvas(root: string, state: RunState, pipeline: PipelineConfig): RunState {
-  const index = state.currentStepIdx;
-  const config = pipeline.steps[index]!;
-  const artifacts = typeof config === 'string' ? [] : config.review?.artifacts ?? [];
-  const bundle = buildReviewBundle({
-    workspaceRoot: root,
-    runId: state.runId,
-    stepIdx: index,
-    stepRevision: state.steps[index]!.revision,
-    reviewRevision: 1,
-    artifacts,
-    context: state.context,
-  });
-  return applyArtifactReviewVerdict({ workspaceRoot: root, state, pipeline, bundle, verdict: { verdict: 'approve', reviewer: 'Demo Reviewer <reviewer@example.test>' } });
-}
-
-describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
-  beforeEach(() => RunStateStore.resetBackend());
-
-  it('refuses to mark scan-stack done when detection is closed', () => {
-    const root = swiftFixture();
-    write(root, 'web/package.json', '{"name":"web","engines":{"node":">=20"}}\n');
-    const service = new CofofoFoundationService(root);
-    expect(service.prepare().status).toBe('pending-review');
-    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
-    const run = startRun({ runId: 'FOUNDATION-CLOSED', pipeline: foundation, context: {}, workspaceRoot: root });
-    expect(() => markStepDone({ state: run, pipeline: foundation, workspaceRoot: root })).toThrow(/scan-stack is closed/);
-  });
-
-  it('does not demand a catalog Canvas approval for the update-rules route', () => {
-    const root = swiftFixture();
-    const service = new CofofoFoundationService(root);
-    service.prepare({ route: 'update-rules' });
-    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
-    const route = foundationPipelineForRoute(foundation, 'update-rules');
-    let run = startRun({ runId: 'FOUNDATION-RULES', pipeline: route, context: {}, workspaceRoot: root });
-    simulateDefineRules(root); // this route's first step is define-rules, not scan-stack
-    run = markStepDone({ state: run, pipeline: route, workspaceRoot: root });
-    run = approveCurrentCanvas(root, run, route);
-    RunStateStore.save(root, run);
-
-    expect(() => service.install('FOUNDATION-RULES')).not.toThrow();
-  });
-
-  it('requires content-bound approvals before install/activation and pins delivery runs', () => {
-    const root = swiftFixture();
-    const service = new CofofoFoundationService(root);
-    const prepared = service.prepare();
-    expect(prepared.status).toBe('pending-review');
-
-    const workspace = WorkspaceLoader.load(root);
-    const foundation = workspace.config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
-    let state = startRun({ runId: 'FOUNDATION-R1', pipeline: foundation, context: {}, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // scan
-    simulateDefineRules(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // rules -> Canvas
-    RunStateStore.save(root, state);
-    expect(() => service.install('FOUNDATION-R1')).toThrow(/Canvas/);
-    state = approveCurrentCanvas(root, state, foundation);
-    simulateMapSystem(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // map
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // selection -> Canvas
-    state = approveCurrentCanvas(root, state, foundation);
-    RunStateStore.save(root, state);
-
-    service.install('FOUNDATION-R1');
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // install
-    RunStateStore.save(root, state);
-    service.publish('FOUNDATION-R1');
-    // Provider files are intentionally not review artifacts. A concurrent
-    // tool write must not invalidate the PROVIDER-CONTEXT Canvas bundle.
-    write(root, 'CLAUDE.md', '# Existing provider instructions\n\nwritten while the Canvas gate is open\n');
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root }); // publish -> Canvas
-    state = approveCurrentCanvas(root, state, foundation);
-    RunStateStore.save(root, state);
-    expect(service.inspect().status).toBe('pending-review');
-    service.activate('FOUNDATION-R1');
-    expect(service.inspect().status).toBe('ready');
-    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toContain('written while the Canvas gate is open');
-    expect(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toContain('aidlc:cofofo-context start');
-
-    // Git clone / branch checkout changes mtime, not content. Hash-bound
-    // Foundation readiness must remain valid in that case.
-    const rulesPath = path.join(root, 'docs/project/foundation/PROJECT-RULES.json');
-    const now = new Date();
-    fs.utimesSync(rulesPath, now, new Date(now.getTime() + 60_000));
-    expect(service.inspect().status).toBe('ready');
-
-    const delivery = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-feature')!;
-    const run = startRun({ runId: 'FEATURE-1', pipeline: delivery, context: { epic: 'FEATURE-1' }, workspaceRoot: root });
-    expect(run.cofofoFoundation?.revision).toBe(1);
-    // `requirement` requires INTENT.md — normally snapshotted by the Discover
-    // handoff; this run was started directly,
-    // so the test stands in for that provenance the same way a manually
-    // authored epic would.
-    write(root, 'docs/epics/FEATURE-1/artifacts/INTENT.md', '# Intent\n\nAdd a heat alert.\n');
-    expect(canStartStep({ state: run, pipeline: delivery, workspaceRoot: root })).toEqual({ ok: true });
-
-    service.prepare({ route: 'refresh-context' });
-    const gate = canStartStep({ state: run, pipeline: delivery, workspaceRoot: root });
-    expect(gate.ok).toBe(false);
-    if (gate.ok) throw new Error('expected stale Foundation');
-    expect(gate.missing.join('\n')).toMatch(/invalid CoFoFo foundation/);
-
-    // A pending revision cannot be pinned. Once the new revision is reviewed
-    // and activated, rebase resets every phase and preserves audit history.
-    expect(() => rebaseRunToCurrentFoundation({ state: run, pipeline: delivery, workspaceRoot: root })).toThrow();
-
-    const refreshedDefinition = WorkspaceLoader.load(root).config.pipelines
-      .find((pipeline) => pipeline.id === 'cofofo-foundation')!;
-    const refreshPipeline = foundationPipelineForRoute(refreshedDefinition, 'refresh-context');
-    let refreshRun = startRun({ runId: 'FOUNDATION-R2', pipeline: refreshPipeline, context: {}, workspaceRoot: root });
-    refreshRun = markStepDone({ state: refreshRun, pipeline: refreshPipeline, workspaceRoot: root }); // scan
-    simulateMapSystem(root);
-    refreshRun = markStepDone({ state: refreshRun, pipeline: refreshPipeline, workspaceRoot: root }); // map
-    RunStateStore.save(root, refreshRun);
-    service.publish('FOUNDATION-R2');
-    refreshRun = markStepDone({ state: refreshRun, pipeline: refreshPipeline, workspaceRoot: root }); // publish -> Canvas
-    refreshRun = approveCurrentCanvas(root, refreshRun, refreshPipeline);
-    RunStateStore.save(root, refreshRun);
-    service.activate('FOUNDATION-R2');
-
-    const rebased = rebaseRunToCurrentFoundation({ state: run, pipeline: delivery, workspaceRoot: root });
-    expect(rebased.cofofoFoundation?.revision).toBe(2);
-    expect(rebased.foundationRebases).toHaveLength(1);
-    expect(rebased.steps[0]?.status).toBe('awaiting_work');
-    expect(rebased.steps.slice(1).every((step) => step.status === 'pending')).toBe(true);
-  });
-
-  it('publish writes BUNDLE-BINDING.json and CONTEXT-MANIFEST v2 with bindingHash (C0 — until C3)', () => {
-    const root = swiftFixture();
-    const service = new CofofoFoundationService(root);
-    service.prepare();
-    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
-    let state = startRun({ runId: 'FOUNDATION-BIND', pipeline: foundation, context: {}, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    simulateDefineRules(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    simulateMapSystem(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    RunStateStore.save(root, state);
-    service.install('FOUNDATION-BIND');
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    RunStateStore.save(root, state);
-    const manifest = service.publish('FOUNDATION-BIND');
-    const bindingPath = path.join(root, COFOFO_BUNDLE_BINDING_PATH);
-    expect(fs.existsSync(bindingPath)).toBe(true);
-    const parsed = ContextManifestV2Schema.parse(manifest);
-    expect(parsed.bindingPath).toBe(COFOFO_BUNDLE_BINDING_PATH);
-    expect(parsed.bindingHash).toBe(hashFile(bindingPath));
-  });
-
-  it('inspect is ready only when workspace agents match bundle binding (C0 — until C4 doctor)', () => {
-    const root = swiftFixture();
-    const service = new CofofoFoundationService(root);
-    service.prepare();
-    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
-    let state = startRun({ runId: 'FOUNDATION-DOCTOR', pipeline: foundation, context: {}, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    simulateDefineRules(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    simulateMapSystem(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    RunStateStore.save(root, state);
-    service.install('FOUNDATION-DOCTOR');
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    RunStateStore.save(root, state);
-    service.publish('FOUNDATION-DOCTOR');
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    RunStateStore.save(root, state);
-    service.activate('FOUNDATION-DOCTOR');
-    expect(service.inspect().status).toBe('ready');
-
-    const workspacePath = path.join(root, '.aidlc/workspace.yaml');
-    const tampered = fs.readFileSync(workspacePath, 'utf8').replace(
-      'ecc-tdd-workflow',
-      'ecc-not-installed-skill',
-    );
-    fs.writeFileSync(workspacePath, tampered, 'utf8');
-    expect(service.inspect().status).not.toBe('ready');
-  });
-});
-
-describe('CoFoFo ensureRecipesRegistered — Discover is CoFoFo-only regardless of stack detection', () => {
-  it('registers the three cofofo-* pipelines even for a project with no code at all', () => {
+describe('CoFoFo ensureWorkflowRegistered — project-local default workflow', () => {
+  it('registers only the two delivery pipelines even for a project with no code at all', () => {
     const root = temporary();
     const service = new CofofoFoundationService(root);
-    const prepared = service.prepare();
-    expect(prepared.status).toBe('pending-review');
-    expect(prepared.issues.join('\n')).toMatch(/No supported stack manifest/);
-
-    service.ensureRecipesRegistered();
+    service.ensureWorkflowRegistered();
     const config = WorkspaceLoader.load(root).config;
     expect(config.pipelines.map((p) => p.id).filter((id) => id.startsWith('cofofo-')).sort()).toEqual([
-      'cofofo-bugfix', 'cofofo-feature', 'cofofo-foundation',
+      'cofofo-bugfix', 'cofofo-feature',
     ]);
     expect((config.recipes ?? []).filter((r) => r.id.startsWith('cofofo-'))).toEqual([]);
   });
@@ -491,24 +238,30 @@ describe('CoFoFo ensureRecipesRegistered — Discover is CoFoFo-only regardless 
     const root = temporary();
     write(root, '.aidlc/workspace.yaml', 'version: "1.0"\nname: x\nenvironment: {}\npipelines:\n  - id: custom-pipeline\n    steps:\n      - agent: custom-agent\n');
     const service = new CofofoFoundationService(root);
-    service.ensureRecipesRegistered();
-    service.ensureRecipesRegistered();
+    service.ensureWorkflowRegistered();
+    service.ensureWorkflowRegistered();
     const config = WorkspaceLoader.load(root).config;
-    expect(config.pipelines.filter((p) => p.id === 'cofofo-foundation')).toHaveLength(1);
+    expect(config.pipelines.filter((p) => p.id === 'cofofo-feature')).toHaveLength(1);
     expect(config.pipelines.some((p) => p.id === 'custom-pipeline')).toBe(true);
   });
 
-  it('does not require prepare() to have run first, and still seeds STACK-PROFILE.json for scan-stack to read', () => {
+  it('does not require a stack to already be detected', () => {
     const root = temporary();
     const service = new CofofoFoundationService(root);
-    const stackJsonPath = path.join(root, 'docs/project/foundation/STACK-PROFILE.json');
-    expect(fs.existsSync(stackJsonPath)).toBe(false);
-    expect(() => service.ensureRecipesRegistered()).not.toThrow();
-    expect(fs.existsSync(stackJsonPath)).toBe(true);
+    expect(() => service.ensureWorkflowRegistered()).not.toThrow();
+    const config = WorkspaceLoader.load(root).config;
+    expect(config.pipelines.some((p) => p.id === 'cofofo-feature')).toBe(true);
+  });
+
+  it('inspect() reports missing for a project with no legacy Foundation snapshot', () => {
+    const root = temporary();
+    const service = new CofofoFoundationService(root);
+    service.ensureWorkflowRegistered();
+    expect(service.inspect().status).toBe('missing');
   });
 });
 
-describe('CoFoFo C4 — provider context + doctor', () => {
+describe('CoFoFo provider context rendering', () => {
   it('renderProviderContext includes role, phase, registry, and command tables', () => {
     const root = swiftFixture();
     const profile = detectStack(root);
@@ -530,65 +283,17 @@ describe('CoFoFo C4 — provider context + doctor', () => {
     expect(rendered).toContain('swift.test');
   });
 
-  it('diagnoseCofofoBinding flags tampered ecc skills with Vietnamese repair copy', () => {
-    const root = swiftFixture();
-    const service = new CofofoFoundationService(root);
-    service.prepare();
-    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
-    let state = startRun({ runId: 'DOCTOR-TAMPER', pipeline: foundation, context: {}, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    simulateDefineRules(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    simulateMapSystem(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    RunStateStore.save(root, state);
-    service.install('DOCTOR-TAMPER');
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    RunStateStore.save(root, state);
-    service.publish('DOCTOR-TAMPER');
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    RunStateStore.save(root, state);
-    service.activate('DOCTOR-TAMPER');
-
-    const workspacePath = path.join(root, '.aidlc/workspace.yaml');
-    fs.writeFileSync(
-      workspacePath,
-      fs.readFileSync(workspacePath, 'utf8').replace('ecc-tdd-workflow', 'ecc-not-installed-skill'),
-      'utf8',
-    );
-
-    const doctorIssues = diagnoseCofofoBinding(root);
-    expect(doctorIssues.some((issue) => issue.kind === 'skill-not-installed')).toBe(true);
-    expect(doctorIssues.some((issue) => issue.userMessageVi.includes('INSTALLED-ASSETS'))).toBe(true);
-
-    const inspection = service.inspect();
-    expect(inspection.status).not.toBe('ready');
-    expect(inspection.doctorIssues?.length).toBeGreaterThan(0);
+  it('diagnoseCofofoBinding flags a rogue cofofo-* pipeline id', () => {
+    const root = temporary();
+    write(root, '.aidlc/workspace.yaml', [
+      'version: "1.0"', 'name: x', 'environment: {}',
+      'pipelines:', '  - id: cofofo-legacy-recipe', '    steps:', '      - agent: some-agent',
+    ].join('\n'));
+    const issues = diagnoseCofofoBinding(root);
+    expect(issues.some((issue) => issue.kind === 'rogue-cofofo-pipeline')).toBe(true);
   });
 
-  it('diagnoseCofofoBinding reports workspace-not-composed after install before publish', () => {
-    const root = swiftFixture();
-    const service = new CofofoFoundationService(root);
-    service.prepare();
-    const foundation = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-foundation')!;
-    let state = startRun({ runId: 'DOCTOR-COMPOSE', pipeline: foundation, context: {}, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    simulateDefineRules(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    simulateMapSystem(root);
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = markStepDone({ state, pipeline: foundation, workspaceRoot: root });
-    state = approveCurrentCanvas(root, state, foundation);
-    RunStateStore.save(root, state);
-    service.install('DOCTOR-COMPOSE');
-
-    const issues = diagnoseCofofoBinding(root);
-    expect(issues.some((issue) => issue.kind === 'workspace-not-composed')).toBe(true);
-    expect(issues.some((issue) => issue.userMessageVi.includes('publish-context'))).toBe(true);
+  it('COFOFO_BUNDLE_BINDING_PATH now lives under the Discover runtime directory', () => {
+    expect(COFOFO_BUNDLE_BINDING_PATH).toBe('.aidlc/discover/runtime/bundle-binding.json');
   });
 });

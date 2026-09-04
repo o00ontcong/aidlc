@@ -53,12 +53,12 @@ describe('rogue CoFoFo pipelines', () => {
     expect(resolveCofofoPipelineId('nope')).toBeNull();
   });
 
-  it('generatedCofofoWorkspace exposes exactly three cofofo pipelines and no cofofo recipes', () => {
+  it('generatedCofofoWorkspace exposes exactly the two public delivery pipelines and no cofofo recipes', () => {
     const config = generatedCofofoWorkspace({ version: '1.0', name: 't', environment: {} });
     const cofofo = config.pipelines.filter((p) => p.id.startsWith('cofofo-')).map((p) => p.id).sort();
-    expect(cofofo).toEqual(['cofofo-bugfix', 'cofofo-feature', 'cofofo-foundation']);
+    expect(cofofo).toEqual(['cofofo-bugfix', 'cofofo-feature']);
     expect((config.recipes ?? []).filter((r) => r.id.startsWith('cofofo-'))).toEqual([]);
-    expect(config.pipelines.find((p) => p.id === 'cofofo-feature')?.foundation?.mode).toBe('cofofo');
-    expect(config.pipelines.find((p) => p.id === 'cofofo-bugfix')?.foundation?.mode).toBe('cofofo');
+    expect(config.pipelines.find((p) => p.id === 'cofofo-feature')?.discover_context).toBeDefined();
+    expect(config.pipelines.find((p) => p.id === 'cofofo-bugfix')?.discover_context).toBeDefined();
   });
 });

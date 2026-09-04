@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ExternalLink, FolderTree, GitCommit, MessageSquare, PanelRight, Play, RefreshCw, Rocket, ScanSearch } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FolderTree, GitCommit, PanelRight, Play, RefreshCw, Rocket, ScanSearch } from 'lucide-react';
 import type { DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
@@ -16,7 +16,7 @@ import { RawMarkdownPane } from './RawMarkdownPane';
 import { HandoffPanel } from './HandoffPanel';
 import { StepStatusView, stepHasStatusView } from './StepStatusView';
 import { DISCOVER_RAIL_DEFAULT_WIDTH, DISCOVER_RAIL_MAX_WIDTH, DISCOVER_RAIL_MIN_WIDTH, StepRail } from './StepRail';
-import { docsForStep, stepHasContent } from './lib';
+import { docsForStep } from './lib';
 import { cn } from '@/lib/utils';
 
 type Mode = 'pipeline' | 'docs' | 'checks';
@@ -47,7 +47,8 @@ function ScanPassStepper({
   copy: DiscoverCopy;
 }) {
   const campaign = discover.scanCampaign;
-  if (!campaign) { return null; }
+  // Only while a campaign is in progress — hide the stepper once all 3 passes are done.
+  if (!campaign || campaign.status !== 'active') { return null; }
   const active = discover.activeRun?.run.kind === 'scan' ? discover.activeRun.run : undefined;
   const passes: Array<1 | 2 | 3> = [1, 2, 3];
   const busy = Boolean(discover.activeRun);
@@ -305,7 +306,6 @@ function StepDetail({
 }) {
   const step = discover.steps.find((s) => s.id === stepId)!;
   const docs = docsForStep(discover, stepId);
-  const hasContent = stepHasContent(discover, stepId);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -362,25 +362,14 @@ function StepDetail({
       </div>
 
       <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-2">
-        {hasContent ? (
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'chatDiscoverStep', step: stepId })}
-            title={copy.hints.chatStep}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
-          >
-            <MessageSquare className="h-3 w-3" />{copy.chatStep}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'runDiscoverStep', step: stepId })}
-            title={copy.hints.runStep}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
-          >
-            <Play className="h-3 w-3" />{copy.runStep}
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => postMessage({ type: 'runDiscoverStep', step: stepId })}
+          title={copy.hints.runStep}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+        >
+          <Play className="h-3 w-3" />{copy.runStep}
+        </button>
       </footer>
     </div>
   );

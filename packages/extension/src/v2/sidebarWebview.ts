@@ -69,18 +69,6 @@ interface TemplateRef {
   hasGuide?: boolean;
 }
 
-/**
- * CoFoFo is a built-in generated workflow, not a static preset: it first
- * inspects the repository's stack, then writes its Foundation and Delivery
- * source pipelines. Keep it beside the other built-ins, but route activation
- * to the pipeline installer rather than the static-preset installer.
- */
-const COFOFO_BUILTIN_TEMPLATE: TemplateRef = {
-  id: 'cofofo-workflow',
-  name: 'CoFoFo Workflow',
-  description: 'Stack-aware Foundation + Feature/Bugfix recipes. Installs pipelines only.',
-};
-
 /** Resolved artifact path with existence check, surfaced in the run card. */
 interface ArtifactPath {
   /** Path relative to workspace root, with placeholders substituted. */
@@ -426,7 +414,7 @@ function listTemplates(
   store: PresetStore | null,
   root: string,
 ): { builtinTemplates: TemplateRef[]; projectTemplates: TemplateRef[] } {
-  if (!store) { return { builtinTemplates: [COFOFO_BUILTIN_TEMPLATE], projectTemplates: [] }; }
+  if (!store) { return { builtinTemplates: [], projectTemplates: [] }; }
   try {
     const all = store.list(root);
     const builtinTemplates: TemplateRef[] = [];
@@ -440,12 +428,9 @@ function listTemplates(
       };
       if (p.builtin) { builtinTemplates.push(ref); } else { projectTemplates.push(ref); }
     }
-    // Static presets arrive from PresetStore. CoFoFo is added here because
-    // its stack-specific pipelines are generated on apply, not stored as a preset.
-    builtinTemplates.push(COFOFO_BUILTIN_TEMPLATE);
     return { builtinTemplates, projectTemplates };
   } catch {
-    return { builtinTemplates: [COFOFO_BUILTIN_TEMPLATE], projectTemplates: [] };
+    return { builtinTemplates: [], projectTemplates: [] };
   }
 }
 
@@ -646,10 +631,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       case 'applyTemplate': {
         const id = String(msg.id ?? '');
         if (!id) { return; }
-        if (id === COFOFO_BUILTIN_TEMPLATE.id) {
-          await vscode.commands.executeCommand('aidlc.installCofofoWorkflow');
-          return;
-        }
         await vscode.commands.executeCommand(
           'aidlc.applyPreset',
           id,

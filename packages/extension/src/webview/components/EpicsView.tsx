@@ -304,7 +304,7 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
 
       {startEpicOpen && (
         <StartEpicModal
-          pipelines={state.pipelines}
+          pipelines={state.startPipelines ?? state.pipelines}
           agentMeta={state.agentMeta}
           nextEpicId={state.nextEpicId}
           existingEpicIds={state.existingEpicIds}

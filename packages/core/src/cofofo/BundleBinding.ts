@@ -5,7 +5,7 @@ import {
 } from './contracts';
 import { bindingForSelection, type CofofoCatalogSelection } from './Catalog';
 
-export const COFOFO_BUNDLE_BINDING_PATH = 'docs/project/foundation/BUNDLE-BINDING.json';
+export const COFOFO_BUNDLE_BINDING_PATH = '.aidlc/discover/runtime/bundle-binding.json';
 
 export class CofofoBundleBindingError extends Error {
   constructor(message: string) {

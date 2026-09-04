@@ -26,6 +26,7 @@ import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
 import { formatCofofoBugReportFromEpic, pipelineIncludesDiagnose, writeCofofoBugReportFile } from '../cofofo/bugReport';
 import type { FoundationSnapshot } from '../contracts/foundation';
+import type { DiscoverContextRef } from '../discover/DiscoverContextPublisher';
 
 /** Epic-level status as persisted in `<epic>/state.json`. */
 export type EpicStatus = 'pending' | 'in_progress' | 'done' | 'failed';
@@ -206,13 +207,17 @@ export interface ScaffoldEpicArgs {
   discoverProvenance?: {
     id: string;
     revision: number;
-    foundation: {
+    /** New handoff contract: immutable Discover revision plus compact context pack. */
+    contextRef?: DiscoverContextRef;
+    /** Compatibility shape accepted only for legacy callers. */
+    foundation?: {
       revision: number;
       manifestPath: string;
       manifestHash: string;
       capturedAt: string;
     };
-    brief: string;
+    /** Legacy snapshot. New Discover handoffs must not create INTENT.md. */
+    brief?: string;
   };
 }
 
@@ -319,15 +324,22 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     fs.writeFileSync(path.join(artifactsDir, 'SHAPE.md'), shapeProvenance.brief, 'utf8');
   }
   if (discoverProvenance) {
-    persistedInputs.source_discover = {
+    const sourceDiscover: Record<string, unknown> = {
       id: discoverProvenance.id,
       revision: discoverProvenance.revision,
-      foundation_revision: discoverProvenance.foundation.revision,
-      foundation_manifest_hash: discoverProvenance.foundation.manifestHash,
     };
-    // Snapshotted into the `requirement` Canvas bundle alongside EVIDENCE.md /
-    // OPTIONS.md / REQUIREMENT.md — never re-derived, never re-edited here.
-    fs.writeFileSync(path.join(artifactsDir, 'INTENT.md'), discoverProvenance.brief, 'utf8');
+    if (discoverProvenance.contextRef) {
+      sourceDiscover.context_ref = discoverProvenance.contextRef;
+    } else if (discoverProvenance.foundation) {
+      sourceDiscover.foundation_revision = discoverProvenance.foundation.revision;
+      sourceDiscover.foundation_manifest_hash = discoverProvenance.foundation.manifestHash;
+      // Old callers still get their snapshot; new Discover handoffs store only
+      // context_ref in inputs.json and never duplicate canonical prose.
+      if (discoverProvenance.brief) {
+        fs.writeFileSync(path.join(artifactsDir, 'INTENT.md'), discoverProvenance.brief, 'utf8');
+      }
+    }
+    persistedInputs.source_discover = sourceDiscover;
   }
   fs.writeFileSync(
     path.join(epicDir, 'inputs.json'),
@@ -387,6 +399,7 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
         pipeline,
         context: { epic: epicId, ...inputs },
         workspaceRoot,
+        discoverContext: discoverProvenance?.contextRef,
       });
       RunStateStore.save(workspaceRoot, runState);
       mirrorRunStateToEpic(workspaceRoot, runState, doc);

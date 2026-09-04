@@ -29,7 +29,7 @@ import * as vscode from 'vscode';
 import {
   buildSubtaskPayload,
   epicsRoot,
-  getBuiltinWorkflow,
+  generatedCofofoWorkspace,
   hashTemplateSource,
   loadSubtaskTemplate,
   missingRequiredFields,
@@ -417,7 +417,7 @@ class JiraSubtaskServiceImpl {
    * Steps for the checklist, and which of them are review gates.
    *
    * Prefers the pipeline the linked task actually runs; falls back to the
-   * built-in AIDLC workflow so a ticket with no task yet still produces a
+   * default CoFoFo Feature pipeline so a ticket with no task yet still produces a
    * meaningful checklist rather than an empty one.
    */
   private pipelineSteps(root: string, epicDir?: string): {
@@ -428,16 +428,12 @@ class JiraSubtaskServiceImpl {
     const fromWorkspace = epicDir ? this.stepsFromWorkspace(root, epicDir) : null;
     if (fromWorkspace) { return fromWorkspace; }
 
-    const builtin = getBuiltinWorkflow('aidlc-workflow');
-    const phases = builtin?.phases ?? [];
+    const pipeline = generatedCofofoWorkspace().pipelines
+      .find((candidate) => candidate.id === 'cofofo-feature');
+    const fallback = stepsFromPipelineConfig((pipeline?.steps ?? []) as RawPipelineStep[]);
     return {
-      steps: phases.map((phase) => ({
-        id: phase.id,
-        name: phase.name,
-        producesContains: phase.producesContains ?? [],
-      })),
-      reviewGateStepIds: phases.filter((phase) => phase.humanReview).map((phase) => phase.id),
-      pipelineId: builtin?.pipelineId ?? '',
+      ...fallback,
+      pipelineId: pipeline?.id ?? '',
     };
   }
 

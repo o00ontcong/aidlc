@@ -4,33 +4,20 @@ import * as path from 'path';
 import type { WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, validateWorkspace } from '../schema/WorkspaceSchema';
 import { listCommandProviderAdapters } from '../providers/CommandProviderAdapter';
-import type { PipelineConfig } from '../schema/WorkspaceSchema';
 import { hashFile } from './hash';
 import { writeAtomic } from './paths';
 
-const FOUNDATION = 'docs/project/foundation';
 const EPIC = 'docs/epics/{epic}/artifacts';
+const DISCOVER_CONTEXT = '.aidlc/discover';
 
-const FOUNDATION_PHASES = [
-  'scan-stack', 'define-rules', 'map-system', 'select-ecc-catalog', 'install-ecc-assets', 'publish-context',
+const PHASES = [
+  'analyze', 'diagnose', 'create-plan', 'reproduce', 'implement', 'test',
 ] as const;
-
-const DELIVERY_PHASES = [
-  'requirement', 'diagnose', 'create-plan', 'reproduce', 'implement', 'test',
-] as const;
-
-const PHASES = [...FOUNDATION_PHASES, ...DELIVERY_PHASES] as const;
 
 type Phase = typeof PHASES[number];
 
 const PHASE_INSTRUCTIONS: Record<Phase, string> = {
-  'scan-stack': 'Read STACK-PROFILE.json as machine evidence. Do not guess an unsupported or second stack. If the profile is closed (no manifest or multiple stacks), the gate fails — keep the evidence, do not continue, and do not switch pipelines.',
-  'define-rules': 'Create or edit PROJECT-RULES.json as canonical policy (it will not already exist on a first run), then run `aidlc cofofo render-rules` to regenerate the hash-bound PROJECT-RULES.md and RULE-DRIFT.md. Every blocking rule needs a stable ruleId, machine-checkable matcher, measured scope, and explicit exception expiry.',
-  'map-system': 'Map modules, layers, dependency direction, state ownership, entry points, and test seams from concrete source paths. Write ARCHITECTURE-MAP.md and cite evidence.',
-  'select-ecc-catalog': 'Review the pinned text-only catalog selection. Reject scripts, hooks, binaries, unknown licenses, unpinned revisions, and assets without a SHA-256 digest.',
-  'install-ecc-assets': 'Run `aidlc cofofo install --run <foundation-run>` only after both policy and catalog Canvas gates are approved. Do not copy or download an executable ECC asset.',
-  'publish-context': 'Run `aidlc cofofo publish --run <foundation-run>`, review PROVIDER-CONTEXT.md and docs/README.md in Canvas, approve the step, then run `aidlc cofofo activate --run <foundation-run>` to install the approved block into provider files.',
-  requirement: 'INTENT.md is a required input, snapshotted from the Discover blueprint that started this epic — read it as the starting point of the reasoning chain the Canvas gate will review. Research with sources: read the current CONTEXT-MANIFEST.json, PROJECT-RULES.json, architecture map, and codebase; write EVIDENCE.md citing exactly where each claim came from, and label anything you could not verify as an assumption rather than stating it as fact. Apply 2-4 named lenses (e.g. JTBD, assumption mapping, anti-scope, opportunity sizing) and write OPTIONS.md: each option gets a numbered critique menu (challenge / red-team / expand / shrink for appetite / swap approach), and a "## Open Decisions" section listing at most 5 decisions, each as a table of 2-5 choices with one recommended default pre-marked — approving the Canvas gate accepts every default the reviewer does not override via request-changes feedback. Write REQUIREMENT.md with scope, non-goals, and acceptance criteria stated as observable behavior, since create-plan must derive a RED test from each one. Do not mutate production code.',
+  analyze: 'Read the pinned Discover context pack in run state, never latest Discover docs by default. Research the relevant source/test paths and write EVIDENCE.md with citations, OPTIONS.md with bounded alternatives, and TASK-DECISIONS.md containing only task-local decisions, assumptions, scope and acceptance-criteria references. Do not create REQUIREMENT.md or copy canonical Requirement/Feature prose. If product scope, architecture or a requirement must change, record a Discover delta and ask the human to publish and explicitly rebase before continuing. Do not mutate production code.',
   diagnose: 'For a bug, find root cause before changing production code. Write ROOT-CAUSE.md with reproduction, causal chain, affected invariant, and failure oracle.',
   'create-plan': 'Write TASK-PLAN.md. Map every acceptance criterion to files/tests, cite every applicable blocking ruleId, state the exact RED test and expected assertion, then obtain Canvas approval before production mutation.',
   reproduce: 'Add the smallest behavior test first. Capture a real expected assertion failure with `aidlc cofofo evidence red`; compile/import/syntax failures do not count. If a RED waiver is necessary, use `aidlc cofofo waive-red` so RED-EVIDENCE.md records the reason and alternative evidence. The Canvas gate on RED-EVIDENCE.md must approve either path before production code changes.',
@@ -39,9 +26,7 @@ const PHASE_INSTRUCTIONS: Record<Phase, string> = {
 };
 
 const ROLE_BY_PHASE: Record<Phase, string> = {
-  'scan-stack': 'foundation-architect', 'define-rules': 'policy-engineer', 'map-system': 'foundation-architect',
-  'select-ecc-catalog': 'catalog-curator', 'install-ecc-assets': 'foundation-architect', 'publish-context': 'foundation-architect',
-  requirement: 'product-owner', diagnose: 'diagnostician', 'create-plan': 'tech-lead', reproduce: 'developer',
+  analyze: 'product-owner', diagnose: 'diagnostician', 'create-plan': 'tech-lead', reproduce: 'developer',
   implement: 'developer', test: 'fresh-reviewer',
 };
 
@@ -68,9 +53,9 @@ export function installCofofoPhaseSkills(workspaceRoot: string): void {
 export function installCofofoProviderCommands(
   workspaceRoot: string,
   workspace: WorkspaceConfig,
-  contextHash = 'pending-foundation-review',
+  contextHash = 'pending-discover-publish',
 ): string[] {
-  const rulesPath = `${FOUNDATION}/PROJECT-RULES.json`;
+  const rulesPath = `${DISCOVER_CONTEXT}/compiled-rules.json`;
   const rulesHash = fs.existsSync(path.join(workspaceRoot, rulesPath))
     ? hashFile(path.join(workspaceRoot, rulesPath))
     : 'missing';
@@ -144,31 +129,20 @@ function step(phase: Phase, value: Record<string, unknown>): WorkspaceConfig['pi
 export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): WorkspaceConfig {
   const generatedSkills: WorkspaceConfig['skills'] = PHASES.map((phase) => ({ id: skillId(phase), path: skillPath(phase) }));
 
-  const foundation = {
-    id: 'cofofo-foundation', on_failure: 'stop' as const,
-    steps: [
-      step('scan-stack', { produces: [`${FOUNDATION}/STACK-PROFILE.json`, `${FOUNDATION}/STACK-PROFILE.md`], produces_contains: ['schemaVersion'] }),
-      step('define-rules', { requires: [`${FOUNDATION}/STACK-PROFILE.json`], produces: [`${FOUNDATION}/PROJECT-RULES.json`, `${FOUNDATION}/PROJECT-RULES.md`, `${FOUNDATION}/RULE-DRIFT.md`], produces_contains: ['## Rule Index'], human_review: true, review: { mode: 'canvas', artifacts: [`${FOUNDATION}/PROJECT-RULES.md`, `${FOUNDATION}/RULE-DRIFT.md`] }, depends_on: ['scan-stack'] }),
-      step('map-system', { requires: [`${FOUNDATION}/STACK-PROFILE.json`, `${FOUNDATION}/PROJECT-RULES.json`], produces: [`${FOUNDATION}/ARCHITECTURE-MAP.md`], produces_contains: ['## Layer Map'], depends_on: ['define-rules'] }),
-      step('select-ecc-catalog', { requires: [`${FOUNDATION}/STACK-PROFILE.json`], produces: [`${FOUNDATION}/ECC-CATALOG-SELECTION.md`], produces_contains: ['## Approved Text Assets'], human_review: true, review: { mode: 'canvas', artifacts: [`${FOUNDATION}/ECC-CATALOG-SELECTION.md`] }, depends_on: ['map-system'] }),
-      step('install-ecc-assets', { requires: [`${FOUNDATION}/ECC-CATALOG-SELECTION.md`, `${FOUNDATION}/PROJECT-RULES.json`], produces: [`${FOUNDATION}/INSTALLED-ASSETS.json`], produces_contains: ['catalogRevision'], depends_on: ['select-ecc-catalog'] }),
-      step('publish-context', { requires: [`${FOUNDATION}/ARCHITECTURE-MAP.md`, `${FOUNDATION}/PROJECT-RULES.json`, `${FOUNDATION}/INSTALLED-ASSETS.json`], produces: [`${FOUNDATION}/CONTEXT-MANIFEST.json`, `${FOUNDATION}/BUNDLE-BINDING.json`, 'docs/README.md', `${FOUNDATION}/PROVIDER-CONTEXT.md`], produces_contains: ['foundationRevision', 'CoFoFo Provider Context'], human_review: true, review: { mode: 'canvas', artifacts: ['docs/README.md', `${FOUNDATION}/PROVIDER-CONTEXT.md`] }, depends_on: ['install-ecc-assets'] }),
-    ],
+  const discoverContextGate = {
+    manifest: `${DISCOVER_CONTEXT}/published-context.json`,
+    packDirectory: `${DISCOVER_CONTEXT}/context-packs`,
   };
 
-  const foundationGate = {
-    mode: 'cofofo' as const,
-    manifest: `${FOUNDATION}/CONTEXT-MANIFEST.json`,
-    state: '.aidlc/cofofo/foundation.json',
-  };
-
-  // Three startable pipelines only — no recipe layer in the UX.
+  // Only two public task pipelines. Discover's "Publish context" button owns
+  // the prerequisite validation, stack/rule reconciliation, and ECC bundle
+  // install — there is no separate startable Foundation pipeline.
   const feature = {
     id: 'cofofo-feature', on_failure: 'stop' as const,
-    foundation: foundationGate,
+    discover_context: discoverContextGate,
     steps: [
-      step('requirement', { requires: [`${FOUNDATION}/CONTEXT-MANIFEST.json`, `${EPIC}/INTENT.md`], produces: [`${EPIC}/REQUIREMENT.md`, `${EPIC}/EVIDENCE.md`, `${EPIC}/OPTIONS.md`], produces_contains: ['## Acceptance Criteria'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/INTENT.md`, `${EPIC}/EVIDENCE.md`, `${EPIC}/OPTIONS.md`, `${EPIC}/REQUIREMENT.md`] } }),
-      step('create-plan', { requires: [`${EPIC}/REQUIREMENT.md`, `${FOUNDATION}/PROJECT-RULES.json`, `${FOUNDATION}/ARCHITECTURE-MAP.md`], produces: [`${EPIC}/TASK-PLAN.md`], produces_contains: ['## RED / GREEN Contract'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/TASK-PLAN.md`] }, depends_on: ['requirement'] }),
+      step('analyze', { requires: ['{context_pack}'], produces: [`${EPIC}/EVIDENCE.md`, `${EPIC}/OPTIONS.md`, `${EPIC}/TASK-DECISIONS.md`], produces_contains: ['## Scope'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/EVIDENCE.md`, `${EPIC}/OPTIONS.md`, `${EPIC}/TASK-DECISIONS.md`] } }),
+      step('create-plan', { requires: [`${EPIC}/TASK-DECISIONS.md`, `${DISCOVER_CONTEXT}/compiled-rules.json`], produces: [`${EPIC}/TASK-PLAN.md`], produces_contains: ['## RED / GREEN Contract'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/TASK-PLAN.md`] }, depends_on: ['analyze'] }),
       step('implement', { produces: [`${EPIC}/RED-EVIDENCE.md`, `${EPIC}/IMPLEMENT-SUMMARY.md`, `${EPIC}/REFACTOR-EVIDENCE.md`], produces_contains: ['## Green Evidence'], evidence: { stage: 'green' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/IMPLEMENT-SUMMARY.md`] }, depends_on: ['create-plan'] }),
       step('test', { requires: [`${EPIC}/IMPLEMENT-SUMMARY.md`], produces: [`${EPIC}/REVIEW.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/VERIFY.md`], produces_contains: ['## Final Verification'], evidence: { stage: 'verify' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/VERIFY.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/REVIEW.md`] }, depends_on: ['implement'] }),
     ],
@@ -176,9 +150,9 @@ export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): Wo
 
   const bugfix = {
     id: 'cofofo-bugfix', on_failure: 'stop' as const,
-    foundation: foundationGate,
+    discover_context: discoverContextGate,
     steps: [
-      step('diagnose', { requires: [`${FOUNDATION}/CONTEXT-MANIFEST.json`, `${EPIC}/BUG-REPORT.md`], produces: [`${EPIC}/ROOT-CAUSE.md`], produces_contains: ['## Failure Oracle', '## Resume From'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/ROOT-CAUSE.md`] } }),
+      step('diagnose', { requires: ['{context_pack}', `${EPIC}/BUG-REPORT.md`], produces: [`${EPIC}/ROOT-CAUSE.md`], produces_contains: ['## Failure Oracle', '## Resume From'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/ROOT-CAUSE.md`] } }),
       step('reproduce', { requires: [`${EPIC}/ROOT-CAUSE.md`], produces: [`${EPIC}/RED-EVIDENCE.md`], produces_contains: ['## Expected Failure'], evidence: { stage: 'red' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/RED-EVIDENCE.md`] }, depends_on: ['diagnose'] }),
       step('implement', { produces: [`${EPIC}/RED-EVIDENCE.md`, `${EPIC}/IMPLEMENT-SUMMARY.md`, `${EPIC}/REFACTOR-EVIDENCE.md`], produces_contains: ['## Green Evidence'], evidence: { stage: 'green' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/IMPLEMENT-SUMMARY.md`] }, depends_on: ['reproduce'] }),
       step('test', { requires: [`${EPIC}/IMPLEMENT-SUMMARY.md`], produces: [`${EPIC}/REVIEW.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/VERIFY.md`], produces_contains: ['## Final Verification'], evidence: { stage: 'verify' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/VERIFY.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/REVIEW.md`] }, depends_on: ['implement'] }),
@@ -196,14 +170,13 @@ export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): Wo
     environment: current?.environment ?? {},
     slash_commands: [
       ...slash,
-      ...[foundation, feature, bugfix].flatMap((pipeline) => pipeline.steps.map((raw) => {
+      ...[feature, bugfix].flatMap((pipeline) => pipeline.steps.map((raw) => {
         const phase = normalizeStep(raw).name as Phase;
         return { name: `/${pipeline.id}-${phase}`, agent: `cofofo-${ROLE_BY_PHASE[phase]}` };
       })),
     ],
-    // Exactly three CoFoFo pipelines. Lifecycle routes (refresh/update/repin)
-    // stay on CLI `aidlc cofofo prepare --route`, not as New-task recipes.
-    pipelines: [...keep(current?.pipelines), foundation, feature, bugfix],
+    // Discover publishes context internally; only delivery task pipelines are public.
+    pipelines: [...keep(current?.pipelines), feature, bugfix],
     recipes: [...keep(current?.recipes)],
     state: current?.state,
     persistence: current?.persistence,
@@ -213,32 +186,3 @@ export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): Wo
 }
 
 export { PHASES as COFOFO_PHASES };
-
-const ROUTE_PHASES = {
-  bootstrap: ['scan-stack', 'define-rules', 'map-system', 'select-ecc-catalog', 'install-ecc-assets', 'publish-context'],
-  'refresh-context': ['scan-stack', 'map-system', 'publish-context'],
-  'update-rules': ['define-rules', 'publish-context'],
-  'repin-bundle': ['select-ecc-catalog', 'install-ecc-assets', 'publish-context'],
-} as const;
-
-/** Create the executable Foundation slice for one of the four lifecycle routes. */
-export function foundationPipelineForRoute(
-  pipeline: PipelineConfig,
-  route: keyof typeof ROUTE_PHASES,
-): PipelineConfig {
-  const selected = new Set<string>(ROUTE_PHASES[route]);
-  const steps = pipeline.steps
-    .filter((raw) => selected.has(normalizeStep(raw).name ?? normalizeStep(raw).agent))
-    .map((raw, index, values) => {
-      const norm = normalizeStep(raw);
-      const previous = index > 0 ? normalizeStep(values[index - 1]!).name ?? normalizeStep(values[index - 1]!).agent : undefined;
-      return {
-        ...norm,
-        depends_on: previous ? [previous] : [],
-      };
-    });
-  return validateWorkspace({
-    version: '1.0', name: 'CoFoFo route', agents: [], skills: [], environment: {}, slash_commands: [],
-    pipelines: [{ ...pipeline, steps }], recipes: [],
-  }, '.aidlc/workspace.yaml').pipelines[0]!;
-}

@@ -22,6 +22,7 @@ packages/*/bin/
 !/docs/COFOFO_WORKFLOW_CHECKLIST.md
 !/docs/COFOFO_FIX_BACKLOG.md
 !/docs/COFOFO_FIX_PLAN.md
+!/docs/DISCOVER_CONTEXT_UNIFICATION_PLAN.md
 # Hand-written design docs, same exception as the guide above — everything else
 # under docs/ is generated epic output.
 !/docs/JIRA-SPRINT-PLAN.md

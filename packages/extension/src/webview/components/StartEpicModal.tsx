@@ -5,6 +5,7 @@ import type { AgentMeta, ExtraProject, PipelineSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
+import { pickDefaultPipelineId } from '../../defaultWorkflow';
 
 const ID_PATTERN = /^[A-Z][A-Z0-9-]*$/;
 
@@ -79,8 +80,8 @@ interface Props {
 type Selection = { kind: 'pipeline'; id: string };
 
 function defaultSelection(pipelines: PipelineSummary[]): Selection {
-  const first = pipelines.find((p) => !p.templateOnly) ?? pipelines[0];
-  return { kind: 'pipeline', id: first?.id ?? '' };
+  const startable = pipelines.filter((pipeline) => !pipeline.templateOnly);
+  return { kind: 'pipeline', id: pickDefaultPipelineId(startable) };
 }
 
 export function StartEpicModal({
@@ -842,27 +843,27 @@ function WorkflowRow({
 function NoPipelines({ onClose, projectPath }: { onClose: () => void; projectPath?: string }) {
   const loadPreset = () => {
     if (projectPath) {
-      // No folder open yet — open the selected project first, then apply preset.
-      postMessage({ type: 'openProjectAndApplyPreset', folderPath: projectPath });
+      // No folder open yet — open the selected project first, then ensure CoFoFo.
+      postMessage({ type: 'openProjectAndEnsureCofofo', folderPath: projectPath });
     } else {
-      postMessage({ type: 'initSdlcPreset' });
+      postMessage({ type: 'ensureCofofoDefault' });
     }
   };
   return (
     <div className="flex flex-col gap-2.5 p-3">
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <ChevronRight className="h-3 w-3 shrink-0" />
-        <span>No pipelines yet. Load the built-in SDLC pipeline or create your own.</span>
+        <span>No pipelines yet. Prepare the default CoFoFo workflow or create your own.</span>
       </div>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={loadPreset}
-          title="Apply the built-in AIDLC SDLC pipeline (installs its agents + skills). It'll appear here once applied."
+          title="Prepare the project-local CoFoFo pipelines and assets. No separate installation is required."
           className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/15 px-3 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:border-primary/60 hover:bg-primary/25"
         >
           <Sparkles className="h-3 w-3" />
-          Load SDLC pipeline example
+          Prepare CoFoFo workflow
         </button>
         <button
           type="button"

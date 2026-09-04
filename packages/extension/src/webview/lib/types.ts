@@ -994,6 +994,8 @@ export interface WorkspaceState {
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];
+  /** Pipelines available to New Task, including virtual project-local defaults. */
+  startPipelines?: PipelineSummary[];
   /** Task-type recipes for the Start-Epic modal's auto-generate path. */
   recipes: RecipeSummary[];
   epics: EpicSummary[];
@@ -1011,8 +1013,7 @@ export interface WorkspaceState {
   runIds: string[];
   /** Built-in skill templates surfaced for the inline AddSkill modal. */
   skillTemplates: SkillTemplateRef[];
-  /** The built-in AIDLC SDLC pipeline — used by the Add-pipeline modal's
-   *  "Load AIDLC default" button to prefill steps. */
+  /** The default CoFoFo Feature pipeline used to prefill a custom pipeline. */
   defaultPipeline?: PipelineSummary;
   /** Suggested next sequential id for the inline Start-Epic modal (e.g. EPIC-007). */
   nextEpicId: string;

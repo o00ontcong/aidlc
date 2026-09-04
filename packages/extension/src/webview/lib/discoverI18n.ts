@@ -32,7 +32,6 @@ export interface DiscoverHints {
   showRaw: string;
   showPreview: string;
   runStep: string;
-  chatStep: string;
   selectStep: (step: string) => string;
   resizeRail: string;
   openDoc: (path: string) => string;
@@ -180,7 +179,6 @@ export interface DiscoverCopy {
   // agent panel
   agent: string;
   runStep: string;
-  chatStep: string;
   runPipeline: string;
   history: string;
   noRuns: string;
@@ -323,7 +321,6 @@ const HINTS_VI: DiscoverHints = {
   showRaw: 'Chỉnh sửa trực tiếp toàn bộ nội dung Markdown của file.',
   showPreview: 'Xem bản render của Markdown mà không chỉnh sửa nội dung.',
   runStep: 'Chạy agent để điền hoặc cải thiện tài liệu của riêng bước đang xem.',
-  chatStep: 'Mở provider với bối cảnh bước này để trao đổi với agent — agent không tự viết lại tài liệu trừ khi bạn yêu cầu.',
   selectStep: (step) => `Mở bước ${step} để xem hoặc chỉnh sửa. Chọn bước trên rail là cách chuyển bước.`,
   resizeRail: 'Kéo để đổi độ rộng danh sách 12 bước.',
   openDoc: (path) => `Mở ${path} trong VS Code editor.`,
@@ -384,7 +381,6 @@ const HINTS_EN: DiscoverHints = {
   showRaw: 'Edit the file\'s complete Markdown content directly.',
   showPreview: 'Render the Markdown for reading without editing it.',
   runStep: 'Run the agent to fill or refine only the selected step\'s documents.',
-  chatStep: 'Open the provider with this step as context so you can talk with the agent — it will not rewrite documents unless you ask.',
   selectStep: (step) => `Open ${step} to view or edit it. Selecting a step on the rail is how you move between steps.`,
   resizeRail: 'Drag to resize the 12-step list.',
   openDoc: (path) => `Open ${path} in the VS Code editor.`,
@@ -533,7 +529,6 @@ const VI: DiscoverCopy = {
 
   agent: 'AI',
   runStep: 'Chạy agent cho bước này',
-  chatStep: 'Trao đổi với agent',
   runPipeline: 'Chạy pipeline',
   history: 'Lịch sử run',
   noRuns: 'Chưa chạy agent lần nào.',
@@ -729,7 +724,6 @@ const EN: DiscoverCopy = {
 
   agent: 'AI',
   runStep: 'Run the agent on this step',
-  chatStep: 'Talk with the agent',
   runPipeline: 'Run pipeline',
   history: 'Run history',
   noRuns: 'No agent run yet.',

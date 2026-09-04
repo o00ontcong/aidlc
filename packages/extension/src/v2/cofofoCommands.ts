@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import {
   activeEpicsDir,
   CofofoFoundationService,
+  detectStack,
   diagnoseCofofoBinding,
   lostCofofoGateSnapshotIssues,
   mirrorRunStateToEpic,
@@ -15,13 +16,13 @@ import {
   evidenceStageRevisionsForRun,
   markStepDone,
   normalizeStep,
+  rebaseRunToCurrentDiscoverContext,
   rebaseRunToCurrentFoundation,
   recordBugReport,
   scaffoldEpic,
   formatCofofoBugReport,
   COFOFO_BUG_REPORT_FILENAME,
   removeRogueCofofoPipelinesFromWorkspace,
-  type FoundationRoute,
   type PipelineConfig,
   type RunState,
 } from '@aidlc/core';
@@ -37,28 +38,14 @@ function serviceFor(root: string, extensionPath: string): CofofoFoundationServic
   return new CofofoFoundationService(root, path.join(extensionPath, 'templates', 'cofofo', 'catalog'));
 }
 
-async function chooseFoundationRun(root: string): Promise<RunState | undefined> {
-  const runs = RunStateStore.list(root).filter((run) => run.pipelineId === 'cofofo-foundation');
-  if (runs.length === 0) {
-    void vscode.window.showWarningMessage('AIDLC: no CoFoFo foundation run exists. Prepare the foundation first.');
-    return undefined;
-  }
-  if (runs.length === 1) return runs[0];
-  const picked = await vscode.window.showQuickPick(
-    runs.map((run) => ({
-      label: run.runId,
-      description: `${run.status} · step ${run.currentStepIdx + 1}/${run.steps.length}`,
-      run,
-    })),
-    { placeHolder: 'Choose a CoFoFo foundation run', ignoreFocusOut: true },
-  );
-  return picked?.run;
+/** True for a CoFoFo delivery run under either the current or legacy prerequisite gate. */
+function isCofofoDeliveryRun(run: RunState): boolean {
+  const pipeline = run.pipelineSnapshot?.pipeline;
+  return Boolean(pipeline?.discover_context) || pipeline?.foundation?.mode === 'cofofo';
 }
 
 async function chooseDeliveryRun(root: string): Promise<RunState | undefined> {
-  const runs = RunStateStore.list(root).filter(
-    (run) => run.pipelineSnapshot?.pipeline.foundation?.mode === 'cofofo',
-  );
+  const runs = RunStateStore.list(root).filter(isCofofoDeliveryRun);
   if (runs.length === 0) {
     void vscode.window.showWarningMessage('AIDLC: no delivery run exists. Start a CoFoFo feature or bugfix first.');
     return undefined;
@@ -91,128 +78,25 @@ function currentPhase(state: RunState, pipeline: PipelineConfig): string {
   return raw ? normalizeStep(raw).name ?? normalizeStep(raw).agent : '(missing)';
 }
 
-/**
- * Sidebar "CoFoFo Workflow" apply — register pipelines/recipes only.
- * No foundation-route picker, no epic/run scaffold; the human starts that later.
- */
-export async function installCofofoWorkflowCommand(extensionPath: string): Promise<void> {
+/** Ensure the project-local CoFoFo workflow exists. Safe to call repeatedly. */
+export async function ensureCofofoWorkflowCommand(extensionPath: string): Promise<void> {
   const root = rootOrWarn();
   if (!root) return;
   try {
-    serviceFor(root, extensionPath).ensureRecipesRegistered();
+    serviceFor(root, extensionPath).ensureWorkflowRegistered();
     void vscode.commands.executeCommand('aidlc.refreshSidebar');
     void vscode.window.showInformationMessage(
-      'CoFoFo pipelines installed (cofofo-foundation, cofofo-feature, cofofo-bugfix). Create a New Epic when you\'re ready.',
+      'CoFoFo is ready in this project (Foundation, Feature, and Bugfix). Create a New Task when you\'re ready.',
     );
   } catch (error) {
     void vscode.window.showErrorMessage(
-      `CoFoFo install failed: ${error instanceof Error ? error.message : String(error)}`,
+      `CoFoFo setup failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
 
-export async function prepareCofofoFoundationCommand(extensionPath: string): Promise<void> {
-  const root = rootOrWarn();
-  if (!root) return;
-  const options: Array<{ label: string; description: string; route: FoundationRoute }> = [
-    { label: 'Bootstrap', description: 'Detect stack and build the complete first foundation.', route: 'bootstrap' },
-    { label: 'Refresh context', description: 'Rescan stack/architecture and republish context.', route: 'refresh-context' },
-    { label: 'Update rules', description: 'Review policy changes and republish context.', route: 'update-rules' },
-    { label: 'Re-pin bundle', description: 'Review/install the pinned catalog and republish context.', route: 'repin-bundle' },
-  ];
-  const choice = await vscode.window.showQuickPick(options, {
-    placeHolder: 'Choose the CoFoFo foundation route',
-    ignoreFocusOut: true,
-  });
-  if (!choice) return;
-
-  try {
-    const service = serviceFor(root, extensionPath);
-    const inspection = service.prepare({ route: choice.route });
-    if (inspection.issues.length) {
-      void vscode.window.showWarningMessage(
-        `CoFoFo scan-stack is closed: ${inspection.issues.join('; ')}`,
-      );
-    }
-    const generated = WorkspaceLoader.load(root).config.pipelines
-      .find((pipeline) => pipeline.id === 'cofofo-foundation');
-    if (!generated || !inspection.state) throw new Error('Generated CoFoFo foundation pipeline is missing.');
-    // Registers the recipes/pipelines and detects the stack — it does not
-    // start a run itself. Starting one here (bypassing scaffoldEpic) used to
-    // create a run with no docs/epics/<id> folder, invisible in the Epics
-    // tab. Running cofofo-foundation for real now always goes through a
-    // normal "New Epic" — the same path every other pipeline uses.
-    void vscode.window.showInformationMessage(
-      `CoFoFo revision ${inspection.state.revision} registered — pipelines cofofo-foundation / cofofo-feature / cofofo-bugfix. Start foundation first, then a feature or bugfix epic.`,
-    );
-  } catch (error) {
-    const value = error as Error & { issues?: string[] };
-    void vscode.window.showErrorMessage(
-      `CoFoFo prepare failed: ${value.message}${value.issues?.length ? ` · ${value.issues.join('; ')}` : ''}`,
-    );
-  }
-}
-
-export async function installCofofoFoundationCommand(extensionPath: string): Promise<void> {
-  const root = rootOrWarn();
-  if (!root) return;
-  const state = await chooseFoundationRun(root);
-  if (!state) return;
-  try {
-    const pipeline = pipelineFor(state);
-    if (currentPhase(state, pipeline) !== 'install-ecc-assets') {
-      throw new Error(`Current phase is ${currentPhase(state, pipeline)}, not install-ecc-assets.`);
-    }
-    const manifest = serviceFor(root, extensionPath).install(state.runId);
-    const next = markStepDone({ state, pipeline, workspaceRoot: root });
-    saveAndRefresh(root, next);
-    void vscode.window.showInformationMessage(
-      `Installed ${manifest.assets.length} audited text assets. Rollback token: ${manifest.rollbackToken}.`,
-    );
-  } catch (error) {
-    void vscode.window.showErrorMessage(`CoFoFo install failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-export async function publishCofofoContextCommand(extensionPath: string): Promise<void> {
-  const root = rootOrWarn();
-  if (!root) return;
-  const state = await chooseFoundationRun(root);
-  if (!state) return;
-  try {
-    const pipeline = pipelineFor(state);
-    if (currentPhase(state, pipeline) !== 'publish-context') {
-      throw new Error(`Current phase is ${currentPhase(state, pipeline)}, not publish-context.`);
-    }
-    const manifest = serviceFor(root, extensionPath).publish(state.runId);
-    const next = markStepDone({ state, pipeline, workspaceRoot: root });
-    saveAndRefresh(root, next);
-    void vscode.window.showInformationMessage(
-      `Published context revision ${manifest.foundationRevision}. Review the provider bundle in Canvas before activation.`,
-    );
-  } catch (error) {
-    const value = error as Error & { issues?: string[] };
-    void vscode.window.showErrorMessage(
-      `CoFoFo publish failed: ${value.message}${value.issues?.length ? ` · ${value.issues.join('; ')}` : ''}`,
-    );
-  }
-}
-
-export async function activateCofofoFoundationCommand(extensionPath: string): Promise<void> {
-  const root = rootOrWarn();
-  if (!root) return;
-  const state = await chooseFoundationRun(root);
-  if (!state) return;
-  try {
-    const ready = serviceFor(root, extensionPath).activate(state.runId);
-    void vscode.commands.executeCommand('aidlc.refreshSidebar');
-    void vscode.window.showInformationMessage(
-      `CoFoFo foundation revision ${ready.revision} is active. Delivery recipes are now unlocked.`,
-    );
-  } catch (error) {
-    void vscode.window.showErrorMessage(`CoFoFo activation failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
+/** @deprecated Compatibility alias for older extension command wiring. */
+export const installCofofoWorkflowCommand = ensureCofofoWorkflowCommand;
 
 export async function showCofofoStatusCommand(extensionPath: string): Promise<void> {
   const root = rootOrWarn();
@@ -233,25 +117,6 @@ export async function showCofofoStatusCommand(extensionPath: string): Promise<vo
   }
 }
 
-export async function renderCofofoRulesCommand(extensionPath: string): Promise<void> {
-  const root = rootOrWarn();
-  if (!root) return;
-  try {
-    const issues = serviceFor(root, extensionPath).renderRules();
-    void vscode.commands.executeCommand('aidlc.refreshSidebar');
-    const blocking = issues.filter((issue) => issue.severity === 'block');
-    if (blocking.length) {
-      void vscode.window.showWarningMessage(
-        `Rendered project rules with ${blocking.length} blocking drift finding(s). Open RULE-DRIFT.md before Canvas review.`,
-      );
-    } else {
-      void vscode.window.showInformationMessage('Rendered hash-bound project rules and drift report.');
-    }
-  } catch (error) {
-    void vscode.window.showErrorMessage(`CoFoFo rule render failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
 export async function rebaseCofofoRunCommand(): Promise<void> {
   const root = rootOrWarn();
   if (!root) return;
@@ -259,6 +124,16 @@ export async function rebaseCofofoRunCommand(): Promise<void> {
   if (!state) return;
   try {
     const pipeline = pipelineFor(state);
+    if (pipeline.discover_context) {
+      const next = rebaseRunToCurrentDiscoverContext({ state, pipeline, workspaceRoot: root });
+      saveAndRefresh(root, next);
+      void vscode.window.showInformationMessage(
+        next.discoverContext?.packHash === state.discoverContext?.packHash
+          ? `${state.runId} already uses the latest Discover context.`
+          : `${state.runId} rebased to Discover revision ${next.discoverContext?.discoverRevision}; every phase was reset for replay.`,
+      );
+      return;
+    }
     const next = rebaseRunToCurrentFoundation({ state, pipeline, workspaceRoot: root });
     saveAndRefresh(root, next);
     void vscode.window.showInformationMessage(
@@ -297,9 +172,10 @@ export async function captureCofofoEvidenceCommand(): Promise<void> {
       });
       if (!expectedFailure) return;
     }
-    const profile = StackProfileSchema.parse(JSON.parse(
-      fs.readFileSync(path.join(root, 'docs/project/foundation/STACK-PROFILE.json'), 'utf8'),
-    ));
+    const stackJsonPath = path.join(root, 'docs/project/foundation/STACK-PROFILE.json');
+    const profile = fs.existsSync(stackJsonPath)
+      ? StackProfileSchema.parse(JSON.parse(fs.readFileSync(stackJsonPath, 'utf8')))
+      : detectStack(root);
     const record = captureEvidence({
       workspaceRoot: root,
       runId: state.runId,
@@ -345,7 +221,7 @@ export async function reportCofofoBugCommand(
   const state = runIdArg ? RunStateStore.load(root, runIdArg) : await chooseDeliveryRun(root);
   if (!state) return;
   const pipeline = pipelineFor(state);
-  if (pipeline.foundation?.mode !== 'cofofo') {
+  if (!pipeline.discover_context && pipeline.foundation?.mode !== 'cofofo') {
     void vscode.window.showWarningMessage(`Run "${state.runId}" is not a CoFoFo delivery run.`);
     return;
   }
@@ -373,7 +249,7 @@ export async function reportCofofoBugCommand(
     }
     const doc = readYaml(root);
     if (!doc) throw new Error('workspace.yaml is missing.');
-    new CofofoFoundationService(root).ensureRecipesRegistered();
+    new CofofoFoundationService(root).ensureWorkflowRegistered();
     const config = WorkspaceLoader.load(root).config;
     const epicId = `COFOFO-BUGFIX-${Date.now()}`;
     const bugfix = config.pipelines.find((p) => p.id === 'cofofo-bugfix');

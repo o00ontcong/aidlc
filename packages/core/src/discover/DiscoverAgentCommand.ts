@@ -22,7 +22,6 @@ export const DISCOVER_COMMAND_NAME = 'aidlc-discover';
 export const DISCOVER_PIPELINE_COMMAND_NAME = 'aidlc-discover-pipeline';
 export const DISCOVER_DEV_DOCS_COMMAND_NAME = 'aidlc-discover-dev-docs';
 export const DISCOVER_SCAN_COMMAND_NAME = 'aidlc-discover-scan';
-export const DISCOVER_CHAT_COMMAND_NAME = 'aidlc-discover-chat';
 export const DISCOVER_COMMIT_COMMAND_NAME = 'aidlc-discover-commit';
 
 function exampleId(spec: SectionSpec): string {
@@ -381,44 +380,6 @@ pipeline: this invocation may only write the files listed for \`pass=N\`.
 ## The passes
 
 ${passCatalogue()}
-`;
-}
-
-export function discoverChatCommandBody(): string {
-  return `# AIDLC Discover Agent — Conversation
-
-The human already has content for one Discover step and wants to talk about
-it, not have you rewrite it unprompted. Open the conversation with that step
-as context, then wait. **Those Markdown files are the source of truth.**
-
-## Task
-
-You were invoked with \`$ARGUMENTS\` = \`<step> [optional note]\`, where \`<step>\`
-is one of: ${DISCOVER_STEPS.map((s) => `\`${s.id}\``).join(', ')}.
-Anything after the step id is a note from the user — take it into account; it
-does not change which step you discuss.
-
-1. Read \`.aidlc/discover/index.json\` for \`docsRoot\` (default \`docs\`) and the
-   blueprint's title. Everything below is relative to that root.
-2. Read the documents of every step BEFORE this one — they are the input to
-   this step, and this conversation must not contradict them.
-3. Read this step's own documents thoroughly. That is the conversation's
-   context. Also read any extra files this step owns (for example ADRs).
-4. Reply with a short briefing: what this step currently records, anything
-   incomplete or inconsistent with earlier steps, and one or two questions
-   the human may want to discuss. Then **stop and wait**.
-5. Do not write or rewrite any document on this first turn. Later, edit this
-   step's files only when the human asks you to. Stay inside those files.
-6. When you do edit, follow the format rules below to the letter, keep every
-   existing id, and tell the user what you added, changed and removed.
-
-## Format rules
-
-${FORMAT_RULES}
-
-## The steps
-
-${stepCatalogue()}
 `;
 }
 

@@ -24,7 +24,8 @@ import {
   listPhases,
   normalizeStep,
   proseSectionKeyOf,
-  renderPhaseIntent,
+  DiscoverContextPublisher,
+  parseDetailFields,
   scaffoldEpic,
   suggestEpics,
   findEpicSuggestion,
@@ -54,6 +55,23 @@ export interface DiscoverItemUi {
   origin: 'ai' | 'human';
   pinned: boolean;
   flagged: boolean;
+  detail?: DiscoverItemDetailUi;
+}
+
+/** Structured detail shown from the small “Chi tiết” action in steps 3 and 4. */
+export interface DiscoverItemDetailUi {
+  status: 'draft' | 'review' | 'ready' | 'deprecated';
+  fields: Record<string, string[]>;
+  history: Array<{
+    discoverRevision: string;
+    publishedAt: string;
+    changeType: string;
+    changedFields: string[];
+    summary: string;
+    reason: string;
+    breaking: boolean;
+    actor: { kind: string; id: string };
+  }>;
 }
 
 export interface DiscoverRecordUi {
@@ -143,7 +161,14 @@ export interface DiscoverUi {
   /** Pre-filled epic proposals from docs ↔ code reconciliation (Kiểm tra panel). */
   epicSuggestions: EpicSuggestion[];
   /** Per-FR / feature / screen inventory for steps 3, 4 and 6. */
-  itemCoverage: DiscoverItemCoverage;
+  itemCoverage: DiscoverItemCoverage & { items: Array<DiscoverItemCoverage['items'][number] & { detail?: DiscoverItemDetailUi }> };
+  /** Latest publish state; Discover Markdown remains editable regardless of this state. */
+  context: {
+    status: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
+    discoverRevision?: string;
+    publishedAt?: string;
+    nextAction: string;
+  };
   runs: DiscoverRun[];
   /** Three-pass scan campaign, when one exists. */
   scanCampaign?: { status: 'active' | 'done'; lastKeptPass: 0 | 1 | 2 | 3 };
@@ -210,6 +235,7 @@ function toDocUi(
   index: DiscoverIndex,
   ctx: BlueprintContext,
   docPath: string,
+  details: Map<string, DiscoverItemDetailUi>,
 ): DiscoverDocUi {
   const doc = ctx.docs.get(docPath)!;
   const step = DISCOVER_STEPS.find((s) => s.files.some((f) => f.path === docPath))!;
@@ -247,6 +273,7 @@ function toDocUi(
         text: item.text,
         description: item.description,
         ...flagsFor(item.id),
+        ...(details.has(item.id) ? { detail: details.get(item.id) } : {}),
       })),
       records: section.records.map((record) => ({
         id: record.id,
@@ -265,6 +292,38 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
   if (!index) { return undefined; }
   const ctx = service.readBlueprint(index);
   const docsRootPath = service.docsRoot(index);
+  const publisher = new DiscoverContextPublisher(root);
+  const contextInspection = publisher.inspect();
+  const entityById = new Map((contextInspection.context?.entities ?? []).map((entity) => [entity.id, entity]));
+  const detailById = new Map<string, DiscoverItemDetailUi>();
+  for (const doc of ctx.docs.values()) {
+    for (const section of doc.sections) {
+      for (const item of section.items) {
+        const entity = entityById.get(item.id);
+        if (!entity && !/^(FR|NFR|F)-/u.test(item.id)) { continue; }
+        detailById.set(item.id, {
+          status: entity?.status ?? 'draft',
+          fields: entity?.fields ?? parseDetailFields(item.description),
+          history: publisher.historyFor(item.id).map((event) => ({
+            discoverRevision: event.discoverRevision,
+            publishedAt: event.publishedAt,
+            changeType: event.changeType,
+            changedFields: event.changedFields,
+            summary: event.summary,
+            reason: event.reason,
+            breaking: event.breaking,
+            actor: event.actor,
+          })),
+        });
+      }
+    }
+  }
+  const itemCoverage = classifyItemCoverage({
+    workspaceRoot: root,
+    ctx,
+    index,
+    scope: service.declaredScope(),
+  });
 
   const active = service.activeRun(index);
   let activeRun: DiscoverUi['activeRun'];
@@ -300,7 +359,7 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
       files: step.files.map((f) => f.path),
       hasContent: !isStepEmpty(ctx, step.id),
     })),
-    docs: [...ctx.docs.keys()].map((docPath) => toDocUi(service, index, ctx, docPath)),
+    docs: [...ctx.docs.keys()].map((docPath) => toDocUi(service, index, ctx, docPath, detailById)),
     devDocs: DEV_DOCS.map((rel) => ({
       path: rel,
       filePath: path.join(docsRootPath, rel),
@@ -314,12 +373,21 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
       index,
       scope: service.declaredScope(),
     }),
-    itemCoverage: classifyItemCoverage({
-      workspaceRoot: root,
-      ctx,
-      index,
-      scope: service.declaredScope(),
-    }),
+    itemCoverage: {
+      ...itemCoverage,
+      items: itemCoverage.items.map((item) => ({
+        ...item,
+        ...(detailById.has(item.id) ? { detail: detailById.get(item.id) } : {}),
+      })),
+    },
+    context: {
+      status: contextInspection.status,
+      ...(contextInspection.context ? {
+        discoverRevision: contextInspection.context.discoverRevision,
+        publishedAt: contextInspection.context.publishedAt,
+      } : {}),
+      nextAction: contextInspection.nextAction,
+    },
     runs: [...index.runs].reverse().slice(0, 20),
     scanCampaign: index.scanCampaign
       ? { status: index.scanCampaign.status, lastKeptPass: index.scanCampaign.lastKeptPass }
@@ -399,7 +467,8 @@ export interface ScaffoldPhaseInput {
 
 export interface ScaffoldPhaseResult {
   epicId: string;
-  intentPath: string;
+  /** The immutable, compact Discover slice pinned by this Epic. */
+  contextPath: string;
 }
 
 /**
@@ -407,10 +476,9 @@ export interface ScaffoldPhaseResult {
  *
  * Mirrors what `reportCofofoBugCommand` does for a bugfix: assemble the recipe
  * into a real pipeline, register it in `workspace.yaml`, then scaffold. The
- * one thing added here is `discoverProvenance`, which is what writes
- * `INTENT.md` into the epic's artifacts — the `requirement` gate reads that
- * file, so the brief has to be a snapshot, never a pointer back into docs that
- * can change afterwards.
+ * The handoff never copies Markdown into the Epic. It creates an immutable,
+ * compact context pack from the published Discover revision and pins that
+ * pack in both `inputs.json` and the pipeline RunState.
  */
 export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): ScaffoldPhaseResult {
   const service = new DiscoverService(root);
@@ -427,8 +495,8 @@ export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): 
   const doc = readYaml(root);
   if (!doc) { throw new Error('workspace.yaml is missing — open the Builder tab first.'); }
 
-  // Ensure the three CoFoFo pipelines exist even before prepare() has run.
-  new CofofoFoundationService(root).ensureRecipesRegistered();
+  // Ensure the delivery pipelines exist even before prepare() has run.
+  new CofofoFoundationService(root).ensureWorkflowRegistered();
   const config = WorkspaceLoader.load(root).config;
   const pipelineId = resolveCofofoPipelineId(input.recipeId) ?? input.recipeId;
   const pipeline = config.pipelines.find((p) => p.id === pipelineId);
@@ -437,12 +505,14 @@ export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): 
   }
 
   const epicId = nextEpicId(root, doc);
-  // Reload doc after ensureRecipesRegistered may have rewritten workspace.yaml.
+  // Reload doc after ensureWorkflowRegistered may have rewritten workspace.yaml.
   const freshDoc = readYaml(root) ?? doc;
 
-  const brief = renderPhaseIntent(ctx, index, phase);
   const title = (input.title ?? '').trim() || `${phase.id} — ${phase.title || index.title}`;
-  const foundation = new CofofoFoundationService(root).inspect().snapshot;
+  const taskKind = pipelineId === 'cofofo-bugfix' ? 'bugfix' : 'feature';
+  const publisher = new DiscoverContextPublisher(root);
+  const contextPack = publisher.createContextPack({ taskKind, phaseId: phase.id });
+  const contextPath = publisher.contextPackPath(contextPack.contextRef.packHash);
 
   const result = scaffoldEpic({
     workspaceRoot: root,
@@ -452,20 +522,17 @@ export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): 
     description: phase.goal || phase.deliverables.join('; '),
     target: { kind: 'pipeline', id: pipelineId },
     agents: pipeline.steps.map((step) => normalizeStep(step).agent),
-    inputs: {},
+    inputs: { context_pack: contextPath },
     pipeline,
     discoverProvenance: {
       id: index.id,
       revision: index.revision,
-      // A workspace with no published CoFoFo Foundation still hands off; the
-      // epic runs cofofo-foundation first when needed.
-      foundation: foundation ?? { revision: 0, manifestPath: '', manifestHash: 'unpublished', capturedAt: new Date().toISOString() },
-      brief,
+      contextRef: contextPack.contextRef,
     },
   });
 
   service.recordHandoff({ phaseId: phase.id, epicId, recipeId: pipelineId as typeof input.recipeId, title });
-  return { epicId, intentPath: path.join(result.artifactsDir, 'INTENT.md') };
+  return { epicId, contextPath };
 }
 
 export interface ScaffoldSuggestionInput {
@@ -487,11 +554,14 @@ export function scaffoldEpicFromSuggestion(root: string, input: ScaffoldSuggesti
     scope: service.declaredScope(),
   }, input.suggestionId);
   if (!suggestion) { throw new Error(`Suggestion ${input.suggestionId} không còn hợp lệ — hãy tải lại Kiểm tra.`); }
+  if (!suggestion.phaseId) {
+    throw new Error('Suggestion này chưa thuộc một phase Discover. Hãy thêm nó vào Implementation Plan, xuất bản Context, rồi bàn giao từ phase đó.');
+  }
 
   const doc = readYaml(root);
   if (!doc) { throw new Error('workspace.yaml is missing — open the Builder tab first.'); }
 
-  new CofofoFoundationService(root).ensureRecipesRegistered();
+  new CofofoFoundationService(root).ensureWorkflowRegistered();
   const config = WorkspaceLoader.load(root).config;
   const pipelineId = resolveCofofoPipelineId(suggestion.recipeId) ?? 'cofofo-feature';
   const pipeline = config.pipelines.find((p) => p.id === pipelineId);
@@ -501,7 +571,10 @@ export function scaffoldEpicFromSuggestion(root: string, input: ScaffoldSuggesti
 
   const freshDoc = readYaml(root) ?? doc;
   const epicId = nextEpicId(root, freshDoc);
-  const foundation = new CofofoFoundationService(root).inspect().snapshot;
+  const taskKind = pipelineId === 'cofofo-bugfix' ? 'bugfix' : 'feature';
+  const publisher = new DiscoverContextPublisher(root);
+  const contextPack = publisher.createContextPack({ taskKind, phaseId: suggestion.phaseId });
+  const contextPath = publisher.contextPackPath(contextPack.contextRef.packHash);
 
   const result = scaffoldEpic({
     workspaceRoot: root,
@@ -511,26 +584,23 @@ export function scaffoldEpicFromSuggestion(root: string, input: ScaffoldSuggesti
     description: suggestion.description,
     target: { kind: 'pipeline', id: pipelineId },
     agents: pipeline.steps.map((step) => normalizeStep(step).agent),
-    inputs: {},
+    inputs: { context_pack: contextPath },
     pipeline,
     discoverProvenance: {
       id: index.id,
       revision: index.revision,
-      foundation: foundation ?? { revision: 0, manifestPath: '', manifestHash: 'unpublished', capturedAt: new Date().toISOString() },
-      brief: suggestion.brief,
+      contextRef: contextPack.contextRef,
     },
   });
 
-  if (suggestion.phaseId) {
-    service.recordHandoff({
-      phaseId: suggestion.phaseId,
-      epicId,
-      recipeId: pipelineId,
-      title: suggestion.title,
-    });
-  }
+  service.recordHandoff({
+    phaseId: suggestion.phaseId,
+    epicId,
+    recipeId: pipelineId,
+    title: suggestion.title,
+  });
 
-  return { epicId, intentPath: path.join(result.artifactsDir, 'INTENT.md') };
+  return { epicId, contextPath };
 }
 
 /** `EPIC-004` — continues whatever numbering the workspace already uses. */

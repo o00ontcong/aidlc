@@ -11,6 +11,7 @@ import {
   type InstalledAssetsManifest,
 } from './contracts';
 import { COFOFO_BUNDLE_BINDING_PATH } from './BundleBinding';
+import { COFOFO_INSTALLED_ASSETS_PATH } from './Installer';
 import { pruneRogueCofofoPipelines } from './bugReport';
 import { hashFile } from './hash';
 import { resolveInside } from './paths';
@@ -178,7 +179,14 @@ export function diagnoseCofofoBinding(workspaceRoot: string): CofofoDoctorIssue[
   // Rogue cofofo-* pipelines are illegal regardless of foundation/binding state.
   const issues: CofofoDoctorIssue[] = [...collectRoguePipelineIssues(workspace)];
 
+  // The current auto-install path writes under .aidlc/discover/runtime/; a
+  // workspace that went through the retired agent-driven Foundation pipeline
+  // may still only have the legacy docs/project/foundation/ location.
   const installed = readJsonFile(
+    workspaceRoot,
+    COFOFO_INSTALLED_ASSETS_PATH,
+    (value) => InstalledAssetsManifestSchema.parse(value),
+  ) ?? readJsonFile(
     workspaceRoot,
     'docs/project/foundation/INSTALLED-ASSETS.json',
     (value) => InstalledAssetsManifestSchema.parse(value),
@@ -237,8 +245,9 @@ export function doctorIssueDetails(issues: CofofoDoctorIssue[]): string[] {
 }
 
 /**
- * Drop illegal `cofofo-*` pipelines (anything except delivery/foundation) from
- * an in-memory workspace doc. Returns the removed ids. Caller persists YAML.
+ * Drop illegal `cofofo-*` pipelines (anything except the three canonical
+ * Foundation/Feature/Bugfix pipelines) from an in-memory workspace doc.
+ * Returns the removed ids. Caller persists YAML.
  */
 export function removeRogueCofofoPipelinesFromWorkspace<T extends { id?: unknown }>(
   doc: { pipelines?: T[] },

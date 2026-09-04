@@ -35,8 +35,7 @@ interface Props {
   existingPipelineIds: string[];
   /** Pre-filled values when mode === 'edit'. */
   initial?: PipelineDraft;
-  /** The built-in AIDLC SDLC pipeline — when present, the Add modal shows a
-   *  "Load AIDLC default" button that prefills these steps. */
+  /** Default CoFoFo Feature pipeline used to prefill a custom pipeline. */
   aidlcDefault?: { on_failure: 'stop' | 'continue'; steps: PipelineStepDraft[] };
   onSubmit: (draft: PipelineDraft) => void;
   onClose: () => void;
@@ -136,7 +135,7 @@ export function PipelineModal({
   const updateAt = (i: number, patch: Partial<PipelineStepDraft>) =>
     setSteps((cur) => cur.map((s, j) => (j === i ? { ...s, ...patch } : s)));
 
-  // Prefill the form with the built-in AIDLC SDLC pipeline (steps + on_failure).
+  // Prefill the form with the default CoFoFo Feature pipeline.
   const canLoadDefault =
     mode === 'add' && !!aidlcDefault && aidlcDefault.steps.length > 0;
   const loadDefault = () => {
@@ -144,8 +143,8 @@ export function PipelineModal({
     setOnFailure(aidlcDefault.on_failure);
     // Clone so later edits don't mutate the shared default.
     setSteps(aidlcDefault.steps.map((s) => ({ ...s, skills: s.skills ? [...s.skills] : undefined, depends_on: s.depends_on ? [...s.depends_on] : undefined })));
-    // The default steps reference the built-in agents/skills — install them so
-    // the dropdowns resolve (otherwise they'd show "(missing)") and Create works.
+    // Its steps reference project-local CoFoFo agents/skills. Ensure those
+    // assets exist so the dropdowns resolve and Create works.
     postMessage({ type: 'loadDefaultPipelineAssets' });
   };
 
@@ -213,11 +212,11 @@ export function PipelineModal({
                 <button
                   type="button"
                   onClick={loadDefault}
-                  title="Prefill the built-in AIDLC SDLC pipeline and install its agents + skills (plan → design ∥ test-plan → implement ∥ generate-test-cases → execute-test)"
+                  title="Prefill CoFoFo Feature and prepare its project-local agents and skills"
                   className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary transition-colors hover:border-primary/60 hover:bg-primary/20"
                 >
                   <Sparkles className="h-2.5 w-2.5" />
-                  Load AIDLC default
+                  Load CoFoFo default
                 </button>
               )}
               <span className="text-[10px] text-muted-foreground">
@@ -228,7 +227,7 @@ export function PipelineModal({
           {steps.length === 0 ? (
             <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-muted-foreground">
               {canLoadDefault ? (
-                <>Pick agents below to add steps, or <button type="button" onClick={loadDefault} className="font-medium text-primary underline-offset-2 hover:underline">load the AIDLC default pipeline</button>.</>
+                <>Pick agents below to add steps, or <button type="button" onClick={loadDefault} className="font-medium text-primary underline-offset-2 hover:underline">load the CoFoFo default pipeline</button>.</>
               ) : (
                 'Pick agents below to add steps in execution order.'
               )}

@@ -3,6 +3,7 @@ import { onHostMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 import { Plus, FileCode2, Pencil, Copy, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { WorkspaceState, AgentSummary, SkillSummary, AssetScope } from '@/lib/types';
+import { pickDefaultPipelineId } from '../../defaultWorkflow';
 import { AgentCard, KebabMenu } from './AgentCard';
 import { PipelineCard } from './PipelineCard';
 import { RenameModal } from './RenameModal';
@@ -396,8 +397,6 @@ function SkillCard({ skill, allSkillIds }: { skill: SkillSummary; allSkillIds: s
   );
 }
 
-const DEFAULT_PIPELINE_ID = 'aidlc-workflow-full';
-
 interface PersistedBuilderUi {
   workflowDomain?: string;
   agentScope?: AssetScope;
@@ -408,15 +407,14 @@ function pickInitialPipelineId(pipelines: WorkspaceState['pipelines']): string {
   if (pipelines.length === 0) { return ''; }
   const persisted = getPersistedUi<PersistedBuilderUi>()?.workflowDomain;
   if (persisted && pipelines.some((p) => p.id === persisted)) { return persisted; }
-  if (pipelines.some((p) => p.id === DEFAULT_PIPELINE_ID)) { return DEFAULT_PIPELINE_ID; }
-  return pipelines[0].id;
+  return pickDefaultPipelineId(pipelines);
 }
 
 function PipelinesGrid({ state }: { state: WorkspaceState }) {
   const [selectedId, setSelectedId] = useState(() => pickInitialPipelineId(state.pipelines));
 
   // Re-resolve the selection when the pipeline list changes (e.g. a workflow
-  // was just applied / removed). Falls back through persisted → sdlc default →
+  // was just applied / removed). Falls back through persisted → CoFoFo default →
   // first available so the dropdown never points at a stale id.
   useEffect(() => {
     if (state.pipelines.length === 0) { return; }

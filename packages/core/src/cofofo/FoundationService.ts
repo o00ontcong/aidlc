@@ -3,34 +3,21 @@ import * as path from 'path';
 import * as yaml from 'js-yaml';
 
 import type { WorkspaceConfig } from '../schema/WorkspaceSchema';
-import { normalizeStep } from '../schema/WorkspaceSchema';
-import { RunStateStore } from '../runs/RunStateStore';
 import {
   BundleBindingSchema,
   CofofoFoundationStateSchema,
   ContextManifestSchema,
   InstalledAssetsManifestSchema,
-  ProjectRulesSchema,
   StackProfileSchema,
   type CofofoFoundationSnapshot,
   type CofofoFoundationState,
   type ContextManifest,
-  type ContextManifestV2,
-  type ProjectRules,
   type StackProfile,
 } from './contracts';
-import { buildBundleBinding, COFOFO_BUNDLE_BINDING_PATH } from './BundleBinding';
-import { builtinCofofoCatalogRoot, selectCatalog } from './Catalog';
+import { builtinCofofoCatalogRoot } from './Catalog';
 import { diagnoseCofofoBinding, type CofofoDoctorIssue } from './CofofoDoctor';
-import { renderProviderContext } from './ProviderContext';
-import { composeWorkspaceFromBundle } from './WorkspaceComposer';
-import { detectStack, stackGateIssues, validateStackProfile } from './StackDetector';
-import {
-  renderProjectRules,
-  validateProjectRules,
-  validateRulesMarkdown,
-} from './RuleEngine';
-import { installCatalog, previewCatalogInstall, verifyInstalledAssets } from './Installer';
+import { stackGateIssues } from './StackDetector';
+import { verifyInstalledAssets } from './Installer';
 import {
   generatedCofofoWorkspace,
   installCofofoPhaseSkills,
@@ -45,19 +32,9 @@ export const COFOFO_CONTEXT_MANIFEST_PATH = `${COFOFO_FOUNDATION_DIR}/CONTEXT-MA
 
 const FILES = {
   stackJson: `${COFOFO_FOUNDATION_DIR}/STACK-PROFILE.json`,
-  stackMarkdown: `${COFOFO_FOUNDATION_DIR}/STACK-PROFILE.md`,
-  rulesJson: `${COFOFO_FOUNDATION_DIR}/PROJECT-RULES.json`,
-  rulesMarkdown: `${COFOFO_FOUNDATION_DIR}/PROJECT-RULES.md`,
-  drift: `${COFOFO_FOUNDATION_DIR}/RULE-DRIFT.md`,
-  architecture: `${COFOFO_FOUNDATION_DIR}/ARCHITECTURE-MAP.md`,
-  selection: `${COFOFO_FOUNDATION_DIR}/ECC-CATALOG-SELECTION.md`,
   installed: `${COFOFO_FOUNDATION_DIR}/INSTALLED-ASSETS.json`,
-  bundleBinding: COFOFO_BUNDLE_BINDING_PATH,
-  providerContext: `${COFOFO_FOUNDATION_DIR}/PROVIDER-CONTEXT.md`,
   context: COFOFO_CONTEXT_MANIFEST_PATH,
 } as const;
-
-export type FoundationRoute = 'bootstrap' | 'refresh-context' | 'update-rules' | 'repin-bundle';
 
 export interface CofofoFoundationInspection {
   status: 'missing' | 'pending-review' | 'ready' | 'stale';
@@ -86,106 +63,20 @@ function readJson<T>(root: string, relative: string, parser: (value: unknown) =>
   return parser(JSON.parse(fs.readFileSync(absolute, 'utf8')));
 }
 
-function writeJson(root: string, relative: string, value: unknown): void {
-  writeAtomic(resolveInside(root, relative), `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function profileMarkdown(profile: StackProfile): string {
-  const lines = ['# Stack Profile', '', `- Mode: **${profile.mode}**`, `- Repository: **${profile.repositoryKind}**`, `- Confidence: **${profile.confidence}**`];
-  if (profile.stack) {
-    lines.push(`- Stack: **${profile.stack.id}**`, `- Language: ${profile.stack.language}`, `- Version: ${profile.stack.version}`, `- Package manager: ${profile.stack.packageManager}`, `- Build system: ${profile.stack.buildSystem}`);
-  }
-  if (profile.closed) lines.push('', '## Closed', '', profile.closed.reason, '', 'CoFoFo does not guess a bundle. Resolve to a single stack and re-run scan-stack.');
-  lines.push('', '## Machine Evidence', '', ...profile.evidence.map((item) => `- ${item.path} — ${item.observed} — ${item.sha256}`), '');
-  return lines.join('\n');
-}
-
-function catalogSelectionMarkdown(profile: StackProfile, catalogRoot: string): string {
-  const selection = selectCatalog(profile);
-  if (!selection) return '# ECC Catalog Selection\n\nscan-stack is closed; no catalog is selected. CoFoFo does not guess a bundle.\n';
-  const lines = [
-    '# ECC Catalog Selection', '',
-    `Pinned revision: ${selection.revision}`, '',
-    '## Approved Text Assets', '',
-    '| ID | Kind | Source | SHA-256 | Modified |',
-    '|---|---|---|---|---|',
-  ];
-  for (const asset of selection.assets) {
-    const digest = hashFile(resolveInside(catalogRoot, asset.sourcePath, true));
-    lines.push(`| ${asset.id} | ${asset.kind} | ${asset.sourcePath} | ${digest} | ${asset.modified ? 'yes' : 'no'} |`);
-  }
-  lines.push('', 'Only Markdown agents and skills are selected. Hooks, validators, scripts, and binaries are rejected. Runtime network fetch is disabled.', '');
-  return lines.join('\n');
-}
-
 function stateOf(root: string): CofofoFoundationState | null {
   return readJson(root, COFOFO_STATE_PATH, (value) => CofofoFoundationStateSchema.parse(value));
-}
-
-/** Recipes that slice `cofofo-foundation` into an epic-owned pipeline id. */
-const COFOFO_FOUNDATION_RECIPES = new Set([
-  'cofofo-foundation',
-  // Legacy recipe aliases that may still appear on old run snapshots.
-  'cofofo-bootstrap',
-  'cofofo-refresh-context',
-  'cofofo-update-rules',
-  'cofofo-repin-bundle',
-]);
-
-/**
- * True for the shared `cofofo-foundation` pipeline and for epic-materialized
- * slices that keep `materialized_from_recipe` pointing at a Foundation recipe.
- * Epic runs use ids like `EPIC-001` while still carrying the Canvas gates.
- */
-function isCofofoFoundationRunPipeline(pipeline: {
-  id: string;
-  materialized_from_recipe?: string;
-}): boolean {
-  if (pipeline.id === 'cofofo-foundation') return true;
-  return typeof pipeline.materialized_from_recipe === 'string'
-    && COFOFO_FOUNDATION_RECIPES.has(pipeline.materialized_from_recipe);
-}
-
-function assertCanvasApproved(root: string, runId: string, stepName: string): void {
-  const state = RunStateStore.load(root, runId);
-  if (!state) throw new CofofoFoundationError(`Foundation run "${runId}" does not exist.`);
-  const pipeline = state.pipelineSnapshot?.pipeline;
-  if (!pipeline || !isCofofoFoundationRunPipeline(pipeline)) {
-    throw new CofofoFoundationError(`Run "${runId}" is not a CoFoFo foundation run.`);
-  }
-  const index = pipeline.steps.findIndex((step) => (normalizeStep(step).name ?? normalizeStep(step).agent) === stepName);
-  const step = state.steps[index];
-  if (index < 0 || !step || step.status !== 'approved' || step.canvasReview?.verdict !== 'approve') {
-    throw new CofofoFoundationError(`Step "${stepName}" must be approved through its content-bound Canvas gate first.`);
-  }
-}
-
-function assertStepApproved(root: string, runId: string, stepName: string): void {
-  const state = RunStateStore.load(root, runId);
-  const pipeline = state?.pipelineSnapshot?.pipeline;
-  const index = pipeline?.steps.findIndex((step) => (normalizeStep(step).name ?? normalizeStep(step).agent) === stepName) ?? -1;
-  if (!state || index < 0 || state.steps[index]?.status !== 'approved') {
-    throw new CofofoFoundationError(`Foundation step "${stepName}" must be approved before this action.`);
-  }
-}
-
-function managedBlock(content: string, block: string): string {
-  const start = '<!-- aidlc:cofofo-context start -->';
-  const end = '<!-- aidlc:cofofo-context end -->';
-  const first = content.indexOf(start);
-  const last = content.indexOf(end);
-  if ((first >= 0) !== (last >= 0) || (first >= 0 && last < first)) {
-    throw new CofofoFoundationError('Managed CoFoFo context markers are malformed; refusing to overwrite user-authored content.');
-  }
-  const rendered = `${start}\n${block.trim()}\n${end}`;
-  if (first >= 0) return `${content.slice(0, first)}${rendered}${content.slice(last + end.length)}`;
-  return `${content.trimEnd()}${content.trim() ? '\n\n' : ''}${rendered}\n`;
 }
 
 function contextHash(manifest: Omit<ContextManifest, 'contentHash'>): string {
   return hashObject(manifest);
 }
 
+/**
+ * Validate a legacy CONTEXT-MANIFEST.json (and, for schema v2, its bundle
+ * binding) against the files on disk. Read-only — this is compatibility
+ * verification for a workspace that already went through the retired
+ * agent-driven Foundation pipeline, never a source of new writes.
+ */
 function validateContext(root: string, manifest: ContextManifest): string[] {
   const issues: string[] = [];
   const { contentHash, ...draft } = manifest;
@@ -238,6 +129,18 @@ function classifyInspectionIssues(issues: string[]): Array<{ kind: 'content-drif
   }));
 }
 
+/**
+ * Compatibility surface for the retired agent-driven `cofofo-foundation`
+ * pipeline (scan-stack → … → publish-context, with Canvas-reviewed catalog
+ * selection and install/publish/activate steps). Discover's "Publish
+ * context" button and `DiscoverContextPublisher` are the only public,
+ * currently-writable path for stack detection, rule compilation, and ECC
+ * bundle install — this class now only (a) ensures the two CoFoFo delivery
+ * pipelines exist in `.aidlc/workspace.yaml`, and (b) reads/validates a
+ * legacy Foundation snapshot a workspace may already have on disk from
+ * before this migration, so an old pinned `pipeline.foundation` gate keeps
+ * resolving without silently going stale.
+ */
 export class CofofoFoundationService {
   readonly workspaceRoot: string;
 
@@ -245,62 +148,13 @@ export class CofofoFoundationService {
     this.workspaceRoot = fs.realpathSync(path.resolve(workspaceRoot));
   }
 
-  prepare(args: { route?: FoundationRoute; force?: boolean; now?: string } = {}): CofofoFoundationInspection {
-    const route = args.route ?? 'bootstrap';
-    const now = args.now ?? new Date().toISOString();
-    const previous = stateOf(this.workspaceRoot);
-    const revision = (previous?.revision ?? 0) + 1;
-    const profile = detectStack(this.workspaceRoot, now);
-    writeJson(this.workspaceRoot, FILES.stackJson, profile);
-    writeAtomic(resolveInside(this.workspaceRoot, FILES.stackMarkdown), profileMarkdown(profile));
-
-    const gate = stackGateIssues(profile);
-    if (selectCatalog(profile)) {
-      // PROJECT-RULES.json/md, RULE-DRIFT.md, and ARCHITECTURE-MAP.md are
-      // deliberately NOT pre-seeded here. Deciding real policy and mapping real
-      // architecture is the `define-rules`/`map-system` phases' job once a
-      // human actually starts and runs the `cofofo-foundation` epic — every
-      // other step in this codebase already creates its own `produces` files
-      // fresh during the step (see ArtifactReview.ts), and Canvas review is the
-      // real safety net regardless of whether a draft existed beforehand.
-      // ECC catalog selection stays pre-computed here: unlike rules/
-      // architecture, it's a deterministic lookup (`selectCatalog`) that
-      // `select-ecc-catalog` reviews/audits rather than authors from scratch —
-      // the same kind of machine evidence as the stack detection above.
-      writeAtomic(resolveInside(this.workspaceRoot, FILES.selection), catalogSelectionMarkdown(profile, this.catalogRoot));
-    }
-
-    installCofofoPhaseSkills(this.workspaceRoot);
-    const workspacePath = resolveInside(this.workspaceRoot, '.aidlc/workspace.yaml');
-    let current: Partial<WorkspaceConfig> | undefined;
-    if (fs.existsSync(workspacePath)) current = yaml.load(fs.readFileSync(workspacePath, 'utf8')) as Partial<WorkspaceConfig>;
-    const generated = generatedCofofoWorkspace(current);
-    writeAtomic(workspacePath, yaml.dump(generated, { lineWidth: -1, noRefs: true, sortKeys: false }));
-    installCofofoProviderCommands(this.workspaceRoot, generated);
-
-    const pending = CofofoFoundationStateSchema.parse({
-      schemaVersion: 1, revision, status: 'pending-review', route,
-      stackProfilePath: FILES.stackJson, publishedAt: now,
-    });
-    writeJson(this.workspaceRoot, COFOFO_STATE_PATH, pending);
-    return {
-      status: 'pending-review', state: pending, profile, manifest: null, issues: gate,
-      nextAction: gate.length
-        ? 'scan-stack is closed: resolve to a single stack and re-run. CoFoFo does not guess a bundle.'
-        : 'Start a cofofo-foundation epic from the Epics tab, then review rules/architecture/catalog in Canvas.',
-    };
-  }
-
   /**
-   * Registers the three CoFoFo pipelines (`cofofo-foundation`, `cofofo-feature`,
-   * `cofofo-bugfix`) into `.aidlc/workspace.yaml`. Discover handoff proposes
-   * `cofofo-feature` / `cofofo-bugfix` regardless of whether `prepare()` has
-   * run yet — those pipelines must exist even for a project with no code.
-   *
-   * Idempotent: merges via `generatedCofofoWorkspace` and only seeds
-   * `stack.json` when missing.
+   * Registers the two delivery pipelines (`cofofo-feature`, `cofofo-bugfix`).
+   * Discover Context, not a separately startable Foundation workflow, owns the
+   * prerequisite publication. This compatibility-named service remains because
+   * existing callers use it to ensure the project-local CoFoFo workflow.
    */
-  ensureRecipesRegistered(): void {
+  ensureWorkflowRegistered(): void {
     const workspacePath = resolveInside(this.workspaceRoot, '.aidlc/workspace.yaml');
     let current: Partial<WorkspaceConfig> | undefined;
     if (fs.existsSync(workspacePath)) current = yaml.load(fs.readFileSync(workspacePath, 'utf8')) as Partial<WorkspaceConfig>;
@@ -308,171 +162,14 @@ export class CofofoFoundationService {
     writeAtomic(workspacePath, yaml.dump(generated, { lineWidth: -1, noRefs: true, sortKeys: false }));
     installCofofoPhaseSkills(this.workspaceRoot);
     installCofofoProviderCommands(this.workspaceRoot, generated);
-    if (!fs.existsSync(resolveInside(this.workspaceRoot, FILES.stackJson))) {
-      const profile = detectStack(this.workspaceRoot);
-      writeJson(this.workspaceRoot, FILES.stackJson, profile);
-      writeAtomic(resolveInside(this.workspaceRoot, FILES.stackMarkdown), profileMarkdown(profile));
-    }
   }
 
-  install(runId: string, force = false): ReturnType<typeof installCatalog> {
-    const run = RunStateStore.load(this.workspaceRoot, runId);
-    const snapshot = run?.pipelineSnapshot?.pipeline;
-    const hasCatalogStep = snapshot?.steps.some((step) => (normalizeStep(step).name ?? normalizeStep(step).agent) === 'select-ecc-catalog');
-    if (hasCatalogStep) assertCanvasApproved(this.workspaceRoot, runId, 'select-ecc-catalog');
-    const state = stateOf(this.workspaceRoot);
-    const profile = readJson(this.workspaceRoot, FILES.stackJson, (value) => StackProfileSchema.parse(value));
-    if (!state || !profile || !profile.stack) throw new CofofoFoundationError('Prepare a single-stack CoFoFo foundation before installing.');
-    if (state.route === 'bootstrap') assertCanvasApproved(this.workspaceRoot, runId, 'define-rules');
-    return installCatalog({ workspaceRoot: this.workspaceRoot, profile, foundationRevision: state.revision, force, catalogRoot: this.catalogRoot });
+  /** @deprecated CoFoFo no longer has a recipe layer; use ensureWorkflowRegistered(). */
+  ensureRecipesRegistered(): void {
+    this.ensureWorkflowRegistered();
   }
 
-  previewInstall(): ReturnType<typeof previewCatalogInstall> {
-    const profile = readJson(this.workspaceRoot, FILES.stackJson, (value) => StackProfileSchema.parse(value));
-    if (!profile?.stack) {
-      throw new CofofoFoundationError('Prepare a single-stack CoFoFo foundation before previewing the install.');
-    }
-    return previewCatalogInstall({ workspaceRoot: this.workspaceRoot, profile, catalogRoot: this.catalogRoot });
-  }
-
-  renderRules(now = new Date().toISOString()): ReturnType<typeof validateProjectRules> {
-    const state = stateOf(this.workspaceRoot);
-    const profile = readJson(this.workspaceRoot, FILES.stackJson, (value) => StackProfileSchema.parse(value));
-    const rules = readJson(this.workspaceRoot, FILES.rulesJson, (value) => ProjectRulesSchema.parse(value));
-    if (!state || !profile || !rules) throw new CofofoFoundationError('Prepare CoFoFo before rendering project rules.');
-    if (!profile.stack) {
-      throw new CofofoFoundationError('Cannot render CoFoFo project rules until scan-stack is open on a single stack.');
-    }
-    if (rules.foundationRevision !== state.revision) {
-      throw new CofofoFoundationError(
-        `PROJECT-RULES.json targets Foundation revision ${rules.foundationRevision}; expected ${state.revision}.`,
-      );
-    }
-    writeAtomic(resolveInside(this.workspaceRoot, FILES.rulesMarkdown), renderProjectRules(rules));
-    const violations = validateProjectRules({ workspaceRoot: this.workspaceRoot, rules, profile, now });
-    writeAtomic(resolveInside(this.workspaceRoot, FILES.drift), [
-      '# Rule Drift', '', '## Findings', '',
-      ...(violations.length
-        ? violations.map((issue) => `- **${issue.severity} ${issue.ruleId}** — ${issue.path}: ${issue.message}`)
-        : ['- No current violations.']), '',
-    ].join('\n'));
-    return violations;
-  }
-
-  publish(runId: string, now = new Date().toISOString()): ContextManifest {
-    const state = stateOf(this.workspaceRoot);
-    const profile = readJson(this.workspaceRoot, FILES.stackJson, (value) => StackProfileSchema.parse(value));
-    const rules = readJson(this.workspaceRoot, FILES.rulesJson, (value) => ProjectRulesSchema.parse(value));
-    const installed = readJson(this.workspaceRoot, FILES.installed, (value) => InstalledAssetsManifestSchema.parse(value));
-    if (!state || !profile || !rules || !installed || !profile.stack) throw new CofofoFoundationError('Foundation artifacts are incomplete.');
-    if (state.route === 'bootstrap' || state.route === 'repin-bundle') {
-      assertStepApproved(this.workspaceRoot, runId, 'install-ecc-assets');
-    }
-    if (state.route === 'update-rules') {
-      assertCanvasApproved(this.workspaceRoot, runId, 'define-rules');
-    }
-    const issues = [
-      ...validateStackProfile(this.workspaceRoot, profile),
-      ...validateRulesMarkdown(rules, fs.readFileSync(resolveInside(this.workspaceRoot, FILES.rulesMarkdown, true), 'utf8')),
-      ...validateProjectRules({ workspaceRoot: this.workspaceRoot, rules, profile, now }).filter((issue) => issue.severity === 'block').map((issue) => `${issue.ruleId}: ${issue.message}`),
-      ...verifyInstalledAssets(this.workspaceRoot, installed),
-    ];
-    if (issues.length) throw new CofofoFoundationError('Foundation validation failed; context was not published.', issues);
-
-    const selection = selectCatalog(profile);
-    if (!selection) {
-      throw new CofofoFoundationError('CoFoFo catalog selection is required for a detected single stack.');
-    }
-    const binding = buildBundleBinding({
-      selection,
-      installed,
-      foundationRevision: state.revision,
-    });
-    writeJson(this.workspaceRoot, FILES.bundleBinding, binding);
-
-    const workspacePath = resolveInside(this.workspaceRoot, '.aidlc/workspace.yaml');
-    let current: Partial<WorkspaceConfig> | undefined;
-    if (fs.existsSync(workspacePath)) {
-      current = yaml.load(fs.readFileSync(workspacePath, 'utf8')) as Partial<WorkspaceConfig>;
-    }
-    const skeleton = generatedCofofoWorkspace(current);
-    const workspace = composeWorkspaceFromBundle({
-      workspaceRoot: this.workspaceRoot,
-      skeleton,
-      binding,
-      installed,
-    });
-    writeAtomic(workspacePath, yaml.dump(workspace, { lineWidth: -1, noRefs: true, sortKeys: false }));
-
-    const bindingHash = hashFile(resolveInside(this.workspaceRoot, FILES.bundleBinding, true));
-    const providerContext = renderProviderContext({
-      foundationRevision: state.revision,
-      stackId: profile.stack.id,
-      catalogRevision: installed.catalogRevision,
-      binding,
-      rulesJsonPath: FILES.rulesJson,
-      architecturePath: FILES.architecture,
-      stackProfilePath: FILES.stackJson,
-      bundleBindingPath: FILES.bundleBinding,
-    });
-    // Provider files are installation targets, not review artifacts: other
-    // tools may update them while a Canvas gate is open. Review this rendered,
-    // immutable source instead and install it only after approval in activate().
-    writeAtomic(resolveInside(this.workspaceRoot, FILES.providerContext), `${providerContext}\n`);
-    const artifacts = [
-      FILES.stackJson, FILES.rulesJson, FILES.architecture, FILES.installed,
-      FILES.bundleBinding, FILES.providerContext,
-    ].map((relative) => ({ path: relative, sha256: hashFile(resolveInside(this.workspaceRoot, relative, true)) }));
-    const draft: Omit<ContextManifestV2, 'contentHash'> = {
-      schemaVersion: 2,
-      bindingPath: FILES.bundleBinding,
-      bindingHash,
-      foundationRevision: state.revision,
-      catalogRevision: installed.catalogRevision,
-      stackId: profile.stack.id,
-      generatedAt: now,
-      artifacts,
-      providers: ['claude', 'cursor', 'codex', 'opencode'],
-    };
-    const manifest = ContextManifestSchema.parse({ ...draft, contentHash: contextHash(draft) });
-    writeJson(this.workspaceRoot, FILES.context, manifest);
-    installCofofoProviderCommands(this.workspaceRoot, workspace, manifest.contentHash);
-    const docsReadme = resolveInside(this.workspaceRoot, 'docs/README.md');
-    const existingDocs = fs.existsSync(docsReadme) ? fs.readFileSync(docsReadme, 'utf8') : '# Project Documentation\n';
-    writeAtomic(docsReadme, managedBlock(existingDocs, [
-      `Foundation revision: ${manifest.foundationRevision}`, '',
-      'Reading order:', `1. ${FILES.context}`, `2. ${FILES.rulesMarkdown}`, `3. ${FILES.architecture}`, `4. ${FILES.selection}`,
-    ].join('\n')));
-    const pending = CofofoFoundationStateSchema.parse({
-      ...state, status: 'pending-review', contextManifestPath: FILES.context,
-      contextManifestHash: hashFile(resolveInside(this.workspaceRoot, FILES.context, true)), publishedAt: now,
-    });
-    writeJson(this.workspaceRoot, COFOFO_STATE_PATH, pending);
-    return manifest;
-  }
-
-  activate(runId: string): CofofoFoundationState {
-    assertCanvasApproved(this.workspaceRoot, runId, 'publish-context');
-    const state = stateOf(this.workspaceRoot);
-    const manifest = readJson(this.workspaceRoot, FILES.context, (value) => ContextManifestSchema.parse(value));
-    if (!state || !manifest) throw new CofofoFoundationError('Publish context before activating the foundation.');
-    const issues = validateContext(this.workspaceRoot, manifest);
-    if (issues.length) throw new CofofoFoundationError('Context is stale or invalid; activation failed.', issues);
-    const providerContextPath = resolveInside(this.workspaceRoot, FILES.providerContext, true);
-    const providerContext = fs.readFileSync(providerContextPath, 'utf8');
-    for (const relative of ['AGENTS.md', 'CLAUDE.md', '.cursor/rules/cofofo.md', '.opencode/instructions/cofofo.md']) {
-      const absolute = resolveInside(this.workspaceRoot, relative);
-      const existing = fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : '';
-      writeAtomic(absolute, managedBlock(existing, providerContext));
-    }
-    const ready = CofofoFoundationStateSchema.parse({
-      ...state, status: 'ready', contextManifestPath: FILES.context,
-      contextManifestHash: hashFile(resolveInside(this.workspaceRoot, FILES.context, true)),
-    });
-    writeJson(this.workspaceRoot, COFOFO_STATE_PATH, ready);
-    return ready;
-  }
-
+  /** Read-only compatibility check for a legacy Foundation snapshot, if one exists. */
   inspect(): CofofoFoundationInspection {
     let state: CofofoFoundationState | null;
     let profile: StackProfile | null;
@@ -482,9 +179,9 @@ export class CofofoFoundationService {
       profile = readJson(this.workspaceRoot, FILES.stackJson, (value) => StackProfileSchema.parse(value));
       manifest = readJson(this.workspaceRoot, FILES.context, (value) => ContextManifestSchema.parse(value));
     } catch (error) {
-      return { status: 'stale', state: null, profile: null, manifest: null, issues: [error instanceof Error ? error.message : String(error)], nextAction: 'Run `aidlc cofofo prepare --route refresh-context`.' };
+      return { status: 'stale', state: null, profile: null, manifest: null, issues: [error instanceof Error ? error.message : String(error)], nextAction: 'This project has an invalid legacy CoFoFo Foundation snapshot. Publish Discover Context instead.' };
     }
-    if (!state) return { status: 'missing', state: null, profile, manifest, issues: ['CoFoFo foundation state is missing.'], nextAction: 'Run `aidlc cofofo prepare`.' };
+    if (!state) return { status: 'missing', state: null, profile, manifest, issues: ['CoFoFo foundation state is missing.'], nextAction: 'Publish Discover Context from the Discover tab.' };
     if (!manifest || state.status === 'pending-review') {
       const gate = profile ? stackGateIssues(profile) : [];
       const issues = [
@@ -495,9 +192,7 @@ export class CofofoFoundationService {
         status: 'pending-review', state, profile, manifest, issues,
         nextAction: gate.length
           ? 'scan-stack is closed: resolve to a single stack and re-run. CoFoFo does not guess a bundle.'
-          : manifest
-            ? 'Approve publish-context in Canvas and activate.'
-            : 'Complete the foundation pipeline and publish context.',
+          : 'Publish Discover Context from the Discover tab.',
       };
     }
     const issues = validateContext(this.workspaceRoot, manifest);
@@ -515,8 +210,8 @@ export class CofofoFoundationService {
       return {
         status: 'stale', state, profile, manifest, issues, issueDetails, doctorIssues,
         nextAction: onlyContentDrift
-          ? 'Foundation content drifted; prepare the appropriate refresh/update/repin route, review, and reactivate.'
-          : 'Foundation is invalid; run `aidlc cofofo prepare --route refresh-context`, review, publish, and activate.',
+          ? 'Legacy Foundation content drifted. Publish Discover Context to move this project onto the current mechanism.'
+          : 'Legacy Foundation snapshot is invalid. Publish Discover Context to move this project onto the current mechanism.',
       };
     }
     return {
@@ -531,10 +226,7 @@ export class CofofoFoundationService {
       const issues = inspection.issues.length > 0
         ? inspection.issues
         : [`status=${inspection.status}`];
-      const hint =
-        'CoFoFo foundation is separate from aidlc-ios-foundation / project-context. ' +
-        'Finish pipeline cofofo-foundation (scan-stack → … → publish-context), approve Canvas, then activate — ' +
-        'expected artifacts: docs/project/foundation/CONTEXT-MANIFEST.json and .aidlc/cofofo/foundation.json.';
+      const hint = 'This pipeline still pins a legacy CoFoFo Foundation gate. Publish Discover Context, then start a new task so it pins Discover context instead.';
       const next = inspection.nextAction ? ` Next: ${inspection.nextAction}` : '';
       throw new CofofoFoundationError(
         `CoFoFo foundation is not ready (${inspection.status}): ${issues.join('; ')}. ${hint}${next}`,
