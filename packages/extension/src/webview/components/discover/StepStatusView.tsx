@@ -8,12 +8,14 @@ import type {
   DiscoverCoveredItem,
   DiscoverDoc,
   DiscoverItemCoverageStatus,
+  DiscoverRecord,
   DiscoverSummary,
 } from '@/lib/types';
 import type { DiscoverCopy } from '@/lib/discoverI18n';
 import { postMessage } from '@/lib/bridge';
 import { MermaidBlock } from './MarkdownLite';
 import { DiscoverItemDetailDialog, type DiscoverDetailTarget } from './DiscoverItemDetailDialog';
+import { DiscoverRecordDetailDialog } from './DiscoverRecordDetailDialog';
 
 type StatusFilter = 'all' | DiscoverItemCoverageStatus;
 
@@ -419,44 +421,66 @@ function FeaturesStatus({ discover, copy }: { discover: DiscoverSummary; copy: D
   );
 }
 
-function ScreenFlowStatus({ discover, copy, doc }: { discover: DiscoverSummary; copy: DiscoverCopy; doc?: DiscoverDoc }) {
-  const screens = (discover.itemCoverage?.items ?? []).filter((i) => i.kind === 'screen');
-  const fromDoc = doc?.sections.find((s) => s.key === 'screens')?.items ?? [];
-  const list = screens.length > 0
-    ? screens
-    : fromDoc.map((item) => ({ id: item.id, text: item.text }));
-  const prose = unwrapMermaid(doc?.sections.find((s) => s.key === 'screenFlow')?.prose ?? '');
-  const graph = /flowchart/i.test(prose) ? prose : '';
-  if (list.length === 0 && !graph) {
+function CompactRecordEntry({ record, copy }: { record: DiscoverRecord; copy: DiscoverCopy }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const title = record.title.trim() || copy.untitled;
+  return (
+    <>
+      <div className="flex items-center gap-2 border-b border-border/30 px-3 py-1.5 last:border-b-0">
+        <p className="min-w-0 flex-1 truncate text-[11.5px] font-medium leading-snug text-foreground">
+          {record.id} — {title}
+        </p>
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen(true)}
+          title={copy.hints.openDetails}
+          aria-haspopup="dialog"
+          className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {copy.details}
+        </button>
+      </div>
+      {open && (
+        <DiscoverRecordDetailDialog
+          record={record}
+          onClose={() => setOpen(false)}
+          returnFocus={triggerRef.current}
+        />
+      )}
+    </>
+  );
+}
+
+function CompactRecordsStatus({ doc, copy, sectionKey }: { doc?: DiscoverDoc; copy: DiscoverCopy; sectionKey: string }) {
+  const records = doc?.sections.find((section) => section.key === sectionKey)?.records ?? [];
+  if (records.length === 0) {
     return <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>;
   }
   return (
-    <div className="space-y-3">
-      {list.length > 0 && (
-        <section className="overflow-hidden rounded-lg border border-border bg-card">
-          <p className="border-b border-border/70 bg-secondary/40 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{copy.status.screens}</p>
-          <ul>
-            {list.map((item) => (
-              <li key={item.id} className="space-y-0.5 border-b border-border/30 px-3 py-2 last:border-b-0">
-                <code className="rounded border border-border bg-background px-1.5 font-mono text-[9.5px] text-muted-foreground">{item.id}</code>
-                {item.text.trim() && <p className="text-[11.5px] leading-snug text-foreground">{item.text}</p>}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {graph && (
-        <section className="rounded-lg border border-border bg-card">
-          <MermaidBlock
-            source={graph}
-            title={copy.status.screenFlow}
-            embedded
-            fullscreenLabel={copy.status.fullscreen}
-            exitFullscreenLabel={copy.status.exitFullscreen}
-          />
-        </section>
-      )}
-    </div>
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      {records.map((record) => <CompactRecordEntry key={record.id} record={record} copy={copy} />)}
+    </section>
+  );
+}
+
+function ScreenFlowStatus({ copy, doc }: { copy: DiscoverCopy; doc?: DiscoverDoc }) {
+  const prose = unwrapMermaid(doc?.sections.find((s) => s.key === 'screenFlow')?.prose ?? '');
+  const graph = /flowchart/i.test(prose) ? prose : '';
+  if (!graph) {
+    return <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>;
+  }
+  return (
+    <section className="rounded-lg border border-border bg-card">
+      <MermaidBlock
+        source={graph}
+        title={copy.status.screenFlow}
+        embedded
+        fullscreenLabel={copy.status.fullscreen}
+        exitFullscreenLabel={copy.status.exitFullscreen}
+      />
+    </section>
   );
 }
 
@@ -470,10 +494,12 @@ export function StepStatusView({
 }) {
   if (stepId === 'requirements') { return <RequirementsStatus discover={discover} copy={copy} />; }
   if (stepId === 'features') { return <FeaturesStatus discover={discover} copy={copy} />; }
-  if (stepId === 'userflows') { return <ScreenFlowStatus discover={discover} copy={copy} doc={doc} />; }
+  if (stepId === 'usecases') { return <CompactRecordsStatus doc={doc} copy={copy} sectionKey="useCases" />; }
+  if (stepId === 'userflows') { return <ScreenFlowStatus copy={copy} doc={doc} />; }
+  if (stepId === 'plan') { return <CompactRecordsStatus doc={doc} copy={copy} sectionKey="phases" />; }
   return null;
 }
 
 export function stepHasStatusView(stepId: string): boolean {
-  return stepId === 'requirements' || stepId === 'features' || stepId === 'userflows';
+  return stepId === 'requirements' || stepId === 'features' || stepId === 'usecases' || stepId === 'userflows' || stepId === 'plan';
 }
