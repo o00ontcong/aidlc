@@ -145,7 +145,7 @@ export function assemblePipeline(
   if (isRogueCofofoPipelineId(assembledId)) {
     throw new PipelineAssembleError(
       `Refusing pipeline id "${assembledId}": not a canonical CoFoFo pipeline. ` +
-        `Allowed: cofofo-foundation / cofofo-feature / cofofo-bugfix (or an epic id like PASS-1087).`,
+        `Allowed delivery pipelines: cofofo-feature / cofofo-bugfix (or an epic id like PASS-1087).`,
     );
   }
 

@@ -21,7 +21,7 @@ const OPTIONS: Option[] = [
     description:
       'Evidence-first workflow with shared project context, explicit review gates, and project-local assets.',
     bullets: [
-      'Three startable pipelines: Foundation, Feature, and Bugfix',
+      'Two delivery pipelines: Feature and Bugfix; Discover owns Publish Context',
       'Canvas review + RED / GREEN / VERIFY evidence gates',
       'Ready automatically inside the project — no separate installation',
     ],

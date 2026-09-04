@@ -101,6 +101,38 @@ describe('DiscoverContextPublisher', () => {
     expect(history[0]!.changeType).toBe('updated');
     expect(history[0]!.changedFields).toContain('title');
     expect(history[1]!.changeType).toBe('created');
+
+    const detail = publisher.historyDetailsFor('FR-01')[0]!;
+    expect(detail.before?.title).toBe('Canh bao khi nhiet do vuot nguong.');
+    expect(detail.after?.title).toBe('Canh bao khi nhiet do vuot nguong an toan.');
+  });
+
+  it('writes real code, test, entry-point, dependency, and architecture reconciliation evidence', () => {
+    const root = temporary();
+    seedBlueprint(root);
+    write(root, 'package.json', JSON.stringify({ name: 'demo', dependencies: { vitest: '^4.0.0' }, main: 'src/index.ts' }));
+    write(root, 'src/index.ts', 'export * from "./alert";\n');
+    write(root, 'src/alert.ts', 'export function alert() { return true; }\n');
+    write(root, 'src/alert.test.ts', 'import { alert } from "./alert";\nvoid alert;\n');
+    const publisher = new DiscoverContextPublisher(root);
+    const context = publisher.publish({ actor: USER, reason: 'Capture brownfield evidence.' });
+    const index = JSON.parse(fs.readFileSync(path.join(root, '.aidlc/discover/code-index.json'), 'utf8')) as {
+      generated: boolean; doNotEdit: boolean; discoverRevision: string;
+      dependencies: Array<{ path: string; names: string[] }>;
+      entryPoints: string[];
+      entries: Array<{ id: string; status: string; paths: string[]; testPaths: string[] }>;
+    };
+    expect(index.generated).toBe(true);
+    expect(index.doNotEdit).toBe(true);
+    expect(index.discoverRevision).toBe(context.discoverRevision);
+    expect(index.dependencies).toContainEqual(expect.objectContaining({ path: 'package.json', names: ['vitest'] }));
+    expect(index.entryPoints).toContain('src/index.ts');
+    expect(index.entries.find((entry) => entry.id === 'F-ALERT-01')).toMatchObject({
+      status: 'implemented', paths: expect.arrayContaining(['src/alert.ts']), testPaths: expect.arrayContaining(['src/alert.test.ts']),
+    });
+
+    const pack = publisher.createContextPack({ taskKind: 'bugfix', bugScopeId: 'F-ALERT-01' });
+    expect(pack.sourcePaths).toEqual(expect.arrayContaining(['src/alert.ts', 'src/alert.test.ts']));
   });
 
   it('parses detail fields from an item description into structured fields', () => {
@@ -196,5 +228,37 @@ describe('DiscoverContextPublisher', () => {
     const publisher = new DiscoverContextPublisher(root);
     expect(() => publisher.publish({ actor: USER, reason: 'Initial publish.' })).not.toThrow();
     expect(fs.existsSync(path.join(root, '.aidlc/discover/runtime/ecc-assets.json'))).toBe(false);
+  });
+
+  it('migrates legacy Foundation/Epic files by inventorying them and creating one migration baseline', () => {
+    const root = temporary();
+    write(root, 'docs/project/foundation/STACK-PROFILE.json', '{"legacy":true}\n');
+    write(root, 'docs/epics/EPIC-001/artifacts/INTENT.md', '# Intent\n\nLegacy scope.\n');
+    write(root, 'docs/epics/EPIC-001/artifacts/REQUIREMENT.md', '# Requirement\n\nLegacy acceptance criteria.\n');
+    const publisher = new DiscoverContextPublisher(root);
+
+    const preview = publisher.previewLegacyMigration();
+    expect(preview.discoverInitialized).toBe(false);
+    expect(preview.sources.map((source) => source.path)).toEqual([
+      'docs/epics/EPIC-001/artifacts/INTENT.md',
+      'docs/epics/EPIC-001/artifacts/REQUIREMENT.md',
+      'docs/project/foundation/STACK-PROFILE.json',
+    ]);
+    expect(() => publisher.migrateLegacy({ confirm: false })).toThrow(/confirm/);
+
+    const first = publisher.migrateLegacy({ confirm: true });
+    expect(first.createdDiscover).toBe(true);
+    expect(first.createdBaseline).toBe(true);
+    expect(first.context.actor).toEqual({ kind: 'migration', id: 'discover-migration' });
+    const inventory = JSON.parse(fs.readFileSync(path.join(root, first.inventoryPath), 'utf8')) as { generated: boolean; doNotEdit: boolean; discoverRevision: string; sources: unknown[] };
+    expect(inventory.generated).toBe(true);
+    expect(inventory.doNotEdit).toBe(true);
+    expect(inventory.discoverRevision).toBe(first.context.discoverRevision);
+    expect(inventory.sources).toHaveLength(3);
+
+    const again = publisher.migrateLegacy({ confirm: true });
+    expect(again.createdDiscover).toBe(false);
+    expect(again.createdBaseline).toBe(false);
+    expect(again.context.discoverRevision).toBe(first.context.discoverRevision);
   });
 });

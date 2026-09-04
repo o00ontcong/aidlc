@@ -10,7 +10,6 @@ import {
   WorkspaceLoader,
   captureEvidence,
   evidenceStageRevisionsForRun,
-  foundationPipelineForRoute,
   lostCofofoGateSnapshotIssues,
   normalizeStep,
   readEvidenceLedger,
@@ -18,7 +17,6 @@ import {
   recordRedWaiver,
   rollbackCatalog,
   resolveArtifactPath,
-  startRun,
   verifyEvidenceLedger,
   type CofofoEvidenceStage,
 } from '@aidlc/core';
@@ -54,46 +52,7 @@ function printInspection(service: CofofoFoundationService, json = false): void {
 }
 
 export function registerCofofo(program: Command): void {
-  const command = program.command('cofofo').description('Prepare, verify, and run the content-bound CoFoFo workflow');
-
-  command.command('prepare')
-    .description('Detect the stack, generate draft Foundation artifacts, and install the dynamic pipelines')
-    .option('--route <route>', 'bootstrap | refresh-context | update-rules | repin-bundle', 'bootstrap')
-    .option('--force', 'Replace generated defaults after preserving installer backups')
-    .option('--run <id>', 'Foundation run id (default: COFOFO-FOUNDATION-R<revision>)')
-    .option('--no-start', 'Prepare artifacts without starting a Foundation run')
-    .action((opts: { route: string; force?: boolean; run?: string; start: boolean }, action: Command) => {
-      const root = resolveWorkspaceRoot(action);
-      const routes = ['bootstrap', 'refresh-context', 'update-rules', 'repin-bundle'] as const;
-      if (!routes.includes(opts.route as typeof routes[number])) fail(new Error(`Unknown route: ${opts.route}`));
-      try {
-        const service = foundationService(root);
-        const inspection = service.prepare({ route: opts.route as typeof routes[number], force: opts.force });
-        console.log(chalk.green('✔') + ` CoFoFo preparation completed at revision ${inspection.state?.revision}.`);
-        if (inspection.issues.length) {
-          for (const issue of inspection.issues) console.log(chalk.yellow(`  ✘ ${issue}`));
-          console.log(chalk.dim(`  next: ${inspection.nextAction}`));
-        }
-        if (opts.start) {
-          const ws = WorkspaceLoader.load(root);
-          const generated = ws.config.pipelines.find((item) => item.id === 'cofofo-foundation');
-          if (!generated) throw new Error('Generated cofofo-foundation pipeline is missing.');
-          const pipeline = foundationPipelineForRoute(
-            generated,
-            opts.route as 'bootstrap' | 'refresh-context' | 'update-rules' | 'repin-bundle',
-          );
-          const runId = opts.run ?? `COFOFO-FOUNDATION-R${inspection.state!.revision}`;
-          if (RunStateStore.load(root, runId)) throw new Error(`Run "${runId}" already exists; choose another --run id.`);
-          RunStateStore.save(root, startRun({ runId, pipeline, context: { foundation: String(inspection.state!.revision) }, workspaceRoot: root }));
-          console.log(chalk.green('✔') + ` Started ${chalk.bold(runId)}.`);
-          console.log(`  aidlc run mark-done ${runId}`);
-          console.log(`  aidlc run review ${runId}`);
-          console.log(`  aidlc cofofo install --run ${runId}`);
-          console.log(`  aidlc cofofo publish --run ${runId}`);
-          console.log(`  aidlc cofofo activate --run ${runId}`);
-        }
-      } catch (error) { fail(error); }
-    });
+  const command = program.command('cofofo').description('Inspect legacy CoFoFo state and verify delivery evidence');
 
   command.command('status')
     .description('Inspect Foundation freshness, manifest hashes, and scan-stack gate')
@@ -136,64 +95,6 @@ export function registerCofofo(program: Command): void {
           else if (result.repair) console.log(chalk.yellow(`Repair: ${result.repair}`));
         }
         if (!result.ok) process.exitCode = 2;
-      } catch (error) { fail(error); }
-    });
-
-  command.command('render-rules')
-    .description('Regenerate PROJECT-RULES.md and RULE-DRIFT.md from canonical JSON')
-    .action((_opts: unknown, action: Command) => {
-      try {
-        const issues = foundationService(resolveWorkspaceRoot(action)).renderRules();
-        console.log(chalk.green('✔') + ` Rendered project rules (${issues.length} current finding${issues.length === 1 ? '' : 's'}).`);
-        for (const issue of issues) console.log(`  ${issue.severity === 'block' ? chalk.red('✘') : chalk.yellow('●')} ${issue.ruleId} · ${issue.path}: ${issue.message}`);
-        if (issues.some((issue) => issue.severity === 'block')) process.exitCode = 2;
-      } catch (error) { fail(error); }
-    });
-
-  command.command('install')
-    .option('--run <id>', 'Foundation run whose policy/catalog Canvas gates were approved')
-    .option('--force', 'Install over drift after writing a rollback backup')
-    .option('--dry-run', 'Print the exact text assets and mutations without writing')
-    .description('Install the pinned text-only ECC subset after Canvas approval')
-    .action((opts: { run?: string; force?: boolean; dryRun?: boolean }, action: Command) => {
-      try {
-        const service = foundationService(resolveWorkspaceRoot(action));
-        if (opts.dryRun) {
-          const preview = service.previewInstall();
-          console.log(`${preview.stackId} · ${preview.catalogRevision}`);
-          for (const asset of preview.assets) console.log(`  ${asset.action.padEnd(9)} ${asset.installedPath} ← ${asset.sourcePath}`);
-          for (const issue of preview.issues) console.log(chalk.red(`  ✘ ${issue}`));
-          if (preview.issues.length) process.exitCode = 2;
-          return;
-        }
-        if (!opts.run) throw new Error('--run <id> is required unless --dry-run is used.');
-        const manifest = service.install(opts.run, opts.force);
-        console.log(chalk.green('✔') + ` Installed ${manifest.assets.length} text assets from ${manifest.catalogRevision.slice(0, 12)}.`);
-        console.log(chalk.dim(`  rollback token: ${manifest.rollbackToken}`));
-      } catch (error) { fail(error); }
-    });
-
-  command.command('publish')
-    .requiredOption('--run <id>', 'Foundation run with approved install-ecc-assets step')
-    .description('Hash Foundation artifacts and publish provider context for Canvas review')
-    .action((opts: { run: string }, action: Command) => {
-      try {
-        const manifest = foundationService(resolveWorkspaceRoot(action)).publish(opts.run);
-        console.log(chalk.green('✔') + ` Published context revision ${manifest.foundationRevision} (${manifest.contentHash.slice(0, 19)}…).`);
-        console.log(`  aidlc run mark-done ${opts.run}`);
-        console.log(`  aidlc run review ${opts.run}`);
-        console.log(`  aidlc cofofo activate --run ${opts.run}`);
-      } catch (error) { fail(error); }
-    });
-
-  command.command('activate')
-    .requiredOption('--run <id>', 'Foundation run with approved publish-context Canvas gate')
-    .description('Activate the reviewed context and unlock delivery pipelines')
-    .action((opts: { run: string }, action: Command) => {
-      try {
-        const state = foundationService(resolveWorkspaceRoot(action)).activate(opts.run);
-        console.log(chalk.green('✔') + ` Foundation revision ${state.revision} is active.`);
-        console.log(chalk.dim('  Start work with pipeline cofofo-feature or cofofo-bugfix.'));
       } catch (error) { fail(error); }
     });
 

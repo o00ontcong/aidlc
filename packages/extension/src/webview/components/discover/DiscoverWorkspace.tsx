@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ExternalLink, FolderTree, GitCommit, PanelRight, Play, RefreshCw, Rocket, ScanSearch } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FolderTree, GitCommit, PanelRight, Play, RefreshCw, Rocket, ScanSearch, Upload } from 'lucide-react';
 import type { DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
@@ -124,6 +124,13 @@ export function DiscoverWorkspace({
   const step = discover.steps.find((s) => s.id === viewing) ?? discover.steps[0]!;
   const active = discover.activeRun;
   const suggestions = discover.epicSuggestions ?? [];
+  const contextTone = discover.context.status === 'ready'
+    ? 'border-success/50 bg-success/10 text-success'
+    : discover.context.status === 'conflict'
+      ? 'border-destructive/50 bg-destructive/10 text-destructive'
+      : discover.context.status === 'stale'
+        ? 'border-warning/50 bg-warning/10 text-warning'
+        : 'border-border text-muted-foreground';
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -148,6 +155,17 @@ export function DiscoverWorkspace({
         </div>
 
         <span className="ml-auto flex items-center gap-1.5">
+          <span title={discover.context.nextAction} className={`rounded border px-1.5 py-0.5 font-mono text-[9.5px] font-semibold ${contextTone}`}>
+            Context · {discover.context.status}{discover.context.discoverRevision ? ` · ${discover.context.discoverRevision}` : ''}
+          </span>
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'publishDiscoverContext' })}
+            title={discover.context.nextAction}
+            className="inline-flex items-center gap-1 rounded-md border border-primary/50 bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20"
+          >
+            <Upload className="h-3 w-3" />Publish context
+          </button>
           <button
             type="button"
             onClick={() => postMessage({ type: 'commitDiscoverChanges' })}

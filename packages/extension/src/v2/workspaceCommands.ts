@@ -828,7 +828,7 @@ async function initWorkspace(
       {
         label: '$(star-full) CoFoFo Workflow',
         description: 'Recommended',
-        detail: 'Project-local Foundation, Feature, and Bugfix pipelines with evidence and Canvas gates.',
+        detail: 'Project-local Feature and Bugfix pipelines with evidence, Canvas gates, and Discover Context.',
         workflowId: DEFAULT_WORKFLOW_ID,
       },
       ...BUILTIN_WORKFLOWS.map((w) => {
@@ -862,7 +862,7 @@ async function initWorkspace(
       new CofofoFoundationService(root, catalogRoot).ensureWorkflowRegistered();
       output.appendLine(`[init] ensured project-local CoFoFo workflow in ${root}`);
       void vscode.window.showInformationMessage(
-        'CoFoFo workspace is ready with Foundation, Feature, and Bugfix pipelines.',
+        'CoFoFo workspace is ready with Feature and Bugfix delivery pipelines. Publish Context from Discover before starting work.',
       );
       void vscode.commands.executeCommand('aidlc.openBuilder');
       openGettingStartedGuide(context);

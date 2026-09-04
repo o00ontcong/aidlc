@@ -73,10 +73,13 @@ function collectRoguePipelineIssues(workspace: WorkspaceConfig): CofofoDoctorIss
   const { removed } = pruneRogueCofofoPipelines(workspace.pipelines);
   return removed.map((pipeline) => ({
     kind: 'rogue-cofofo-pipeline' as const,
-    detail: `rogue pipeline "${pipeline.id}" — CoFoFo only allows cofofo-foundation / cofofo-feature / cofofo-bugfix`,
+    detail:
+      `rogue pipeline "${pipeline.id}" — CoFoFo delivery only allows ` +
+      'cofofo-feature / cofofo-bugfix; cofofo-foundation is legacy compatibility only',
     userMessageVi:
-      `Pipeline \`${pipeline.id}\` không hợp lệ: CoFoFo chỉ có 3 pipeline (` +
-      '`cofofo-foundation` / `cofofo-feature` / `cofofo-bugfix`). Dùng “Kiểm tra & sửa workspace” để xóa.',
+      `Pipeline \`${pipeline.id}\` không hợp lệ: delivery CoFoFo chỉ có ` +
+      '`cofofo-feature` / `cofofo-bugfix`; `cofofo-foundation` chỉ còn để tương thích snapshot cũ. ' +
+      'Dùng “Kiểm tra & sửa workspace” để xóa.',
   }));
 }
 

@@ -3,7 +3,7 @@
  * is just every item sitting in “not built”.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type {
   DiscoverCoveredItem,
   DiscoverDoc,
@@ -12,8 +12,8 @@ import type {
 } from '@/lib/types';
 import type { DiscoverCopy } from '@/lib/discoverI18n';
 import { postMessage } from '@/lib/bridge';
-import { Modal } from '../Modal';
 import { MermaidBlock } from './MarkdownLite';
+import { DiscoverItemDetailDialog, type DiscoverDetailTarget } from './DiscoverItemDetailDialog';
 
 type StatusFilter = 'all' | DiscoverItemCoverageStatus;
 
@@ -175,14 +175,19 @@ function CompactEntry({
   copy,
   badge,
   children,
+  detail,
+  detailItems = [],
 }: {
   id: string;
   title: string;
   copy: DiscoverCopy;
   badge?: React.ReactNode;
   children?: React.ReactNode;
+  detail?: DiscoverCoveredItem['detail'];
+  detailItems?: DiscoverDetailTarget[];
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const heading = title.trim() || copy.untitled;
   return (
     <>
@@ -191,8 +196,10 @@ function CompactEntry({
         {badge}
         <button
           type="button"
+          ref={triggerRef}
           onClick={() => setOpen(true)}
           title={copy.hints.openDetails}
+          aria-haspopup="dialog"
           className="min-w-0 flex-1 truncate text-left text-[11.5px] leading-none text-foreground"
         >
           {heading}
@@ -201,21 +208,25 @@ function CompactEntry({
           type="button"
           onClick={() => setOpen(true)}
           title={copy.hints.openDetails}
+          aria-haspopup="dialog"
           className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           {copy.details}
         </button>
       </div>
       {open && (
-        <Modal title={heading} subtitle={id} onClose={() => setOpen(false)} maxWidth="max-w-lg">
-          <div className="space-y-2 pb-3">{children}</div>
-        </Modal>
+        <DiscoverItemDetailDialog
+          item={{ id, text: heading, detail }}
+          items={detailItems}
+          onClose={() => setOpen(false)}
+          returnFocus={triggerRef.current}
+        />
       )}
     </>
   );
 }
 
-function ItemRow({ item, copy }: { item: DiscoverCoveredItem; copy: DiscoverCopy }) {
+function ItemRow({ item, copy, detailItems }: { item: DiscoverCoveredItem; copy: DiscoverCopy; detailItems: DiscoverDetailTarget[] }) {
   const canReveal = item.status === 'in-code' && item.matchedFiles.length > 0;
   return (
     <CompactEntry
@@ -230,6 +241,8 @@ function ItemRow({ item, copy }: { item: DiscoverCoveredItem; copy: DiscoverCopy
           title={canReveal ? copy.hints.revealSource : undefined}
         />
       )}
+      detail={item.detail}
+      detailItems={detailItems}
     >
       {item.description?.trim() && (
         <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-foreground">{item.description}</p>
@@ -291,6 +304,10 @@ function RequirementsStatus({ discover, copy }: { discover: DiscoverSummary; cop
     () => (filter === 'all' ? nfr.filter((item) => matchesQuery(item, query)) : []),
     [nfr, filter, query],
   );
+  const detailItems: DiscoverDetailTarget[] = [
+    ...items.map((item) => ({ id: item.id, text: item.text, detail: item.detail })),
+    ...nfr.map((item) => ({ id: item.id, text: item.text, detail: item.detail })),
+  ];
 
   if (items.length === 0) { return <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>; }
 
@@ -330,7 +347,7 @@ function RequirementsStatus({ discover, copy }: { discover: DiscoverSummary; cop
         return (
           <div key={cluster.status}>
             <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{cluster.label} · {rows.length}</p>
-            {rows.map((item) => <ItemRow key={item.id} item={item} copy={copy} />)}
+            {rows.map((item) => <ItemRow key={item.id} item={item} copy={copy} detailItems={detailItems} />)}
           </div>
         );
       })}
@@ -338,7 +355,7 @@ function RequirementsStatus({ discover, copy }: { discover: DiscoverSummary; cop
         <div className="border-t border-border/60">
           <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{copy.status.nfr}</p>
           {filteredNfr.map((item) => (
-            <CompactEntry key={item.id} id={item.id} title={item.text} copy={copy}>
+            <CompactEntry key={item.id} id={item.id} title={item.text} copy={copy} detail={item.detail} detailItems={detailItems}>
               {item.description?.trim() && (
                 <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-foreground">{item.description}</p>
               )}
@@ -350,7 +367,7 @@ function RequirementsStatus({ discover, copy }: { discover: DiscoverSummary; cop
   );
 }
 
-function FeatureTree({ features, copy }: { features: DiscoverCoveredItem[]; copy: DiscoverCopy }) {
+function FeatureTree({ features, copy, detailItems }: { features: DiscoverCoveredItem[]; copy: DiscoverCopy; detailItems: DiscoverDetailTarget[] }) {
   const groups = groupFeatures(features);
   return (
     <ul className="space-y-1 px-2 py-2">
@@ -363,7 +380,7 @@ function FeatureTree({ features, copy }: { features: DiscoverCoveredItem[]; copy
           <ul className="ml-3 border-l border-border">
             {group.items.map((item) => (
               <li key={item.id}>
-                <ItemRow item={item} copy={copy} />
+                <ItemRow item={item} copy={copy} detailItems={detailItems} />
               </li>
             ))}
           </ul>
@@ -375,6 +392,10 @@ function FeatureTree({ features, copy }: { features: DiscoverCoveredItem[]; copy
 
 function FeaturesStatus({ discover, copy }: { discover: DiscoverSummary; copy: DiscoverCopy }) {
   const features = (discover.itemCoverage?.items ?? []).filter((i) => i.kind === 'feature');
+  const detailItems: DiscoverDetailTarget[] = [
+    ...features.map((item) => ({ id: item.id, text: item.text, detail: item.detail })),
+    ...(discover.itemCoverage?.items ?? []).filter((item) => item.kind === 'fr').map((item) => ({ id: item.id, text: item.text, detail: item.detail })),
+  ];
   if (features.length === 0) { return <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>; }
   return (
     <div className="space-y-3">
@@ -383,7 +404,7 @@ function FeaturesStatus({ discover, copy }: { discover: DiscoverSummary; copy: D
           <Counts items={features} copy={copy} />
         </div>
         <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{copy.status.tree}</p>
-        <FeatureTree features={features} copy={copy} />
+        <FeatureTree features={features} copy={copy} detailItems={detailItems} />
       </section>
       <section className="rounded-lg border border-border bg-card">
         <MermaidBlock

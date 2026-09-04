@@ -23,16 +23,22 @@ import { buildBundleBinding, COFOFO_BUNDLE_BINDING_PATH } from '../cofofo/Bundle
 import { composeWorkspaceFromBundle } from '../cofofo/WorkspaceComposer';
 import { generatedCofofoWorkspace, installCofofoProviderCommands } from '../cofofo/WorkflowGenerator';
 import {
+  DOC_ARCHITECTURE,
   DOC_FEATURES,
   DOC_IDEA,
   DOC_IMPLEMENTATION_PLAN,
+  DOC_MODULES,
   DOC_PRODUCT,
+  DOC_PROJECT_STRUCTURE,
   DOC_REQUIREMENTS,
+  DOC_TECH_STACK,
   allDocPaths,
 } from './DocSpec';
 import { DiscoverNotInitializedError, DiscoverService } from './DiscoverService';
 import { getPhase, type DiscoverPhase } from './handoff';
 import { extractIds, findSection, itemBody, type DocItem } from './mdParse';
+import { classifyItemCoverage } from './epicSuggestions';
+import { listProductSourceFiles } from './sourceScope';
 import type { BlueprintContext, ValidationIssue } from './validate';
 
 export const DISCOVER_CONTEXT_DIR = '.aidlc/discover';
@@ -43,6 +49,7 @@ export const DISCOVER_HISTORY_DIR = `${DISCOVER_CONTEXT_DIR}/history`;
 export const DISCOVER_HISTORY_REVISIONS_DIR = `${DISCOVER_HISTORY_DIR}/revisions`;
 export const DISCOVER_OBJECTS_DIR = `${DISCOVER_CONTEXT_DIR}/objects`;
 export const DISCOVER_CONTEXT_PACKS_DIR = `${DISCOVER_CONTEXT_DIR}/context-packs`;
+export const DISCOVER_MIGRATION_INVENTORY_PATH = `${DISCOVER_CONTEXT_DIR}/migration/legacy-inventory.json`;
 
 export type DiscoverEntityKind = 'requirement' | 'feature' | 'other';
 export type DiscoverEntityStatus = 'draft' | 'review' | 'ready' | 'deprecated';
@@ -88,8 +95,17 @@ export interface DiscoverHistoryEvent {
   breaking: boolean;
 }
 
+export interface DiscoverHistoryDetail {
+  event: DiscoverHistoryEvent;
+  before?: Pick<DiscoverContextEntity, 'title' | 'status' | 'fields'>;
+  after?: Pick<DiscoverContextEntity, 'title' | 'status' | 'fields'>;
+}
+
 export interface DiscoverPublishedContext {
   schemaVersion: 1;
+  generated: true;
+  doNotEdit: true;
+  inputHash: string;
   status: 'ready';
   discoverRevision: string;
   parentRevision: string | null;
@@ -97,6 +113,8 @@ export interface DiscoverPublishedContext {
   canonicalHash: string;
   blueprint: { id: string; revision: number; title: string; docsRoot: string };
   publishedAt: string;
+  actor: ActorRef | { kind: 'migration'; id: string };
+  source?: DiscoverHistoryEvent['source'];
   sourceCommit: string | null;
   sourceTreeHash: string;
   dirty: boolean;
@@ -108,6 +126,9 @@ export interface DiscoverPublishedContext {
 
 export interface DiscoverContextPack {
   schemaVersion: 1;
+  generated: true;
+  doNotEdit: true;
+  inputHash: string;
   taskKind: 'feature' | 'bugfix';
   contextRef: DiscoverContextRef;
   phase?: Pick<DiscoverPhase, 'id' | 'title' | 'goal' | 'dependsOn' | 'deliverables' | 'definitionOfDone'>;
@@ -117,6 +138,49 @@ export interface DiscoverContextPack {
   sourcePaths: string[];
   estimatedTokens: number;
   generatedAt: string;
+}
+
+/**
+ * Generated evidence only. Canonical Discover Markdown remains the sole
+ * editable source; this index is deliberately safe to recreate on Publish.
+ */
+export interface DiscoverCodeIndex {
+  schemaVersion: 1;
+  generated: true;
+  doNotEdit: true;
+  discoverRevision: string;
+  sourceCommit: string | null;
+  sourceTreeHash: string;
+  inputHash: string;
+  dependencies: Array<{ path: string; names: string[]; hash: string }>;
+  entryPoints: string[];
+  reconciliation: Array<{ document: string; status: 'matched' | 'missing' | 'stale'; detail: string }>;
+  entries: Array<{
+    id: string;
+    status: DiscoverCodeEvidenceStatus;
+    paths: string[];
+    testPaths: string[];
+    entryPoints: string[];
+    evidenceHash: string;
+  }>;
+}
+
+export interface DiscoverLegacyMigrationPreview {
+  schemaVersion: 1;
+  generated: true;
+  doNotEdit: true;
+  inputHash: string;
+  sources: Array<{ path: string; hash: string; kind: 'foundation' | 'epic-intent' | 'epic-requirement' }>;
+  discoverInitialized: boolean;
+  publishedRevision?: string;
+  warnings: string[];
+}
+
+export interface DiscoverLegacyMigrationResult {
+  inventoryPath: string;
+  context: DiscoverPublishedContext;
+  createdDiscover: boolean;
+  createdBaseline: boolean;
 }
 
 export interface DiscoverContextInspection {
@@ -213,12 +277,147 @@ function sourceState(root: string): { sourceCommit: string | null; sourceTreeHas
     // Generated Context files are deliberately untracked. They must not make
     // their own published revision immediately stale after `publish()`.
     // Tracked source edits still participate in the dirty signal.
-    dirty = childProcess.execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim().length > 0;
+    const sourcePathspec = ['--', '.', ':(exclude).aidlc'];
+    const status = childProcess.execFileSync('git', ['status', '--porcelain', '--untracked-files=no', ...sourcePathspec], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const diff = childProcess.execFileSync('git', ['diff', '--no-ext-diff', '--binary', 'HEAD', ...sourcePathspec], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    dirty = status.length > 0;
+    // Do not collapse every dirty worktree into one value. A changed source
+    // file must make a published context stale even before a commit exists.
+    return { sourceCommit, sourceTreeHash: hashObject({ sourceCommit, diffHash: hashObject(diff) }), dirty };
   } catch {
     // A non-git workspace is allowed. The docs + evidence hashes still make
     // the published context deterministic.
   }
   return { sourceCommit, sourceTreeHash: hashObject({ sourceCommit, dirty }), dirty };
+}
+
+function readText(file: string): string | undefined {
+  try { return fs.readFileSync(file, 'utf8'); } catch { return undefined; }
+}
+
+function isTestPath(file: string): boolean {
+  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^.]+$/i.test(file);
+}
+
+function likelyEntryPoint(file: string): boolean {
+  return /(?:^|\/)(?:index|main|app|server|cli)\.(?:[cm]?[jt]sx?|py|go|rs|java|kt|swift)$/i.test(file);
+}
+
+function packageDependencies(file: string): { names: string[]; hash: string } | undefined {
+  const text = readText(file);
+  if (!text) { return undefined; }
+  try {
+    const pkg = JSON.parse(text) as Record<string, unknown>;
+    const groups = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+    const names = [...new Set(groups.flatMap((key) => Object.keys((pkg[key] ?? {}) as Record<string, unknown>)))].sort();
+    return { names, hash: hashObject({ names, textHash: hashObject(text) }) };
+  } catch {
+    return undefined;
+  }
+}
+
+function architectureReconciliation(service: DiscoverService, ctx: BlueprintContext, sourcePaths: string[]): DiscoverCodeIndex['reconciliation'] {
+  const hasSource = sourcePaths.length > 0;
+  const docs = [DOC_ARCHITECTURE, DOC_MODULES, DOC_PROJECT_STRUCTURE, DOC_TECH_STACK];
+  const result: DiscoverCodeIndex['reconciliation'] = docs.map((document) => ({
+    document,
+    status: !docContent(service, document).trim() ? 'missing' : hasSource ? 'matched' : 'stale',
+    detail: !docContent(service, document).trim()
+      ? 'Canonical architecture document is empty.'
+      : hasSource ? 'Reviewed against the current source inventory.' : 'No product source is present; this remains a planned/skeleton architecture.',
+  }));
+  const moduleDoc = ctx.docs.get(DOC_MODULES);
+  const modules = moduleDoc ? findSection(moduleDoc, 'modules')?.records ?? [] : [];
+  for (const module of modules) {
+    const folder = module.fields.find((field) => field.label.toLowerCase() === 'folder')?.value.trim();
+    if (!folder) { continue; }
+    const normalized = folder.replace(/^\.\//, '').replace(/\\/g, '/');
+    const matches = sourcePaths.some((source) => source === normalized || source.startsWith(`${normalized}/`));
+    result.push({
+      document: `${DOC_MODULES}#${module.id}`,
+      status: matches ? 'matched' : hasSource ? 'stale' : 'missing',
+      detail: matches ? `Module folder ${folder} has source evidence.` : `Module folder ${folder} has no matching source evidence.`,
+    });
+  }
+  return result;
+}
+
+function buildCodeIndexDraft(
+  root: string,
+  service: DiscoverService,
+  ctx: BlueprintContext,
+  entities: DiscoverContextEntity[],
+  source: { sourceCommit: string | null; sourceTreeHash: string },
+): Omit<DiscoverCodeIndex, 'discoverRevision'> {
+  const sourcePaths = listProductSourceFiles(root, service.declaredScope(), 8000).sort();
+  const coverage = classifyItemCoverage({ workspaceRoot: root, ctx, index: service.require(), scope: service.declaredScope(), checkFoundation: false });
+  const coverageById = new Map(coverage.items.map((item) => [item.id, item]));
+  const sourceSet = new Set(sourcePaths);
+  const manifestCandidates = [
+    'package.json', 'pnpm-workspace.yaml', 'pyproject.toml', 'requirements.txt', 'go.mod', 'Cargo.toml', 'Gemfile', 'Package.swift', 'Podfile',
+  ];
+  const dependencies = manifestCandidates.flatMap((relative) => {
+    const absolute = path.join(root, relative);
+    if (!fs.existsSync(absolute)) { return []; }
+    const parsed = relative === 'package.json' ? packageDependencies(absolute) : undefined;
+    const text = readText(absolute) ?? '';
+    return [{ path: relative, names: parsed?.names ?? [], hash: parsed?.hash ?? hashObject(text) }];
+  });
+  const entryPoints = sourcePaths.filter(likelyEntryPoint).slice(0, 80);
+  const entries = entities.map((entity) => {
+    const covered = coverageById.get(entity.id);
+    const paths = [...new Set((covered?.matchedFiles ?? []).filter((file) => sourceSet.has(file)))].sort();
+    const testPaths = paths.filter(isTestPath);
+    const status: DiscoverCodeEvidenceStatus = entity.references.some((id) => !entities.some((candidate) => candidate.id === id))
+      ? 'conflict'
+      : covered?.status === 'stale' ? 'stale'
+        : covered?.status === 'in-code' ? 'implemented'
+          : 'planned';
+    const value = { id: entity.id, status, paths, testPaths, entryPoints: entryPoints.filter((entry) => paths.some((file) => entry.startsWith(path.dirname(file)))) };
+    return { ...value, evidenceHash: hashObject(value) };
+  });
+  const reconciliation = architectureReconciliation(service, ctx, sourcePaths);
+  const inputHash = hashObject({ sourceTreeHash: source.sourceTreeHash, dependencies, entryPoints, reconciliation, entries });
+  return {
+    schemaVersion: 1,
+    generated: true,
+    doNotEdit: true,
+    sourceCommit: source.sourceCommit,
+    sourceTreeHash: source.sourceTreeHash,
+    inputHash,
+    dependencies,
+    entryPoints,
+    reconciliation,
+    entries,
+  };
+}
+
+function legacyMigrationSources(root: string): DiscoverLegacyMigrationPreview['sources'] {
+  const sources: DiscoverLegacyMigrationPreview['sources'] = [];
+  const foundation = path.join(root, 'docs/project/foundation');
+  try {
+    for (const entry of fs.readdirSync(foundation, { withFileTypes: true })) {
+      if (!entry.isFile()) { continue; }
+      const absolute = path.join(foundation, entry.name);
+      const text = readText(absolute);
+      if (text === undefined) { continue; }
+      sources.push({ path: path.relative(root, absolute).split(path.sep).join('/'), hash: hashObject(text), kind: 'foundation' });
+    }
+  } catch { /* Legacy Foundation is optional. */ }
+  const epics = path.join(root, 'docs/epics');
+  try {
+    for (const epic of fs.readdirSync(epics, { withFileTypes: true })) {
+      if (!epic.isDirectory()) { continue; }
+      for (const [name, kind] of [['INTENT.md', 'epic-intent'], ['REQUIREMENT.md', 'epic-requirement']] as const) {
+        const absolute = path.join(epics, epic.name, 'artifacts', name);
+        const text = readText(absolute);
+        if (text !== undefined) {
+          sources.push({ path: path.relative(root, absolute).split(path.sep).join('/'), hash: hashObject(text), kind });
+        }
+      }
+    }
+  } catch { /* Legacy epics are optional. */ }
+  return sources.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function changedFields(before: DiscoverContextEntity, after: DiscoverContextEntity): string[] {
@@ -335,10 +534,66 @@ export class DiscoverContextPublisher {
   private publishedFile(): string { return this.absolute(DISCOVER_PUBLISHED_CONTEXT_PATH); }
   private revisionFile(revision: string): string { return this.absolute(`${DISCOVER_HISTORY_REVISIONS_DIR}/${revision}.json`); }
   private contextPackFile(packHash: string): string { return this.absolute(`${DISCOVER_CONTEXT_PACKS_DIR}/${packHash}.json`); }
+  private objectFile(contentHash: string): string { return this.absolute(`${DISCOVER_OBJECTS_DIR}/${contentHash.replace(/^sha256:/, '')}.json`); }
 
   loadPublished(): DiscoverPublishedContext | null {
     const context = readJson<DiscoverPublishedContext>(this.publishedFile());
     return context?.schemaVersion === 1 && context.status === 'ready' ? context : null;
+  }
+
+  /** Read-only migration inventory. It never treats legacy prose as canonical. */
+  previewLegacyMigration(): DiscoverLegacyMigrationPreview {
+    const context = this.loadPublished();
+    const sources = legacyMigrationSources(this.workspaceRoot);
+    return {
+      schemaVersion: 1,
+      generated: true,
+      doNotEdit: true,
+      inputHash: hashObject(sources),
+      sources,
+      discoverInitialized: this.service.exists(),
+      ...(context ? { publishedRevision: context.discoverRevision } : {}),
+      warnings: sources.length === 0
+        ? ['No legacy Foundation or Epic INTENT/REQUIREMENT artifacts were found.']
+        : ['Legacy prose is inventoried for human review; missing canonical fields are never inferred automatically.'],
+    };
+  }
+
+  /**
+   * Explicit, idempotent migration entry point for old Foundation/Epic trees.
+   * It creates only a planned Discover skeleton and a baseline revision. The
+   * original files remain untouched, and ambiguous prose stays in the
+   * generated inventory rather than being copied into editable requirements.
+   */
+  migrateLegacy(input: { confirm: boolean; reason?: string }): DiscoverLegacyMigrationResult {
+    if (!input.confirm) { throw new DiscoverContextPublishError('Legacy Discover migration requires confirm: true. Preview is read-only.'); }
+    const preview = this.previewLegacyMigration();
+    const createdDiscover = !this.service.exists();
+    if (createdDiscover) {
+      this.service.init({
+        seedSentence: 'Legacy project migration — review and complete canonical Discover documents.',
+        actor: { kind: 'system', id: 'discover-migration' },
+      });
+    }
+    const existing = this.loadPublished();
+    const context = existing ?? this.publish({
+      actor: { kind: 'migration', id: 'discover-migration' },
+      reason: input.reason?.trim() || 'Create a migration baseline; legacy sources were inventoried for review.',
+      source: { command: 'Discover Context migration' },
+    });
+    const state = sourceState(this.workspaceRoot);
+    writeJson(this.absolute(DISCOVER_MIGRATION_INVENTORY_PATH), {
+      ...preview,
+      discoverRevision: context.discoverRevision,
+      sourceCommit: state.sourceCommit,
+      sourceTreeHash: state.sourceTreeHash,
+    });
+    return {
+      inventoryPath: DISCOVER_MIGRATION_INVENTORY_PATH,
+      context,
+      createdDiscover,
+      createdBaseline: !existing,
+    };
   }
 
   inspect(): DiscoverContextInspection {
@@ -384,6 +639,7 @@ export class DiscoverContextPublisher {
     const documents = allDocPaths().map((docPath) => ({ path: docPath, hash: hashObject(docContent(this.service, docPath)) }));
     const source = sourceState(this.workspaceRoot);
     const rules = parseRules(this.service);
+    const codeIndexDraft = buildCodeIndexDraft(this.workspaceRoot, this.service, ctx, entities, source);
     const canonicalHash = hashObject({
       blueprint: { id: index.id, revision: index.revision, docsRoot: index.docsRoot }, documents, entities, rules, sourceTreeHash: source.sourceTreeHash,
     });
@@ -392,12 +648,17 @@ export class DiscoverContextPublisher {
     const publishedAt = input.now ?? new Date().toISOString();
     const draft = {
       schemaVersion: 1 as const,
+      generated: true as const,
+      doNotEdit: true as const,
+      inputHash: canonicalHash,
       status: 'ready' as const,
       discoverRevision,
       parentRevision: previous?.discoverRevision ?? null,
       canonicalHash,
       blueprint: { id: index.id, revision: index.revision, title: index.title, docsRoot: index.docsRoot },
       publishedAt,
+      actor: input.actor,
+      source: input.source,
       ...source,
       documents,
       entities,
@@ -442,15 +703,26 @@ export class DiscoverContextPublisher {
     writeJson(this.revisionFile(discoverRevision), revision);
     writeJson(this.absolute(`${DISCOVER_HISTORY_DIR}/index.json`), {
       schemaVersion: 1,
+      generated: true,
+      doNotEdit: true,
+      discoverRevision,
+      sourceCommit: source.sourceCommit,
+      sourceTreeHash: source.sourceTreeHash,
+      inputHash: hashObject(events),
       latestRevision: discoverRevision,
       revisions: [discoverRevision, ...(readJson<{ revisions?: string[] }>(this.absolute(`${DISCOVER_HISTORY_DIR}/index.json`))?.revisions ?? []).filter((id) => id !== discoverRevision)],
     });
-    writeJson(this.absolute(DISCOVER_CODE_INDEX_PATH), {
+    writeJson(this.absolute(DISCOVER_CODE_INDEX_PATH), { ...codeIndexDraft, discoverRevision });
+    writeJson(this.absolute(DISCOVER_COMPILED_RULES_PATH), {
       schemaVersion: 1,
+      generated: true,
+      doNotEdit: true,
       discoverRevision,
-      entries: entities.map((entity) => ({ id: entity.id, status: 'planned' as DiscoverCodeEvidenceStatus, paths: [], testPaths: [], entryPoints: [] })),
+      sourceCommit: source.sourceCommit,
+      sourceTreeHash: source.sourceTreeHash,
+      inputHash: hashObject(rules),
+      rules,
     });
-    writeJson(this.absolute(DISCOVER_COMPILED_RULES_PATH), { schemaVersion: 1, discoverRevision, rules });
     writeJson(this.publishedFile(), context);
     return context;
   }
@@ -532,6 +804,9 @@ export class DiscoverContextPublisher {
     };
     let draft = {
       schemaVersion: 1 as const,
+      generated: true as const,
+      doNotEdit: true as const,
+      inputHash: '',
       taskKind: input.taskKind,
       contextRef: {
         discoverRevision: context.discoverRevision,
@@ -547,14 +822,23 @@ export class DiscoverContextPublisher {
       entities,
       productSummary: productSummary(ctx),
       rules: context.rules.map(({ id, text }) => ({ id, text })),
-      sourcePaths: [],
+      sourcePaths: (() => {
+        const index = readJson<DiscoverCodeIndex>(this.absolute(DISCOVER_CODE_INDEX_PATH));
+        if (index?.discoverRevision !== context.discoverRevision) { return []; }
+        const wanted = new Set(entities.map((entity) => entity.id));
+        return [...new Set(index.entries
+          .filter((entry) => wanted.has(entry.id))
+          .flatMap((entry) => [...entry.paths, ...entry.testPaths, ...entry.entryPoints]))].sort();
+      })(),
       estimatedTokens: 0,
       generatedAt: input.now ?? new Date().toISOString(),
     };
+    draft = { ...draft, inputHash: hashObject({ ...draft, inputHash: undefined, generatedAt: undefined, estimatedTokens: undefined, contextRef: { ...draft.contextRef, packHash: '' } }) };
     if (estimateTokens(draft) > maxTokens) {
       entities = selected.map((entity) => compactEntity(entity, 220));
       draft = { ...draft, entities, productSummary: draft.productSummary.map((line) => line.slice(0, 350)), rules: draft.rules.map((rule) => ({ ...rule, text: rule.text.slice(0, 160) })) };
     }
+    draft = { ...draft, inputHash: hashObject({ ...draft, inputHash: undefined, generatedAt: undefined, estimatedTokens: undefined, contextRef: { ...draft.contextRef, packHash: '' } }) };
     const stable = { ...draft, generatedAt: undefined, estimatedTokens: undefined, contextRef: { ...draft.contextRef, packHash: '' } };
     const packHash = hashObject(stable);
     const pack: DiscoverContextPack = {
@@ -589,5 +873,20 @@ export class DiscoverContextPublisher {
       }
     }
     return events.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+  }
+
+  /** Read-only before/after snapshots for the Discover history dialog. */
+  historyDetailsFor(entityId: string): DiscoverHistoryDetail[] {
+    const load = (contentHash: string | null): Pick<DiscoverContextEntity, 'title' | 'status' | 'fields'> | undefined => {
+      if (!contentHash) { return undefined; }
+      const raw = readJson<DiscoverContextEntity>(this.objectFile(contentHash));
+      if (!raw || typeof raw.title !== 'string' || !raw.fields) { return undefined; }
+      return { title: raw.title, status: raw.status, fields: raw.fields };
+    };
+    return this.historyFor(entityId).map((event) => {
+      const before = load(event.beforeHash);
+      const after = load(event.afterHash);
+      return { event, ...(before ? { before } : {}), ...(after ? { after } : {}) };
+    });
   }
 }

@@ -17,14 +17,18 @@ import {
   CofofoFoundationService,
   DiscoverService,
   DISCOVER_STEPS,
+  DOC_FEATURES,
+  DOC_REQUIREMENTS,
   getFileSpec,
   getPhase,
   isStepEmpty,
   itemBody,
+  extractIds,
   listPhases,
   normalizeStep,
   proseSectionKeyOf,
   DiscoverContextPublisher,
+  DISCOVER_CODE_INDEX_PATH,
   parseDetailFields,
   scaffoldEpic,
   suggestEpics,
@@ -45,6 +49,7 @@ import {
   type DocModel,
   type EpicSuggestion,
   type DiscoverItemCoverage,
+  type DiscoverCodeIndex,
 } from '@aidlc/core';
 import { readYaml, writeYaml } from './yamlIO';
 
@@ -60,8 +65,31 @@ export interface DiscoverItemUi {
 
 /** Structured detail shown from the small “Chi tiết” action in steps 3 and 4. */
 export interface DiscoverItemDetailUi {
+  kind: 'requirement' | 'feature';
   status: 'draft' | 'review' | 'ready' | 'deprecated';
   fields: Record<string, string[]>;
+  contextPreview?: { estimatedTokens: number; discoverRevision?: string };
+  /** Canonical Markdown source for the dialog's edit form. */
+  editable?: { docPath: string; section: string; revision: number; description: string; updatedAt?: string; origin: 'ai' | 'human' };
+  readiness: { required: string[]; missing: string[] };
+  links: { references: string[]; coveringFeatureIds: string[]; coveredRequirementIds: string[] };
+  evidence: {
+    status: 'planned' | 'implemented' | 'stale' | 'orphaned' | 'conflict';
+    sourcePaths: string[];
+    testPaths: string[];
+    entryPoints: string[];
+    sourceFileCount: number;
+    discoverRevision?: string;
+    sourceCommit?: string | null;
+  };
+  publication: {
+    status: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
+    nextAction: string;
+    discoverRevision?: string;
+    publishedAt?: string;
+    sourceCommit?: string | null;
+    dirty?: boolean;
+  };
   history: Array<{
     discoverRevision: string;
     publishedAt: string;
@@ -71,6 +99,11 @@ export interface DiscoverItemDetailUi {
     reason: string;
     breaking: boolean;
     actor: { kind: string; id: string };
+    source?: { taskId?: string; jiraKey?: string; runId?: string; command?: string };
+    beforeHash: string | null;
+    afterHash: string;
+    before?: { title: string; status: 'draft' | 'review' | 'ready' | 'deprecated'; fields: Record<string, string[]> };
+    after?: { title: string; status: 'draft' | 'review' | 'ready' | 'deprecated'; fields: Record<string, string[]> };
   }>;
 }
 
@@ -195,6 +228,61 @@ export interface DiscoverDiffRowUi {
   before?: string;
 }
 
+type DetailKind = DiscoverItemDetailUi['kind'];
+type DetailFieldMap = Record<string, string[]>;
+
+function currentEntityStatus(fields: DetailFieldMap, fallback: DiscoverItemDetailUi['status']): DiscoverItemDetailUi['status'] {
+  const value = fields.status?.join(' ').trim().toLowerCase();
+  if (value === 'ready') { return 'ready'; }
+  if (value === 'review' || value === 'in review') { return 'review'; }
+  if (value === 'deprecated') { return 'deprecated'; }
+  return fallback;
+}
+
+function detailReadiness(kind: DetailKind, fields: DetailFieldMap, references: string[]): { required: string[]; missing: string[] } {
+  const required = kind === 'requirement'
+    ? ['Statement', 'Rationale / user value', 'Acceptance criteria', 'Verification', 'Owner']
+    : ['Problem', 'Desired outcome', 'In scope', 'Definition of Done', 'Owner', 'Linked requirement'];
+  const hasAny = (...keys: string[]) => keys.some((key) => (fields[key] ?? []).some((value) => value.trim().length > 0));
+  const candidates = kind === 'requirement'
+    ? [
+      ['Statement', ['statement']],
+      ['Rationale / user value', ['rationale', 'user value']],
+      ['Acceptance criteria', ['acceptance criteria', 'acceptance criterion']],
+      ['Verification', ['verification', 'verification method']],
+      ['Owner', ['owner']],
+    ] as const
+    : [
+      ['Problem', ['problem']],
+      ['Desired outcome', ['desired outcome', 'outcome']],
+      ['In scope', ['in scope', 'scope']],
+      ['Definition of Done', ['definition of done', 'dod']],
+      ['Owner', ['owner']],
+      ['Linked requirement', []],
+    ] as const;
+  return {
+    required,
+    missing: candidates
+      .filter(([, keys]) => keys.length > 0 ? !hasAny(...keys) : !references.some((id) => id.startsWith('FR-') || id.startsWith('NFR-')))
+      .map(([label]) => label),
+  };
+}
+
+function loadCodeIndex(root: string): DiscoverCodeIndex | undefined {
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(root, DISCOVER_CODE_INDEX_PATH), 'utf8')) as DiscoverCodeIndex;
+    return data.schemaVersion === 1 && Array.isArray(data.entries) ? data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function fallbackEvidenceStatus(status: DiscoverItemCoverage['items'][number]['status'] | undefined): DiscoverItemDetailUi['evidence']['status'] {
+  if (status === 'in-code') { return 'implemented'; }
+  if (status === 'stale') { return 'stale'; }
+  return 'planned';
+}
+
 function entryText(doc: DocModel | undefined, id: string): string | undefined {
   if (!doc) { return undefined; }
   const proseSectionKey = proseSectionKeyOf(id);
@@ -295,16 +383,72 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
   const publisher = new DiscoverContextPublisher(root);
   const contextInspection = publisher.inspect();
   const entityById = new Map((contextInspection.context?.entities ?? []).map((entity) => [entity.id, entity]));
+  const itemCoverage = classifyItemCoverage({
+    workspaceRoot: root,
+    ctx,
+    index,
+    scope: service.declaredScope(),
+  });
+  const coverageById = new Map(itemCoverage.items.map((item) => [item.id, item]));
+  const codeIndex = loadCodeIndex(root);
+  const codeEvidenceById = new Map(codeIndex?.entries.map((entry) => [entry.id, entry]) ?? []);
   const detailById = new Map<string, DiscoverItemDetailUi>();
   for (const doc of ctx.docs.values()) {
     for (const section of doc.sections) {
       for (const item of section.items) {
-        const entity = entityById.get(item.id);
-        if (!entity && !/^(FR|NFR|F)-/u.test(item.id)) { continue; }
+        const kind: DetailKind | undefined = doc.path === DOC_FEATURES
+          ? 'feature'
+          : doc.path === DOC_REQUIREMENTS ? 'requirement' : undefined;
+        if (!kind) { continue; }
+        const publishedEntity = entityById.get(item.id);
+        const fields = parseDetailFields(item.description);
+        const references = extractIds(`${item.text}\n${item.description ?? ''}`).filter((id) => id !== item.id).sort();
+        const coverage = coverageById.get(item.id);
+        const codeEvidence = codeEvidenceById.get(item.id);
+        const itemMeta = index.items[`${doc.path}#${item.id}`];
         detailById.set(item.id, {
-          status: entity?.status ?? 'draft',
-          fields: entity?.fields ?? parseDetailFields(item.description),
-          history: publisher.historyFor(item.id).map((event) => ({
+          kind,
+          status: currentEntityStatus(fields, publishedEntity?.status ?? 'draft'),
+          fields,
+          editable: {
+            docPath: doc.path,
+            section: section.key,
+            revision: index.revision,
+            description: item.description ?? '',
+            updatedAt: itemMeta?.updatedAt,
+            origin: itemMeta?.origin ?? 'human',
+          },
+          readiness: detailReadiness(kind, fields, references),
+          links: {
+            references,
+            coveringFeatureIds: coverage?.coveringFeatureIds ?? [],
+            coveredRequirementIds: coverage?.coveredFrIds ?? [],
+          },
+          evidence: {
+            status: codeEvidence?.status ?? fallbackEvidenceStatus(coverage?.status),
+            sourcePaths: codeEvidence?.paths ?? coverage?.matchedFiles ?? [],
+            testPaths: codeEvidence?.testPaths ?? [],
+            entryPoints: codeEvidence?.entryPoints ?? [],
+            sourceFileCount: itemCoverage.sourceFileCount,
+            ...(codeIndex ? { discoverRevision: codeIndex.discoverRevision, sourceCommit: codeIndex.sourceCommit } : {}),
+          },
+          publication: {
+            status: contextInspection.status,
+            nextAction: contextInspection.nextAction,
+            ...(contextInspection.context ? {
+              discoverRevision: contextInspection.context.discoverRevision,
+              publishedAt: contextInspection.context.publishedAt,
+              sourceCommit: contextInspection.context.sourceCommit,
+              dirty: contextInspection.context.dirty,
+            } : {}),
+          },
+          ...(publishedEntity ? {
+            contextPreview: {
+              estimatedTokens: Math.ceil(JSON.stringify(publishedEntity).length / 4),
+              ...(contextInspection.context ? { discoverRevision: contextInspection.context.discoverRevision } : {}),
+            },
+          } : {}),
+          history: publisher.historyDetailsFor(item.id).map(({ event, before, after }) => ({
             discoverRevision: event.discoverRevision,
             publishedAt: event.publishedAt,
             changeType: event.changeType,
@@ -313,17 +457,16 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
             reason: event.reason,
             breaking: event.breaking,
             actor: event.actor,
+            source: event.source,
+            beforeHash: event.beforeHash,
+            afterHash: event.afterHash,
+            before,
+            after,
           })),
         });
       }
     }
   }
-  const itemCoverage = classifyItemCoverage({
-    workspaceRoot: root,
-    ctx,
-    index,
-    scope: service.declaredScope(),
-  });
 
   const active = service.activeRun(index);
   let activeRun: DiscoverUi['activeRun'];

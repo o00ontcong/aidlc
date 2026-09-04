@@ -1,8 +1,9 @@
 # Discover Context Unification — Kế hoạch triển khai
 
 Ngày chốt: 2026-09-04  
-Trạng thái: bước 1–2 hoàn tất; bước 3–4 đã triển khai phần lớn (xem "Ghi chú
-tiến độ 2026-09-04 (phiên 2)" ngay dưới); bước 5–6 chưa làm.  
+Trạng thái: bước 1–2 hoàn tất; bước 3–5 đã triển khai phần chính; bước 6 đã có
+migration baseline và kiểm thử trọng tâm (xem "Ghi chú tiến độ 2026-09-04
+(phiên 3)" ngay dưới).
 Wireframe tham khảo: `/Users/cong/.codex/visualizations/2026/09/04/01a06b48-2e4e-76a2-a13e-f9e1fd6a1f0a/discover-detail-history-dialog-wireframe.html`
 
 ## Ghi chú tiến độ 2026-09-04 (phiên 2) — đọc trước khi làm tiếp
@@ -87,47 +88,51 @@ build (`DiscoverContextPublisher.ts` thiếu dấu `]`). Phiên 2 (phiên này) 
      (input test đưa `custom` trước `cofofo-foundation`). Không đụng gì vào
      `defaultWorkflow.ts`.
 
+### Ghi chú tiến độ 2026-09-04 (phiên 3)
+
+Đã tiếp tục triển khai và xác minh phần còn dang dở của bước 3–6:
+
+1. Sửa assertion extension về thứ tự pipeline legacy; `custom` giữ vị trí trước
+   `cofofo-foundation` vì Foundation không còn priority/startable.
+2. `DiscoverContextPublisher` nay ghi code evidence thật vào
+   `.aidlc/discover/code-index.json`: dependency manifest, entry point,
+   source/test path theo FR/Feature, status evidence và reconciliation với
+   `ARCHITECTURE.md`, `MODULES.md`, `PROJECT_STRUCTURE.md`, `TECH_STACK.md`.
+   Context pack lấy source/test/entry path của slice thay vì `sourcePaths: []`.
+   `sourceTreeHash` cũng phân biệt từng git diff thay vì chỉ có cờ dirty.
+3. Discover header đã có trạng thái/revision context và nút **Publish context**.
+   Host hỏi change reason, gọi publisher, rồi refresh UI. Không còn cần hoặc
+   cho phép chạy Foundation để chuẩn bị context mới.
+4. Đã thêm dialog dùng chung `DiscoverItemDetailDialog` cho Requirement,
+   NFR và Feature: hai tab Chi tiết/Lịch sử; semantic field diff từ immutable
+   object snapshots; ARIA dialog/tab, Escape/backdrop/X/nút Đóng, focus trap
+   và trả focus về nút mở. `DiscoverItemDetailUi`/webview type nay mang đầy
+   đủ before/after hash, provenance và context token preview.
+5. Có API/CLI migration explicit:
+   `aidlc discover migration-preview` (read-only) và
+   `aidlc discover migrate --confirm`. Migration chỉ inventory
+   `docs/project/foundation` + Epic `INTENT`/`REQUIREMENT`, không suy diễn
+   thành canonical prose; nếu cần nó tạo Discover skeleton và một baseline
+   revision với `actor.kind=migration`, idempotent.
+6. Đã xoá các CLI surface Foundation write cũ (`prepare`, `render-rules`,
+   `install`, `publish`, `activate`); thông báo New Task/workflow chỉ còn
+   Feature/Bugfix và hướng người dùng về Publish Context.
+7. Core suite hiện xanh 1046 test; CLI compile/bundle xanh. Extension webview
+   typecheck vẫn dừng ở bốn lỗi `DiscoverScopeModal.tsx` đã có từ trước phiên
+   này (không nằm trong thay đổi 3–6).
+
 ### Việc còn lại (thứ tự đề xuất)
 
-1. Sửa nốt test `default-workflow.test.ts` ở trên, chạy lại
-   `pnpm --filter aidlc-o00ontcong test -- --run` cho tới khi xanh hết.
-2. Rà lại các chuỗi UI tiếng Anh còn nhắc "Foundation" như một pipeline có
-   thể chạy (vd. `workspaceCommands.ts` dòng seed message "Project-local
-   Foundation, Feature, and Bugfix pipelines...", `cofofoCommands.ts`'s
-   `ensureCofofoWorkflowCommand` message "CoFoFo is ready... (Foundation,
-   Feature, and Bugfix)") — sửa cho khớp thực tế (chỉ 2 pipeline công khai).
-3. Bước 3 còn thiếu so với mục 4.2: step 5 "Scan module/dependency/entry
-   point/test seam" và step 6 "Reconcile code evidence với ARCHITECTURE.md/
-   MODULES.md/PROJECT_STRUCTURE.md/ADR" — `DiscoverContextPublisher` hiện
-   ghi `code-index.json` rỗng (`paths:[]`), chưa scan code thật. Cân nhắc có
-   làm trong bước 3 tiếp hay để bước 6 (migration/test) — plan gốc không tách
-   rõ, cần đọc lại code hiện có trước khi quyết định.
-4. **Chưa làm — bước 5 (UI dialog Chi tiết/Lịch sử):** backend đã có sẵn dữ
-   liệu (`discoverHost.ts::buildDiscoverUi` đã trả `detail`/`history` cho mỗi
-   item FR-/NFR-/F-, xem `DiscoverItemDetailUi`), nhưng **chưa có component
-   dialog nào trong webview** (`packages/extension/src/webview/components/
-   discover/`), và `SectionCard.tsx::ItemRow` chưa có nút "Chi tiết". Cần:
-   thêm nút Chi tiết trong `ItemRow`, tạo dialog dùng chung 2 tab (Chi
-   tiết/Lịch sử) theo mục 7.2, wire message mới (vd. `openDiscoverItemDetail`)
-   nếu cần, cập nhật `webview/lib/types.ts::DiscoverItem` để có field
-   `detail` (hiện thiếu ở phía webview type dù backend đã gửi).
-5. **Chưa làm — nút "Publish context" công khai trong Discover UI** (mục
-   4.1: "Nút Publish context trong Discover là entry point công khai duy
-   nhất"). Hiện `DiscoverContextPublisher.publish()` chỉ gọi được từ code,
-   chưa có message handler + nút bấm trong `DiscoverWorkspace.tsx`. Cần một
-   input đơn giản (vd. `vscode.window.showInputBox`) hỏi `reason` rồi gọi
-   `new DiscoverContextPublisher(root).publish({actor, reason})`, hiển thị
-   `context.status` (đã có trong `DiscoverUi.context`) ở đâu đó trong header
-   Discover.
-6. **Chưa làm — bước 6 (migration/test toàn diện):** chưa có migration
-   script đọc `docs/project/foundation` + Epic `INTENT`/`REQUIREMENT` cũ để
-   cấp stable ID + tạo baseline revision (`actor.kind=migration`) như mục
-   8.1. Verification matrix mục 8.3 (fixture greenfield/brownfield/conflict/
-   nhiều revision) chưa có.
-7. Epic/New Task UI cho Stale/Compare/Rebase (mục 7.3) — backend
+1. Epic/New Task UI cho Stale/Compare/Rebase (mục 7.3) — backend
    (`rebaseRunToCurrentDiscoverContext`, `discoverContextIssues`) đã có trong
    `PipelineRunner.ts`/`core/src/index.ts`, nhưng UI hiển thị Stale +
    nút Rebase cho task chưa làm.
+2. Mở rộng verification matrix mục 8.3 với fixture greenfield, brownfield có
+   conflict và nhiều revision; migration hiện chỉ inventory an toàn, không
+   tự chuyển prose legacy mơ hồ thành Discover canonical.
+3. Khi cửa sổ compatibility kết thúc, rà lại các surface legacy Foundation còn
+   giữ cho workspace/snapshot cũ để có thể loại bỏ theo một migration được
+   người dùng xác nhận.
 
 ### Cách xác minh nhanh khi mở lại
 
@@ -183,10 +188,10 @@ và tuyệt đối không reset worktree.
 |---|---|---|
 | 1. CoFoFo mặc định | Hoàn tất | `cofofo-workflow` và `cofofo-feature` là mặc định; workflow được ensure tự động; UI install thủ công đã bị loại bỏ |
 | 2. Audit Discover/Foundation/Epic | Hoàn tất | Đã xác định duplicate về stack, architecture, rules, context và các entry path thiếu provenance |
-| 3. Discover Publisher + canonical model | Chưa làm | Thay Foundation công khai bằng Publish Context nội bộ |
-| 4. Context pack + history + Feature/Bugfix contract | Chưa làm | Context bất biến, đủ và gọn cho mọi task |
-| 5. UI/schema/docs đồng bộ | Chưa làm | Giữ design hiện tại; thêm dialog Chi tiết/Lịch sử |
-| 6. Migration/test/cleanup | Chưa làm | Nâng cấp project cũ không mất dữ liệu và chứng minh không còn duplicate |
+| 3. Discover Publisher + canonical model | Đã triển khai, còn rà soát | Publish Context nội bộ, code evidence/reconciliation và không còn Foundation writer công khai |
+| 4. Context pack + history + Feature/Bugfix contract | Đã triển khai phần chính | Context bất biến, history semantic và slice có source/test evidence |
+| 5. UI/schema/docs đồng bộ | Đã triển khai phần chính | Nút Publish + dialog Chi tiết/Lịch sử; còn stale/compare/rebase task UI |
+| 6. Migration/test/cleanup | Đã triển khai một phần | Migration baseline/inventory idempotent, core/CLI test xanh; verification matrix còn thiếu |
 
 ---
 
@@ -750,4 +755,3 @@ dụng.
 - Không còn Foundation prose duplicate hoặc INTENT/REQUIREMENT copy mới.
 - Project cũ migrate idempotent, không mất dữ liệu, conflict không bị ghi đè.
 - Toàn bộ verification matrix pass và `git diff --check` sạch.
-

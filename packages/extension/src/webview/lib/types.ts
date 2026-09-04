@@ -751,6 +751,57 @@ export interface DiscoverItem {
   origin: 'ai' | 'human';
   pinned: boolean;
   flagged: boolean;
+  detail?: DiscoverItemDetail;
+}
+
+/** Published-context data and canonical edit target for the shared Requirement/Feature dialog. */
+export interface DiscoverHistoryEntitySnapshot {
+  title: string;
+  status: 'draft' | 'review' | 'ready' | 'deprecated';
+  fields: Record<string, string[]>;
+}
+
+export interface DiscoverItemDetail {
+  kind: 'requirement' | 'feature';
+  status: 'draft' | 'review' | 'ready' | 'deprecated';
+  fields: Record<string, string[]>;
+  contextPreview?: { estimatedTokens: number; discoverRevision?: string };
+  /** The canonical Markdown item to update; history and derived context stay read-only. */
+  editable?: { docPath: string; section: string; revision: number; description: string; updatedAt?: string; origin: 'ai' | 'human' };
+  readiness: { required: string[]; missing: string[] };
+  links: { references: string[]; coveringFeatureIds: string[]; coveredRequirementIds: string[] };
+  evidence: {
+    status: 'planned' | 'implemented' | 'stale' | 'orphaned' | 'conflict';
+    sourcePaths: string[];
+    testPaths: string[];
+    entryPoints: string[];
+    sourceFileCount: number;
+    discoverRevision?: string;
+    sourceCommit?: string | null;
+  };
+  publication: {
+    status: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
+    nextAction: string;
+    discoverRevision?: string;
+    publishedAt?: string;
+    sourceCommit?: string | null;
+    dirty?: boolean;
+  };
+  history: Array<{
+    discoverRevision: string;
+    publishedAt: string;
+    changeType: string;
+    changedFields: string[];
+    summary: string;
+    reason: string;
+    breaking: boolean;
+    actor: { kind: string; id: string };
+    source?: { taskId?: string; jiraKey?: string; runId?: string; command?: string };
+    beforeHash: string | null;
+    afterHash: string;
+    before?: DiscoverHistoryEntitySnapshot;
+    after?: DiscoverHistoryEntitySnapshot;
+  }>;
 }
 
 export interface DiscoverRecord {
@@ -941,6 +992,7 @@ export interface DiscoverCoveredItem {
   coveringFeatureIds: string[];
   coveredFrIds: string[];
   matchedFiles: string[];
+  detail?: DiscoverItemDetail;
 }
 
 export interface DiscoverItemCoverage {
@@ -970,6 +1022,13 @@ export interface DiscoverSummary {
   /** Pre-filled epic proposals from docs ↔ code reconciliation. */
   epicSuggestions: DiscoverEpicSuggestion[];
   itemCoverage?: DiscoverItemCoverage;
+  /** Latest immutable context publication; Markdown remains editable. */
+  context: {
+    status: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
+    discoverRevision?: string;
+    publishedAt?: string;
+    nextAction: string;
+  };
   runs: DiscoverRunSummary[];
   /** Three-pass scan campaign, when one exists. Keep does not start the next pass. */
   scanCampaign?: { status: 'active' | 'done'; lastKeptPass: 0 | 1 | 2 | 3 };

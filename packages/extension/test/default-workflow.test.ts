@@ -27,8 +27,11 @@ describe('extension default workflow', () => {
     ]).map((pipeline) => pipeline.id)).toEqual([
       'cofofo-feature',
       'cofofo-bugfix',
-      'cofofo-foundation',
       'custom',
+      // Retired Foundation is retained only as a legacy input. It has no
+      // delivery priority, so stable sorting keeps the user-defined pipeline
+      // before it.
+      'cofofo-foundation',
     ]);
   });
 });

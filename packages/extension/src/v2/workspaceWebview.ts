@@ -184,6 +184,7 @@ import {
   slugEpicId,
   scaffoldEpic,
   DiscoverService,
+  DiscoverContextPublisher,
   DiscoverRevisionConflictError,
   DISCOVER_COMMAND_NAME,
   DISCOVER_PIPELINE_COMMAND_NAME,
@@ -763,7 +764,7 @@ function buildRecipeSummary(
 }
 
 function pipelineDisplayName(id: string): string | undefined {
-  if (id === 'cofofo-foundation') { return 'CoFoFo Foundation'; }
+  if (id === 'cofofo-foundation') { return 'Legacy CoFoFo Foundation (compat)'; }
   if (id === 'cofofo-feature') { return 'CoFoFo Feature'; }
   if (id === 'cofofo-bugfix') { return 'CoFoFo Bugfix'; }
   return undefined;
@@ -2406,6 +2407,35 @@ export class WorkspaceWebview {
         if (typeof msg.pinned === 'boolean') { flags.pinned = msg.pinned; }
         if (typeof msg.flagged === 'boolean') { flags.flagged = msg.flagged; }
         this.handleDiscoverMutation(() => { new DiscoverService(root).setItemFlags(docPath, id, flags); });
+        return;
+      }
+
+      case 'publishDiscoverContext': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const reason = await vscode.window.showInputBox({
+          title: 'Publish Discover Context',
+          prompt: 'Lý do Publish (được lưu trong immutable history)',
+          placeHolder: 'Ví dụ: Xác nhận requirement và feature cho handoff đầu tiên',
+          ignoreFocusOut: true,
+          validateInput: (value) => value.trim() ? undefined : 'Cần một lý do thay đổi.',
+        });
+        if (!reason?.trim()) { return; }
+        try {
+          const context = new DiscoverContextPublisher(root).publish({
+            actor: { kind: 'user', id: 'vscode-user' },
+            reason,
+            source: { command: 'Discover: Publish context' },
+          });
+          this.refresh();
+          void vscode.window.showInformationMessage(`AIDLC Discover Context: ${context.discoverRevision} đã sẵn sàng.`);
+        } catch (error) {
+          const issues = error instanceof Error && 'issues' in error && Array.isArray((error as { issues?: unknown }).issues)
+            ? (error as { issues: Array<{ message?: unknown }> }).issues.map((issue) => typeof issue.message === 'string' ? issue.message : '').filter(Boolean)
+            : [];
+          const detail = error instanceof Error ? error.message : String(error);
+          void vscode.window.showWarningMessage(`AIDLC Discover: không thể Publish Context. ${[detail, ...issues].join(' · ')}`);
+        }
         return;
       }
 
@@ -4814,10 +4844,14 @@ export class WorkspaceWebview {
     // Auto-scaffold agents/skills/workspace.yaml when a built-in pipeline is
     // selected — covers SDLC plus the 7 stack-specialized workflows.
     if (targetKind === 'pipeline') {
+      if (targetId === 'cofofo-foundation') {
+        void vscode.window.showWarningMessage('CoFoFo Foundation đã ngừng chạy như một pipeline. Hãy Publish Context từ tab Discover, rồi chọn cofofo-feature hoặc cofofo-bugfix.');
+        return;
+      }
       if (isRogueCofofoPipelineId(targetId)) {
         void vscode.window.showErrorMessage(
           `AIDLC: pipeline "${targetId}" is not a valid CoFoFo pipeline. ` +
-            `CoFoFo only allows pipelines cofofo-foundation / cofofo-feature / cofofo-bugfix. ` +
+            `CoFoFo delivery only allows cofofo-feature / cofofo-bugfix. ` +
             `Run “Kiểm tra & sửa workspace” to delete rogue pipelines.`,
           'Copy for agent',
         ).then(async (choice) => {
@@ -4826,7 +4860,7 @@ export class WorkspaceWebview {
             'AIDLC startEpic blocked — rogue CoFoFo pipeline',
             `epicId: ${epicId}`,
             `rejectedTarget: { kind: "pipeline", id: "${targetId}" }`,
-            'allowedPipelines: cofofo-foundation, cofofo-feature, cofofo-bugfix',
+            'allowedPipelines: cofofo-feature, cofofo-bugfix',
             'fix: removeRogueCofofoPipelinesFromWorkspace / aidlc.cofofoDoctor',
           ].join('\n'));
         });
@@ -4928,7 +4962,7 @@ export class WorkspaceWebview {
         ? ((err as { issues: string[] }).issues)
         : [];
       const short = message.includes('CoFoFo foundation is not ready')
-        ? 'Không tạo được epic CoFoFo: foundation CoFoFo chưa ready (PROD-01 / aidlc-ios-foundation không tính). Chạy pipeline cofofo-foundation rồi activate.'
+        ? 'Không tạo được epic CoFoFo: Context chưa sẵn sàng. Hãy Publish Context từ tab Discover rồi tạo task mới.'
         : `Epic could not be scaffolded: ${message}`;
       const agentBrief = [
         'AIDLC scaffoldEpic failed',
@@ -4936,8 +4970,8 @@ export class WorkspaceWebview {
         `target: ${targetKind}/${targetId}`,
         `error: ${message}`,
         ...(issues.length ? [`issues: ${issues.join(' | ')}`] : []),
-        'note: aidlc-ios-foundation ≠ CoFoFo foundation',
-        'fix: New task → pipeline cofofo-foundation → publish-context Canvas → activate; verify docs/project/foundation/CONTEXT-MANIFEST.json + .aidlc/cofofo/foundation.json',
+        'note: Legacy Foundation snapshots cannot unlock a new delivery task.',
+        'fix: Discover → Publish context → New task → cofofo-feature hoặc cofofo-bugfix',
       ].join('\n');
       void vscode.window.showErrorMessage(short, 'Copy for agent', 'Open CoFoFo doctor').then(async (choice) => {
         if (choice === 'Copy for agent') {

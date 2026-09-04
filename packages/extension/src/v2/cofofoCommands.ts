@@ -86,7 +86,7 @@ export async function ensureCofofoWorkflowCommand(extensionPath: string): Promis
     serviceFor(root, extensionPath).ensureWorkflowRegistered();
     void vscode.commands.executeCommand('aidlc.refreshSidebar');
     void vscode.window.showInformationMessage(
-      'CoFoFo is ready in this project (Foundation, Feature, and Bugfix). Create a New Task when you\'re ready.',
+      'CoFoFo delivery pipelines are ready (Feature and Bugfix). Publish Context from Discover before creating a task.',
     );
   } catch (error) {
     void vscode.window.showErrorMessage(
@@ -311,7 +311,7 @@ export async function cofofoDoctorCommand(): Promise<void> {
     ? `Xóa ${rogueIssues.length} pipeline cofofo-* giả`
     : undefined;
   const repair = rogueIssues.length > 0
-    ? `Phát hiện pipeline CoFoFo không hợp lệ (chỉ được có cofofo-foundation / cofofo-feature / cofofo-bugfix).`
+    ? `Phát hiện pipeline CoFoFo không hợp lệ. Pipeline delivery chỉ có cofofo-feature / cofofo-bugfix; Foundation cũ chỉ để tương thích.`
     : (bindingIssues[0]?.userMessageVi
       ?? (snapshotIssues.length > 0
         ? 'Các run bị ảnh hưởng cần epic/recipe mới — snapshot cũ không có gate Canvas/evidence mới.'
@@ -331,7 +331,7 @@ export async function cofofoDoctorCommand(): Promise<void> {
     }
     writeYaml(root, doc);
     void vscode.window.showInformationMessage(
-      `Đã xóa pipeline giả: ${removed.join(', ')}. Giữ lại cofofo-foundation / cofofo-feature / cofofo-bugfix.`,
+      `Đã xóa pipeline giả: ${removed.join(', ')}. Pipeline delivery hợp lệ là cofofo-feature / cofofo-bugfix.`,
     );
     void vscode.commands.executeCommand('aidlc.refreshSidebar');
   }

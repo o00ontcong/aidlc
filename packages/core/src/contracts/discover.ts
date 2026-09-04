@@ -101,7 +101,8 @@ export type DiscoverRun = z.infer<typeof DiscoverRunSchema>;
 /**
  * Pipelines a Discover Implementation Plan phase may be handed off to.
  * CoFoFo exposes exactly three pipelines; handoff uses the two delivery ones.
- * Foundation work starts `cofofo-foundation` from Kiểm tra / New task.
+ * `cofofo-foundation` is retained only to read historical handoff records;
+ * new Discover work starts Feature or Bugfix after Publish Context.
  */
 export const DISCOVER_HANDOFF_RECIPE_IDS = [
   'cofofo-feature',

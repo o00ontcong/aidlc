@@ -11,6 +11,7 @@ import type { DiscoverItem, DiscoverRecord, DiscoverSection } from '@/lib/types'
 import { postMessage } from '@/lib/bridge';
 import type { DiscoverCopy } from '@/lib/discoverI18n';
 import { groupsInSection } from './lib';
+import { DiscoverItemDetailDialog } from './DiscoverItemDetailDialog';
 
 interface SectionProps {
   docPath: string;
@@ -88,6 +89,8 @@ function ItemRow({
   const [draft, setDraft] = useState(item.text);
   const [descDraft, setDescDraft] = useState(item.description ?? '');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const detailTrigger = useRef<HTMLButtonElement>(null);
   useEffect(() => { setDraft(item.text); setDescDraft(item.description ?? ''); }, [item.text, item.description]);
 
   const save = () => {
@@ -100,6 +103,7 @@ function ItemRow({
   };
 
   return (
+    <>
     <div className="group flex items-start gap-2 border-b border-border/40 px-3 py-1.5 last:border-b-0">
       <code className="mt-px shrink-0 rounded border border-border bg-secondary/60 px-1.5 font-mono text-[9.5px] text-muted-foreground" title={item.id}>
         {item.id}
@@ -144,6 +148,18 @@ function ItemRow({
       )}
 
       <span className="flex shrink-0 items-center gap-1">
+        {item.detail && !editing && (
+          <button
+            ref={detailTrigger}
+            type="button"
+            onClick={() => setDetailOpen(true)}
+            title="Xem Chi tiết và Lịch sử"
+            aria-haspopup="dialog"
+            className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            Chi tiết
+          </button>
+        )}
         <Badge origin={item.origin} copy={copy} />
         {flagged && <Flag className="h-3 w-3 text-warning" aria-label={copy.flagged} />}
         {!readOnly && (
@@ -177,6 +193,15 @@ function ItemRow({
         )}
       </span>
     </div>
+    {detailOpen && (
+      <DiscoverItemDetailDialog
+        item={{ id: item.id, text: item.text, detail: item.detail }}
+        items={[]}
+        onClose={() => setDetailOpen(false)}
+        returnFocus={detailTrigger.current}
+      />
+    )}
+    </>
   );
 }
 
