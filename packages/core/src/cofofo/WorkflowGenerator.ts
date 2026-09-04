@@ -31,10 +31,10 @@ const PHASE_INSTRUCTIONS: Record<Phase, string> = {
   'install-ecc-assets': 'Run `aidlc cofofo install --run <foundation-run>` only after both policy and catalog Canvas gates are approved. Do not copy or download an executable ECC asset.',
   'publish-context': 'Run `aidlc cofofo publish --run <foundation-run>`, review PROVIDER-CONTEXT.md and docs/README.md in Canvas, approve the step, then run `aidlc cofofo activate --run <foundation-run>` to install the approved block into provider files.',
   requirement: 'INTENT.md is a required input, snapshotted from the Discover blueprint that started this epic — read it as the starting point of the reasoning chain the Canvas gate will review. Research with sources: read the current CONTEXT-MANIFEST.json, PROJECT-RULES.json, architecture map, and codebase; write EVIDENCE.md citing exactly where each claim came from, and label anything you could not verify as an assumption rather than stating it as fact. Apply 2-4 named lenses (e.g. JTBD, assumption mapping, anti-scope, opportunity sizing) and write OPTIONS.md: each option gets a numbered critique menu (challenge / red-team / expand / shrink for appetite / swap approach), and a "## Open Decisions" section listing at most 5 decisions, each as a table of 2-5 choices with one recommended default pre-marked — approving the Canvas gate accepts every default the reviewer does not override via request-changes feedback. Write REQUIREMENT.md with scope, non-goals, and acceptance criteria stated as observable behavior, since create-plan must derive a RED test from each one. Do not mutate production code.',
-  diagnose: 'For a bug, find root cause before changing production code. Write ROOT-CAUSE.md with reproduction, causal chain, affected invariant, and failure oracle. Skip this phase only for non-bug recipes.',
+  diagnose: 'For a bug, find root cause before changing production code. Write ROOT-CAUSE.md with reproduction, causal chain, affected invariant, and failure oracle.',
   'create-plan': 'Write TASK-PLAN.md. Map every acceptance criterion to files/tests, cite every applicable blocking ruleId, state the exact RED test and expected assertion, then obtain Canvas approval before production mutation.',
   reproduce: 'Add the smallest behavior test first. Capture a real expected assertion failure with `aidlc cofofo evidence red`; compile/import/syntax failures do not count. If a RED waiver is necessary, use `aidlc cofofo waive-red` so RED-EVIDENCE.md records the reason and alternative evidence. The Canvas gate on RED-EVIDENCE.md must approve either path before production code changes.',
-  implement: 'When reproduce is not in this recipe, write the RED test inside this phase first, capture RED with `aidlc cofofo evidence red`, and write RED-EVIDENCE.md before any production mutation. Implement only enough production behavior to pass the RED test, capture GREEN with the allow-listed test command, refactor without changing behavior and capture REFACTOR, then write IMPLEMENT-SUMMARY.md. Canvas reviews the implementation summary and scope.',
+  implement: 'On cofofo-feature (no reproduce step), write the RED test in this phase first, capture RED with `aidlc cofofo evidence red`, and write RED-EVIDENCE.md before any production mutation. On cofofo-bugfix, RED already exists from reproduce. Implement only enough production behavior to pass the RED test, capture GREEN with the allow-listed test command, refactor without changing behavior and capture REFACTOR, then write IMPLEMENT-SUMMARY.md. Canvas reviews the implementation summary and scope.',
   test: 'Review the diff from fresh context for correctness, rules, regression, security, concurrency, and maintainability in REVIEW.md. Dispose every blocking finding, run build/rule/full-suite checks, capture VERIFY evidence, and write TEST-REPORT.md and VERIFY.md with actual results and limitations; Canvas closes the delivery boundary.',
 };
 
@@ -156,14 +156,30 @@ export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): Wo
     ],
   };
 
-  const delivery = {
-    id: 'cofofo-delivery', on_failure: 'stop' as const,
-    foundation: { mode: 'cofofo' as const, manifest: `${FOUNDATION}/CONTEXT-MANIFEST.json`, state: '.aidlc/cofofo/foundation.json' },
+  const foundationGate = {
+    mode: 'cofofo' as const,
+    manifest: `${FOUNDATION}/CONTEXT-MANIFEST.json`,
+    state: '.aidlc/cofofo/foundation.json',
+  };
+
+  // Three startable pipelines only — no recipe layer in the UX.
+  const feature = {
+    id: 'cofofo-feature', on_failure: 'stop' as const,
+    foundation: foundationGate,
     steps: [
       step('requirement', { requires: [`${FOUNDATION}/CONTEXT-MANIFEST.json`, `${EPIC}/INTENT.md`], produces: [`${EPIC}/REQUIREMENT.md`, `${EPIC}/EVIDENCE.md`, `${EPIC}/OPTIONS.md`], produces_contains: ['## Acceptance Criteria'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/INTENT.md`, `${EPIC}/EVIDENCE.md`, `${EPIC}/OPTIONS.md`, `${EPIC}/REQUIREMENT.md`] } }),
-      step('diagnose', { requires: [`${FOUNDATION}/CONTEXT-MANIFEST.json`, `${EPIC}/BUG-REPORT.md`], produces: [`${EPIC}/ROOT-CAUSE.md`], produces_contains: ['## Failure Oracle', '## Resume From'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/ROOT-CAUSE.md`] }, depends_on: ['requirement'] }),
       step('create-plan', { requires: [`${EPIC}/REQUIREMENT.md`, `${FOUNDATION}/PROJECT-RULES.json`, `${FOUNDATION}/ARCHITECTURE-MAP.md`], produces: [`${EPIC}/TASK-PLAN.md`], produces_contains: ['## RED / GREEN Contract'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/TASK-PLAN.md`] }, depends_on: ['requirement'] }),
-      step('reproduce', { requires: [`${EPIC}/ROOT-CAUSE.md`], produces: [`${EPIC}/RED-EVIDENCE.md`], produces_contains: ['## Expected Failure'], evidence: { stage: 'red' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/RED-EVIDENCE.md`] }, depends_on: ['create-plan'] }),
+      step('implement', { produces: [`${EPIC}/RED-EVIDENCE.md`, `${EPIC}/IMPLEMENT-SUMMARY.md`, `${EPIC}/REFACTOR-EVIDENCE.md`], produces_contains: ['## Green Evidence'], evidence: { stage: 'green' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/IMPLEMENT-SUMMARY.md`] }, depends_on: ['create-plan'] }),
+      step('test', { requires: [`${EPIC}/IMPLEMENT-SUMMARY.md`], produces: [`${EPIC}/REVIEW.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/VERIFY.md`], produces_contains: ['## Final Verification'], evidence: { stage: 'verify' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/VERIFY.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/REVIEW.md`] }, depends_on: ['implement'] }),
+    ],
+  };
+
+  const bugfix = {
+    id: 'cofofo-bugfix', on_failure: 'stop' as const,
+    foundation: foundationGate,
+    steps: [
+      step('diagnose', { requires: [`${FOUNDATION}/CONTEXT-MANIFEST.json`, `${EPIC}/BUG-REPORT.md`], produces: [`${EPIC}/ROOT-CAUSE.md`], produces_contains: ['## Failure Oracle', '## Resume From'], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/ROOT-CAUSE.md`] } }),
+      step('reproduce', { requires: [`${EPIC}/ROOT-CAUSE.md`], produces: [`${EPIC}/RED-EVIDENCE.md`], produces_contains: ['## Expected Failure'], evidence: { stage: 'red' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/RED-EVIDENCE.md`] }, depends_on: ['diagnose'] }),
       step('implement', { produces: [`${EPIC}/RED-EVIDENCE.md`, `${EPIC}/IMPLEMENT-SUMMARY.md`, `${EPIC}/REFACTOR-EVIDENCE.md`], produces_contains: ['## Green Evidence'], evidence: { stage: 'green' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/IMPLEMENT-SUMMARY.md`] }, depends_on: ['reproduce'] }),
       step('test', { requires: [`${EPIC}/IMPLEMENT-SUMMARY.md`], produces: [`${EPIC}/REVIEW.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/VERIFY.md`], produces_contains: ['## Final Verification'], evidence: { stage: 'verify' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/VERIFY.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/REVIEW.md`] }, depends_on: ['implement'] }),
     ],
@@ -180,25 +196,15 @@ export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): Wo
     environment: current?.environment ?? {},
     slash_commands: [
       ...slash,
-      ...foundation.steps.map((raw) => {
+      ...[foundation, feature, bugfix].flatMap((pipeline) => pipeline.steps.map((raw) => {
         const phase = normalizeStep(raw).name as Phase;
-        return { name: `/cofofo-foundation-${phase}`, agent: `cofofo-${ROLE_BY_PHASE[phase]}` };
-      }),
-      ...delivery.steps.map((raw) => {
-        const phase = normalizeStep(raw).name as Phase;
-        return { name: `/cofofo-delivery-${phase}`, agent: `cofofo-${ROLE_BY_PHASE[phase]}` };
-      }),
+        return { name: `/${pipeline.id}-${phase}`, agent: `cofofo-${ROLE_BY_PHASE[phase]}` };
+      })),
     ],
-    pipelines: [...keep(current?.pipelines), foundation, delivery],
-    recipes: [
-      ...keep(current?.recipes),
-      { id: 'cofofo-bootstrap', from: 'cofofo-foundation', description: 'Build the complete project foundation.', steps: ['scan-stack', 'define-rules', 'map-system', 'select-ecc-catalog', 'install-ecc-assets', 'publish-context'] },
-      { id: 'cofofo-refresh-context', from: 'cofofo-foundation', description: 'Refresh stack/map/context.', steps: ['scan-stack', 'map-system', 'publish-context'] },
-      { id: 'cofofo-update-rules', from: 'cofofo-foundation', description: 'Review policy changes and republish context.', steps: ['define-rules', 'publish-context'] },
-      { id: 'cofofo-repin-bundle', from: 'cofofo-foundation', description: 'Review and install a new pinned catalog.', steps: ['select-ecc-catalog', 'install-ecc-assets', 'publish-context'] },
-      { id: 'cofofo-feature', from: 'cofofo-delivery', description: 'Requirement → plan → implement → test.', steps: ['requirement', 'create-plan', 'implement', 'test'] },
-      { id: 'cofofo-bugfix', from: 'cofofo-delivery', description: 'Diagnose → reproduce → implement → test.', steps: ['diagnose', 'reproduce', 'implement', 'test'] },
-    ],
+    // Exactly three CoFoFo pipelines. Lifecycle routes (refresh/update/repin)
+    // stay on CLI `aidlc cofofo prepare --route`, not as New-task recipes.
+    pipelines: [...keep(current?.pipelines), foundation, feature, bugfix],
+    recipes: [...keep(current?.recipes)],
     state: current?.state,
     persistence: current?.persistence,
     sidebar: current?.sidebar,

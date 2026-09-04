@@ -11,6 +11,7 @@ import {
   type InstalledAssetsManifest,
 } from './contracts';
 import { COFOFO_BUNDLE_BINDING_PATH } from './BundleBinding';
+import { pruneRogueCofofoPipelines } from './bugReport';
 import { hashFile } from './hash';
 import { resolveInside } from './paths';
 
@@ -21,7 +22,8 @@ export type CofofoDoctorIssueKind =
   | 'binding-hash-stale'
   | 'binding-missing'
   | 'agent-skill-unbound'
-  | 'step-skill-unbound';
+  | 'step-skill-unbound'
+  | 'rogue-cofofo-pipeline';
 
 export interface CofofoDoctorIssue {
   kind: CofofoDoctorIssueKind;
@@ -65,6 +67,18 @@ function workspaceNotComposedIssue(): CofofoDoctorIssue {
   };
 }
 
+
+function collectRoguePipelineIssues(workspace: WorkspaceConfig): CofofoDoctorIssue[] {
+  const { removed } = pruneRogueCofofoPipelines(workspace.pipelines);
+  return removed.map((pipeline) => ({
+    kind: 'rogue-cofofo-pipeline' as const,
+    detail: `rogue pipeline "${pipeline.id}" — CoFoFo only allows cofofo-foundation / cofofo-feature / cofofo-bugfix`,
+    userMessageVi:
+      `Pipeline \`${pipeline.id}\` không hợp lệ: CoFoFo chỉ có 3 pipeline (` +
+      '`cofofo-foundation` / `cofofo-feature` / `cofofo-bugfix`). Dùng “Kiểm tra & sửa workspace” để xóa.',
+  }));
+}
+
 function collectEccSkillIssues(
   workspace: WorkspaceConfig,
   binding: BundleBinding,
@@ -104,8 +118,9 @@ function collectEccSkillIssues(
     }
   }
 
-  const delivery = workspace.pipelines.find((pipeline) => pipeline.id === 'cofofo-delivery');
-  if (delivery) {
+  const deliveryPipelines = workspace.pipelines.filter((pipeline) =>
+    pipeline.id === 'cofofo-feature' || pipeline.id === 'cofofo-bugfix');
+  for (const delivery of deliveryPipelines) {
     for (const step of delivery.steps) {
       const norm = normalizeStep(step);
       const phase = norm.name;
@@ -118,8 +133,8 @@ function collectEccSkillIssues(
           issues.push({
             kind: 'step-skill-unbound',
             skillId,
-            detail: `cofofo-delivery step "${phase}" references unbound skill "${skillId}"`,
-            userMessageVi: `Bước \`${phase}\` tham chiếu skill \`${skillId}\` không có trong bundle binding — republish hoặc repin.`,
+            detail: `${delivery.id} step "${phase}" references unbound skill "${skillId}"`,
+            userMessageVi: `Pipeline \`${delivery.id}\` bước \`${phase}\` tham chiếu skill \`${skillId}\` không có trong bundle binding — republish hoặc repin.`,
           });
         }
       }
@@ -146,13 +161,29 @@ function workspaceMissingBindingSkills(workspace: WorkspaceConfig, binding: Bund
 /**
  * Diagnose workspace ↔ bundle binding drift. Used by `inspect()` and `aidlc cofofo doctor`.
  */
+function dedupeDoctorIssues(issues: CofofoDoctorIssue[]): CofofoDoctorIssue[] {
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = `${issue.kind}:${issue.skillId ?? issue.detail}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function diagnoseCofofoBinding(workspaceRoot: string): CofofoDoctorIssue[] {
+  const workspace = loadWorkspace(workspaceRoot);
+  if (!workspace) return [];
+
+  // Rogue cofofo-* pipelines are illegal regardless of foundation/binding state.
+  const issues: CofofoDoctorIssue[] = [...collectRoguePipelineIssues(workspace)];
+
   const installed = readJsonFile(
     workspaceRoot,
     'docs/project/foundation/INSTALLED-ASSETS.json',
     (value) => InstalledAssetsManifestSchema.parse(value),
   );
-  if (!installed) return [];
+  if (!installed) return issues;
 
   const manifest = readJsonFile(
     workspaceRoot,
@@ -163,17 +194,14 @@ export function diagnoseCofofoBinding(workspaceRoot: string): CofofoDoctorIssue[
     ? manifest.bindingPath
     : COFOFO_BUNDLE_BINDING_PATH;
   const binding = readJsonFile(workspaceRoot, bindingPath, (value) => BundleBindingSchema.parse(value));
-  const workspace = loadWorkspace(workspaceRoot);
-  if (!workspace) return [];
 
   const installedIds = new Set(installed.assets.map((asset) => asset.id));
-  const issues: CofofoDoctorIssue[] = [];
 
   if (!binding) {
     const hasEcc = workspace.skills.some((skill) => skill.id.startsWith('ecc-'))
       || workspace.agents.some((agent) => agent.id.startsWith('cofofo-') && agent.skills.some((id) => id.startsWith('ecc-')));
     if (!hasEcc) issues.push(workspaceNotComposedIssue());
-    return issues;
+    return dedupeDoctorIssues(issues);
   }
 
   if (manifest?.schemaVersion === 2) {
@@ -200,17 +228,25 @@ export function diagnoseCofofoBinding(workspaceRoot: string): CofofoDoctorIssue[
   }
 
   issues.push(...collectEccSkillIssues(workspace, binding, installedIds));
-
-  const seen = new Set<string>();
-  return issues.filter((issue) => {
-    const key = `${issue.kind}:${issue.skillId ?? issue.detail}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return dedupeDoctorIssues(issues);
 }
 
 /** Map doctor issues to inspect() issue strings (English, machine-friendly). */
 export function doctorIssueDetails(issues: CofofoDoctorIssue[]): string[] {
   return issues.map((issue) => issue.detail);
+}
+
+/**
+ * Drop illegal `cofofo-*` pipelines (anything except delivery/foundation) from
+ * an in-memory workspace doc. Returns the removed ids. Caller persists YAML.
+ */
+export function removeRogueCofofoPipelinesFromWorkspace<T extends { id?: unknown }>(
+  doc: { pipelines?: T[] },
+): string[] {
+  const pipelines = Array.isArray(doc.pipelines) ? doc.pipelines : [];
+  const { kept, removed } = pruneRogueCofofoPipelines(
+    pipelines.map((p) => ({ ...p, id: String(p.id ?? '') })),
+  );
+  doc.pipelines = kept as T[];
+  return removed.map((p) => String(p.id));
 }

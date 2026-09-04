@@ -5,12 +5,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   SCAN_PASSES,
+  campaignAfterKeepingPass,
+  canStartScanPass,
   collectScanInventory,
   deriveScanSeedSentence,
   formatDiscoverScanArgs,
+  newScanCampaign,
   nextScanPass,
+  parseDiscoverIndex,
   parseDiscoverScanArgs,
   renderDiscoverScanBrief,
+  scanPassChipState,
   scanPassDocPaths,
   type DiscoverScope,
 } from '../src';
@@ -52,6 +57,51 @@ describe('scan passes', () => {
     expect(nextScanPass(1)).toBe(2);
     expect(nextScanPass(2)).toBe(3);
     expect(nextScanPass(3)).toBeUndefined();
+  });
+});
+
+describe('scan campaign', () => {
+  it('parses an index written before scanCampaign existed', () => {
+    const parsed = parseDiscoverIndex({
+      schemaVersion: 1,
+      id: 'DISC-001',
+      title: 'App',
+      seedSentence: 'App',
+      docsRoot: 'docs',
+      outputLanguage: 'en',
+      currentStep: 'idea',
+      revision: 0,
+      docs: {},
+      items: {},
+      runs: [],
+      handoffs: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(parsed.scanCampaign).toBeUndefined();
+  });
+
+  it('advances lastKeptPass on keep and closes at pass 3', () => {
+    const t0 = '2026-01-01T00:00:00.000Z';
+    const t1 = '2026-01-01T00:01:00.000Z';
+    expect(newScanCampaign(t0)).toEqual({ status: 'active', lastKeptPass: 0, startedAt: t0, updatedAt: t0 });
+    const after1 = campaignAfterKeepingPass(undefined, 1, t1);
+    expect(after1).toMatchObject({ status: 'active', lastKeptPass: 1 });
+    const after2 = campaignAfterKeepingPass(after1, 2, t1);
+    expect(after2).toMatchObject({ status: 'active', lastKeptPass: 2 });
+    expect(campaignAfterKeepingPass(after2, 3, t1)).toMatchObject({ status: 'done', lastKeptPass: 3 });
+  });
+
+  it('locks a future pass until the previous one is kept, and blocks while a run is open', () => {
+    expect(canStartScanPass({ pass: 1, lastKeptPass: 0, hasActiveRun: false })).toBe(true);
+    expect(canStartScanPass({ pass: 2, lastKeptPass: 0, hasActiveRun: false })).toBe(false);
+    expect(canStartScanPass({ pass: 2, lastKeptPass: 1, hasActiveRun: false })).toBe(true);
+    expect(canStartScanPass({ pass: 1, lastKeptPass: 1, hasActiveRun: false })).toBe(true);
+    expect(canStartScanPass({ pass: 2, lastKeptPass: 1, hasActiveRun: true })).toBe(false);
+    expect(scanPassChipState({ pass: 3, lastKeptPass: 1 })).toBe('locked');
+    expect(scanPassChipState({ pass: 2, lastKeptPass: 1 })).toBe('next');
+    expect(scanPassChipState({ pass: 1, lastKeptPass: 1 })).toBe('kept');
+    expect(scanPassChipState({ pass: 2, lastKeptPass: 1, activeScanPass: 2, activeRunStatus: 'review' })).toBe('review');
   });
 });
 

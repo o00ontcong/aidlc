@@ -9,9 +9,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { DiscoverScope, DiscoverStepId } from '../contracts/discover';
+import type { DiscoverScanCampaign, DiscoverScope, DiscoverStepId } from '../contracts/discover';
 import { getStepSpec } from './DocSpec';
-import { EXCLUDED_DIRS, guessRepoKind, sourceExcludes } from './sourceScope';
+import { EXCLUDED_DIRS, guessRepoKind, isFsDirectory, sourceExcludes } from './sourceScope';
 
 export const SCAN_BRIEF_REL_PATH = '.aidlc/discover/scan-brief.md';
 export const SCAN_PASS_COUNT = 3;
@@ -116,6 +116,57 @@ export function nextScanPass(id: ScanPassId | undefined): ScanPassId | undefined
   if (id === 1) { return 2; }
   if (id === 2) { return 3; }
   return undefined;
+}
+
+export type ScanKeptPass = 0 | 1 | 2 | 3;
+export type ScanPassChipState = 'locked' | 'next' | 'running' | 'review' | 'kept';
+
+export function newScanCampaign(now: string): DiscoverScanCampaign {
+  return { status: 'active', lastKeptPass: 0, startedAt: now, updatedAt: now };
+}
+
+/** After Keep on a scan pass: advance `lastKeptPass`; pass 3 closes the campaign. */
+export function campaignAfterKeepingPass(
+  campaign: DiscoverScanCampaign | undefined,
+  pass: ScanPassId,
+  now: string,
+): DiscoverScanCampaign {
+  const lastKeptPass = (Math.max(campaign?.lastKeptPass ?? 0, pass) as ScanKeptPass);
+  return {
+    status: lastKeptPass === 3 ? 'done' : 'active',
+    lastKeptPass,
+    startedAt: campaign?.startedAt ?? now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * A pass is startable when nothing is awaiting a verdict and the pass is
+ * either the next one after the last kept pass, or a kept pass being re-run.
+ */
+export function canStartScanPass(input: {
+  pass: ScanPassId;
+  lastKeptPass?: ScanKeptPass;
+  hasActiveRun: boolean;
+}): boolean {
+  if (input.hasActiveRun) { return false; }
+  const lastKept = input.lastKeptPass ?? 0;
+  return input.pass <= lastKept || input.pass === lastKept + 1;
+}
+
+export function scanPassChipState(input: {
+  pass: ScanPassId;
+  lastKeptPass?: ScanKeptPass;
+  activeScanPass?: ScanPassId;
+  activeRunStatus?: 'running' | 'review';
+}): ScanPassChipState {
+  if (input.activeScanPass === input.pass) {
+    return input.activeRunStatus === 'review' ? 'review' : 'running';
+  }
+  const lastKept = input.lastKeptPass ?? 0;
+  if (input.pass <= lastKept) { return 'kept'; }
+  if (input.pass === lastKept + 1) { return 'next'; }
+  return 'locked';
 }
 
 export function scanPassDocPaths(id: ScanPassId): string[] {
@@ -502,7 +553,7 @@ function listRepoSourceFiles(
       if (isExcludedRel(childRel, extraExcludes)) { continue; }
       if (isWorkspaceRoot && isDocsRel(childRel, docsRoot)) { continue; }
       const childAbs = path.join(abs, entry.name);
-      if (entry.isDirectory()) {
+      if (isFsDirectory(childAbs, entry)) {
         visit(childAbs, childRel);
         continue;
       }

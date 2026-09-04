@@ -13,6 +13,8 @@ export interface DiscoverHints {
   startBlueprint: string;
   scanExisting: string;
   scanProject: string;
+  scanPassChip: (label: string, state: 'locked' | 'next' | 'running' | 'review' | 'kept') => string;
+  abandonScan: string;
   repoLayout: string;
   commitAll: string;
   openGuide: string;
@@ -35,6 +37,7 @@ export interface DiscoverHints {
   resizeRail: string;
   openDoc: (path: string) => string;
   addEntry: string;
+  openDetails: string;
   itemInput: string;
   itemDescription: string;
   groupInput: string;
@@ -86,6 +89,8 @@ export interface DiscoverCopy {
   scanBadge: string;
   /** `quét 1/3 · Sản phẩm` — pass 1..3; omit pass for a generic badge. */
   scanPassBadge: (pass?: number) => string;
+  scanPassShort: (pass: 1 | 2 | 3) => string;
+  abandonScan: string;
   /** Header button label: the declared layout, or an invitation to declare one. */
   repoLayout: (scope?: DiscoverScopeSummary) => string;
 
@@ -150,6 +155,7 @@ export interface DiscoverCopy {
   entries: string;
   emptySection: string;
   addEntry: string;
+  details: string;
   editHint: string;
   pinnedHint: string;
   pin: string;
@@ -297,7 +303,9 @@ const HINTS_VI: DiscoverHints = {
   seedInput: 'Nhập mô tả sản phẩm (một câu hoặc nhiều đoạn) để khởi tạo blueprint 12 bước.',
   startBlueprint: 'Tạo blueprint và các tài liệu Markdown ban đầu từ mô tả sản phẩm.',
   scanExisting: 'Bỏ qua ý tưởng — đọc mã nguồn đã có và điền blueprint qua 3 lượt (sản phẩm → kiến trúc → kế hoạch).',
-  scanProject: 'Đối chiếu docs với code qua 3 lượt; mỗi lượt hiện diff để bạn giữ lại trước khi sang lượt sau.',
+  scanProject: 'Bắt đầu chiến dịch quét mới từ lượt 1. Lượt tiếp theo bấm trên thanh 3 bước, không phải nút Giữ.',
+  scanPassChip: (label, state) => state === 'locked' ? `Chưa đến lượt ${label}.` : state === 'next' ? `Chạy lượt ${label}.` : state === 'running' ? `Đang quét ${label}.` : state === 'review' ? `Đang duyệt ${label} — Giữ hoặc Hoàn tác.` : `Chạy lại lượt ${label}.`,
+  abandonScan: 'Dừng chiến dịch quét. Tài liệu giữ nguyên; thanh 3 bước ẩn đi.',
   repoLayout: 'Khai báo repo nào chứa code của blueprint này — một repo, repo cha nhiều con, hay một repo con. Scan chỉ đọc trong vùng đã khai báo.',
   commitAll: 'Stage và commit mọi thay đổi trong repo cha (hoặc repo duy nhất nếu chỉ có một).',
   openGuide: 'Mở hướng dẫn giải thích 12 bước, định dạng tài liệu và cách chạy agent.',
@@ -310,7 +318,7 @@ const HINTS_VI: DiscoverHints = {
   openCurrentDoc: 'Mở file chính của bước đang xem trong VS Code editor.',
   runPipeline: 'Chạy agent cho bước hiện tại của pipeline; mỗi lần chỉ xử lý một bước.',
   showDiff: 'Xem các mục agent vừa thêm, sửa hoặc xoá trong run này.',
-  keepRun: 'Chấp nhận thay đổi của lượt này và bỏ snapshot hoàn tác. Nếu đây là lượt quét, lượt sau sẽ chạy tiếp.',
+  keepRun: 'Chấp nhận thay đổi của lượt này và bỏ snapshot hoàn tác.',
   revertRun: 'Khôi phục toàn bộ tài liệu về trạng thái trước run này.',
   showRaw: 'Chỉnh sửa trực tiếp toàn bộ nội dung Markdown của file.',
   showPreview: 'Xem bản render của Markdown mà không chỉnh sửa nội dung.',
@@ -320,6 +328,7 @@ const HINTS_VI: DiscoverHints = {
   resizeRail: 'Kéo để đổi độ rộng danh sách 12 bước.',
   openDoc: (path) => `Mở ${path} trong VS Code editor.`,
   addEntry: 'Thêm một mục mới vào section này và tự cấp ID tiếp theo.',
+  openDetails: 'Mở dialog xem toàn bộ nội dung của mục này.',
   itemInput: 'Nhập nội dung mục; Enter để lưu, Esc để huỷ.',
   itemDescription: 'Mô tả thêm — vì sao mục này có, và cách quan sát/kiểm chứng.',
   groupInput: 'Nhập mã nhóm dùng để tạo ID cho mục mới.',
@@ -346,7 +355,7 @@ const HINTS_VI: DiscoverHints = {
   openEpic: 'Mở danh sách Epic và đi tới Epic đã được tạo từ phase này.',
   configureEpic: 'Mở form chọn tên và recipe để bàn giao phase thành một Epic.',
   epicTitleInput: 'Tên Epic sẽ được tạo từ phase của Implementation Plan.',
-  recipeSelect: 'Chọn recipe: cofofo-feature (hành vi mới) hoặc cofofo-bugfix (sửa hành vi sai).',
+  recipeSelect: 'Chọn pipeline: cofofo-feature (hành vi mới) hoặc cofofo-bugfix (sửa hành vi sai).',
   createEpic: 'Tạo Epic và chụp INTENT.md từ trạng thái blueprint hiện tại.',
   createEpicAnyway: 'Vẫn tạo Epic dù feature này đã có trong code — dùng khi muốn refactor, bugfix, hoặc bổ sung.',
 };
@@ -355,7 +364,9 @@ const HINTS_EN: DiscoverHints = {
   seedInput: 'Enter a product description (one sentence or several paragraphs) to initialise the 12-step blueprint.',
   startBlueprint: 'Create the blueprint and its initial Markdown documents from the product description.',
   scanExisting: 'Skip the idea — read the source already in this workspace and fill the blueprint in 3 passes (product → architecture → plan).',
-  scanProject: 'Reconcile docs against code in 3 passes; each pass shows a diff to keep before the next one starts.',
+  scanProject: 'Start a new scan campaign from pass 1. Later passes are started from the 3-step bar, not Keep.',
+  scanPassChip: (label, state) => state === 'locked' ? `Not yet ${label}'s turn.` : state === 'next' ? `Run ${label}.` : state === 'running' ? `Scanning ${label}.` : state === 'review' ? `Reviewing ${label} — Keep or Undo.` : `Re-run ${label}.`,
+  abandonScan: 'Stop the scan campaign. Documents stay; the 3-step bar hides.',
   repoLayout: 'Declare which repos hold this blueprint\'s code — one repo, a parent over several children, or one child. A scan reads only inside what you declare.',
   commitAll: 'Stage and commit every change in the parent repo (or the sole repo when there is only one).',
   openGuide: 'Open the guide to the 12 steps, document format, and agent workflow.',
@@ -368,7 +379,7 @@ const HINTS_EN: DiscoverHints = {
   openCurrentDoc: 'Open the selected step\'s primary file in the VS Code editor.',
   runPipeline: 'Run the agent for the pipeline\'s current step; one step is processed per run.',
   showDiff: 'Review the entries the agent added, changed, or removed in this run.',
-  keepRun: 'Accept this pass\'s changes and discard its undo snapshot. If this is a scan, the next pass starts afterwards.',
+  keepRun: 'Accept this run\'s changes and discard its undo snapshot.',
   revertRun: 'Restore all documents to their state before this run.',
   showRaw: 'Edit the file\'s complete Markdown content directly.',
   showPreview: 'Render the Markdown for reading without editing it.',
@@ -378,6 +389,7 @@ const HINTS_EN: DiscoverHints = {
   resizeRail: 'Drag to resize the 12-step list.',
   openDoc: (path) => `Open ${path} in the VS Code editor.`,
   addEntry: 'Add an entry to this section and allocate its next ID.',
+  openDetails: 'Open a dialog with the full content of this entry.',
   itemInput: 'Enter the entry text; press Enter to save or Escape to cancel.',
   itemDescription: 'Extra description — why this entry exists and how to observe it.',
   groupInput: 'Enter the group code used to generate the new entry ID.',
@@ -404,7 +416,7 @@ const HINTS_EN: DiscoverHints = {
   openEpic: 'Open the Epics list and navigate to the Epic created from this phase.',
   configureEpic: 'Choose a title and recipe before handing this phase off as an Epic.',
   epicTitleInput: 'The title of the Epic created from this Implementation Plan phase.',
-  recipeSelect: 'Choose cofofo-feature (new behaviour) or cofofo-bugfix (wrong behaviour).',
+  recipeSelect: 'Choose pipeline cofofo-feature (new behaviour) or cofofo-bugfix (wrong behaviour).',
   createEpic: 'Create the Epic and snapshot INTENT.md from the current blueprint.',
   createEpicAnyway: 'Create an Epic anyway — for a refactor, bugfix, or follow-up, not to re-implement the feature.',
 };
@@ -424,13 +436,15 @@ const VI: DiscoverCopy = {
   start: 'Bắt đầu',
   orDivider: 'hoặc',
   scanExisting: 'Quét mã nguồn có sẵn',
-  scanExistingHint: 'Đã có sourcecode trong workspace này? Quét thay vì gõ ý tưởng — agent đọc code qua 3 lượt (sản phẩm, kiến trúc, kế hoạch).',
+  scanExistingHint: 'Đã có sourcecode trong workspace này? Quét thay vì gõ ý tưởng — agent đọc code qua 3 lượt trên thanh quét (sản phẩm, kiến trúc, kế hoạch).',
   scanProject: 'Quét dự án',
   scanBadge: 'quét',
   scanPassBadge: (pass) => {
     const name = pass === 1 ? 'Sản phẩm' : pass === 2 ? 'Kiến trúc' : pass === 3 ? 'Kế hoạch' : '';
     return pass && name ? `quét ${pass}/3 · ${name}` : 'quét';
   },
+  scanPassShort: (pass) => pass === 1 ? 'Sản phẩm' : pass === 2 ? 'Kiến trúc' : 'Kế hoạch',
+  abandonScan: 'Dừng quét',
   commitAll: 'Commit tất cả',
   repoLayout: (scope) => {
     if (!scope) { return 'Cấu trúc repo?'; }
@@ -495,6 +509,7 @@ const VI: DiscoverCopy = {
   entries: 'mục',
   emptySection: 'Chưa có gì ở đây.',
   addEntry: 'Thêm mục',
+  details: 'Chi tiết',
   editHint: 'Bấm để sửa',
   pinnedHint: 'Mục đã ghim — bỏ ghim trước khi sửa',
   pin: 'Ghim (agent không được sửa)',
@@ -571,7 +586,7 @@ const VI: DiscoverCopy = {
   },
 
   handoffTitle: 'Bàn giao sang Epic',
-  handoffHint: 'Đề xuất từ phase trong Implementation Plan mà chưa thấy code tương ứng. Recipe chỉ có cofofo-feature hoặc cofofo-bugfix.',
+  handoffHint: 'Đề xuất từ phase trong Implementation Plan mà chưa thấy code tương ứng. Pipeline chỉ có cofofo-feature hoặc cofofo-bugfix.',
   handoffPlanIncomplete: 'Bước Implementation Plan chưa đủ điều kiện; vẫn bàn giao được nhưng brief sẽ thiếu.',
   handoffNoPhases: 'Chưa có phase nào trong plans/IMPLEMENTATION_PLAN.md.',
   handoffIntentNote: 'INTENT.md được chụp lại ngay lúc tạo Epic — sửa blueprint sau đó không đổi file này.',
@@ -617,13 +632,15 @@ const EN: DiscoverCopy = {
   start: 'Start',
   orDivider: 'or',
   scanExisting: 'Scan existing source code',
-  scanExistingHint: 'Already have source code in this workspace? Scan it instead of typing an idea — the agent reads the code in 3 passes (product, architecture, plan).',
+  scanExistingHint: 'Already have source code in this workspace? Scan it instead of typing an idea — the agent reads the code in 3 passes on the scan bar (product, architecture, plan).',
   scanProject: 'Scan project',
   scanBadge: 'scan',
   scanPassBadge: (pass) => {
     const name = pass === 1 ? 'Product' : pass === 2 ? 'Architecture' : pass === 3 ? 'Plan' : '';
     return pass && name ? `scan ${pass}/3 · ${name}` : 'scan';
   },
+  scanPassShort: (pass) => pass === 1 ? 'Product' : pass === 2 ? 'Architecture' : 'Plan',
+  abandonScan: 'Stop scan',
   commitAll: 'Commit all',
   repoLayout: (scope) => {
     if (!scope) { return 'Repo layout?'; }
@@ -688,6 +705,7 @@ const EN: DiscoverCopy = {
   entries: 'entries',
   emptySection: 'Nothing here yet.',
   addEntry: 'Add entry',
+  details: 'Details',
   editHint: 'Click to edit',
   pinnedHint: 'Pinned — unpin it before editing',
   pin: 'Pin (agents may not touch it)',
@@ -764,7 +782,7 @@ const EN: DiscoverCopy = {
   },
 
   handoffTitle: 'Hand off to an epic',
-  handoffHint: 'Proposed from Implementation Plan phases that do not yet have matching source. Recipes: cofofo-feature or cofofo-bugfix only.',
+  handoffHint: 'Proposed from Implementation Plan phases that do not yet have matching source. Pipelines: cofofo-feature or cofofo-bugfix only.',
   handoffPlanIncomplete: 'The Implementation Plan step is not complete; you can still hand off, but the brief will be thin.',
   handoffNoPhases: 'No phases in plans/IMPLEMENTATION_PLAN.md yet.',
   handoffIntentNote: 'INTENT.md is snapshotted when the epic is created — editing the blueprint afterwards does not change it.',

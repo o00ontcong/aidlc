@@ -262,8 +262,9 @@ of those docs against **what the project's source code actually does right
 now** — not against what an earlier document claims, and not against what you
 remember from a previous turn.
 
-A scan is three passes, each its own invocation (the host starts the next
-after the human keeps this one):
+A scan is three passes, each its own invocation. The host starts the next
+pass only when the human clicks that pass on the Discover scan stepper
+(Keep accepts this pass's diff and does not start the next one):
 
 - \`pass=1\` Product — Idea through User Flow
 - \`pass=2\` Architecture — architecture, data, stack, folder structure

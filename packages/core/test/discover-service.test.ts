@@ -383,3 +383,49 @@ describe('DiscoverService — agent runs', () => {
     expect(finished.guardrail.some((g) => g.code === 'out-of-scope')).toBe(true);
   });
 });
+
+describe('DiscoverService — scan campaign', () => {
+  it('keeps a scan pass without starting the next one', () => {
+    const service = seeded();
+    const { run } = service.startRun('idea', { kind: 'scan', scanPass: 1 });
+    expect(service.require().scanCampaign).toMatchObject({ status: 'active', lastKeptPass: 0 });
+    service.keepRun(run.id);
+    const after = service.require();
+    expect(after.scanCampaign).toMatchObject({ status: 'active', lastKeptPass: 1 });
+    expect(after.runs.find((r) => r.id === run.id)?.status).toBe('kept');
+    expect(service.activeRun()).toBeUndefined();
+  });
+
+  it('marks the campaign done after keeping pass 3', () => {
+    const service = seeded();
+    for (const pass of [1, 2, 3] as const) {
+      const { run } = service.startRun('idea', { kind: 'scan', scanPass: pass });
+      service.keepRun(run.id);
+    }
+    expect(service.require().scanCampaign).toMatchObject({ status: 'done', lastKeptPass: 3 });
+  });
+
+  it('does not raise lastKeptPass when a scan run is reverted', () => {
+    const service = seeded();
+    const { run } = service.startRun('idea', { kind: 'scan', scanPass: 1 });
+    service.revertRun(run.id);
+    expect(service.require().scanCampaign).toMatchObject({ status: 'active', lastKeptPass: 0 });
+  });
+
+  it('resetCampaign starts a fresh campaign from pass 1', () => {
+    const service = seeded();
+    const first = service.startRun('idea', { kind: 'scan', scanPass: 1 }).run;
+    service.keepRun(first.id);
+    expect(service.require().scanCampaign?.lastKeptPass).toBe(1);
+    service.startRun('idea', { kind: 'scan', scanPass: 1, resetCampaign: true });
+    expect(service.require().scanCampaign).toMatchObject({ status: 'active', lastKeptPass: 0 });
+  });
+
+  it('abandonScanCampaign drops campaign metadata and leaves docs', () => {
+    const service = seeded();
+    service.startRun('idea', { kind: 'scan', scanPass: 1 });
+    service.abandonScanCampaign();
+    expect(service.require().scanCampaign).toBeUndefined();
+    expect(fs.existsSync(service.docFile(DOC_IDEA))).toBe(true);
+  });
+});

@@ -472,6 +472,8 @@ export interface PipelineSummary {
   builtin?: boolean;
   /** Human label for built-in pipelines (e.g. "iOS Native Pipeline"). User-defined pipelines leave this undefined. */
   name?: string;
+  /** @deprecated CoFoFo pipelines are all startable; kept for older webview payloads. */
+  templateOnly?: boolean;
 }
 
 /** A task-type recipe surfaced in the Start-Epic modal (mirrors host RecipeSummary). */
@@ -826,17 +828,18 @@ export interface DiscoverDiffRow {
 }
 
 export type CofofoRecipeId =
+  | 'cofofo-foundation' | 'cofofo-feature' | 'cofofo-bugfix'
   | 'cofofo-bootstrap' | 'cofofo-refresh-context' | 'cofofo-update-rules'
-  | 'cofofo-repin-bundle' | 'cofofo-feature' | 'cofofo-bugfix';
+  | 'cofofo-repin-bundle';
 
-/** Delivery recipes a Discover phase may start — not the foundation lifecycle routes. */
+/** Delivery pipelines a Discover phase may start. */
 export const DISCOVER_HANDOFF_RECIPE_IDS: CofofoRecipeId[] = [
   'cofofo-feature', 'cofofo-bugfix',
 ];
 
 export const COFOFO_RECIPE_IDS: CofofoRecipeId[] = [
-  'cofofo-feature', 'cofofo-bugfix', 'cofofo-bootstrap',
-  'cofofo-refresh-context', 'cofofo-update-rules', 'cofofo-repin-bundle',
+  'cofofo-foundation', 'cofofo-feature', 'cofofo-bugfix',
+  'cofofo-bootstrap', 'cofofo-refresh-context', 'cofofo-update-rules', 'cofofo-repin-bundle',
 ];
 
 export interface DiscoverPhase {
@@ -968,6 +971,8 @@ export interface DiscoverSummary {
   epicSuggestions: DiscoverEpicSuggestion[];
   itemCoverage?: DiscoverItemCoverage;
   runs: DiscoverRunSummary[];
+  /** Three-pass scan campaign, when one exists. Keep does not start the next pass. */
+  scanCampaign?: { status: 'active' | 'done'; lastKeptPass: 0 | 1 | 2 | 3 };
   /** Implementation Plan phases, each one a candidate epic. */
   phases: DiscoverPhase[];
   activeRun?: {

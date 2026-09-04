@@ -99,13 +99,9 @@ export const DiscoverRunSchema = z.object({
 export type DiscoverRun = z.infer<typeof DiscoverRunSchema>;
 
 /**
- * Recipes a Discover Implementation Plan phase may be handed off to.
- *
- * CoFoFo exposes two **pipelines** (`cofofo-foundation`, `cofofo-delivery`).
- * Starting product work uses the two **delivery** recipes only. Foundation
- * lifecycle recipes (bootstrap / refresh-context / update-rules / repin-bundle)
- * are not a phase-handoff choice — bootstrap is offered from Kiểm tra when
- * the skeleton itself is missing.
+ * Pipelines a Discover Implementation Plan phase may be handed off to.
+ * CoFoFo exposes exactly three pipelines; handoff uses the two delivery ones.
+ * Foundation work starts `cofofo-foundation` from Kiểm tra / New task.
  */
 export const DISCOVER_HANDOFF_RECIPE_IDS = [
   'cofofo-feature',
@@ -114,16 +110,18 @@ export const DISCOVER_HANDOFF_RECIPE_IDS = [
 export type DiscoverHandoffRecipeId = (typeof DISCOVER_HANDOFF_RECIPE_IDS)[number];
 
 /**
- * Every CoFoFo recipe id, including foundation lifecycle routes. Kept so
- * recorded handoffs and Kiểm tra suggestions can still name bootstrap.
+ * Canonical CoFoFo pipeline ids, plus legacy recipe aliases still accepted when
+ * reading older Discover handoff / suggestion records.
  */
 export const COFOFO_RECIPE_IDS = [
+  'cofofo-foundation',
+  'cofofo-feature',
+  'cofofo-bugfix',
+  // Legacy aliases (pre–3-pipeline UX)
   'cofofo-bootstrap',
   'cofofo-refresh-context',
   'cofofo-update-rules',
   'cofofo-repin-bundle',
-  'cofofo-feature',
-  'cofofo-bugfix',
 ] as const;
 export const CofofoRecipeIdSchema = z.enum(COFOFO_RECIPE_IDS);
 export type CofofoRecipeId = z.infer<typeof CofofoRecipeIdSchema>;
@@ -191,6 +189,20 @@ export const DiscoverScopeSchema = z.object({
 });
 export type DiscoverScope = z.infer<typeof DiscoverScopeSchema>;
 
+/**
+ * One Discover scan campaign (product → architecture → plan). Sidecar only —
+ * Keep never starts the next pass; the human clicks that pass on the stepper.
+ * Absent on blueprints that have never been scanned this way.
+ */
+export const DiscoverScanCampaignSchema = z.object({
+  status: z.enum(['active', 'done']),
+  /** Highest pass kept this campaign. `0` = none yet. */
+  lastKeptPass: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).default(0),
+  startedAt: IsoTimestampSchema,
+  updatedAt: IsoTimestampSchema,
+});
+export type DiscoverScanCampaign = z.infer<typeof DiscoverScanCampaignSchema>;
+
 export const DiscoverIndexSchema = z.object({
   schemaVersion: z.literal(1),
   /** One blueprint per workspace for now — see plan §7 assumption 2. */
@@ -212,6 +224,8 @@ export const DiscoverIndexSchema = z.object({
   docs: z.record(z.string(), DiscoverDocMetaSchema).default({}),
   items: z.record(z.string(), DiscoverItemMetaSchema).default({}),
   runs: z.array(DiscoverRunSchema).default([]),
+  /** Three-pass scan campaign, when one is in progress or just finished. */
+  scanCampaign: DiscoverScanCampaignSchema.optional(),
   /** Phases already handed off to an epic — see {@link DiscoverHandoffSchema}. */
   handoffs: z.array(DiscoverHandoffSchema).default([]),
   createdAt: IsoTimestampSchema,

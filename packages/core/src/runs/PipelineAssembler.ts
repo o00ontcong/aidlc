@@ -31,6 +31,7 @@ import {
   stepDagId,
   collectWorkspaceRefIssues,
 } from '../schema/WorkspaceSchema';
+import { isRogueCofofoPipelineId } from '../cofofo/bugReport';
 
 export class PipelineAssembleError extends Error {
   constructor(message: string) {
@@ -140,8 +141,16 @@ export function assemblePipeline(
     }
   }
 
+  const assembledId = opts.pipelineId ?? recipe.id;
+  if (isRogueCofofoPipelineId(assembledId)) {
+    throw new PipelineAssembleError(
+      `Refusing pipeline id "${assembledId}": not a canonical CoFoFo pipeline. ` +
+        `Allowed: cofofo-foundation / cofofo-feature / cofofo-bugfix (or an epic id like PASS-1087).`,
+    );
+  }
+
   const assembled: PipelineConfig = {
-    id: opts.pipelineId ?? recipe.id,
+    id: assembledId,
     materialized_from_recipe: recipe.id,
     steps,
     on_failure: source.on_failure,
@@ -183,16 +192,20 @@ export function recipePipelineId(opts: {
   taken: Set<string> | ReadonlySet<string>;
 }): string {
   const { recipeId, epicId, taken } = opts;
-  const candidates = epicId
+  // Never emit a rogue cofofo-* pipeline id (recipe ids must not become pipelines).
+  const seed = epicId
     ? [epicId, `${epicId}-${recipeId}`]
-    : [recipeId];
+    : isRogueCofofoPipelineId(recipeId)
+      ? [`run-${recipeId}`]
+      : [recipeId];
+  const candidates = seed.filter((c) => !isRogueCofofoPipelineId(c));
   for (const c of candidates) {
     if (!taken.has(c)) { return c; }
   }
-  const base = candidates[candidates.length - 1];
+  const base = candidates[candidates.length - 1] ?? (epicId ? `${epicId}-run` : 'run');
   for (let n = 2; ; n++) {
     const c = `${base}-${n}`;
-    if (!taken.has(c)) { return c; }
+    if (!isRogueCofofoPipelineId(c) && !taken.has(c)) { return c; }
   }
 }
 

@@ -193,7 +193,7 @@ export function registerCofofo(program: Command): void {
       try {
         const state = foundationService(resolveWorkspaceRoot(action)).activate(opts.run);
         console.log(chalk.green('✔') + ` Foundation revision ${state.revision} is active.`);
-        console.log(chalk.dim('  Start work with recipe cofofo-feature or cofofo-bugfix.'));
+        console.log(chalk.dim('  Start work with pipeline cofofo-feature or cofofo-bugfix.'));
       } catch (error) { fail(error); }
     });
 

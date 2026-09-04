@@ -42,8 +42,10 @@ import {
   type SourceRepoFingerprint,
 } from './sourceScope';
 import {
+  campaignAfterKeepingPass,
   collectScanInventory,
   isScanPassId,
+  newScanCampaign,
   renderDiscoverScanBrief,
   scanPassDocPaths,
   scanPassFirstStep,
@@ -540,7 +542,14 @@ export class DiscoverService {
   /** Snapshot the docs, then record the run so its diff has something to compare against. */
   startRun(
     stepId: DiscoverStepId,
-    options: { note?: string; runId?: string; kind?: 'step' | 'scan' | 'edit'; scanPass?: ScanPassId } = {},
+    options: {
+      note?: string;
+      runId?: string;
+      kind?: 'step' | 'scan' | 'edit';
+      scanPass?: ScanPassId;
+      /** True when the Scan button starts a new campaign from pass 1. */
+      resetCampaign?: boolean;
+    } = {},
   ): { index: DiscoverIndex; run: DiscoverRun } {
     const index = this.require();
     const ctx = this.readBlueprint(index);
@@ -578,7 +587,10 @@ export class DiscoverService {
     const evicted = allRuns.slice(0, Math.max(0, allRuns.length - MAX_RUNS));
     for (const r of evicted) { fs.rmSync(this.snapshotDir(r.id), { recursive: true, force: true }); }
     const runs = allRuns.slice(-MAX_RUNS);
-    return { index: this.save({ ...index, revision: index.revision + 1, runs }), run };
+    const scanCampaign = kind === 'scan'
+      ? (options.resetCampaign || !index.scanCampaign ? newScanCampaign(nowIso()) : { ...index.scanCampaign, updatedAt: nowIso() })
+      : index.scanCampaign;
+    return { index: this.save({ ...index, revision: index.revision + 1, runs, scanCampaign }), run };
   }
 
   /**
@@ -666,13 +678,31 @@ export class DiscoverService {
   /** Accept what a run wrote. The snapshot goes with it — nothing left to undo. */
   keepRun(runId: string): DiscoverIndex {
     const index = this.require();
-    if (!index.runs.some((r) => r.id === runId)) { throw new Error(`Unknown Discover run "${runId}".`); }
+    const run = index.runs.find((r) => r.id === runId);
+    if (!run) { throw new Error(`Unknown Discover run "${runId}".`); }
     fs.rmSync(this.snapshotDir(runId), { recursive: true, force: true });
+    const scanCampaign = run.kind === 'scan' && isScanPassId(run.scanPass)
+      ? campaignAfterKeepingPass(index.scanCampaign, run.scanPass, nowIso())
+      : index.scanCampaign;
     return this.save({
       ...index,
       revision: index.revision + 1,
+      scanCampaign,
       runs: index.runs.map((r) => (r.id === runId ? { ...r, status: 'kept' as const, revertable: false } : r)),
     });
+  }
+
+  /** Reset the scan campaign to pass 1 (Scan button — does not start a run). */
+  beginScanCampaign(): DiscoverIndex {
+    const index = this.require();
+    return this.save({ ...this.bump(index), scanCampaign: newScanCampaign(nowIso()) });
+  }
+
+  /** Drop campaign metadata. Docs stay; the stepper hides. */
+  abandonScanCampaign(): DiscoverIndex {
+    const index = this.require();
+    const { scanCampaign: _dropped, ...rest } = index;
+    return this.save({ ...this.bump(rest) });
   }
 
   /**

@@ -61,6 +61,7 @@ export {
   type DiscoverDocMeta,
   type DiscoverRun,
   type DiscoverRunDiff,
+  type DiscoverScanCampaign,
   type DiscoverStepId,
   type DiscoverHandoff,
   type DiscoverScope,

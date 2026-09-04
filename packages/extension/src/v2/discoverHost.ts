@@ -13,7 +13,7 @@ import * as path from 'path';
 
 import { discoverRepoIsDirty } from './discoverGitCommit';
 import {
-  assemblePipeline,
+  resolveCofofoPipelineId,
   CofofoFoundationService,
   DiscoverService,
   DISCOVER_STEPS,
@@ -145,6 +145,8 @@ export interface DiscoverUi {
   /** Per-FR / feature / screen inventory for steps 3, 4 and 6. */
   itemCoverage: DiscoverItemCoverage;
   runs: DiscoverRun[];
+  /** Three-pass scan campaign, when one exists. */
+  scanCampaign?: { status: 'active' | 'done'; lastKeptPass: 0 | 1 | 2 | 3 };
   /** Implementation Plan phases, each one a candidate epic. */
   phases: DiscoverPhaseUi[];
   /** The run still owing a verdict, with its diff resolved to readable rows. */
@@ -319,6 +321,9 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
       scope: service.declaredScope(),
     }),
     runs: [...index.runs].reverse().slice(0, 20),
+    scanCampaign: index.scanCampaign
+      ? { status: index.scanCampaign.status, lastKeptPass: index.scanCampaign.lastKeptPass }
+      : undefined,
     phases: (() => {
       const workById = new Map(classifyPhaseWork({
         workspaceRoot: root,
@@ -422,15 +427,18 @@ export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): 
   const doc = readYaml(root);
   if (!doc) { throw new Error('workspace.yaml is missing — open the Builder tab first.'); }
 
-  // Recipes only exist once CoFoFo has registered them; a blueprint can be
-  // finished in a workspace that has never run a delivery pipeline.
+  // Ensure the three CoFoFo pipelines exist even before prepare() has run.
   new CofofoFoundationService(root).ensureRecipesRegistered();
   const config = WorkspaceLoader.load(root).config;
+  const pipelineId = resolveCofofoPipelineId(input.recipeId) ?? input.recipeId;
+  const pipeline = config.pipelines.find((p) => p.id === pipelineId);
+  if (!pipeline) {
+    throw new Error(`Pipeline "${pipelineId}" missing — run CoFoFo register / Kiểm tra & sửa workspace.`);
+  }
 
   const epicId = nextEpicId(root, doc);
-  const pipeline = assemblePipeline(config, { recipeId: input.recipeId, pipelineId: epicId });
-  doc.pipelines.push(pipeline as unknown as Record<string, unknown>);
-  writeYaml(root, doc);
+  // Reload doc after ensureRecipesRegistered may have rewritten workspace.yaml.
+  const freshDoc = readYaml(root) ?? doc;
 
   const brief = renderPhaseIntent(ctx, index, phase);
   const title = (input.title ?? '').trim() || `${phase.id} — ${phase.title || index.title}`;
@@ -438,11 +446,11 @@ export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): 
 
   const result = scaffoldEpic({
     workspaceRoot: root,
-    doc,
+    doc: freshDoc,
     epicId,
     title,
     description: phase.goal || phase.deliverables.join('; '),
-    target: { kind: 'pipeline', id: epicId },
+    target: { kind: 'pipeline', id: pipelineId },
     agents: pipeline.steps.map((step) => normalizeStep(step).agent),
     inputs: {},
     pipeline,
@@ -450,13 +458,13 @@ export function scaffoldEpicFromPhase(root: string, input: ScaffoldPhaseInput): 
       id: index.id,
       revision: index.revision,
       // A workspace with no published CoFoFo Foundation still hands off; the
-      // epic's own bootstrap recipe is what fixes that.
+      // epic runs cofofo-foundation first when needed.
       foundation: foundation ?? { revision: 0, manifestPath: '', manifestHash: 'unpublished', capturedAt: new Date().toISOString() },
       brief,
     },
   });
 
-  service.recordHandoff({ phaseId: phase.id, epicId, recipeId: input.recipeId, title });
+  service.recordHandoff({ phaseId: phase.id, epicId, recipeId: pipelineId as typeof input.recipeId, title });
   return { epicId, intentPath: path.join(result.artifactsDir, 'INTENT.md') };
 }
 
@@ -485,21 +493,23 @@ export function scaffoldEpicFromSuggestion(root: string, input: ScaffoldSuggesti
 
   new CofofoFoundationService(root).ensureRecipesRegistered();
   const config = WorkspaceLoader.load(root).config;
+  const pipelineId = resolveCofofoPipelineId(suggestion.recipeId) ?? 'cofofo-feature';
+  const pipeline = config.pipelines.find((p) => p.id === pipelineId);
+  if (!pipeline) {
+    throw new Error(`Pipeline "${pipelineId}" missing — run CoFoFo register / Kiểm tra & sửa workspace.`);
+  }
 
-  const epicId = nextEpicId(root, doc);
-  const pipeline = assemblePipeline(config, { recipeId: suggestion.recipeId, pipelineId: epicId });
-  doc.pipelines.push(pipeline as unknown as Record<string, unknown>);
-  writeYaml(root, doc);
-
+  const freshDoc = readYaml(root) ?? doc;
+  const epicId = nextEpicId(root, freshDoc);
   const foundation = new CofofoFoundationService(root).inspect().snapshot;
 
   const result = scaffoldEpic({
     workspaceRoot: root,
-    doc,
+    doc: freshDoc,
     epicId,
     title: suggestion.title,
     description: suggestion.description,
-    target: { kind: 'pipeline', id: epicId },
+    target: { kind: 'pipeline', id: pipelineId },
     agents: pipeline.steps.map((step) => normalizeStep(step).agent),
     inputs: {},
     pipeline,
@@ -515,7 +525,7 @@ export function scaffoldEpicFromSuggestion(root: string, input: ScaffoldSuggesti
     service.recordHandoff({
       phaseId: suggestion.phaseId,
       epicId,
-      recipeId: suggestion.recipeId,
+      recipeId: pipelineId,
       title: suggestion.title,
     });
   }

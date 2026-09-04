@@ -52,7 +52,7 @@ describe('suggestEpics', () => {
     const index = service.require();
     const ctx = service.readBlueprint(index);
     const suggestions = suggestEpics({ workspaceRoot: root, ctx, index, checkFoundation: false });
-    expect(suggestions.some((s) => s.kind === 'no-skeleton' && s.recipeId === 'cofofo-bootstrap')).toBe(true);
+    expect(suggestions.some((s) => s.kind === 'no-skeleton' && s.recipeId === 'cofofo-foundation')).toBe(true);
     const sk = suggestions.find((s) => s.kind === 'no-skeleton')!;
     expect(sk.brief).toContain('Generate Skeleton');
   });
@@ -137,7 +137,7 @@ describe('suggestEpics', () => {
     const suggestions = suggestEpics({ workspaceRoot: root, ctx, index, checkFoundation: false });
     const sk = suggestions.find((s) => s.kind === 'no-skeleton');
     expect(sk).toBeDefined();
-    expect(sk!.recipeId).toBe('cofofo-bootstrap');
+    expect(sk!.recipeId).toBe('cofofo-foundation');
     expect(sk!.description).not.toMatch(/chưa có skeleton hoặc CoFoFo foundation chưa sẵn sàng/i);
     expect(sk!.description).toMatch(/SKELETON\.md/);
     expect(sk!.summary).toMatch(/Discover đã có spec/);
@@ -305,5 +305,43 @@ describe('classifyItemCoverage', () => {
     expect(coverage.items.find((i) => i.id === 'FR-01')?.status).toBe('in-code');
     expect(coverage.items.find((i) => i.id === 'F-BACKTEST-01')?.status).toBe('missing');
     expect(coverage.items.find((i) => i.id === 'FR-02')?.status).toBe('missing');
+  });
+
+  it('still finds source when declared child repos are missing on this machine', () => {
+    const { root, service } = setupBlueprint();
+    addRequirements(service);
+    service.applyOps(DOC_MODULES, [
+      { op: 'removeRecord', id: 'M-01' },
+      {
+        op: 'addRecord',
+        section: 'modules',
+        title: 'Playback',
+        fields: [
+          { label: 'Responsibility', value: 'Phát video — F-STRATEGY-01' },
+          { label: 'Folder', value: 'App/Features/Player' },
+        ],
+      },
+    ], { actor: USER });
+    const playerDir = path.join(root, 'App', 'Features', 'Player');
+    fs.mkdirSync(playerDir, { recursive: true });
+    fs.writeFileSync(path.join(playerDir, 'PlayerView.swift'), 'struct PlayerView {}');
+
+    const index = service.require();
+    const ctx = service.readBlueprint(index);
+    const coverage = classifyItemCoverage({
+      workspaceRoot: root,
+      ctx,
+      index,
+      checkFoundation: false,
+      scope: {
+        layout: 'parent',
+        repos: [{ path: 'ios', kind: 'mobile', name: 'ios' }],
+        excludes: [],
+        declaredAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    expect(coverage.sourceFileCount).toBeGreaterThan(0);
+    expect(coverage.items.find((i) => i.id === 'F-STRATEGY-01')?.status).toBe('in-code');
+    expect(coverage.items.find((i) => i.id === 'FR-01')?.status).toBe('in-code');
   });
 });

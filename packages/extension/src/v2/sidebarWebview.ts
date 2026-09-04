@@ -30,6 +30,7 @@ import {
   resolveArtifactPath,
   discoverAssets,
   getBuiltinWorkflow,
+  isRogueCofofoPipelineId,
 } from '@aidlc/core';
 import type { PipelineConfig } from '@aidlc/core';
 import { listEpics } from './epicsList';
@@ -289,7 +290,8 @@ function buildState(
   // runtime state, not user-authored workflows, so never count or offer them
   // in the sidebar's workflow picker.
   const visiblePipelines = (doc.pipelines as PipelineConfig[])
-    .filter((pipeline) => !pipeline.materialized_from_recipe);
+    .filter((pipeline) => !pipeline.materialized_from_recipe)
+    .filter((pipeline) => !isRogueCofofoPipelineId(String(pipeline.id)));
   const pipelines: PipelineRef[] = visiblePipelines.map((p) => ({
     id: String(p.id),
     stepCount: Array.isArray(p.steps) ? p.steps.length : 0,

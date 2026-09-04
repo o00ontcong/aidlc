@@ -12,6 +12,7 @@ import type {
 } from '@/lib/types';
 import type { DiscoverCopy } from '@/lib/discoverI18n';
 import { postMessage } from '@/lib/bridge';
+import { Modal } from '../Modal';
 import { MermaidBlock } from './MarkdownLite';
 
 type StatusFilter = 'all' | DiscoverItemCoverageStatus;
@@ -168,27 +169,73 @@ function RowMeta({ item, copy }: { item: DiscoverCoveredItem; copy: DiscoverCopy
   );
 }
 
+function CompactEntry({
+  id,
+  title,
+  copy,
+  badge,
+  children,
+}: {
+  id: string;
+  title: string;
+  copy: DiscoverCopy;
+  badge?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const heading = title.trim() || copy.untitled;
+  return (
+    <>
+      <div className="flex items-center gap-1.5 border-b border-border/30 px-3 py-1.5 last:border-b-0">
+        <code className="shrink-0 rounded border border-border bg-background px-1.5 font-mono text-[9.5px] text-muted-foreground">{id}</code>
+        {badge}
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          title={copy.hints.openDetails}
+          className="min-w-0 flex-1 truncate text-left text-[11.5px] leading-none text-foreground"
+        >
+          {heading}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          title={copy.hints.openDetails}
+          className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {copy.details}
+        </button>
+      </div>
+      {open && (
+        <Modal title={heading} subtitle={id} onClose={() => setOpen(false)} maxWidth="max-w-lg">
+          <div className="space-y-2 pb-3">{children}</div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 function ItemRow({ item, copy }: { item: DiscoverCoveredItem; copy: DiscoverCopy }) {
   const canReveal = item.status === 'in-code' && item.matchedFiles.length > 0;
   return (
-    <div className="space-y-0.5 border-b border-border/30 px-3 py-2 last:border-b-0">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <code className="rounded border border-border bg-background px-1.5 font-mono text-[9.5px] text-muted-foreground">{item.id}</code>
+    <CompactEntry
+      id={item.id}
+      title={item.text}
+      copy={copy}
+      badge={(
         <Badge
           copy={copy}
           status={item.status}
           onClick={canReveal ? () => revealItemSource(item) : undefined}
           title={canReveal ? copy.hints.revealSource : undefined}
         />
-      </div>
-      {item.text.trim() && (
-        <p className="text-[11.5px] leading-snug text-foreground">{item.text}</p>
       )}
+    >
       {item.description?.trim() && (
-        <p className="text-[11px] leading-snug text-muted-foreground">{item.description}</p>
+        <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-foreground">{item.description}</p>
       )}
       <RowMeta item={item} copy={copy} />
-    </div>
+    </CompactEntry>
   );
 }
 
@@ -291,11 +338,11 @@ function RequirementsStatus({ discover, copy }: { discover: DiscoverSummary; cop
         <div className="border-t border-border/60">
           <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{copy.status.nfr}</p>
           {filteredNfr.map((item) => (
-            <div key={item.id} className="space-y-0.5 border-b border-border/30 px-3 py-2 last:border-b-0">
-              <code className="rounded border border-border bg-background px-1.5 font-mono text-[9.5px] text-muted-foreground">{item.id}</code>
-              {item.text.trim() && <p className="text-[11.5px] leading-snug text-foreground">{item.text}</p>}
-              {item.description?.trim() && <p className="text-[11px] leading-snug text-muted-foreground">{item.description}</p>}
-            </div>
+            <CompactEntry key={item.id} id={item.id} title={item.text} copy={copy}>
+              {item.description?.trim() && (
+                <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-foreground">{item.description}</p>
+              )}
+            </CompactEntry>
           ))}
         </div>
       )}
@@ -313,30 +360,12 @@ function FeatureTree({ features, copy }: { features: DiscoverCoveredItem[]; copy
             <span className="text-[11.5px] font-semibold text-foreground">{group.name}</span>
             <Badge copy={copy} status={group.status} />
           </div>
-          <ul className="ml-3 space-y-1 border-l border-border pl-2">
-            {group.items.map((item) => {
-              const canReveal = item.status === 'in-code' && item.matchedFiles.length > 0;
-              return (
-                <li key={item.id} className="space-y-0.5 rounded-md border border-border px-2 py-1.5">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <code className="rounded border border-border bg-background px-1.5 font-mono text-[9.5px] text-muted-foreground">{item.id}</code>
-                    <Badge
-                      copy={copy}
-                      status={item.status}
-                      onClick={canReveal ? () => revealItemSource(item) : undefined}
-                      title={canReveal ? copy.hints.revealSource : undefined}
-                    />
-                  </div>
-                  {item.text.trim() && (
-                    <p className="text-[11.5px] leading-snug text-foreground">{item.text}</p>
-                  )}
-                  {item.description?.trim() && (
-                    <p className="text-[11px] leading-snug text-muted-foreground">{item.description}</p>
-                  )}
-                  <RowMeta item={item} copy={copy} />
-                </li>
-              );
-            })}
+          <ul className="ml-3 border-l border-border">
+            {group.items.map((item) => (
+              <li key={item.id}>
+                <ItemRow item={item} copy={copy} />
+              </li>
+            ))}
           </ul>
         </li>
       ))}

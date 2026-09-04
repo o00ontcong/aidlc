@@ -96,6 +96,9 @@ describe('Discover agent command bodies', () => {
     expect(body).toContain('Format is not a product fact');
     expect(body).toContain('Old format is a bug');
     expect(body).toContain('do not invent product facts');
+    expect(body).toContain('Discover scan stepper');
+    expect(body).toContain('does not start the next one');
+    expect(body).not.toContain('after the human keeps this one');
   });
 
   it('makes the pipeline variant read the current step instead of remembering it', () => {

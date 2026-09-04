@@ -4,8 +4,8 @@ import * as vscode from 'vscode';
 
 import {
   activeEpicsDir,
-  assemblePipeline,
   CofofoFoundationService,
+  diagnoseCofofoBinding,
   lostCofofoGateSnapshotIssues,
   mirrorRunStateToEpic,
   RunStateStore,
@@ -20,6 +20,7 @@ import {
   scaffoldEpic,
   formatCofofoBugReport,
   COFOFO_BUG_REPORT_FILENAME,
+  removeRogueCofofoPipelinesFromWorkspace,
   type FoundationRoute,
   type PipelineConfig,
   type RunState,
@@ -101,7 +102,7 @@ export async function installCofofoWorkflowCommand(extensionPath: string): Promi
     serviceFor(root, extensionPath).ensureRecipesRegistered();
     void vscode.commands.executeCommand('aidlc.refreshSidebar');
     void vscode.window.showInformationMessage(
-      'CoFoFo pipelines and recipes installed (cofofo-foundation, cofofo-delivery, cofofo-feature, cofofo-bugfix). Create a New Epic when you\'re ready.',
+      'CoFoFo pipelines installed (cofofo-foundation, cofofo-feature, cofofo-bugfix). Create a New Epic when you\'re ready.',
     );
   } catch (error) {
     void vscode.window.showErrorMessage(
@@ -142,7 +143,7 @@ export async function prepareCofofoFoundationCommand(extensionPath: string): Pro
     // tab. Running cofofo-foundation for real now always goes through a
     // normal "New Epic" — the same path every other pipeline uses.
     void vscode.window.showInformationMessage(
-      `CoFoFo revision ${inspection.state.revision} registered — cofofo-foundation/cofofo-delivery pipelines and recipes are ready. Start a New Epic with the CoFoFo Foundation pipeline to run it.`,
+      `CoFoFo revision ${inspection.state.revision} registered — pipelines cofofo-foundation / cofofo-feature / cofofo-bugfix. Start foundation first, then a feature or bugfix epic.`,
     );
   } catch (error) {
     const value = error as Error & { issues?: string[] };
@@ -372,19 +373,20 @@ export async function reportCofofoBugCommand(
     }
     const doc = readYaml(root);
     if (!doc) throw new Error('workspace.yaml is missing.');
+    new CofofoFoundationService(root).ensureRecipesRegistered();
     const config = WorkspaceLoader.load(root).config;
     const epicId = `COFOFO-BUGFIX-${Date.now()}`;
-    const bugfix = assemblePipeline(config, { recipeId: 'cofofo-bugfix', pipelineId: epicId });
-    doc.pipelines.push(bugfix as unknown as Record<string, unknown>);
-    writeYaml(root, doc);
+    const bugfix = config.pipelines.find((p) => p.id === 'cofofo-bugfix');
+    if (!bugfix) throw new Error('Pipeline cofofo-bugfix missing — register CoFoFo first.');
+    const freshDoc = readYaml(root) ?? doc;
 
     const result = scaffoldEpic({
       workspaceRoot: root,
-      doc,
+      doc: freshDoc,
       epicId,
       title: `Sửa lỗi cho ${relatesTo}`,
       description: fields.observed.trim(),
-      target: { kind: 'pipeline', id: epicId },
+      target: { kind: 'pipeline', id: 'cofofo-bugfix' },
       agents: bugfix.steps.map((step) => normalizeStep(step).agent),
       inputs: {},
       pipeline: bugfix,
@@ -408,13 +410,17 @@ export async function cofofoDoctorCommand(): Promise<void> {
   const root = rootOrWarn();
   if (!root) return;
   const inspection = new CofofoFoundationService(root).inspect();
-  const source = readYaml(root)?.pipelines as PipelineConfig[] | undefined;
+  const doc = readYaml(root);
+  const source = doc?.pipelines as PipelineConfig[] | undefined;
   const snapshotIssues = RunStateStore.list(root).flatMap((run) => {
     const current = source?.find((pipeline) => pipeline.id === run.pipelineId);
     return lostCofofoGateSnapshotIssues({ state: run, sourcePipeline: current })
       .map((issue) => `${run.runId}: ${issue} — start a new CoFoFo run; this snapshot predates a workflow gate upgrade`);
   });
-  const bindingIssues = inspection.doctorIssues ?? [];
+  // Always re-run binding diagnose so rogue pipelines surface even when
+  // inspect() collapses to ready with an empty doctorIssues array.
+  const bindingIssues = diagnoseCofofoBinding(root);
+  const rogueIssues = bindingIssues.filter((issue) => issue.kind === 'rogue-cofofo-pipeline');
   const issues = [
     ...bindingIssues.map((issue) => issue.userMessageVi),
     ...inspection.issues.filter((issue) => !bindingIssues.some((doctor) => doctor.detail === issue)),
@@ -424,12 +430,33 @@ export async function cofofoDoctorCommand(): Promise<void> {
     void vscode.window.showInformationMessage('CoFoFo workspace khỏe mạnh; không cần sửa gì.');
     return;
   }
-  const repair = bindingIssues[0]?.userMessageVi
-    ?? (snapshotIssues.length > 0
-      ? 'Các run bị ảnh hưởng cần epic/recipe mới — snapshot cũ không có gate Canvas/evidence mới.'
-      : (inspection.nextAction || 'Mở một run mới nếu snapshot cũ đã mất gate.'));
-  void vscode.window.showWarningMessage(
+
+  const removeLabel = rogueIssues.length > 0
+    ? `Xóa ${rogueIssues.length} pipeline cofofo-* giả`
+    : undefined;
+  const repair = rogueIssues.length > 0
+    ? `Phát hiện pipeline CoFoFo không hợp lệ (chỉ được có cofofo-foundation / cofofo-feature / cofofo-bugfix).`
+    : (bindingIssues[0]?.userMessageVi
+      ?? (snapshotIssues.length > 0
+        ? 'Các run bị ảnh hưởng cần epic/recipe mới — snapshot cũ không có gate Canvas/evidence mới.'
+        : (inspection.nextAction || 'Mở một run mới nếu snapshot cũ đã mất gate.')));
+
+  const choice = await vscode.window.showWarningMessage(
     `CoFoFo doctor: ${issues.length || 1} vấn đề. ${repair}`,
     { modal: true, detail: issues.map((issue) => `• ${issue}`).join('\n') || 'Foundation chưa sẵn sàng.' },
+    ...(removeLabel ? [removeLabel] : []),
   );
+
+  if (removeLabel && choice === removeLabel && doc) {
+    const removed = removeRogueCofofoPipelinesFromWorkspace(doc);
+    if (removed.length === 0) {
+      void vscode.window.showInformationMessage('Không còn pipeline cofofo-* giả để xóa.');
+      return;
+    }
+    writeYaml(root, doc);
+    void vscode.window.showInformationMessage(
+      `Đã xóa pipeline giả: ${removed.join(', ')}. Giữ lại cofofo-foundation / cofofo-feature / cofofo-bugfix.`,
+    );
+    void vscode.commands.executeCommand('aidlc.refreshSidebar');
+  }
 }

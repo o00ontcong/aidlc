@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ExternalLink, FolderTree, GitCommit, MessageSquare, PanelRight, Play, RefreshCw, Rocket, ScanSearch } from 'lucide-react';
 import type { DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
-import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
+import { discoverCopy, type DiscoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 import { AgentPanel } from './AgentPanel';
 import { DiffView } from './DiffView';
 import { DocsMode } from './DocsMode';
@@ -24,6 +24,71 @@ type StepPane = 'raw' | 'preview';
 
 function clampRailWidth(value: number): number {
   return Math.max(DISCOVER_RAIL_MIN_WIDTH, Math.min(DISCOVER_RAIL_MAX_WIDTH, Math.round(value)));
+}
+
+type ScanChipState = 'locked' | 'next' | 'running' | 'review' | 'kept';
+
+function scanChipState(
+  pass: 1 | 2 | 3,
+  lastKeptPass: 0 | 1 | 2 | 3,
+  activeScanPass?: 1 | 2 | 3,
+  activeStatus?: 'running' | 'review',
+): ScanChipState {
+  if (activeScanPass === pass) { return activeStatus === 'review' ? 'review' : 'running'; }
+  if (pass <= lastKeptPass) { return 'kept'; }
+  if (pass === lastKeptPass + 1) { return 'next'; }
+  return 'locked';
+}
+
+function ScanPassStepper({
+  discover, copy,
+}: {
+  discover: DiscoverSummary;
+  copy: DiscoverCopy;
+}) {
+  const campaign = discover.scanCampaign;
+  if (!campaign) { return null; }
+  const active = discover.activeRun?.run.kind === 'scan' ? discover.activeRun.run : undefined;
+  const passes: Array<1 | 2 | 3> = [1, 2, 3];
+  const busy = Boolean(discover.activeRun);
+  return (
+    <span className="flex items-center gap-0.5">
+      {passes.map((pass, i) => {
+        const state = scanChipState(pass, campaign.lastKeptPass, active?.scanPass, active?.status === 'review' || active?.status === 'running' ? active.status : undefined);
+        const label = copy.scanPassShort(pass);
+        const clickable = !busy && (state === 'next' || state === 'kept');
+        const tone =
+          state === 'kept' ? 'border-success/40 bg-success/10 text-success'
+          : state === 'next' ? 'border-primary/50 bg-primary/10 font-semibold text-foreground'
+          : state === 'running' || state === 'review' ? 'border-warning/50 bg-warning/10 text-warning'
+          : 'border-border text-muted-foreground/60';
+        return (
+          <span key={pass} className="flex items-center gap-0.5">
+            {i > 0 && <span className="px-0.5 text-[9px] text-muted-foreground/50">→</span>}
+            <button
+              type="button"
+              disabled={!clickable}
+              title={copy.hints.scanPassChip(label, state)}
+              onClick={() => postMessage({ type: 'runDiscoverScanPass', pass })}
+              className={`rounded border px-1.5 py-0.5 text-[10px] ${tone} ${clickable ? 'hover:bg-accent' : 'cursor-not-allowed'}`}
+            >
+              {pass} {label}
+            </button>
+          </span>
+        );
+      })}
+      {campaign.status === 'active' && !busy && (
+        <button
+          type="button"
+          title={copy.hints.abandonScan}
+          onClick={() => postMessage({ type: 'abandonDiscoverScan' })}
+          className="ml-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          {copy.abandonScan}
+        </button>
+      )}
+    </span>
+  );
 }
 
 export function DiscoverWorkspace({
@@ -141,6 +206,7 @@ export function DiscoverWorkspace({
           >
             <ScanSearch className="h-3 w-3" />{copy.scanProject}
           </button>
+          <ScanPassStepper discover={discover} copy={copy} />
           <button
             type="button"
             onClick={() => persistAgentPanel(!agentPanelOpen)}

@@ -8,11 +8,62 @@ import { activeEpicsDir, resolveArtifactPath, type RunState } from '../runs/RunS
 export const COFOFO_BUG_REPORT_FILENAME = 'BUG-REPORT.md';
 export const COFOFO_BUG_REPORT_TEMPLATE = 'docs/epics/{epic}/artifacts/BUG-REPORT.md';
 
-/** Pipelines that define step templates — start epics via recipes, not these ids. */
-export const COFOFO_SOURCE_PIPELINE_IDS = ['cofofo-delivery', 'cofofo-foundation'] as const;
+/**
+ * The only CoFoFo pipelines users may start. Anything else under `cofofo-*`
+ * in `pipelines:` (legacy `cofofo-delivery`, recipe ids pasted as pipelines,
+ * bootstrap aliases) is rogue and should be pruned.
+ */
+export const COFOFO_PIPELINE_IDS = [
+  'cofofo-foundation',
+  'cofofo-feature',
+  'cofofo-bugfix',
+] as const;
 
+export type CofofoPipelineId = (typeof COFOFO_PIPELINE_IDS)[number];
+
+/** @deprecated Use {@link COFOFO_PIPELINE_IDS} — kept as an alias for older call sites. */
+export const COFOFO_SOURCE_PIPELINE_IDS = COFOFO_PIPELINE_IDS;
+
+export function isCofofoPipelineId(id: string): boolean {
+  return (COFOFO_PIPELINE_IDS as readonly string[]).includes(id);
+}
+
+/** @deprecated Use {@link isCofofoPipelineId}. */
 export function isCofofoSourcePipelineId(id: string): boolean {
-  return (COFOFO_SOURCE_PIPELINE_IDS as readonly string[]).includes(id);
+  return isCofofoPipelineId(id);
+}
+
+/**
+ * True for a `cofofo-*` pipeline id outside the three canonical pipelines.
+ * Epic-materialized runs use non-cofofo ids (e.g. `PASS-1087`) and are fine.
+ */
+export function isRogueCofofoPipelineId(id: string): boolean {
+  return id.startsWith('cofofo-') && !isCofofoPipelineId(id);
+}
+
+
+/** Map legacy recipe aliases onto the three canonical pipeline ids. */
+export function resolveCofofoPipelineId(id: string): CofofoPipelineId | null {
+  if (isCofofoPipelineId(id)) return id as CofofoPipelineId;
+  if (id === 'cofofo-bootstrap' || id === 'cofofo-refresh-context'
+    || id === 'cofofo-update-rules' || id === 'cofofo-repin-bundle') {
+    return 'cofofo-foundation';
+  }
+  if (id === 'cofofo-delivery') return 'cofofo-feature';
+  return null;
+}
+
+/** Split pipelines into kept vs rogue `cofofo-*` entries. */
+export function pruneRogueCofofoPipelines<T extends { id: string }>(
+  pipelines: readonly T[],
+): { kept: T[]; removed: T[] } {
+  const kept: T[] = [];
+  const removed: T[] = [];
+  for (const pipeline of pipelines) {
+    if (isRogueCofofoPipelineId(String(pipeline.id))) removed.push(pipeline);
+    else kept.push(pipeline);
+  }
+  return { kept, removed };
 }
 
 export interface CofofoBugReportFields {

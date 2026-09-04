@@ -134,7 +134,7 @@ describe('CoFoFo stack detection and policy', () => {
     const root = swiftFixture();
     const profile = detectStack(root);
     const workspace = generatedCofofoWorkspace({ version: '1.0', name: 'Demo' });
-    expect(workspace.pipelines.find((pipeline) => pipeline.id === 'cofofo-delivery')?.foundation?.mode).toBe('cofofo');
+    expect(workspace.pipelines.find((pipeline) => pipeline.id === 'cofofo-feature')?.foundation?.mode).toBe('cofofo');
     // define-rules writes this for real during a run; simulate it here first
     // so prepare()'s command-file hash embedding has something real to hash.
     const rules = createDefaultRules(profile, 1, '2026-08-28T00:00:00.000Z');
@@ -146,7 +146,7 @@ describe('CoFoFo stack detection and policy', () => {
     expect(markdown).toContain(rulesSourceHash(rules));
     expect(validateRulesMarkdown(rules, markdown)).toEqual([]);
     expect(validateProjectRules({ workspaceRoot: root, rules, profile }).some((issue) => issue.ruleId === 'LAYER-1')).toBe(false);
-    expect(fs.readFileSync(path.join(root, '.codex/skills/aidlc-cofofo-delivery-create-plan/SKILL.md'), 'utf8'))
+    expect(fs.readFileSync(path.join(root, '.codex/skills/aidlc-cofofo-feature-create-plan/SKILL.md'), 'utf8'))
       .toContain(hashFile(path.join(root, 'docs/project/foundation/PROJECT-RULES.json')));
 
     write(root, 'src/Sources/Demo/Domain/City.swift', 'import SwiftUI\npublic struct City {}\n');
@@ -163,10 +163,11 @@ describe('CoFoFo stack detection and policy', () => {
       .toEqual(['define-rules', 'publish-context']);
     expect(foundationPipelineForRoute(pipeline, 'repin-bundle').steps.map((step) => typeof step === 'string' ? step : step.name))
       .toEqual(['select-ecc-catalog', 'install-ecc-assets', 'publish-context']);
-    const delivery = workspace.pipelines.find((item) => item.id === 'cofofo-delivery')!;
-    const requirement = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'requirement') as { human_review?: boolean; review?: { artifacts: string[] } };
-    const red = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'reproduce') as { human_review?: boolean; review?: { artifacts: string[] } };
-    const diagnose = delivery.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'diagnose') as { requires?: string[]; produces_contains?: string[] };
+    const feature = workspace.pipelines.find((item) => item.id === 'cofofo-feature')!;
+    const bugfix = workspace.pipelines.find((item) => item.id === 'cofofo-bugfix')!;
+    const requirement = feature.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'requirement') as { human_review?: boolean; review?: { artifacts: string[] } };
+    const red = bugfix.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'reproduce') as { human_review?: boolean; review?: { artifacts: string[] } };
+    const diagnose = bugfix.steps.find((step) => (typeof step === 'string' ? step : step.name) === 'diagnose') as { requires?: string[]; produces_contains?: string[] };
     expect(requirement).toMatchObject({ human_review: true, review: { artifacts: [
       'docs/epics/{epic}/artifacts/INTENT.md',
       'docs/epics/{epic}/artifacts/EVIDENCE.md',
@@ -176,9 +177,8 @@ describe('CoFoFo stack detection and policy', () => {
     expect(red).toMatchObject({ human_review: true, review: { artifacts: ['docs/epics/{epic}/artifacts/RED-EVIDENCE.md'] } });
     expect(diagnose.requires).toContain('docs/epics/{epic}/artifacts/BUG-REPORT.md');
     expect(diagnose.produces_contains).toContain('## Resume From');
-    const feature = assemblePipeline(workspace, { recipeId: 'cofofo-feature', pipelineId: 'FEATURE-1' });
-    const assembledRequirement = feature.steps.find((step) => normalizeStep(step).name === 'requirement');
-    expect(normalizeStep(assembledRequirement!).review?.artifacts).toContain('docs/epics/{epic}/artifacts/REQUIREMENT.md');
+    expect(feature.steps.map((s) => normalizeStep(s).name)).toEqual(['requirement', 'create-plan', 'implement', 'test']);
+    expect(bugfix.steps.map((s) => normalizeStep(s).name)).toEqual(['diagnose', 'reproduce', 'implement', 'test']);
   });
 
   it('previews installs without writing, detects drift, and restores a rollback backup', () => {
@@ -369,7 +369,7 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
     fs.utimesSync(rulesPath, now, new Date(now.getTime() + 60_000));
     expect(service.inspect().status).toBe('ready');
 
-    const delivery = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-delivery')!;
+    const delivery = WorkspaceLoader.load(root).config.pipelines.find((pipeline) => pipeline.id === 'cofofo-feature')!;
     const run = startRun({ runId: 'FEATURE-1', pipeline: delivery, context: { epic: 'FEATURE-1' }, workspaceRoot: root });
     expect(run.cofofoFoundation?.revision).toBe(1);
     // `requirement` requires INTENT.md — normally snapshotted by the Discover
@@ -472,7 +472,7 @@ describe('CoFoFo Foundation lifecycle and mandatory rebase', () => {
 });
 
 describe('CoFoFo ensureRecipesRegistered — Discover is CoFoFo-only regardless of stack detection', () => {
-  it('registers the six cofofo-* recipes and both pipelines even for a project with no code at all', () => {
+  it('registers the three cofofo-* pipelines even for a project with no code at all', () => {
     const root = temporary();
     const service = new CofofoFoundationService(root);
     const prepared = service.prepare();
@@ -481,12 +481,10 @@ describe('CoFoFo ensureRecipesRegistered — Discover is CoFoFo-only regardless 
 
     service.ensureRecipesRegistered();
     const config = WorkspaceLoader.load(root).config;
-    expect(config.pipelines.map((p) => p.id)).toEqual(expect.arrayContaining(['cofofo-foundation', 'cofofo-delivery']));
-    const recipeIds = (config.recipes ?? []).map((r) => r.id);
-    expect(recipeIds).toEqual(expect.arrayContaining([
-      'cofofo-bootstrap', 'cofofo-refresh-context', 'cofofo-update-rules',
-      'cofofo-repin-bundle', 'cofofo-feature', 'cofofo-bugfix',
-    ]));
+    expect(config.pipelines.map((p) => p.id).filter((id) => id.startsWith('cofofo-')).sort()).toEqual([
+      'cofofo-bugfix', 'cofofo-feature', 'cofofo-foundation',
+    ]);
+    expect((config.recipes ?? []).filter((r) => r.id.startsWith('cofofo-'))).toEqual([]);
   });
 
   it('is idempotent and preserves an unrelated pipeline already in workspace.yaml', () => {

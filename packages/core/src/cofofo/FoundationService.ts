@@ -124,6 +124,8 @@ function stateOf(root: string): CofofoFoundationState | null {
 
 /** Recipes that slice `cofofo-foundation` into an epic-owned pipeline id. */
 const COFOFO_FOUNDATION_RECIPES = new Set([
+  'cofofo-foundation',
+  // Legacy recipe aliases that may still appear on old run snapshots.
   'cofofo-bootstrap',
   'cofofo-refresh-context',
   'cofofo-update-rules',
@@ -290,19 +292,13 @@ export class CofofoFoundationService {
   }
 
   /**
-   * Registers the six CoFoFo recipes and the `cofofo-foundation`/
-   * `cofofo-delivery` pipelines into `.aidlc/workspace.yaml`. The Discover tab
-   * is CoFoFo-only: its handoff proposes `cofofo-*` recipe ids regardless of
-   * whether this project has been through `prepare()` yet, so those recipes
-   * must exist the moment a route needs one — even for a project with no
-   * code yet. An empty or multi-stack `scan-stack` result is machine evidence
-   * that closes the gate; it is not a reason to withhold the recipe or
-   * route to another pipeline.
+   * Registers the three CoFoFo pipelines (`cofofo-foundation`, `cofofo-feature`,
+   * `cofofo-bugfix`) into `.aidlc/workspace.yaml`. Discover handoff proposes
+   * `cofofo-feature` / `cofofo-bugfix` regardless of whether `prepare()` has
+   * run yet — those pipelines must exist even for a project with no code.
    *
-   * Idempotent: merges into whatever `workspace.yaml` already has (via
-   * `generatedCofofoWorkspace`) and only seeds `stack.json` when one doesn't
-   * exist yet — it never touches rules/architecture/catalog, which stay a
-   * real `prepare()` run's job once there's code to audit.
+   * Idempotent: merges via `generatedCofofoWorkspace` and only seeds
+   * `stack.json` when missing.
    */
   ensureRecipesRegistered(): void {
     const workspacePath = resolveInside(this.workspaceRoot, '.aidlc/workspace.yaml');
@@ -524,14 +520,27 @@ export class CofofoFoundationService {
       };
     }
     return {
-      status: 'ready', state, profile, manifest, issues: [], doctorIssues: [], nextAction: 'Start a cofofo-feature or cofofo-bugfix recipe.',
+      status: 'ready', state, profile, manifest, issues: [], doctorIssues: [], nextAction: 'Start a cofofo-feature or cofofo-bugfix epic.',
       snapshot: { revision: state.revision, manifestPath: FILES.context, manifestHash: fileHash, capturedAt: new Date().toISOString() },
     };
   }
 
   requireReady(): CofofoFoundationSnapshot {
     const inspection = this.inspect();
-    if (inspection.status !== 'ready' || !inspection.snapshot) throw new CofofoFoundationError('CoFoFo foundation is not ready.', inspection.issues);
+    if (inspection.status !== 'ready' || !inspection.snapshot) {
+      const issues = inspection.issues.length > 0
+        ? inspection.issues
+        : [`status=${inspection.status}`];
+      const hint =
+        'CoFoFo foundation is separate from aidlc-ios-foundation / project-context. ' +
+        'Finish pipeline cofofo-foundation (scan-stack → … → publish-context), approve Canvas, then activate — ' +
+        'expected artifacts: docs/project/foundation/CONTEXT-MANIFEST.json and .aidlc/cofofo/foundation.json.';
+      const next = inspection.nextAction ? ` Next: ${inspection.nextAction}` : '';
+      throw new CofofoFoundationError(
+        `CoFoFo foundation is not ready (${inspection.status}): ${issues.join('; ')}. ${hint}${next}`,
+        issues,
+      );
+    }
     return inspection.snapshot;
   }
 }

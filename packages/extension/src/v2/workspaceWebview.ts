@@ -195,7 +195,7 @@ import {
   probeRepoLayout,
   deriveScanSeedSentence,
   formatDiscoverScanArgs,
-  nextScanPass,
+  canStartScanPass,
   getScanPass,
   isScanPassId,
   type DiscoverScope,
@@ -207,6 +207,7 @@ import {
   setEpicMemoryHook,
   isEpicMemoryHookEnabled,
   isCofofoSourcePipelineId,
+  isRogueCofofoPipelineId,
 } from '@aidlc/core';
 import {
   absorbDocChanges,
@@ -387,6 +388,7 @@ async function continueDiscoverScan(
   extensionUri: string,
   refresh: () => void,
   pass: ScanPassId = 1,
+  options: { resetCampaign?: boolean } = {},
 ): Promise<void> {
   const service = new DiscoverService(root);
   if (!service.exists()) {
@@ -403,12 +405,40 @@ async function continueDiscoverScan(
     }
   }
   const index = service.require();
+  const language = resolveDisplayLanguage();
+  if (service.activeRun(index)) {
+    void vscode.window.showWarningMessage(
+      language === 'vi'
+        ? 'AIDLC Discover: đang có lượt chưa đóng. Hãy Giữ hoặc Hoàn tác trước.'
+        : 'AIDLC Discover: a run is still open. Keep or undo it first.',
+    );
+    return;
+  }
+  if (!options.resetCampaign && !canStartScanPass({
+    pass,
+    lastKeptPass: index.scanCampaign?.lastKeptPass,
+    hasActiveRun: false,
+  })) {
+    void vscode.window.showWarningMessage(
+      language === 'vi'
+        ? `AIDLC Discover: chưa đến lượt quét ${pass}/3.`
+        : `AIDLC Discover: scan pass ${pass}/3 is locked.`,
+    );
+    return;
+  }
   try {
-    service.startRun(index.currentStep, { kind: 'scan', scanPass: pass });
+    service.startRun(index.currentStep, { kind: 'scan', scanPass: pass, resetCampaign: options.resetCampaign });
   } catch (error) {
     void vscode.window.showWarningMessage(`AIDLC Discover: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
+  const spec = getScanPass(pass);
+  const label = language === 'vi' ? spec.labelVi : spec.label;
+  void vscode.window.showInformationMessage(
+    language === 'vi'
+      ? `AIDLC Discover: bắt đầu quét bước ${pass}/3 — ${label}`
+      : `AIDLC Discover: starting scan pass ${pass}/3 — ${label}`,
+  );
   const args = formatDiscoverScanArgs({ pass, scope });
   runSlashCommandInProvider(`/${DISCOVER_SCAN_COMMAND_NAME} ${args}`, root, extensionUri);
   refresh();
@@ -461,6 +491,8 @@ interface PipelineSummary {
   on_failure: 'stop' | 'continue';
   builtin?: boolean;
   name?: string;
+  /** CoFoFo source template — not startable; use a recipe instead. */
+  templateOnly?: boolean;
 }
 
 /** A task-type recipe surfaced to the Start-Epic modal. */
@@ -852,19 +884,20 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
     // A recipe materializes an immutable per-task pipeline for RunState. It
     // is not another workflow in Builder; show its source workflow instead.
     .filter((p) => !p.materialized_from_recipe)
+    // Only three CoFoFo pipelines are legal; prune legacy delivery/recipe ids.
+    .filter((p) => !isRogueCofofoPipelineId(String(p.id)))
     .map((p) => ({
     id: String(p.id),
     on_failure: p.on_failure === 'continue' ? 'continue' : 'stop',
-    // CoFoFo is a generated built-in: its source pipelines become available
-    // after stack detection/Foundation preparation, unlike static template
-    // presets in BUILTIN_WORKFLOWS.
     builtin: isCofofoSourcePipelineId(String(p.id))
       || BUILTIN_WORKFLOWS.some((w) => w.pipelineId === String(p.id)),
     name: String(p.id) === 'cofofo-foundation'
       ? 'CoFoFo Foundation'
-      : String(p.id) === 'cofofo-delivery'
-        ? 'CoFoFo Delivery (Feature / Bugfix recipes)'
-        : undefined,
+      : String(p.id) === 'cofofo-feature'
+        ? 'CoFoFo Feature'
+        : String(p.id) === 'cofofo-bugfix'
+          ? 'CoFoFo Bugfix'
+          : undefined,
     steps: Array.isArray(p.steps)
       ? (p.steps as PipelineStepConfig[]).map((raw) => {
           const norm = normalizeStep(raw);
@@ -2364,6 +2397,30 @@ export class WorkspaceWebview {
       case 'scanDiscoverProject': {
         const root = this.getRootOrWarn();
         if (!root) { return; }
+        const service = new DiscoverService(root);
+        if (service.exists()) {
+          const language = resolveDisplayLanguage();
+          if (service.activeRun()) {
+            void vscode.window.showWarningMessage(
+              language === 'vi'
+                ? 'AIDLC Discover: đang có lượt chưa đóng. Hãy Giữ hoặc Hoàn tác trước.'
+                : 'AIDLC Discover: a run is still open. Keep or undo it first.',
+            );
+            return;
+          }
+          const lastKeptPass = service.load()?.scanCampaign?.lastKeptPass;
+          if (service.load()?.scanCampaign?.status === 'active') {
+            const confirmLabel = language === 'vi' ? 'Bắt đầu lại' : 'Start over';
+            const choice = await vscode.window.showWarningMessage(
+              language === 'vi'
+                ? `Bắt đầu quét mới từ đầu? Chiến dịch hiện tại đang ở bước ${lastKeptPass}/3.`
+                : `Start a new scan from pass 1? The current campaign is at pass ${lastKeptPass}/3.`,
+              { modal: true },
+              confirmLabel,
+            );
+            if (choice !== confirmLabel) { return; }
+          }
+        }
         void this.panel.webview.postMessage(discoverScopeModalPayload(root, 'scan'));
         return;
       }
@@ -2403,7 +2460,7 @@ export class WorkspaceWebview {
           const scope = new DiscoverService(root).persistDeclaredScope(scopeInput);
           void vscode.window.showInformationMessage(scopeSavedMessage(scopeInput, language));
           if (msg.intent === 'scan') {
-            await continueDiscoverScan(root, scope, this.extensionUri.fsPath, () => this.refresh());
+            await continueDiscoverScan(root, scope, this.extensionUri.fsPath, () => this.refresh(), 1, { resetCampaign: true });
           } else {
             this.refresh();
           }
@@ -2418,7 +2475,7 @@ export class WorkspaceWebview {
         if (!root || msg.intent !== 'scan') { return; }
         const scope = new DiscoverService(root).declaredScope();
         if (!scope) { return; }
-        await continueDiscoverScan(root, scope, this.extensionUri.fsPath, () => this.refresh());
+        await continueDiscoverScan(root, scope, this.extensionUri.fsPath, () => this.refresh(), 1, { resetCampaign: true });
         return;
       }
 
@@ -2499,32 +2556,32 @@ export class WorkspaceWebview {
         const root = this.getRootOrWarn();
         const runId = typeof msg.runId === 'string' ? msg.runId : '';
         if (!root || !runId) { return; }
-        let nextPass: ScanPassId | undefined;
-        let nextScope: DiscoverScope | undefined;
         this.handleDiscoverMutation(() => {
           const service = new DiscoverService(root);
           if (msg.type === 'finishDiscoverRun') { service.finishRun(runId); }
-          if (msg.type === 'keepDiscoverRun') {
-            const kept = service.require().runs.find((r) => r.id === runId);
-            service.keepRun(runId);
-            if (kept?.kind === 'scan' && isScanPassId(kept.scanPass)) {
-              nextPass = nextScanPass(kept.scanPass);
-              nextScope = service.declaredScope() ?? service.effectiveScope();
-            }
-          }
+          if (msg.type === 'keepDiscoverRun') { service.keepRun(runId); }
           if (msg.type === 'revertDiscoverRun') { service.revertRun(runId); }
         });
-        if (msg.type === 'keepDiscoverRun' && nextPass && nextScope) {
-          const language = resolveDisplayLanguage();
-          const spec = getScanPass(nextPass);
-          const label = language === 'vi' ? spec.labelVi : spec.label;
-          void vscode.window.showInformationMessage(
-            language === 'vi'
-              ? `AIDLC Discover: bắt đầu quét bước ${nextPass}/3 — ${label}`
-              : `AIDLC Discover: starting scan pass ${nextPass}/3 — ${label}`,
-          );
-          await continueDiscoverScan(root, nextScope, this.extensionUri.fsPath, () => this.refresh(), nextPass);
-        }
+        return;
+      }
+
+      case 'runDiscoverScanPass': {
+        const root = this.getRootOrWarn();
+        const pass = msg.pass;
+        if (!root || !isScanPassId(pass)) { return; }
+        const service = new DiscoverService(root);
+        const scope = service.declaredScope() ?? service.effectiveScope();
+        if (!scope) { return; }
+        await continueDiscoverScan(root, scope, this.extensionUri.fsPath, () => this.refresh(), pass);
+        return;
+      }
+
+      case 'abandonDiscoverScan': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        this.handleDiscoverMutation(() => {
+          new DiscoverService(root).abandonScanCampaign();
+        });
         return;
       }
 
@@ -4690,10 +4747,22 @@ export class WorkspaceWebview {
     // Auto-scaffold agents/skills/workspace.yaml when a built-in pipeline is
     // selected — covers SDLC plus the 7 stack-specialized workflows.
     if (targetKind === 'pipeline') {
-      if (isCofofoSourcePipelineId(targetId)) {
+      if (isRogueCofofoPipelineId(targetId)) {
         void vscode.window.showErrorMessage(
-          `AIDLC: pipeline "${targetId}" is a CoFoFo template. Start a cofofo-feature or cofofo-bugfix recipe instead.`,
-        );
+          `AIDLC: pipeline "${targetId}" is not a valid CoFoFo pipeline. ` +
+            `CoFoFo only allows pipelines cofofo-foundation / cofofo-feature / cofofo-bugfix. ` +
+            `Run “Kiểm tra & sửa workspace” to delete rogue pipelines.`,
+          'Copy for agent',
+        ).then(async (choice) => {
+          if (choice !== 'Copy for agent') return;
+          await vscode.env.clipboard.writeText([
+            'AIDLC startEpic blocked — rogue CoFoFo pipeline',
+            `epicId: ${epicId}`,
+            `rejectedTarget: { kind: "pipeline", id: "${targetId}" }`,
+            'allowedPipelines: cofofo-foundation, cofofo-feature, cofofo-bugfix',
+            'fix: removeRogueCofofoPipelinesFromWorkspace / aidlc.cofofoDoctor',
+          ].join('\n'));
+        });
         return;
       }
       const builtinWorkflow = getBuiltinWorkflowByPipelineId(targetId);
@@ -4784,9 +4853,30 @@ export class WorkspaceWebview {
         void vscode.window.showWarningMessage(`AIDLC: ${err.message}`);
         return;
       }
-      void vscode.window.showWarningMessage(
-        `Epic could not be scaffolded: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      const issues = err instanceof Error && 'issues' in err && Array.isArray((err as { issues?: unknown }).issues)
+        ? ((err as { issues: string[] }).issues)
+        : [];
+      const short = message.includes('CoFoFo foundation is not ready')
+        ? 'Không tạo được epic CoFoFo: foundation CoFoFo chưa ready (PROD-01 / aidlc-ios-foundation không tính). Chạy pipeline cofofo-foundation rồi activate.'
+        : `Epic could not be scaffolded: ${message}`;
+      const agentBrief = [
+        'AIDLC scaffoldEpic failed',
+        `epicId: ${epicId}`,
+        `target: ${targetKind}/${targetId}`,
+        `error: ${message}`,
+        ...(issues.length ? [`issues: ${issues.join(' | ')}`] : []),
+        'note: aidlc-ios-foundation ≠ CoFoFo foundation',
+        'fix: New task → pipeline cofofo-foundation → publish-context Canvas → activate; verify docs/project/foundation/CONTEXT-MANIFEST.json + .aidlc/cofofo/foundation.json',
+      ].join('\n');
+      void vscode.window.showErrorMessage(short, 'Copy for agent', 'Open CoFoFo doctor').then(async (choice) => {
+        if (choice === 'Copy for agent') {
+          await vscode.env.clipboard.writeText(agentBrief);
+          void vscode.window.showInformationMessage('Copied scaffold error for the agent.');
+        } else if (choice === 'Open CoFoFo doctor') {
+          await vscode.commands.executeCommand('aidlc.cofofoDoctor');
+        }
+      });
       return;
     }
 

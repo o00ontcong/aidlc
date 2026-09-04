@@ -122,7 +122,6 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
         {startEpicOpen && (
           <StartEpicModal
             pipelines={state.pipelines}
-            recipes={state.recipes ?? []}
             agentMeta={state.agentMeta}
             nextEpicId={state.nextEpicId}
             existingEpicIds={state.existingEpicIds}
@@ -211,7 +210,6 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
       {startEpicOpen && (
         <StartEpicModal
           pipelines={state.pipelines}
-          recipes={state.recipes ?? []}
           agentMeta={state.agentMeta}
           nextEpicId={state.nextEpicId}
           existingEpicIds={state.existingEpicIds}

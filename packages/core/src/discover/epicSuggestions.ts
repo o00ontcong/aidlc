@@ -24,10 +24,7 @@ import { extractIds, findSection, type DocRecord } from './mdParse';
 import { validateBlueprint, type BlueprintContext, type ValidationIssue } from './validate';
 import { CofofoFoundationService } from '../cofofo/FoundationService';
 import { listPhases, renderBootstrapIntent, isSkeletonPhase } from './handoff';
-import { EXCLUDED_DIRS } from './sourceScope';
-
-const EXCLUDED = new Set(EXCLUDED_DIRS);
-const SOURCE_EXT = /\.(ts|tsx|js|jsx|swift|kt|java|go|rs|py|rb|cs|php|dart|m|mm|c|cc|cpp|h|vue|svelte)$/i;
+import { PRODUCT_SOURCE_EXT, listProductSourceFiles, sourceRoots, walkProductSourceFiles } from './sourceScope';
 
 export type EpicSuggestionKind =
   | 'no-skeleton'
@@ -191,39 +188,19 @@ function pathHasToken(file: string, token: string): boolean {
   return lower.split(/[^a-z0-9]+/).includes(token);
 }
 
-function walkSourceFiles(absRoot: string, relPrefix: string, out: string[], limit: number): void {
-  if (out.length >= limit) { return; }
-  let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(absRoot, { withFileTypes: true }); } catch { return; }
-  for (const entry of entries) {
-    if (out.length >= limit) { return; }
-    if (EXCLUDED.has(entry.name) || entry.name.startsWith('.')) { continue; }
-    const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
-    const abs = path.join(absRoot, entry.name);
-    if (entry.isDirectory()) {
-      walkSourceFiles(abs, rel, out, limit);
-    } else if (SOURCE_EXT.test(entry.name)) {
-      out.push(rel);
-    }
-  }
+function allSourceFiles(workspaceRoot: string, scope?: DiscoverScope): string[] {
+  return listProductSourceFiles(workspaceRoot, scope, 8000);
 }
 
-function allSourceFiles(workspaceRoot: string, scope?: DiscoverScope): string[] {
-  const repos = scope?.repos?.length ? scope.repos : [{ path: '.', name: path.basename(workspaceRoot), kind: '' }];
-  const out: string[] = [];
-  for (const repo of repos) {
-    const abs = repo.path === '.' ? workspaceRoot : path.join(workspaceRoot, repo.path);
-    walkSourceFiles(abs, repo.path === '.' ? '' : repo.path, out, 8000);
-  }
-  return out;
+function scopeBases(workspaceRoot: string, scope?: DiscoverScope): string[] {
+  const roots = sourceRoots(workspaceRoot, scope);
+  return roots.length > 0 ? roots : [workspaceRoot];
 }
 
 function pathExists(workspaceRoot: string, rel: string, scope?: DiscoverScope): boolean {
-  const repos = scope?.repos?.length ? scope.repos : [{ path: '.', name: '', kind: '' }];
-  for (const repo of repos) {
-    const base = repo.path === '.' ? workspaceRoot : path.join(workspaceRoot, repo.path);
-    const target = path.join(base, rel.replace(/^\.\//, ''));
-    if (fs.existsSync(target)) { return true; }
+  const needle = rel.replace(/^\.\//, '');
+  for (const base of scopeBases(workspaceRoot, scope)) {
+    if (fs.existsSync(path.join(base, needle))) { return true; }
   }
   return false;
 }
@@ -262,18 +239,15 @@ function foldersForModule(mod: ModuleEntry, mappings: FeatureEntry[]): string[] 
 }
 
 function folderHasSource(workspaceRoot: string, rel: string, scope?: DiscoverScope): boolean {
-  const repos = scope?.repos?.length ? scope.repos : [{ path: '.', name: '', kind: '' }];
-  for (const repo of repos) {
-    const base = repo.path === '.' ? workspaceRoot : path.join(workspaceRoot, repo.path);
-    const target = path.join(base, rel.replace(/^\.\//, ''));
+  const needle = rel.replace(/^\.\//, '');
+  for (const base of scopeBases(workspaceRoot, scope)) {
+    const target = path.join(base, needle);
     try {
       if (!fs.existsSync(target)) { continue; }
       const stat = fs.statSync(target);
-      if (stat.isFile()) { return SOURCE_EXT.test(target); }
+      if (stat.isFile()) { return PRODUCT_SOURCE_EXT.test(target); }
       if (stat.isDirectory()) {
-        const files: string[] = [];
-        walkSourceFiles(target, '', files, 8);
-        if (files.length > 0) { return true; }
+        return walkProductSourceFiles(target, { limit: 8 }).length > 0;
       }
     } catch {
       continue;
@@ -526,7 +500,7 @@ function bootstrapCopy(args: {
   }
   if (!args.foundationOk) {
     details.push(
-      'CoFoFo foundation chưa publish — đó là deliverable của cofofo-bootstrap (scan-stack, map-system, publish-context), không phải lỗi Discover.',
+      'CoFoFo foundation chưa publish — đó là deliverable của pipeline cofofo-foundation (scan-stack → … → publish-context), không phải lỗi Discover.',
     );
   }
 
@@ -598,7 +572,7 @@ function scanWorkspace(input: EpicSuggestionInput): WorkspaceScan {
   const phases = listPhases(ctx);
   const bootstrapPhase = phases.find((p, i) => isSkeletonPhase(p, i === 0));
   const bootstrapHandedOff = index.handoffs.some((h) =>
-    h.recipeId === 'cofofo-bootstrap' || (bootstrapPhase !== undefined && h.phaseId === bootstrapPhase.id),
+    h.recipeId === 'cofofo-foundation' || h.recipeId === 'cofofo-bootstrap' || (bootstrapPhase !== undefined && h.phaseId === bootstrapPhase.id),
   );
   const hits = new Map<string, string[]>();
   for (const feature of features) {
@@ -755,7 +729,7 @@ export function suggestEpics(input: EpicSuggestionInput): EpicSuggestion[] {
     suggestions.push({
       id: 'no-skeleton',
       kind: 'no-skeleton',
-      recipeId: 'cofofo-bootstrap',
+      recipeId: 'cofofo-foundation',
       title,
       description,
       summary,

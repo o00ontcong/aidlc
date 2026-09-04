@@ -12,6 +12,8 @@ import {
   singleRepoScope,
   sourceExcludes,
   sourceRoots,
+  listProductSourceFiles,
+  walkProductSourceFiles,
   syncDiscoverCommandsForProvider,
   type ActorRef,
 } from '../src';
@@ -257,5 +259,28 @@ describe('generated Discover command files', () => {
     fs.writeFileSync(file, '# My own scan prompt\n\n<!-- aidlc:keep -->\n');
     syncDiscoverCommandsForProvider(root, 'claude');
     expect(fs.readFileSync(file, 'utf8')).toContain('My own scan prompt');
+  });
+});
+
+describe('listProductSourceFiles', () => {
+  it('falls back to the workspace root when declared child repos are gone', () => {
+    const root = newRoot();
+    write(root, 'App/Features/Login/LoginView.swift', 'struct LoginView {}');
+    const files = listProductSourceFiles(root, {
+      layout: 'parent',
+      repos: [{ path: 'ios', kind: 'mobile', name: 'ios' }],
+      excludes: [],
+      declaredAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(files.some((f) => f.endsWith('LoginView.swift'))).toBe(true);
+  });
+
+  it('does not let SourcePackages crowd out product source', () => {
+    const root = newRoot();
+    write(root, 'App/Login/LoginView.swift', 'struct LoginView {}');
+    write(root, 'SourcePackages/checkouts/foo/Sources/Foo.swift', 'struct Foo {}');
+    const files = walkProductSourceFiles(root, { limit: 8000 });
+    expect(files.some((f) => f.endsWith('LoginView.swift'))).toBe(true);
+    expect(files.some((f) => f.includes('SourcePackages'))).toBe(false);
   });
 });

@@ -39,9 +39,10 @@ export const EXCLUDED_DIRS: readonly string[] = [
   // Agent/tool configuration — the AI's own scaffolding, not the product.
   '.aidlc', '.claude', '.cursor', '.codex', '.opencode', '.ideaflow', '.github/copilot',
   // Derived, vendored or downloaded.
-  '.git', '.ast-graph', 'node_modules', 'vendor', 'Pods', 'Carthage', '.venv', 'venv',
+  '.git', '.ast-graph', 'node_modules', 'vendor', 'Pods', 'Carthage', 'SourcePackages',
+  '.venv', 'venv',
   '__pycache__', 'dist', 'build', '.build', 'out', 'target', 'DerivedData', '.next',
-  'coverage', '.gradle', '.terraform',
+  'coverage', '.gradle', '.terraform', 'xcuserdata',
 ];
 
 const EXCLUDED = new Set(EXCLUDED_DIRS);
@@ -262,6 +263,107 @@ export function sourceRoots(root: string, scope: DiscoverScope | undefined): str
 /** Every path a scan must stay out of: the built-in list plus the scope's own additions. */
 export function sourceExcludes(scope: DiscoverScope | undefined): string[] {
   return [...EXCLUDED_DIRS, ...(scope?.excludes ?? [])];
+}
+
+/** Product source the coverage matcher and scan inventory both recognize. */
+export const PRODUCT_SOURCE_EXT = /\.(ts|tsx|js|jsx|swift|kt|java|go|rs|py|rb|cs|php|dart|m|mm|c|cc|cpp|h|vue|svelte)$/i;
+
+/**
+ * `Dirent.isDirectory()` is false for symlinks-to-dirs and when the filesystem
+ * reports `DT_UNKNOWN` (iCloud / File Provider / some APFS volumes). Coverage
+ * then walks zero folders and every feature shows as "not built".
+ */
+export function isFsDirectory(abs: string, entry?: fs.Dirent): boolean {
+  if (entry?.isDirectory()) { return true; }
+  if (entry?.isFile()) { return false; }
+  try { return fs.statSync(abs).isDirectory(); } catch { return false; }
+}
+
+function pathHasExcludedSegment(rel: string, excludes: ReadonlySet<string>): boolean {
+  return rel.split(/[/\\]/).some((seg) => !seg || excludes.has(seg) || seg.startsWith('.'));
+}
+
+/** Source files under `absRoot`, paths relative to that root. */
+export function walkProductSourceFiles(
+  absRoot: string,
+  options: { limit: number; excludes?: readonly string[] } = { limit: 8000 },
+): string[] {
+  const excludes = new Set(options.excludes ?? EXCLUDED_DIRS);
+  const out: string[] = [];
+  const visit = (abs: string, rel: string): void => {
+    if (out.length >= options.limit) { return; }
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(abs, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (out.length >= options.limit) { return; }
+      if (excludes.has(entry.name) || entry.name.startsWith('.')) { continue; }
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+      const childAbs = path.join(abs, entry.name);
+      if (isFsDirectory(childAbs, entry)) {
+        visit(childAbs, childRel);
+        continue;
+      }
+      if (PRODUCT_SOURCE_EXT.test(entry.name)) { out.push(childRel); }
+    }
+  };
+  visit(absRoot, '');
+  return out;
+}
+
+function gitTrackedSourceFiles(absRoot: string): string[] | undefined {
+  try {
+    const raw = execFileSync('git', ['-C', absRoot, 'ls-files', '-z'], {
+      encoding: 'buffer',
+      maxBuffer: 32 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return raw.toString('utf8').split('\0').filter((rel) => rel.length > 0 && PRODUCT_SOURCE_EXT.test(rel));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Files coverage matching should see. Declared child repos that are missing
+ * (opened the iOS folder instead of the parent layout) fall back to the
+ * workspace root so the same blueprint does not show "not built" on one Mac
+ * and "in code" on another.
+ */
+export function listProductSourceFiles(
+  workspaceRoot: string,
+  scope?: DiscoverScope,
+  limit = 8000,
+): string[] {
+  const excludeList = sourceExcludes(scope);
+  const excludeSet = new Set(excludeList);
+  const declared = scope?.repos?.length ? scope.repos : [{ path: '.', kind: '', name: '' } as DiscoverSourceRepo];
+  const existing = declared.filter((repo) => {
+    const abs = repo.path === '.' ? workspaceRoot : path.join(workspaceRoot, repo.path);
+    return fs.existsSync(abs);
+  });
+  const repos = existing.length > 0 ? existing : [{ path: '.', kind: '', name: '' } as DiscoverSourceRepo];
+  const out: string[] = [];
+  for (const repo of repos) {
+    if (out.length >= limit) { break; }
+    const abs = repo.path === '.' ? workspaceRoot : path.join(workspaceRoot, repo.path);
+    const prefix = repo.path === '.' ? '' : repo.path.replace(/\\/g, '/');
+    const tracked = gitTrackedSourceFiles(abs);
+    const rels = tracked && tracked.length > 0
+      ? tracked.filter((rel) => !pathHasExcludedSegment(rel, excludeSet))
+      : walkProductSourceFiles(abs, { limit: limit - out.length, excludes: excludeList });
+    for (const rel of rels) {
+      if (out.length >= limit) { break; }
+      out.push(prefix ? `${prefix}/${rel}` : rel);
+    }
+  }
+  if (out.length === 0 && !(repos.length === 1 && repos[0]!.path === '.')) {
+    const tracked = gitTrackedSourceFiles(workspaceRoot);
+    const rels = tracked && tracked.length > 0
+      ? tracked.filter((rel) => !pathHasExcludedSegment(rel, excludeSet))
+      : walkProductSourceFiles(workspaceRoot, { limit, excludes: excludeList });
+    out.push(...rels.slice(0, limit));
+  }
+  return out;
 }
 
 // ── write guardrail ────────────────────────────────────────────────────────

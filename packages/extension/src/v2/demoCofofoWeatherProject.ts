@@ -16,7 +16,6 @@ import * as path from 'path';
 import {
   CofofoFoundationService,
   WorkspaceLoader,
-  assemblePipeline,
   buildBundleBinding,
   buildReviewBundle,
   composeWorkspaceFromBundle,
@@ -44,7 +43,7 @@ import {
 import { writeYaml, type YamlDocument } from './yamlIO';
 
 const DEMO_DIR_NAME = 'aidlc-cofofo-weather-demo';
-const FOUNDATION_RECIPE = 'cofofo-bootstrap';
+const FOUNDATION_RECIPE = 'cofofo-foundation';
 const FEATURE_RECIPE = 'cofofo-feature';
 const BUGFIX_RECIPE = 'cofofo-bugfix';
 
@@ -339,10 +338,12 @@ export function seedCofofoWeatherDemo(root: string, extensionPath: string): void
   const composed = WorkspaceLoader.load(root).config;
   const materialized = new Map<string, PipelineConfig>();
   for (const spec of DEMO_EPICS) {
-    materialized.set(spec.id, assemblePipeline(composed, {
-      recipeId: spec.pipeline,
-      pipelineId: `${spec.id}-PIPELINE`,
-    }));
+    const source = composed.pipelines.find((p) => p.id === spec.pipeline);
+    if (!source) throw new Error(`Demo pipeline "${spec.pipeline}" missing from generated CoFoFo workspace.`);
+    materialized.set(spec.id, {
+      ...source,
+      id: `${spec.id}-PIPELINE`,
+    });
   }
   // Derived, never hard-coded: `create-plan` is gated on citing every *current*
   // blocking ruleId, so a fixture that lists invented ids dead-ends the moment

@@ -59,7 +59,7 @@ describe('CoFoFo bundle binding (C0 — compose fails until C2)', () => {
     const binding = buildBundleBinding({ selection, installed, foundationRevision: 1 });
     const skeleton = generatedCofofoWorkspace({ version: '1.0', name: 'Demo' });
     const composed = composeWorkspaceFromBundle({ workspaceRoot: root, skeleton, binding, installed });
-    const delivery = composed.pipelines.find((pipeline) => pipeline.id === 'cofofo-delivery')!;
+    const delivery = composed.pipelines.find((pipeline) => pipeline.id === 'cofofo-feature')!;
     const implement = delivery.steps.find((step) => normalizeStep(step).name === 'implement')!;
     expect(normalizeStep(implement).skills).toEqual([
       'cofofo-implement',

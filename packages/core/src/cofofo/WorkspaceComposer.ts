@@ -66,9 +66,11 @@ function mergeAgents(skeleton: WorkspaceConfig, binding: BundleBinding): Workspa
   return [...preserved, ...composed];
 }
 
+const COFOFO_DELIVERY_PIPELINE_IDS = new Set(['cofofo-feature', 'cofofo-bugfix']);
+
 function mergePipelines(skeleton: WorkspaceConfig, binding: BundleBinding): WorkspaceConfig['pipelines'] {
   return skeleton.pipelines.map((pipeline) => {
-    if (pipeline.id !== 'cofofo-delivery') return pipeline;
+    if (!COFOFO_DELIVERY_PIPELINE_IDS.has(pipeline.id)) return pipeline;
     return {
       ...pipeline,
       steps: pipeline.steps.map((step) => {

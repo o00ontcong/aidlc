@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, Wand2, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch } from 'lucide-react';
+import { ListOrdered, ChevronRight, FileUp, Loader2, Sparkles, Plus, DownloadCloud, FolderOpen, Github, Layers, X, GitBranch } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { AgentMeta, ExtraProject, PipelineSummary, RecipeSummary } from '@/lib/types';
+import type { AgentMeta, ExtraProject, PipelineSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
@@ -63,7 +63,6 @@ export interface StartEpicPrefill {
 
 interface Props {
   pipelines: PipelineSummary[];
-  recipes: RecipeSummary[];
   agentMeta: Record<string, AgentMeta>;
   nextEpicId: string;
   existingEpicIds: string[];
@@ -77,27 +76,15 @@ interface Props {
   onClose: () => void;
 }
 
-/**
- * What the user picked in the WORKFLOW section:
- *   - `auto`     → let the classifier suggest a recipe from the task description.
- *   - `pipeline` → a concrete pipeline (user-defined or built-in AIDLC).
- * An `auto` selection resolves to a recipe target at submit time via the
- * current {@link Suggestion}.
- */
-type Selection = { kind: 'auto' } | { kind: 'pipeline'; id: string };
+type Selection = { kind: 'pipeline'; id: string };
 
-
-interface Suggestion {
-  recipeId: string;
-  confidence: 'high' | 'medium' | 'low';
-  reasoning: string;
-  /** `llm` = Claude analyzed the requirement; `heuristic` = keyword fallback. */
-  source: 'llm' | 'heuristic';
+function defaultSelection(pipelines: PipelineSummary[]): Selection {
+  const first = pipelines.find((p) => !p.templateOnly) ?? pipelines[0];
+  return { kind: 'pipeline', id: first?.id ?? '' };
 }
 
 export function StartEpicModal({
   pipelines,
-  recipes,
   agentMeta,
   nextEpicId,
   existingEpicIds,
@@ -109,13 +96,7 @@ export function StartEpicModal({
   onSubmit,
   onClose,
 }: Props) {
-  const [selected, setSelected] = useState<Selection>(
-    recipes.length > 0
-      ? { kind: 'auto' }
-      : pipelines[0]
-        ? { kind: 'pipeline', id: pipelines[0].id }
-        : { kind: 'auto' },
-  );
+  const [selected, setSelected] = useState<Selection>(() => defaultSelection(pipelines));
   // Start empty (nextEpicId is shown only as a placeholder). A pre-filled
   // "EPIC-100" looks like a Jira key and would trigger auto-analysis on open.
   // A real prefill from the Sprint tab is different: the key IS a Jira key, and
@@ -137,9 +118,7 @@ export function StartEpicModal({
 
   const [descLoading, setDescLoading] = useState(false);
   const [descLoadInfo, setDescLoadInfo] = useState<{ kind: 'loaded' | 'error'; text: string } | null>(null);
-  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
-  const [classifying, setClassifying] = useState(false);
-  // External requirement loading (Jira / GitHub / Drive / URL via Claude MCP).
+// External requirement loading (Jira / GitHub / Drive / URL via Claude MCP).
   const [loadSource, setLoadSource] = useState<ExternalSource | null>(null);
   const [loadRef, setLoadRef] = useState('');
   const [loadingExternal, setLoadingExternal] = useState(false);
@@ -147,19 +126,14 @@ export function StartEpicModal({
   const [loadElapsed, setLoadElapsed] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const hasWorkflows = pipelines.length > 0 || recipes.length > 0;
-  const userPipelines = useMemo(() => pipelines.filter((p) => !p.builtin), [pipelines]);
-  const aidlcPipelines = useMemo(() => pipelines.filter((p) => p.builtin), [pipelines]);
-
-  // Live mirrors of the inputs so the (deps-frozen) host-message listener can
-  // tell whether an async analysis result is still relevant or stale.
-  const epicIdRef = useRef(epicId);
-  const descriptionRef = useRef(description);
-  useEffect(() => { epicIdRef.current = epicId; }, [epicId]);
-  useEffect(() => { descriptionRef.current = description; }, [description]);
-  // The signal the auto-classifier last acted on — set it when we fill the
-  // description programmatically (from a load) so it doesn't re-analyze.
-  const lastAnalyzed = useRef('');
+  const hasWorkflows = pipelines.length > 0;
+  // Hide legacy templateOnly payloads; CoFoFo's three pipelines are startable.
+  const startablePipelines = useMemo(
+    () => pipelines.filter((p) => !p.templateOnly),
+    [pipelines],
+  );
+  const userPipelines = useMemo(() => startablePipelines.filter((p) => !p.builtin), [startablePipelines]);
+  const aidlcPipelines = useMemo(() => startablePipelines.filter((p) => p.builtin), [startablePipelines]);
   // The ref of the in-flight external load. Streamed chunks / results carry
   // their ref; we drop any that don't match (the user moved on to another).
   const activeLoadRef = useRef('');
@@ -175,15 +149,6 @@ export function StartEpicModal({
     setLoadingSource(null);
   };
 
-  // Suggestion is deliberate, not per-keystroke: classify only once there's
-  // real requirement content — when the user clicks "Suggest", or right after
-  // content loads from a file / Jira.
-  const requestSuggestion = (brief: string) => {
-    if (recipes.length === 0 || !brief.trim()) { return; }
-    setClassifying(true);
-    postMessage({ type: 'classifyBrief', brief });
-  };
-
   const onLoadDescriptionFromFile = async () => {
     setDescLoading(true);
     setDescLoadInfo(null);
@@ -192,8 +157,6 @@ export function StartEpicModal({
       if (!result) { return; }
       setDescription(result.content);
       setDescLoadInfo({ kind: 'loaded', text: `Loaded ${result.fileName} (${formatBytes(result.byteLength)})` });
-      // Real requirement content just arrived → suggest a recipe.
-      requestSuggestion(result.content);
     } catch (err) {
       setDescLoadInfo({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -211,40 +174,16 @@ export function StartEpicModal({
     };
   }, []);
 
-  // Workflows can arrive async (e.g. after applying the preset). Keep the
-  // selection valid: fall back to a pipeline when `auto` has no recipes, or
-  // fill in a pipeline id once one exists.
   useEffect(() => {
-    if (selected.kind === 'auto' && recipes.length === 0 && pipelines[0]) {
-      setSelected({ kind: 'pipeline', id: pipelines[0].id });
-    } else if (selected.kind === 'pipeline' && !selected.id && pipelines[0]) {
-      setSelected({ kind: 'pipeline', id: pipelines[0].id });
+    const valid = startablePipelines.some((p) => p.id === selected.id);
+    if (!valid && startablePipelines[0]) {
+      setSelected({ kind: 'pipeline', id: startablePipelines[0].id });
     }
-  }, [pipelines, recipes, selected]);
+  }, [startablePipelines, selected.id]);
 
-  // Host messages: classifier verdict + external requirement loads.
+
   useEffect(() => {
     return onHostMessage((m) => {
-      if (m.type === 'recipeSuggestion') {
-        setClassifying(false);
-        // Ignore a verdict for a brief the user has since edited.
-        if (m.brief !== undefined && String(m.brief).trim() !== descriptionRef.current.trim()) { return; }
-        const recipeId = String(m.recipeId ?? '');
-        if (!recipeId || !recipes.some((r) => r.id === recipeId)) { return; }
-        setSuggestion({
-          recipeId,
-          confidence: (m.confidence as Suggestion['confidence']) ?? 'low',
-          reasoning: String(m.reasoning ?? ''),
-          source: m.source === 'llm' ? 'llm' : 'heuristic',
-        });
-        // Also suggest an epic id + title from the description (don't clobber
-        // what the user already typed).
-        const sugId = String(m.epicId ?? '');
-        if (sugId && ID_PATTERN.test(sugId)) { setEpicId((cur) => (cur.trim() ? cur : sugId)); }
-        const sugTitle = String(m.title ?? '');
-        if (sugTitle) { setTitle((cur) => (cur.trim() ? cur : sugTitle)); }
-        return;
-      }
       // Streamed external load: clear → append chunks → finalize. Drop messages
       // for a ref the user has moved past (started another load / edited).
       if (m.type === 'requirementLoadStart') {
@@ -273,8 +212,6 @@ export function StartEpicModal({
           setEpicId((cur) => (cur.trim() ? cur : loadedEpicId));
         }
         setDescLoadInfo({ kind: 'loaded', text: `Loaded from ${String(m.source ?? '')}` });
-        // Deliberately do NOT set lastAnalyzed: the description is now filled,
-        // so the auto-fire effect classifies it for a recipe (+ title/epicId).
         return;
       }
       if (m.type === 'requirementLoadError') {
@@ -288,11 +225,8 @@ export function StartEpicModal({
         return;
       }
     });
-  }, [recipes]);
+  }, []);
 
-  // Kick off an external fetch. The summary streams into the description; the
-  // recipe is classified separately once it lands (see the auto-fire effect),
-  // so the text shows up without waiting on the analysis.
   const startLoad = (source: ExternalSource, ref: string) => {
     const r = ref.trim();
     if (!r) { return; }
@@ -303,7 +237,6 @@ export function StartEpicModal({
     setLoadingSource(source);
     setLoadElapsed(0);
     setLoadError(null);
-    setSuggestion(null);
     setDescription('');
     postMessage({ type: 'loadRequirement', source, ref: r });
     loadTick.current = setInterval(() => setLoadElapsed((s) => s + 1), 1000);
@@ -324,38 +257,6 @@ export function StartEpicModal({
     startLoad(loadSource, loadRef.trim());
   };
 
-  // Auto mode is hands-off: once "Auto" is selected, analyze whatever signal is
-  // available (a Jira-key epic id, a URL or brief in the description) and
-  // auto-select the recipe — no button press. Debounced; fires once per signal.
-  useEffect(() => {
-    if (selected.kind !== 'auto' || recipes.length === 0) { return; }
-    if (classifying || loadingExternal) { return; }
-    const key = epicId.trim();
-    const desc = description.trim();
-    const isJiraKey = /^[A-Z][A-Z0-9]*-\d+$/.test(key);
-    // Only fetch a URL when the description IS just that URL (a pasted link).
-    // A summary that merely *mentions* URLs should be classified, not re-fetched.
-    const isBareUrl = /^https?:\/\/\S+$/.test(desc);
-
-    let signal = '';
-    let fire = () => {};
-    if (isBareUrl) {
-      signal = `url:${desc}`;
-      fire = () => startLoad('url', desc);
-    } else if (desc) {
-      signal = `brief:${desc}`;
-      fire = () => requestSuggestion(desc);
-    } else if (isJiraKey && key !== prefill?.epicId) {
-      // A prefilled key came from the Sprint tab, which already fetched the
-      // ticket over REST. Re-fetching it through the agentic MCP path would be
-      // slow and would often fail — and would add nothing we do not have.
-      signal = `jira:${key}`;
-      fire = () => startLoad('jira', key);
-    }
-    if (!signal || signal === lastAnalyzed.current) { return; }
-    const t = setTimeout(() => { lastAnalyzed.current = signal; fire(); }, 800);
-    return () => clearTimeout(t);
-  }, [selected, epicId, description, recipes.length, classifying, loadingExternal, prefill?.epicId]);
 
   // ── Extra project helpers (GH-67) ──────────────────────────────────────────
   const isDuplicateProject = (ref: string) =>
@@ -440,16 +341,10 @@ export function StartEpicModal({
     setDuplicateWarning(null);
   };
 
-  const effectiveRecipeId = selected.kind === 'auto' ? suggestion?.recipeId : undefined;
-
   const selectedAgents = useMemo<string[]>(() => {
-    if (selected.kind === 'pipeline') {
-      return pipelines.find((p) => p.id === selected.id)?.steps.map((s) => s.agent) ?? [];
-    }
-    return effectiveRecipeId
-      ? recipes.find((r) => r.id === effectiveRecipeId)?.agents ?? []
-      : [];
-  }, [selected, effectiveRecipeId, pipelines, recipes]);
+    return pipelines.find((p) => p.id === selected.id)?.steps.map((s) => s.agent) ?? [];
+  }, [selected.id, pipelines]);
+
 
   const capabilities = useMemo<string[]>(() => {
     const seen = new Set<string>();
@@ -488,9 +383,7 @@ export function StartEpicModal({
     return null;
   }, [effectiveId, existingEpicIds]);
 
-  const targetError = selected.kind === 'pipeline'
-    ? (!selected.id ? 'Pick a pipeline' : null)
-    : (!effectiveRecipeId ? 'Add a task description and click “Suggest recipe”, or pick a pipeline' : null);
+  const targetError = !selected.id ? 'Pick a pipeline' : null;
   const projectError = !hasFolder && extraProjects.length === 0
     ? 'Add at least one project to create a task'
     : null;
@@ -503,11 +396,8 @@ export function StartEpicModal({
       const v = (inputs[cap] ?? '').trim();
       if (v) { cleanInputs[cap] = v; }
     }
-    const target = selected.kind === 'auto'
-      ? { kind: 'recipe' as const, id: effectiveRecipeId! }
-      : { kind: 'pipeline' as const, id: selected.id };
     onSubmit({
-      target,
+      target: { kind: 'pipeline', id: selected.id },
       epicId: effectiveId,
       title: title.trim(),
       description: description.trim(),
@@ -685,15 +575,6 @@ export function StartEpicModal({
               />
             ) : (
               <>
-                {recipes.length > 0 && (
-                  <AutoRow
-                    active={selected.kind === 'auto'}
-                    classifying={classifying || loadingExternal}
-                    suggestion={suggestion}
-                    recipes={recipes}
-                    onClick={() => setSelected({ kind: 'auto' })}
-                  />
-                )}
                 {userPipelines.length > 0 && (
                   <GroupHeader label="Your pipelines" />
                 )}
@@ -703,7 +584,7 @@ export function StartEpicModal({
                     <WorkflowRow
                       key={`p:${p.id}`}
                       id={p.id}
-                      active={selected.kind === 'pipeline' && selected.id === p.id}
+                      active={selected.id === p.id}
                       stepCount={steps.length}
                       steps={steps}
                       onClick={() => setSelected({ kind: 'pipeline', id: p.id })}
@@ -719,7 +600,7 @@ export function StartEpicModal({
                     <WorkflowRow
                       key={`p:${p.id}`}
                       id={p.id}
-                      active={selected.kind === 'pipeline' && selected.id === p.id}
+                      active={selected.id === p.id}
                       badge="built-in"
                       stepCount={steps.length}
                       steps={steps}
@@ -853,23 +734,12 @@ export function StartEpicModal({
           )}
           <textarea
             value={description}
-            onChange={(e) => { setDescription(e.target.value); if (suggestion) { setSuggestion(null); } }}
+            onChange={(e) => setDescription(e.target.value)}
             placeholder="Paste a requirement / PRD, or load it from a file. The text is snapshotted into the epic at submit time."
             rows={5}
             disabled={!hasWorkflows}
             className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
           />
-          {suggestion && recipes.length > 0 && (
-            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-primary">
-              <Wand2 className="h-2.5 w-2.5 shrink-0" />
-              <span>
-                Suggested recipe <span className="font-mono font-semibold">{suggestion.recipeId}</span>
-                {' '}<span className="text-muted-foreground">
-                  ({suggestion.confidence} · {suggestion.source === 'llm' ? 'analyzed' : 'keyword'}) — {suggestion.reasoning}
-                </span>
-              </span>
-            </div>
-          )}
           {descLoadInfo && (
             <div
               className={cn(
@@ -889,7 +759,7 @@ export function StartEpicModal({
                 Capability inputs
               </span>
               <span className="text-[10px] text-muted-foreground">
-                ({capabilities.length} from {selected.kind})
+                ({capabilities.length} from pipeline)
               </span>
             </div>
             <div className="space-y-2">
@@ -934,100 +804,14 @@ function GroupHeader({ label }: { label: string }) {
   );
 }
 
-/** Rotating status lines shown while the classifier is working. */
-const ANALYZING_STEPS = [
-  'Reading the requirement…',
-  'Understanding the context…',
-  'Detecting the task type…',
-  'Sizing the work (bug / feature / spike…)',
-  'Matching the right pipeline…',
-  'Almost there — finalizing the recipe…',
-];
-
-/**
- * The "auto-classify → suggest a recipe" workflow option. Selecting it makes
- * the epic use whichever recipe the classifier picks from the description.
- */
-function AutoRow({
-  active, classifying, suggestion, recipes, onClick,
-}: {
-  active: boolean;
-  classifying: boolean;
-  suggestion: Suggestion | null;
-  recipes: RecipeSummary[];
-  onClick: () => void;
-}) {
-  const recipe = suggestion ? recipes.find((r) => r.id === suggestion.recipeId) : undefined;
-
-  // Rotate through the analyzing steps so the user can see it's actively
-  // working (the host gives us no real progress events, so these are paced
-  // hints). Reset to the first step whenever a new analysis starts.
-  const [stepIdx, setStepIdx] = useState(0);
-  useEffect(() => {
-    if (!classifying) { setStepIdx(0); return; }
-    const t = setInterval(() => {
-      setStepIdx((i) => Math.min(i + 1, ANALYZING_STEPS.length - 1));
-    }, 1400);
-    return () => clearInterval(t);
-  }, [classifying]);
-
-  const sub = suggestion && recipe
-    ? `→ ${suggestion.recipeId} (${suggestion.confidence}) · ${recipe.steps.join(' → ')}`
-    : 'Enter a task id (Jira key), a URL, or a description — I\'ll pick the pipeline automatically.';
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'relative flex w-full flex-col items-start gap-0.5 overflow-hidden border-b border-border/50 px-2.5 py-2 text-left last:border-b-0 transition-colors',
-        classifying
-          ? 'bg-primary/10 ring-1 ring-inset ring-primary/50'
-          : active ? 'bg-primary/10' : 'hover:bg-accent/40',
-      )}
-    >
-      <div className="flex items-center gap-2">
-        {classifying
-          ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-          : <Wand2 className="h-3 w-3 text-primary" />}
-        <span className="text-[12px] font-medium text-foreground">Auto — suggest from task</span>
-        {classifying ? (
-          <span className="flex items-center gap-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-            Analyzing
-          </span>
-        ) : (
-          <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-            classifier
-          </span>
-        )}
-      </div>
-      {classifying ? (
-        <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-primary">
-          <span>{ANALYZING_STEPS[stepIdx]}</span>
-        </div>
-      ) : (
-        <div className="truncate text-[10.5px] text-muted-foreground">{sub}</div>
-      )}
-      {classifying && (
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-primary/15">
-          <span className="block h-full w-1/3 animate-[indeterminate_1.2s_ease-in-out_infinite] rounded-full bg-primary" />
-        </span>
-      )}
-    </button>
-  );
-}
-
 function WorkflowRow({
-  id, active, badge, suggested, stepCount, steps, description, onClick,
+  id, active, badge, stepCount, steps, onClick,
 }: {
   id: string;
   active: boolean;
   badge?: string;
-  suggested?: 'high' | 'medium' | 'low';
   stepCount: number;
   steps: string[];
-  description?: string;
   onClick: () => void;
 }) {
   return (
@@ -1046,18 +830,10 @@ function WorkflowRow({
             {badge}
           </span>
         )}
-        {suggested && (
-          <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-            ★ suggested · {suggested}
-          </span>
-        )}
         <span className="text-[10px] text-muted-foreground">
           {stepCount} step{stepCount === 1 ? '' : 's'}
         </span>
       </div>
-      {description && (
-        <div className="truncate text-[10px] text-muted-foreground/90">{description}</div>
-      )}
       <div className="truncate text-[10.5px] text-muted-foreground">{steps.join(' → ')}</div>
     </button>
   );
