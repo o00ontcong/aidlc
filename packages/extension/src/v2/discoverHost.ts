@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { discoverRepoIsDirty } from './discoverGitCommit';
+import { discoverRepoChangeCount, discoverRepoIsDirty } from './discoverGitCommit';
 import {
   resolveCofofoPipelineId,
   CofofoFoundationService,
@@ -28,6 +28,7 @@ import {
   normalizeStep,
   proseSectionKeyOf,
   DiscoverContextPublisher,
+  ProjectWorkService,
   DISCOVER_CODE_INDEX_PATH,
   parseDetailFields,
   scaffoldEpic,
@@ -50,6 +51,7 @@ import {
   type EpicSuggestion,
   type DiscoverItemCoverage,
   type DiscoverCodeIndex,
+  type WorkItem,
 } from '@aidlc/core';
 import { readYaml, writeYaml } from './yamlIO';
 
@@ -202,6 +204,8 @@ export interface DiscoverUi {
     publishedAt?: string;
     nextAction: string;
   };
+  /** Feature, bug and maintenance requests; each is promoted to an Epic separately. */
+  workItems: WorkItem[];
   runs: DiscoverRun[];
   /** Three-pass scan campaign, when one exists. */
   scanCampaign?: { status: 'active' | 'done'; lastKeptPass: 0 | 1 | 2 | 3 };
@@ -216,6 +220,8 @@ export interface DiscoverUi {
   };
   /** Whether the commit-target repo has local git changes. */
   hasUncommittedChanges: boolean;
+  /** Count of changed paths in the commit-target repo. */
+  uncommittedChangeCount: number;
 }
 
 export interface DiscoverDiffRowUi {
@@ -491,6 +497,7 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
     outputLanguage: index.outputLanguage,
     scope: service.declaredScope(),
     hasUncommittedChanges: discoverRepoIsDirty(root, service.declaredScope()),
+    uncommittedChangeCount: discoverRepoChangeCount(root, service.declaredScope()),
     currentStep: index.currentStep,
     revision: index.revision,
     steps: DISCOVER_STEPS.map((step) => ({
@@ -531,6 +538,7 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
       } : {}),
       nextAction: contextInspection.nextAction,
     },
+    workItems: new ProjectWorkService(root).list(),
     runs: [...index.runs].reverse().slice(0, 20),
     scanCampaign: index.scanCampaign
       ? { status: index.scanCampaign.status, lastKeptPass: index.scanCampaign.lastKeptPass }

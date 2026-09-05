@@ -199,7 +199,7 @@ export interface ScaffoldEpicArgs {
   };
   /**
    * Immutable pre-Epic decision provenance for a Discover-routed epic — the
-   * blueprint an epic was handed off from (see `docs/DISCOVER_TAB_PLAN.md`).
+   * blueprint an epic was handed off from.
    * Mirrors `shapeProvenance` but binds the CoFoFo Foundation instead of the
    * generic one, and has no acceptance hash: handing the Implementation Plan
    * off, not an accept step, is what commits it.

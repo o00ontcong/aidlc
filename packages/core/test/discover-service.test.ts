@@ -1,10 +1,13 @@
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   DiscoverRevisionConflictError,
+  DiscoverDirtySourceError,
+  DiscoverScanStaleError,
   DiscoverService,
   DOC_FEATURES,
   DOC_IDEA,
@@ -32,6 +35,14 @@ function seeded(): DiscoverService {
   const service = new DiscoverService(newRoot());
   service.init({ seedSentence: 'App xem video hỗ trợ 2 subtitle cùng lúc.', actor: USER });
   return service;
+}
+
+function initGit(root: string): void {
+  execFileSync('git', ['init', '--quiet'], { cwd: root });
+  execFileSync('git', ['config', 'user.email', 'test@aidlc.dev'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'AIDLC Test'], { cwd: root });
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '--quiet', '-m', 'initial'], { cwd: root });
 }
 
 function fillIdea(service: DiscoverService): void {
@@ -385,6 +396,43 @@ describe('DiscoverService — agent runs', () => {
 });
 
 describe('DiscoverService — scan campaign', () => {
+  it('does not let local source WIP become shared scan input by default', () => {
+    const service = seeded();
+    fs.mkdirSync(path.join(service.workspaceRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(service.workspaceRoot, 'src', 'tracked.ts'), 'export const value = 1;\n');
+    initGit(service.workspaceRoot);
+    fs.writeFileSync(path.join(service.workspaceRoot, 'src', 'tracked.ts'), 'export const value = 2;\n');
+    const before = fs.readFileSync(service.docFile(DOC_IDEA), 'utf8');
+
+    expect(() => service.startRun('idea', { kind: 'scan', scanPass: 1 })).toThrow(DiscoverDirtySourceError);
+    expect(service.activeRun()).toBeUndefined();
+    expect(fs.readFileSync(service.docFile(DOC_IDEA), 'utf8')).toBe(before);
+    expect(fs.existsSync(path.join(service.workspaceRoot, '.aidlc', 'discover', 'scan-brief.md'))).toBe(false);
+  });
+
+  it('refuses to keep a scan when source changed after its Git input was captured', () => {
+    const service = seeded();
+    fs.mkdirSync(path.join(service.workspaceRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(service.workspaceRoot, 'src', 'before.ts'), 'export const before = true;\n');
+    initGit(service.workspaceRoot);
+    const { run } = service.startRun('idea', { kind: 'scan', scanPass: 1 });
+
+    fs.writeFileSync(path.join(service.workspaceRoot, 'src', 'after.ts'), 'export const after = true;\n');
+
+    expect(() => service.keepRun(run.id)).toThrow(DiscoverScanStaleError);
+    expect(service.require().runs.find((candidate) => candidate.id === run.id)?.status).toBe('running');
+  });
+
+  it('refuses to keep a reviewed scan after a teammate changes the context document', () => {
+    const service = seeded();
+    const { run } = service.startRun('idea', { kind: 'scan', scanPass: 1 });
+    service.finishRun(run.id);
+
+    fs.appendFileSync(service.docFile(DOC_IDEA), '\nTeam edit after review.\n');
+
+    expect(() => service.keepRun(run.id)).toThrow(DiscoverScanStaleError);
+  });
+
   it('keeps a scan pass without starting the next one', () => {
     const service = seeded();
     const { run } = service.startRun('idea', { kind: 'scan', scanPass: 1 });

@@ -2,8 +2,7 @@
  *
  * Markdown under docsRoot is the source of truth; this tab is a structured way
  * to read and edit those files, plus the review surface for what an agent
- * wrote into them. See docs/DISCOVER_TAB_PLAN.md and
- * docs/design/discover-tab/discover-tab-wireframe.html.
+ * wrote into them.
  */
 
 import { useEffect, useState } from 'react';

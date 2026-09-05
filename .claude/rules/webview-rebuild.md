@@ -1,0 +1,33 @@
+---
+paths:
+  - "packages/extension/src/webview/**/*.{tsx,ts,css}"
+---
+
+# Webview rebuild before done
+
+F5 alone does **not** guarantee a fresh UI. The Extension Host loads
+`packages/extension/out/webviews/*.js`. Editing TSX/CSS without rebuilding
+leaves a stale bundle — users will still see the old UI after F5.
+
+## Required after any webview UI change
+
+1. Run from repo root (or `packages/extension`):
+
+```bash
+pnpm --filter aidlc-o00ontcong bundle:webviews
+```
+
+   Or full compile: `pnpm --filter aidlc-o00ontcong compile`
+
+2. Confirm `packages/extension/out/webviews/workspace.js` (or the relevant
+   entry) is **newer** than the edited source file before reporting done.
+
+3. Do **not** tell the user to only F5 after source edits with no rebuild.
+
+## Optional while iterating
+
+Keep watch running so every save rebuilds:
+
+```bash
+cd packages/extension && pnpm watch
+```

@@ -861,6 +861,12 @@ export interface DiscoverRunSummary {
   kind?: 'step' | 'scan' | 'edit';
   /** 1 = product, 2 = architecture, 3 = plan. Set on scan runs. */
   scanPass?: 1 | 2 | 3;
+  /** Context revision and Git source snapshot that the scan proposal was based on. */
+  baseRevision?: number;
+  sourceSnapshot?: {
+    capturedAt: string;
+    repos: Array<{ path: string; head: string; ref: string; worktree: string }>;
+  };
   startedAt: string;
   finishedAt?: string;
   note?: string;
@@ -1012,6 +1018,8 @@ export interface DiscoverSummary {
   scope?: DiscoverScopeSummary;
   /** True when the commit-target repo has uncommitted changes. */
   hasUncommittedChanges?: boolean;
+  /** Count of changed paths in the commit-target repo. */
+  uncommittedChangeCount?: number;
   currentStep: DiscoverStepId;
   revision: number;
   steps: DiscoverStep[];
@@ -1029,6 +1037,26 @@ export interface DiscoverSummary {
     publishedAt?: string;
     nextAction: string;
   };
+  workItems: Array<{
+    id: string;
+    title: string;
+    type: 'feature' | 'bug' | 'refactor' | 'spike' | 'maintenance';
+    priority: 'critical' | 'high' | 'normal' | 'low';
+    status: 'draft' | 'ready' | 'active' | 'completed' | 'cancelled';
+    requirement: { outcome: string; acceptanceCriteria: string[]; inScope: string[]; outOfScope: string[]; links: string[] };
+    impact: {
+      status: 'not-analyzed' | 'proposed' | 'confirmed';
+      contextIds: string[];
+      symbols: string[];
+      risks: string[];
+      analyzedAt?: string;
+      confirmedAt?: string;
+    };
+    epicId?: string;
+    contextPatch?: { status: 'proposed' | 'applied'; contextIds: string[]; summary: string; createdAt: string; appliedAt?: string };
+    updatedAt: string;
+    revision: number;
+  }>;
   runs: DiscoverRunSummary[];
   /** Three-pass scan campaign, when one exists. Keep does not start the next pass. */
   scanCampaign?: { status: 'active' | 'done'; lastKeptPass: 0 | 1 | 2 | 3 };

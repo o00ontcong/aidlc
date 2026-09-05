@@ -36,10 +36,11 @@ import {
 import { applyOps, renderEmptyDoc, type DocOp, type PatchResult } from './mdPatch';
 import { normalizeDiscoverDoc } from './discoverFormat';
 import {
-  checkSourceRepoWrites,
-  fingerprintSourceRepos,
   singleRepoScope,
+  snapshotSourceRevisions,
+  sourceRevisionDrift,
   type SourceRepoFingerprint,
+  type SourceRevisionSnapshot,
 } from './sourceScope';
 import {
   campaignAfterKeepingPass,
@@ -92,6 +93,22 @@ export class DiscoverRevisionConflictError extends Error {
   constructor(readonly expectedRevision: number, readonly actualRevision: number) {
     super(`Discover blueprint changed while writing (expected revision ${expectedRevision}, actual ${actualRevision}).`);
     this.name = 'DiscoverRevisionConflictError';
+  }
+}
+
+/** A scan proposal cannot be accepted because its source or review base moved. */
+export class DiscoverScanStaleError extends Error {
+  constructor(readonly issues: GuardrailIssue[]) {
+    super(`Scan proposal is stale: ${issues.map((issue) => issue.message).join(' ')}`);
+    this.name = 'DiscoverScanStaleError';
+  }
+}
+
+/** Shared context scans must not silently turn one member's local WIP into team truth. */
+export class DiscoverDirtySourceError extends Error {
+  constructor(readonly repos: string[]) {
+    super(`Source working tree is dirty in ${repos.join(', ')}. Commit/stash it first, or explicitly run a local-only scan.`);
+    this.name = 'DiscoverDirtySourceError';
   }
 }
 
@@ -549,6 +566,8 @@ export class DiscoverService {
       scanPass?: ScanPassId;
       /** True when the Scan button starts a new campaign from pass 1. */
       resetCampaign?: boolean;
+      /** Local-only scan; never use its result to update shared context without review. */
+      allowDirtySource?: boolean;
     } = {},
   ): { index: DiscoverIndex; run: DiscoverRun } {
     const index = this.require();
@@ -557,6 +576,16 @@ export class DiscoverService {
     const scanPass = kind === 'scan' ? (isScanPassId(options.scanPass) ? options.scanPass : 1) : undefined;
     const runStep = scanPass ? scanPassFirstStep(scanPass) : stepId;
     const runId = options.runId ?? `run-${String(index.runs.length + 1).padStart(3, '0')}`;
+    // Capture and validate the source *before* a scan normalizes docs or
+    // creates its brief. A rejected dirty-worktree scan must be a true no-op
+    // for shared context, just like `git merge` refusing to start first.
+    const sourceSnapshot = kind === 'scan'
+      ? snapshotSourceRevisions(this.workspaceRoot, this.effectiveScope(index), { docsRoot: index.docsRoot, capturedAt: nowIso() })
+      : undefined;
+    if (sourceSnapshot && !options.allowDirtySource) {
+      const dirty = sourceSnapshot.repos.filter((repo) => repo.worktree !== '').map((repo) => repo.path);
+      if (dirty.length) { throw new DiscoverDirtySourceError(dirty); }
+    }
     // Format rewrite on a scan happens BEFORE the snapshot so the review diff
     // is "what the code says", not "we renamed a heading". Step runs still
     // rewrite after the snapshot so a fill/refine diff can show the fix.
@@ -565,7 +594,7 @@ export class DiscoverService {
       this.writeScanBrief(scanPass!, index);
     }
     this.snapshotDocs(runId, index);
-    if (kind === 'scan') { this.writeSourceFingerprint(runId, index); }
+    if (sourceSnapshot) { this.writeSourceFingerprint(runId, sourceSnapshot); }
     if (kind === 'step') {
       this.rewriteLegacyFormat(index, getStepSpec(stepId).files.map((f) => f.path));
     }
@@ -576,6 +605,8 @@ export class DiscoverService {
       mode: kind === 'scan' ? 'refine' : (isStepEmpty(ctx, stepId) ? 'fill' : 'refine'),
       kind,
       scanPass,
+      baseRevision: kind === 'scan' ? index.revision : undefined,
+      sourceSnapshot,
       startedAt: nowIso(),
       note: options.note,
       diff: { added: [], updated: [], removed: [] },
@@ -617,13 +648,17 @@ export class DiscoverService {
         : allDocPaths();
     const guardrail = [
       ...checkGuardrails(before.docs, after.docs, beforeIndex, allowed),
-      ...this.checkSourceRepos(run, index),
+      ...this.scanFreshnessIssues(run, index),
     ];
     const updated: DiscoverRun = {
       ...run,
       finishedAt: nowIso(),
       diff,
       guardrail: guardrail.map((g) => `${g.code}: ${g.message}`),
+      // This is the proposal's context tree, not merely the initial snapshot.
+      // If another teammate edits docs while it is waiting for review, Keep
+      // refuses to overwrite that newer base and asks for a fresh scan.
+      proposalDocHashes: run.kind === 'scan' ? this.docHashes(index) : run.proposalDocHashes,
       // Safe to call again: everything above is recomputed from the snapshot,
       // so a late write by the agent simply grows the diff.
       status: run.status === 'running' || run.status === 'review' ? 'review' : run.status,
@@ -680,6 +715,23 @@ export class DiscoverService {
     const index = this.require();
     const run = index.runs.find((r) => r.id === runId);
     if (!run) { throw new Error(`Unknown Discover run "${runId}".`); }
+    if (run.kind === 'scan') {
+      const freshness = this.scanFreshnessIssues(run, index);
+      const reviewed = run.proposalDocHashes;
+      if (reviewed) {
+        const current = this.docHashes(index);
+        for (const [docPath, hash] of Object.entries(reviewed)) {
+          if (current[docPath] !== hash) {
+            freshness.push({
+              code: 'context-changed-during-review',
+              file: docPath,
+              message: `Context document ${docPath} changed after this scan was reviewed. Re-scan or merge the proposal before keeping it.`,
+            });
+          }
+        }
+      }
+      if (freshness.length) { throw new DiscoverScanStaleError(freshness); }
+    }
     fs.rmSync(this.snapshotDir(runId), { recursive: true, force: true });
     const scanCampaign = run.kind === 'scan' && isScanPassId(run.scanPass)
       ? campaignAfterKeepingPass(index.scanCampaign, run.scanPass, nowIso())
@@ -870,12 +922,11 @@ export class DiscoverService {
     }));
   }
 
-  /** Git state of every declared source repo, stored beside the run's snapshot. */
-  private writeSourceFingerprint(runId: string, index: DiscoverIndex): void {
-    const scope = this.effectiveScope(index);
+  /** Git revision of every source repo, stored beside the run's snapshot. */
+  private writeSourceFingerprint(runId: string, snapshot: SourceRevisionSnapshot): void {
     const file = path.join(this.snapshotDir(runId), SOURCE_FINGERPRINT_FILE);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeFileAtomic(file, `${JSON.stringify(fingerprintSourceRepos(this.workspaceRoot, scope, { docsRoot: index.docsRoot }), null, 2)}\n`);
+    writeFileAtomic(file, `${JSON.stringify(snapshot, null, 2)}\n`);
   }
 
   /**
@@ -883,21 +934,31 @@ export class DiscoverService {
    * anything but a scan, and silent when the fingerprint is missing — an
    * older run, or a single-repo blueprint with nothing to compare.
    */
-  private checkSourceRepos(run: DiscoverRun, index: DiscoverIndex): GuardrailIssue[] {
+  private scanFreshnessIssues(run: DiscoverRun, index: DiscoverIndex): GuardrailIssue[] {
     if (run.kind !== 'scan') { return []; }
-    const file = path.join(this.snapshotDir(run.id), SOURCE_FINGERPRINT_FILE);
-    if (!fs.existsSync(file)) { return []; }
-    let before: SourceRepoFingerprint;
-    try {
-      before = JSON.parse(fs.readFileSync(file, 'utf8')) as SourceRepoFingerprint;
-    } catch {
-      return [];
+    let before = run.sourceSnapshot as SourceRevisionSnapshot | undefined;
+    if (!before) {
+      const file = path.join(this.snapshotDir(run.id), SOURCE_FINGERPRINT_FILE);
+      if (!fs.existsSync(file)) { return []; }
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as SourceRevisionSnapshot | SourceRepoFingerprint;
+        // Legacy snapshots stored only a map. They cannot prove revision
+        // freshness, so remain compatible but never claim a false conflict.
+        before = 'repos' in parsed ? parsed as SourceRevisionSnapshot : undefined;
+      } catch { return []; }
     }
-    return checkSourceRepoWrites(
-      before,
-      fingerprintSourceRepos(this.workspaceRoot, this.effectiveScope(index), { docsRoot: index.docsRoot }),
-      { docsRoot: index.docsRoot },
-    );
+    if (!before) { return []; }
+    const after = snapshotSourceRevisions(this.workspaceRoot, this.effectiveScope(index), { docsRoot: index.docsRoot });
+    return sourceRevisionDrift(before, after);
+  }
+
+  private docHashes(index: DiscoverIndex): Record<string, string> {
+    const hashes: Record<string, string> = {};
+    for (const docPath of allDocPaths()) {
+      const file = this.docFile(docPath, index);
+      hashes[docPath] = fs.existsSync(file) ? hashContent(fs.readFileSync(file, 'utf8')) : '';
+    }
+    return hashes;
   }
 
   private snapshotDocs(runId: string, index: DiscoverIndex): void {

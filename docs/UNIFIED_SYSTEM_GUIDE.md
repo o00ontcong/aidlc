@@ -1,6 +1,6 @@
 # AIDLC unified system guide
 
-This guide covers the unified Epic/workflow runtime described in `AIDLC_SYSTEM_REDESIGN.md`. Legacy pipelines remain available for one migration window; commands using recipe/pipeline flags print an exact replacement or migration command.
+This guide covers the unified Epic/workflow runtime. Legacy pipelines remain available for one migration window; commands using recipe/pipeline flags print an exact replacement or migration command.
 
 ## Canonical command reference
 
@@ -61,7 +61,7 @@ Agents work one step per turn through `/aidlc-discover <step>` or
 against its snapshot entry by entry, so any change — or any single entry — can
 be undone. When the Implementation Plan is written, each phase is handed off as
 its own CoFoFo epic with an `INTENT.md` snapshot; the epic then follows the
-paths below. See `docs/DISCOVER_TAB_PLAN.md`, and the tab's own guide via
+paths below. See the tab's own guide via
 its "Open the pipeline guide" button.
 
 ### Workflow runner

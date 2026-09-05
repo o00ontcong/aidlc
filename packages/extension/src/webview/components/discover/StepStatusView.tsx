@@ -1,4 +1,5 @@
-/* Status-aware preview for Discover steps 3, 4 and 6.
+/* Status-aware preview for Discover steps 3 (requirements), 4 (features),
+ * 6 (user flows / screens via coverage), and 11 (plan phases).
  * Same lens as the wireframe: one “already-has-code” reading; a new project
  * is just every item sitting in “not built”.
  */
@@ -53,14 +54,29 @@ function revealItemSource(item: DiscoverCoveredItem): void {
   postMessage({ type: 'revealDiscoverSource', path: target });
 }
 
-/** Prefer the shared parent folder when several files match; otherwise the first path. */
+/** Prefer the shared feature folder; never the repo root or a walk-order first file. */
+function asDir(path: string): string {
+  const n = path.replace(/\\/g, '/').replace(/\/$/, '');
+  if (/\.(ts|tsx|js|jsx|swift|kt|java|go|rs|py|rb|cs|php|dart|m|mm|c|cc|cpp|h|vue|svelte)$/i.test(n)) {
+    return n.replace(/\/[^/]+$/, '');
+  }
+  return n;
+}
+
 function revealTarget(files: string[]): string | undefined {
-  if (files.length === 0) { return undefined; }
-  if (files.length === 1) { return files[0]; }
-  const parent = (p: string) => p.replace(/[/\\][^/\\]+$/, '');
-  const dirs = files.map(parent).filter(Boolean);
-  if (dirs.length > 0 && dirs.every((d) => d === dirs[0])) { return dirs[0]; }
-  return files[0];
+  const uniq = [...new Set(files.map((f) => f.replace(/\\/g, '/')))].filter(Boolean);
+  if (uniq.length === 0) { return undefined; }
+  if (uniq.length === 1) { return uniq[0]; }
+  const parts = uniq.map((f) => asDir(f).split('/').filter(Boolean));
+  const minLen = Math.min(...parts.map((p) => p.length));
+  const common: string[] = [];
+  for (let i = 0; i < minLen; i++) {
+    const seg = parts[0]![i];
+    if (seg && parts.every((p) => p[i] === seg)) { common.push(seg); }
+    else { break; }
+  }
+  if (common.length >= 2) { return common.join('/'); }
+  return uniq[0];
 }
 
 function matchesQuery(item: { id: string; text: string; description?: string; coveringFeatureIds?: string[]; coveredFrIds?: string[]; matchedFiles?: string[] }, query: string): boolean {
@@ -74,6 +90,91 @@ function matchesQuery(item: { id: string; text: string; description?: string; co
     ...(item.matchedFiles ?? []),
   ].join(' ').toLowerCase();
   return hay.includes(query);
+}
+
+function matchesRecordQuery(record: DiscoverRecord, query: string): boolean {
+  if (!query) { return true; }
+  const hay = [
+    record.id,
+    record.title,
+    ...record.fields.flatMap((field) => [field.label, field.value, ...field.items]),
+  ].join(' ').toLowerCase();
+  return hay.includes(query);
+}
+
+/** Ids like F-VIDEO-01 / FR-01 mentioned in free text — same shape as core extractIds. */
+function extractIds(text: string): string[] {
+  const out = new Set<string>();
+  for (const match of text.matchAll(/\b([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*-\d{2,})\b/g)) {
+    out.add(match[1]!);
+  }
+  return [...out];
+}
+
+function recordHaystack(record: DiscoverRecord): string {
+  return [record.id, record.title, ...record.fields.flatMap((f) => [f.value, ...f.items])].join('\n');
+}
+
+function statusFromCitedFeatures(
+  citedFeatureIds: string[],
+  featuresById: Map<string, DiscoverCoveredItem>,
+): DiscoverItemCoverageStatus {
+  const covering = citedFeatureIds
+    .map((id) => featuresById.get(id))
+    .filter((item): item is DiscoverCoveredItem => Boolean(item));
+  if (covering.length === 0) { return 'missing'; }
+  if (covering.every((f) => f.status === 'in-code')) { return 'in-code'; }
+  if (covering.some((f) => f.status === 'stale')) { return 'stale'; }
+  return 'missing';
+}
+
+function coverageCounts(items: { status: DiscoverItemCoverageStatus }[]): { inCode: number; missing: number; stale: number } {
+  return {
+    inCode: items.filter((i) => i.status === 'in-code').length,
+    missing: items.filter((i) => i.status === 'missing').length,
+    stale: items.filter((i) => i.status === 'stale').length,
+  };
+}
+
+function CoverageFilterBar({
+  copy,
+  queryRaw,
+  onQuery,
+  filter,
+  onFilter,
+  total,
+  inCode,
+  missing,
+  stale,
+}: {
+  copy: DiscoverCopy;
+  queryRaw: string;
+  onQuery: (value: string) => void;
+  filter: StatusFilter;
+  onFilter: (value: StatusFilter) => void;
+  total: number;
+  inCode: number;
+  missing: number;
+  stale: number;
+}) {
+  return (
+    <div className="space-y-2 border-b border-border/70 bg-secondary/40 px-3 py-2">
+      <input
+        type="search"
+        value={queryRaw}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder={copy.status.searchPlaceholder}
+        className="w-full rounded-md border border-border bg-background px-2 py-1 text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <FilterChip active={filter === 'all'} label={`${copy.status.filterAll} · ${total}`} onClick={() => onFilter('all')} />
+        <FilterChip active={filter === 'in-code'} label={`${copy.status.inCode} · ${inCode}`} tone="in-code" onClick={() => onFilter('in-code')} />
+        <FilterChip active={filter === 'missing'} label={`${copy.status.missing} · ${missing}`} tone="missing" onClick={() => onFilter('missing')} />
+        <FilterChip active={filter === 'stale'} label={`${copy.status.stale} · ${stale}`} tone="stale" onClick={() => onFilter('stale')} />
+      </div>
+      <p className="text-[10.5px] text-muted-foreground">{copy.status.matcherNote}</p>
+    </div>
+  );
 }
 
 function Badge({
@@ -254,20 +355,6 @@ function ItemRow({ item, copy, detailItems }: { item: DiscoverCoveredItem; copy:
   );
 }
 
-function Counts({ items, copy }: { items: DiscoverCoveredItem[]; copy: DiscoverCopy }) {
-  const inCode = items.filter((i) => i.status === 'in-code').length;
-  const missing = items.filter((i) => i.status === 'missing').length;
-  const stale = items.filter((i) => i.status === 'stale').length;
-  return (
-    <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-[10.5px] text-muted-foreground">
-      <span>{copy.status.counts(inCode, missing, stale)}</span>
-      <Badge copy={copy} status="in-code" />
-      <Badge copy={copy} status="missing" />
-      <Badge copy={copy} status="stale" />
-    </div>
-  );
-}
-
 function FilterChip({
   active, label, onClick, tone,
 }: {
@@ -324,22 +411,17 @@ function RequirementsStatus({ discover, copy }: { discover: DiscoverSummary; cop
 
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="space-y-2 border-b border-border/70 bg-secondary/40 px-3 py-2">
-        <input
-          type="search"
-          value={queryRaw}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={copy.status.searchPlaceholder}
-          className="w-full rounded-md border border-border bg-background px-2 py-1 text-[11.5px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-        />
-        <div className="flex flex-wrap items-center gap-1.5">
-          <FilterChip active={filter === 'all'} label={`${copy.status.filterAll} · ${items.length}`} onClick={() => setFilter('all')} />
-          <FilterChip active={filter === 'in-code'} label={`${copy.status.inCode} · ${inCode}`} tone="in-code" onClick={() => setFilter('in-code')} />
-          <FilterChip active={filter === 'missing'} label={`${copy.status.missing} · ${missing}`} tone="missing" onClick={() => setFilter('missing')} />
-          <FilterChip active={filter === 'stale'} label={`${copy.status.stale} · ${stale}`} tone="stale" onClick={() => setFilter('stale')} />
-        </div>
-        <p className="text-[10.5px] text-muted-foreground">{copy.status.matcherNote}</p>
-      </div>
+      <CoverageFilterBar
+        copy={copy}
+        queryRaw={queryRaw}
+        onQuery={setQuery}
+        filter={filter}
+        onFilter={setFilter}
+        total={items.length}
+        inCode={inCode}
+        missing={missing}
+        stale={stale}
+      />
       {filteredFr.length === 0 && filteredNfr.length === 0 && (
         <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>
       )}
@@ -394,43 +476,86 @@ function FeatureTree({ features, copy, detailItems }: { features: DiscoverCovere
 
 function FeaturesStatus({ discover, copy }: { discover: DiscoverSummary; copy: DiscoverCopy }) {
   const features = (discover.itemCoverage?.items ?? []).filter((i) => i.kind === 'feature');
+  const [queryRaw, setQuery] = useState('');
+  const [filter, setFilter] = useState<StatusFilter>('all');
+  const query = queryRaw.trim().toLowerCase();
+  const filtered = useMemo(
+    () => features.filter((item) => (filter === 'all' || item.status === filter) && matchesQuery(item, query)),
+    [features, filter, query],
+  );
   const detailItems: DiscoverDetailTarget[] = [
     ...features.map((item) => ({ id: item.id, text: item.text, detail: item.detail })),
     ...(discover.itemCoverage?.items ?? []).filter((item) => item.kind === 'fr').map((item) => ({ id: item.id, text: item.text, detail: item.detail })),
   ];
   if (features.length === 0) { return <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>; }
+  const { inCode, missing, stale } = coverageCounts(features);
   return (
     <div className="space-y-3">
       <section className="overflow-hidden rounded-lg border border-border bg-card">
-        <div className="border-b border-border/70 bg-secondary/40">
-          <Counts items={features} copy={copy} />
-        </div>
-        <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{copy.status.tree}</p>
-        <FeatureTree features={features} copy={copy} detailItems={detailItems} />
-      </section>
-      <section className="rounded-lg border border-border bg-card">
-        <MermaidBlock
-          source={featureTreeMermaid(features)}
-          title={copy.status.diagram}
-          embedded
-          fullscreenLabel={copy.status.fullscreen}
-          exitFullscreenLabel={copy.status.exitFullscreen}
+        <CoverageFilterBar
+          copy={copy}
+          queryRaw={queryRaw}
+          onQuery={setQuery}
+          filter={filter}
+          onFilter={setFilter}
+          total={features.length}
+          inCode={inCode}
+          missing={missing}
+          stale={stale}
         />
+        {filtered.length === 0 ? (
+          <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>
+        ) : (
+          <>
+            <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{copy.status.tree}</p>
+            <FeatureTree features={filtered} copy={copy} detailItems={detailItems} />
+          </>
+        )}
       </section>
+      {filtered.length > 0 && (
+        <section className="rounded-lg border border-border bg-card">
+          <MermaidBlock
+            source={featureTreeMermaid(filtered)}
+            title={copy.status.diagram}
+            embedded
+            fullscreenLabel={copy.status.fullscreen}
+            exitFullscreenLabel={copy.status.exitFullscreen}
+          />
+        </section>
+      )}
     </div>
   );
 }
 
-function CompactRecordEntry({ record, copy }: { record: DiscoverRecord; copy: DiscoverCopy }) {
+function CompactRecordEntry({
+  record, copy, status, revealFiles,
+}: {
+  record: DiscoverRecord;
+  copy: DiscoverCopy;
+  status?: DiscoverItemCoverageStatus;
+  revealFiles?: string[];
+}) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const title = record.title.trim() || copy.untitled;
+  const canReveal = status === 'in-code' && (revealFiles?.length ?? 0) > 0;
   return (
     <>
       <div className="flex items-center gap-2 border-b border-border/30 px-3 py-1.5 last:border-b-0">
         <p className="min-w-0 flex-1 truncate text-[11.5px] font-medium leading-snug text-foreground">
           {record.id} — {title}
         </p>
+        {status && (
+          <Badge
+            copy={copy}
+            status={status}
+            onClick={canReveal ? () => {
+              const target = revealTarget(revealFiles ?? []);
+              if (target) { postMessage({ type: 'revealDiscoverSource', path: target }); }
+            } : undefined}
+            title={canReveal ? copy.hints.revealSource : undefined}
+          />
+        )}
         <button
           ref={triggerRef}
           type="button"
@@ -461,6 +586,111 @@ function CompactRecordsStatus({ doc, copy, sectionKey }: { doc?: DiscoverDoc; co
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-card">
       {records.map((record) => <CompactRecordEntry key={record.id} record={record} copy={copy} />)}
+    </section>
+  );
+}
+
+/** Ids like F-VIDEO-01 mentioned in free text — not FR-01 / PH-11. */
+function isFeatureId(id: string): boolean {
+  return /^F-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{2,}$/.test(id);
+}
+
+function planRecordStatus(
+  record: DiscoverRecord,
+  phase: DiscoverSummary['phases'][number] | undefined,
+  featuresById: Map<string, DiscoverCoveredItem>,
+): DiscoverItemCoverageStatus {
+  if (phase?.alreadyBuilt) { return 'in-code'; }
+  const cited = extractIds(recordHaystack(record)).filter(isFeatureId);
+  const fromFeatures = statusFromCitedFeatures(cited, featuresById);
+  if (fromFeatures !== 'missing') { return fromFeatures; }
+  if ((phase?.builtFiles?.length ?? 0) > 0 && (phase?.missingFeatureIds?.length ?? 0) > 0) {
+    return 'stale';
+  }
+  return 'missing';
+}
+
+function PlanStatus({
+  discover, doc, copy,
+}: {
+  discover: DiscoverSummary;
+  doc?: DiscoverDoc;
+  copy: DiscoverCopy;
+}) {
+  const records = doc?.sections.find((section) => section.key === 'phases')?.records ?? [];
+  const phasesById = useMemo(() => {
+    const map = new Map<string, DiscoverSummary['phases'][number]>();
+    for (const phase of discover.phases ?? []) { map.set(phase.id, phase); }
+    return map;
+  }, [discover.phases]);
+  const featuresById = useMemo(() => {
+    const map = new Map<string, DiscoverCoveredItem>();
+    for (const item of discover.itemCoverage?.items ?? []) {
+      if (item.kind === 'feature') { map.set(item.id, item); }
+    }
+    return map;
+  }, [discover.itemCoverage?.items]);
+  const rows = useMemo(
+    () => records.map((record) => {
+      const phase = phasesById.get(record.id);
+      return {
+        record,
+        status: planRecordStatus(record, phase, featuresById),
+        matchedFiles: phase?.builtFiles ?? [],
+      };
+    }),
+    [records, phasesById, featuresById],
+  );
+  const [queryRaw, setQuery] = useState('');
+  const [filter, setFilter] = useState<StatusFilter>('all');
+  const query = queryRaw.trim().toLowerCase();
+  const filtered = useMemo(
+    () => rows.filter(({ record, status }) => (filter === 'all' || status === filter) && matchesRecordQuery(record, query)),
+    [rows, filter, query],
+  );
+
+  if (records.length === 0) {
+    return <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>;
+  }
+
+  const { inCode, missing, stale } = coverageCounts(rows);
+  const clusters: { status: DiscoverItemCoverageStatus; label: string }[] = [
+    { status: 'in-code', label: copy.status.inCode },
+    { status: 'missing', label: copy.status.missing },
+    { status: 'stale', label: copy.status.stale },
+  ];
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      <CoverageFilterBar
+        copy={copy}
+        queryRaw={queryRaw}
+        onQuery={setQuery}
+        filter={filter}
+        onFilter={setFilter}
+        total={rows.length}
+        inCode={inCode}
+        missing={missing}
+        stale={stale}
+      />
+      {filtered.length === 0 ? (
+        <p className="px-3 py-2 text-[11px] italic text-muted-foreground">{copy.status.empty}</p>
+      ) : (
+        clusters.map((cluster) => {
+          const clusterRows = filtered.filter((row) => row.status === cluster.status);
+          if (clusterRows.length === 0) { return null; }
+          return (
+            <div key={cluster.status}>
+              <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                {cluster.label} · {clusterRows.length}
+              </p>
+              {clusterRows.map(({ record, status, matchedFiles }) => (
+                <CompactRecordEntry key={record.id} record={record} copy={copy} status={status} revealFiles={matchedFiles} />
+              ))}
+            </div>
+          );
+        })
+      )}
     </section>
   );
 }
@@ -496,7 +726,7 @@ export function StepStatusView({
   if (stepId === 'features') { return <FeaturesStatus discover={discover} copy={copy} />; }
   if (stepId === 'usecases') { return <CompactRecordsStatus doc={doc} copy={copy} sectionKey="useCases" />; }
   if (stepId === 'userflows') { return <ScreenFlowStatus copy={copy} doc={doc} />; }
-  if (stepId === 'plan') { return <CompactRecordsStatus doc={doc} copy={copy} sectionKey="phases" />; }
+  if (stepId === 'plan') { return <PlanStatus discover={discover} doc={doc} copy={copy} />; }
   return null;
 }
 

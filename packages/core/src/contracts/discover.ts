@@ -5,7 +5,7 @@ import { IsoTimestampSchema, parseContract } from './common';
 /**
  * Discover is deliberately thin on persisted state: the Markdown files under
  * `docsRoot` are the source of truth for every word the user or an agent
- * writes (see `docs/DISCOVER_TAB_PLAN.md` §0). Everything in this file is
+ * writes. Everything in this file is
  * *sidecar* metadata — where the pipeline is, what each doc hashed to last
  * time we looked, who authored an item, and what each agent run changed.
  * Deleting `.aidlc/discover/` loses undo and provenance; it never loses
@@ -60,6 +60,25 @@ export const DiscoverRunDiffSchema = z.object({
 export type DiscoverRunDiff = z.infer<typeof DiscoverRunDiffSchema>;
 
 /**
+ * Git input frozen when a scan starts. Keeping this with the run makes the
+ * review auditable: a reviewer can see exactly which checkout the agent read,
+ * rather than trusting whichever branch happens to be checked out later.
+ */
+export const DiscoverSourceRevisionSchema = z.object({
+  path: z.string().min(1),
+  head: z.string(),
+  ref: z.string(),
+  worktree: z.string(),
+});
+export type DiscoverSourceRevision = z.infer<typeof DiscoverSourceRevisionSchema>;
+
+export const DiscoverSourceSnapshotSchema = z.object({
+  capturedAt: IsoTimestampSchema,
+  repos: z.array(DiscoverSourceRevisionSchema),
+});
+export type DiscoverSourceSnapshot = z.infer<typeof DiscoverSourceSnapshotSchema>;
+
+/**
  * One agent invocation. `mode` records what the agent was asked to do, not
  * what it did: `fill` when the step's docs were empty, `refine` when they
  * already had content and existing ids had to survive.
@@ -81,6 +100,12 @@ export const DiscoverRunSchema = z.object({
   kind: z.enum(['step', 'scan', 'edit']).default('step'),
   /** 1 = product, 2 = architecture, 3 = plan. Only set on `kind: 'scan'` runs. */
   scanPass: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+  /** Project context revision at scan start; a scan is a proposal against this base. */
+  baseRevision: z.number().int().nonnegative().optional(),
+  /** Exact Git source inputs at scan start. Present for new scan runs. */
+  sourceSnapshot: DiscoverSourceSnapshotSchema.optional(),
+  /** Hashes of the reviewed docs. A later edit makes the proposal stale. */
+  proposalDocHashes: z.record(z.string(), z.string()).optional(),
   startedAt: IsoTimestampSchema,
   finishedAt: IsoTimestampSchema.optional(),
   note: z.string().optional(),

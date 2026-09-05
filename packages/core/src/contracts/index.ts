@@ -26,3 +26,4 @@ export * from './foundation';
 export * from './shape';
 export * from './artifact';
 export * from './capability';
+export * from './workItem';

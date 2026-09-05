@@ -380,12 +380,99 @@ export function listProductSourceFiles(
  */
 export type SourceRepoFingerprint = Record<string, string>;
 
+/**
+ * Immutable Git identity captured before a scan starts.  A fingerprint alone
+ * is useful for detecting an accidental write, but it cannot tell a reviewer
+ * which revision the agent actually read.  This snapshot is deliberately
+ * small and portable: it works for a normal repository as well as every
+ * child repository in a declared Discover scope.
+ */
+export interface SourceRepoRevision {
+  /** Declared path, relative to the Discover workspace. */
+  path: string;
+  /** Checked-out commit. Empty when Git is unavailable. */
+  head: string;
+  /** Checked-out branch, or a detached/ref-less marker. */
+  ref: string;
+  /** Source-only porcelain status; blueprint docs/.aidlc are excluded. */
+  worktree: string;
+}
+
+export interface SourceRevisionSnapshot {
+  capturedAt: string;
+  repos: SourceRepoRevision[];
+}
+
 function git(cwd: string, args: string[]): string | undefined {
   try {
     return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
     return undefined;
   }
+}
+
+function sourceStatus(dir: string, repoPath: string, docsRoot: string): string {
+  const status = git(dir, ['status', '--porcelain']) ?? '';
+  return (repoPath === '.' ? filterBlueprintPorcelain(status, docsRoot) : status).trim();
+}
+
+/**
+ * Record the exact source revision a scan is allowed to describe.  Callers
+ * must compare this again before accepting the scan proposal; otherwise a
+ * teammate's pull/rebase can make a perfectly good scan stale mid-review.
+ */
+export function snapshotSourceRevisions(
+  root: string,
+  scope: DiscoverScope | undefined,
+  options: { docsRoot?: string; capturedAt?: string } = {},
+): SourceRevisionSnapshot {
+  const docsRoot = options.docsRoot ?? 'docs';
+  const repos = scope?.repos.length ? scope.repos : [{ path: '.', kind: 'app' } as DiscoverSourceRepo];
+  const entries: SourceRepoRevision[] = [];
+  for (const repo of repos) {
+    const dir = repo.path === '.' ? root : path.join(root, repo.path);
+    if (!fs.existsSync(dir)) { continue; }
+    entries.push({
+      path: repo.path,
+      head: (git(dir, ['rev-parse', 'HEAD']) ?? '').trim(),
+      ref: (git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']) ?? 'DETACHED').trim() || 'DETACHED',
+      worktree: sourceStatus(dir, repo.path, docsRoot),
+    });
+  }
+  return { capturedAt: options.capturedAt ?? new Date().toISOString(), repos: entries };
+}
+
+/** A source snapshot has become unsafe to apply when its checked-out input moved. */
+export function sourceRevisionDrift(
+  before: SourceRevisionSnapshot,
+  after: SourceRevisionSnapshot,
+): GuardrailIssue[] {
+  const current = new Map(after.repos.map((repo) => [repo.path, repo]));
+  const issues: GuardrailIssue[] = [];
+  for (const was of before.repos) {
+    const now = current.get(was.path);
+    if (!now) {
+      issues.push({
+        code: 'source-repo-missing', file: was.path,
+        message: `Source repo ${was.path} disappeared after this scan started; re-scan before applying its proposal.`,
+      });
+      continue;
+    }
+    if (was.head !== now.head || was.ref !== now.ref) {
+      issues.push({
+        code: 'source-revision-changed', file: was.path,
+        message: `Source repo ${was.path} moved from ${was.head || 'unknown'} (${was.ref}) to ${now.head || 'unknown'} (${now.ref}) while this scan was in review. Re-scan or rebase the proposal.`,
+      });
+      continue;
+    }
+    if (was.worktree !== now.worktree) {
+      issues.push({
+        code: 'source-worktree-changed', file: was.path,
+        message: `Source worktree ${was.path} changed while this scan was in review. Re-scan before applying its proposal.`,
+      });
+    }
+  }
+  return issues;
 }
 
 export function fingerprintSourceRepos(
@@ -400,8 +487,7 @@ export function fingerprintSourceRepos(
     const dir = repo.path === '.' ? root : path.join(root, repo.path);
     if (!fs.existsSync(dir)) { continue; }
     const head = git(dir, ['rev-parse', 'HEAD']) ?? '';
-    const status = git(dir, ['status', '--porcelain']) ?? '';
-    const filtered = repo.path === '.' ? filterBlueprintPorcelain(status, docsRoot) : status;
+    const filtered = sourceStatus(dir, repo.path, docsRoot);
     out[repo.path] = head.trim() === '' && filtered.trim() === '' ? '' : `${head.trim()}\n${filtered}`;
   }
   return out;

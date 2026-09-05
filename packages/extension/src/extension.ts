@@ -380,13 +380,7 @@ function checkCliInstalled(
   const SEEN_KEY = 'aidlc.cliInstallPromptSeen';
   const cmd = process.platform === 'win32' ? 'where aidlc' : 'which aidlc';
 
-  // Run the check off the activation hot path — no blocking.
-  exec(cmd, { timeout: 5000 }, (err, stdout) => {
-    if (!err && stdout.trim()) {
-      output.appendLine(`aidlc CLI found: ${stdout.trim()}`);
-      return;
-    }
-
+  const showInstallPrompt = () => {
     output.appendLine('aidlc CLI not found on PATH.');
     if (context.globalState.get<boolean>(SEEN_KEY)) { return; }
 
@@ -403,7 +397,22 @@ function checkCliInstalled(
       terminal.show();
       output.appendLine('Opened terminal to run: npm install -g aidlc');
     });
-  });
+  };
+
+  // Electron's embedded Node can throw synchronously from `exec()` when a
+  // third-party extension corrupts the stream decoder. A best-effort CLI
+  // probe must never prevent the whole AIDLC extension from activating.
+  try {
+    exec(cmd, { timeout: 5000 }, (err, stdout) => {
+      if (!err && stdout.trim()) {
+        output.appendLine(`aidlc CLI found: ${stdout.trim()}`);
+        return;
+      }
+      showInstallPrompt();
+    });
+  } catch (error) {
+    output.appendLine(`aidlc CLI probe skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**

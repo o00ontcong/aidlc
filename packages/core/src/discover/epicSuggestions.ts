@@ -153,7 +153,7 @@ function featureGroup(id: string): string {
 }
 
 function foldVi(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd');
 }
 
 /** Vietnamese / product phrases → path tokens that actually appear in source trees. */
@@ -164,16 +164,26 @@ const WORD_ALIASES: { match: RegExp; tokens: string[] }[] = [
   { match: /\bmfa\b|\b2fa\b|\btotp\b|xac thuc hai/i, tokens: ['mfa', 'totp'] },
   { match: /push/i, tokens: ['push'] },
   { match: /profile|ho\s*so/i, tokens: ['profile'] },
+  { match: /do\s*phu|test\s*coverage|code\s*coverage/i, tokens: ['test', 'tests'] },
 ];
+
+/** `F-LOGIN-01` yes; `FR-01` / `PH-11` no. */
+function isFeatureId(id: string): boolean {
+  return /^F-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{2,}$/.test(id);
+}
+
+function isIdLikeToken(word: string): boolean {
+  return /^[a-z]{1,3}-?\d+$/i.test(word);
+}
 
 function searchTokens(id: string, text: string): string[] {
   const tokens = new Set<string>();
   const group = featureGroup(id);
-  if (group.length >= 4 && /[a-z]/.test(group)) { tokens.add(group); }
-  for (const word of text.toLowerCase().split(/[^a-z0-9]+/)) {
-    if (word.length >= 4) { tokens.add(word); }
-  }
+  if (group.length >= 4 && /[a-z]/.test(group) && !isIdLikeToken(group)) { tokens.add(group); }
   const folded = foldVi(`${id} ${text}`);
+  for (const word of folded.split(/[^a-z0-9]+/)) {
+    if (word.length >= 4 && !isIdLikeToken(word)) { tokens.add(word); }
+  }
   for (const alias of WORD_ALIASES) {
     if (alias.match.test(folded) || alias.match.test(text)) {
       for (const t of alias.tokens) { tokens.add(t); }
@@ -182,10 +192,111 @@ function searchTokens(id: string, text: string): string[] {
   return [...tokens].filter(Boolean);
 }
 
+/** Product test files/folders — `FooTests.swift`, `OtenPassTests/`, `__tests__/`, `foo_test.go`. */
+function isTestPath(file: string): boolean {
+  const orig = file.replace(/\\/g, '/');
+  const lower = orig.toLowerCase();
+  const origParts = orig.split('/');
+  const parts = lower.split('/');
+  const origBase = origParts[origParts.length - 1] ?? '';
+  const base = parts[parts.length - 1] ?? '';
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i]!;
+    const origSeg = origParts[i] ?? p;
+    if (p === 'test' || p === 'tests' || p === '__tests__' || p === 'spec' || p === 'specs') { return true; }
+    if (/Tests$/.test(origSeg) || /(?:^|\.)tests$/.test(p)) { return true; }
+  }
+  return /Tests?\.(swift|kt|java|ts|tsx|js|jsx|m|mm)$/.test(origBase)
+    || /(?:\.test|\.spec|_test|_spec|-test|-spec)\.(ts|tsx|js|jsx|py|go|rs)$/i.test(origBase)
+    || /^test_/.test(base);
+}
+
+function isTestCoveragePhase(phase: { title: string; goal: string }): boolean {
+  const folded = foldVi(`${phase.title} ${phase.goal}`);
+  return /do\s*phu|test\s*coverage|code\s*coverage|missing\s*tests|bu\s*(do\s*)?phu/.test(folded)
+    || /\b(coverage|unit tests|ui tests)\b/i.test(phase.title);
+}
+
 function pathHasToken(file: string, token: string): boolean {
   const lower = file.toLowerCase().replace(/\\/g, '/');
+  if (token === 'test' || token === 'tests') { return isTestPath(file); }
   if (token.length >= 6) { return lower.includes(token); }
   return lower.split(/[^a-z0-9]+/).includes(token);
+}
+
+/** Tokens that match half the tree if used as a hit. Still fine as aliases for alreadyBuilt. */
+const WEAK_TOKENS = new Set([
+  'test', 'tests', 'user', 'view', 'data', 'item', 'list', 'main', 'core', 'base',
+  'with', 'from', 'that', 'this', 'have', 'been', 'file', 'type', 'info', 'name',
+  'flow', 'form', 'page', 'screen', 'feature', 'module', 'unit', 'sung', 'phu',
+  'them', 'then', 'when', 'make', 'into', 'over', 'only', 'also', 'app',
+]);
+
+function tokenHitScore(file: string, token: string): number {
+  if (WEAK_TOKENS.has(token) || token.length < 4) { return 0; }
+  const lower = file.toLowerCase().replace(/\\/g, '/');
+  const parts = lower.split('/');
+  const base = (parts[parts.length - 1] ?? '').replace(/\.[a-z0-9]+$/, '');
+  const fileSegs = base.split(/[^a-z0-9]+/).filter(Boolean);
+  if (fileSegs.includes(token) || fileSegs.some((s) => s === `${token}s`)) { return 24; }
+  if (base.startsWith(token) || (token.length >= 6 && base.includes(token))) { return 16; }
+  if (parts.slice(0, -1).some((p) => p === token || p === `${token}s` || p.endsWith(token))) { return 14; }
+  if (pathHasToken(file, token)) { return token.length >= 6 ? 4 : 2; }
+  return 0;
+}
+
+function clusterAroundBest(ranked: string[]): string[] {
+  if (ranked.length <= 1) { return ranked; }
+  const best = ranked[0]!.replace(/\\/g, '/');
+  const bestDir = PRODUCT_SOURCE_EXT.test(best) ? best.replace(/\/[^/]+$/, '') : best;
+  return ranked.filter((f) => {
+    const n = f.replace(/\\/g, '/');
+    const dir = PRODUCT_SOURCE_EXT.test(n) ? n.replace(/\/[^/]+$/, '') : n;
+    return dir === bestDir || dir.startsWith(`${bestDir}/`) || bestDir.startsWith(`${dir}/`)
+      || n === bestDir || best.startsWith(`${n}/`);
+  }).slice(0, 8);
+}
+
+/**
+ * Rank path hits so Explorer reveal goes to the feature folder, not the first
+ * walk-order file that happened to contain a weak token like "device".
+ */
+function selectSourceHits(sourceFiles: string[], tokens: string[], modulePaths: string[] = []): string[] {
+  const moduleNorm = modulePaths
+    .map((p) => p.replace(/^\.\//, '').replace(/\\/g, '/').toLowerCase())
+    .filter((p) => p.length > 1);
+  const scored: { path: string; score: number }[] = [];
+  for (const file of sourceFiles) {
+    const lower = file.replace(/\\/g, '/').toLowerCase();
+    let score = 0;
+    for (const token of tokens) { score += tokenHitScore(file, token); }
+    if (moduleNorm.some((p) => lower === p || lower.startsWith(`${p}/`))) { score += 40; }
+    if (score > 0) { scored.push({ path: file, score }); }
+  }
+  scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  const underModule = moduleNorm.length > 0
+    ? scored.filter((s) => {
+      const lower = s.path.replace(/\\/g, '/').toLowerCase();
+      return moduleNorm.some((p) => lower === p || lower.startsWith(`${p}/`));
+    })
+    : scored;
+  const pool = underModule.length > 0 ? underModule : scored;
+  return clusterAroundBest(pool.map((s) => s.path));
+}
+
+/** Folder that owns the most product tests — one Explorer jump, not eight random files. */
+function primaryTestRoot(testFiles: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const file of testFiles) {
+    const parts = file.replace(/\\/g, '/').split('/');
+    const idx = parts.findIndex((p) => /tests$/i.test(p) || /^tests?$/i.test(p) || p === '__tests__');
+    const root = idx >= 0
+      ? parts.slice(0, idx + 1).join('/')
+      : parts.slice(0, Math.max(1, parts.length - 1)).join('/');
+    if (root) { counts.set(root, (counts.get(root) ?? 0) + 1); }
+  }
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return ranked[0] ? [ranked[0][0]] : testFiles.slice(0, 1);
 }
 
 function allSourceFiles(workspaceRoot: string, scope?: DiscoverScope): string[] {
@@ -282,14 +393,7 @@ function matchFilesForFeature(
     m.cites.includes(feature.id) || tokens.some((t) => m.title.toLowerCase().includes(t) || m.folder.toLowerCase().includes(t)),
   );
   const modulePaths = linked.flatMap((m) => foldersForModule(m, mappings));
-
-  const hits = new Set<string>();
-  for (const file of sourceFiles) {
-    const lower = file.toLowerCase();
-    if (tokens.some((t) => pathHasToken(file, t))) { hits.add(file); }
-    if (modulePaths.some((p) => lower.includes(p.replace(/^\.\//, '').toLowerCase()))) { hits.add(file); }
-  }
-  return [...hits];
+  return selectSourceHits(sourceFiles, tokens, modulePaths);
 }
 
 function featureHits(
@@ -320,18 +424,16 @@ function phaseCodeHits(
   scope?: DiscoverScope,
 ): { tokens: string[]; files: string[] } {
   const tokens = searchTokens(phase.id, `${phase.title} ${phase.goal} ${phase.deliverables.join(' ')}`);
-  const files = new Set<string>();
-  for (const file of sourceFiles) {
-    if (tokens.some((t) => pathHasToken(file, t))) { files.add(file); }
-  }
+  const modulePaths: string[] = [];
   for (const mod of modules) {
     const blob = foldVi(`${mod.title} ${mod.folder} ${mod.responsibility}`);
     if (!tokens.some((t) => blob.includes(t) || foldVi(mod.title).includes(t))) { continue; }
     for (const folder of foldersForModule(mod, mappings)) {
-      if (folderHasSource(workspaceRoot, folder, scope)) { files.add(folder); }
+      if (folderHasSource(workspaceRoot, folder, scope)) { modulePaths.push(folder); }
     }
   }
-  return { tokens, files: [...files] };
+  const files = selectSourceHits(sourceFiles, tokens, modulePaths);
+  return { tokens, files: files.length > 0 ? files : modulePaths.slice(0, 8) };
 }
 
 function modulesForFeature(featureId: string, modules: ModuleEntry[]): ModuleEntry[] {
@@ -601,12 +703,21 @@ function impliedFeaturesForPhase(
   phase: ReturnType<typeof listPhases>[number],
   features: FeatureEntry[],
 ): FeatureEntry[] {
-  const cited = new Set(phase.cites.filter((c) => c.id.startsWith('F-')).map((c) => c.id));
-  const haystack = `${phase.title} ${phase.goal} ${phase.deliverables.join(' ')}`.toLowerCase();
+  const cited = new Set(phase.cites.filter((c) => isFeatureId(c.id)).map((c) => c.id));
+  const blob = `${phase.title} ${phase.goal} ${phase.deliverables.join(' ')}`;
+  const haystack = foldVi(blob);
+  const phaseTokens = new Set(searchTokens(phase.id, blob));
   return features.filter((f) => {
     if (cited.has(f.id) || haystack.includes(f.id.toLowerCase())) { return true; }
     const group = featureGroup(f.id);
-    return group.length >= 4 && /[a-z]/.test(group) && haystack.includes(group);
+    if (group.length >= 4 && /[a-z]/.test(group) && haystack.includes(group)) { return true; }
+    const featWords = foldVi(f.text).split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+    const wordHits = featWords.filter((w) => haystack.includes(w));
+    if (wordHits.length >= 2 || wordHits.some((w) => w.length >= 6)) { return true; }
+    const shared = searchTokens(f.id, f.text).filter((t) =>
+      phaseTokens.has(t) && t.length >= 4 && t !== 'test' && t !== 'tests',
+    );
+    return shared.some((t) => t.length >= 6) || shared.length >= 2;
   });
 }
 
@@ -635,11 +746,10 @@ function phaseAlreadyBuilt(
 
   const implied = impliedFeaturesForPhase(phase, scan.features);
   const missingFeatureIds = implied.filter((f) => (scan.featureHits.get(f.id) ?? []).length === 0).map((f) => f.id);
-  const featureFiles = implied.flatMap((f) => scan.featureHits.get(f.id) ?? []);
-  const matchedFiles = [...new Set([...featureFiles, ...titleHits.files])].slice(0, 8);
+  const featureFiles = clusterAroundBest([...new Set(implied.flatMap((f) => scan.featureHits.get(f.id) ?? []))]);
 
   if (implied.length > 0 && missingFeatureIds.length === 0) {
-    return { alreadyBuilt: true, matchedFiles, tokens: titleHits.tokens, missingFeatureIds: [] };
+    return { alreadyBuilt: true, matchedFiles: featureFiles, tokens: titleHits.tokens, missingFeatureIds: [] };
   }
   const tokenHits = titleHits.tokens.filter((t) => titleHits.files.some((f) => pathHasToken(f, t)));
   const distinctiveTitle = tokenHits.some((t) => t.length >= 8)
@@ -647,7 +757,13 @@ function phaseAlreadyBuilt(
     || tokenHits.includes('login')
     || tokenHits.includes('signin');
   if (distinctiveTitle && titleHits.files.length > 0) {
-    return { alreadyBuilt: true, matchedFiles, tokens: titleHits.tokens, missingFeatureIds };
+    return { alreadyBuilt: true, matchedFiles: titleHits.files, tokens: titleHits.tokens, missingFeatureIds };
+  }
+  if (isTestCoveragePhase(phase)) {
+    const testFiles = scan.sourceFiles.filter(isTestPath);
+    if (testFiles.length > 0) {
+      return { alreadyBuilt: true, matchedFiles: primaryTestRoot(testFiles), tokens: titleHits.tokens, missingFeatureIds };
+    }
   }
 
   const deliverablePaths = phase.deliverables.flatMap((d) => extractPaths(d));
@@ -657,7 +773,7 @@ function phaseAlreadyBuilt(
       return { alreadyBuilt: true, matchedFiles: present.slice(0, 8), tokens: titleHits.tokens, missingFeatureIds };
     }
   }
-  return { alreadyBuilt: false, matchedFiles, tokens: titleHits.tokens, missingFeatureIds };
+  return { alreadyBuilt: false, matchedFiles: featureFiles, tokens: titleHits.tokens, missingFeatureIds };
 }
 
 /**

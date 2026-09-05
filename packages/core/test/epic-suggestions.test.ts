@@ -255,6 +255,124 @@ describe('suggestEpics', () => {
     expect(phase?.alreadyBuilt).toBe(true);
     expect(phase?.tokens).toEqual(expect.arrayContaining(['login', 'attestation']));
     expect(phase?.matchedFiles.some((f) => /login|attestation/i.test(f))).toBe(true);
+    expect(phase?.matchedFiles.every((f) => /Login|Attestation/i.test(f))).toBe(true);
+  });
+
+  it('does not point reveal at an unrelated Core file just because the goal mentions device', () => {
+    const { root, service } = setupBlueprint();
+    service.applyOps(DOC_IMPLEMENTATION_PLAN, [
+      {
+        op: 'addRecord',
+        section: 'phases',
+        title: 'Đăng nhập và device attestation',
+        fields: [
+          { label: 'Goal', value: 'User đăng nhập và attest thiết bị.' },
+          { label: 'Deliverables', items: ['Màn hình login', 'Device attestation'] },
+        ],
+      },
+    ], { actor: USER });
+    const loginDir = path.join(root, 'App', 'Features', 'Login');
+    const coreDir = path.join(root, 'App', 'Core');
+    fs.mkdirSync(loginDir, { recursive: true });
+    fs.mkdirSync(coreDir, { recursive: true });
+    fs.writeFileSync(path.join(loginDir, 'LoginView.swift'), 'struct LoginView {}');
+    fs.writeFileSync(path.join(loginDir, 'DeviceAttestation.swift'), 'struct DeviceAttestation {}');
+    fs.writeFileSync(path.join(coreDir, 'DeviceID.swift'), 'struct DeviceID {}');
+    fs.writeFileSync(path.join(root, 'App', 'AppDelegate.swift'), 'class AppDelegate {}');
+
+    const index = service.require();
+    const ctx = service.readBlueprint(index);
+    const work = classifyPhaseWork({ workspaceRoot: root, ctx, index, checkFoundation: false });
+    const files = work.find((w) => w.phaseId === 'PH-01')?.matchedFiles ?? [];
+    expect(files.some((f) => /Login/i.test(f))).toBe(true);
+    expect(files.some((f) => /Core\/DeviceID/i.test(f))).toBe(false);
+    expect(files.some((f) => /AppDelegate/i.test(f))).toBe(false);
+  });
+
+  it('treats a Vietnamese phase as built when an overlapping in-code feature exists, even without citing F-*', () => {
+    const { root, service } = setupBlueprint();
+    service.applyOps(DOC_FEATURES, [
+      { op: 'addItem', section: 'features', group: 'auth', text: 'Đăng nhập bằng Passkey.' },
+    ], { actor: USER });
+    service.applyOps(DOC_MODULES, [
+      {
+        op: 'addRecord',
+        section: 'modules',
+        title: 'Login',
+        fields: [
+          { label: 'Responsibility', value: 'Đăng nhập — F-AUTH-01' },
+          { label: 'Folder', value: 'App/Features/Login' },
+        ],
+      },
+    ], { actor: USER });
+    service.applyOps(DOC_IMPLEMENTATION_PLAN, [
+      {
+        op: 'addRecord',
+        section: 'phases',
+        title: 'Đăng nhập Passkey',
+        fields: [
+          { label: 'Goal', value: 'User đăng nhập bằng Passkey trên thiết bị.' },
+          { label: 'Deliverables', items: ['Màn hình đăng nhập Passkey'] },
+        ],
+      },
+    ], { actor: USER });
+    const loginDir = path.join(root, 'App', 'Features', 'Login');
+    fs.mkdirSync(loginDir, { recursive: true });
+    fs.writeFileSync(path.join(loginDir, 'LoginView.swift'), 'struct LoginView {}');
+
+    const index = service.require();
+    const ctx = service.readBlueprint(index);
+    const work = classifyPhaseWork({ workspaceRoot: root, ctx, index, checkFoundation: false });
+    expect(work.find((w) => w.phaseId === 'PH-01')?.alreadyBuilt).toBe(true);
+  });
+
+  it('treats a test-coverage phase as built when product tests already exist', () => {
+    const { root, service } = setupBlueprint();
+    service.applyOps(DOC_IMPLEMENTATION_PLAN, [
+      {
+        op: 'addRecord',
+        section: 'phases',
+        title: 'Bù độ phủ test',
+        fields: [
+          { label: 'Goal', value: 'Bổ sung unit test cho các feature đã có.' },
+          { label: 'Deliverables', items: ['Tăng coverage'] },
+          { label: 'Definition of done', items: ['Test target build được'] },
+        ],
+      },
+    ], { actor: USER });
+    const testsDir = path.join(root, 'App', 'OtenPassTests');
+    fs.mkdirSync(testsDir, { recursive: true });
+    fs.writeFileSync(path.join(testsDir, 'LoginViewTests.swift'), 'final class LoginViewTests {}');
+
+    const index = service.require();
+    const ctx = service.readBlueprint(index);
+    const work = classifyPhaseWork({ workspaceRoot: root, ctx, index, checkFoundation: false });
+    const phase = work.find((w) => w.phaseId === 'PH-01');
+    expect(phase?.alreadyBuilt).toBe(true);
+    expect(phase?.matchedFiles).toEqual(['App/OtenPassTests']);
+  });
+
+  it('keeps a test-coverage phase pending when the tree has source but no tests', () => {
+    const { root, service } = setupBlueprint();
+    service.applyOps(DOC_IMPLEMENTATION_PLAN, [
+      {
+        op: 'addRecord',
+        section: 'phases',
+        title: 'Bù độ phủ test',
+        fields: [
+          { label: 'Goal', value: 'Bổ sung unit test cho các feature đã có.' },
+          { label: 'Deliverables', items: ['Tăng coverage'] },
+        ],
+      },
+    ], { actor: USER });
+    const appDir = path.join(root, 'App', 'Features', 'Login');
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(path.join(appDir, 'LoginView.swift'), 'struct LoginView {}');
+
+    const index = service.require();
+    const ctx = service.readBlueprint(index);
+    const work = classifyPhaseWork({ workspaceRoot: root, ctx, index, checkFoundation: false });
+    expect(work.find((w) => w.phaseId === 'PH-01')?.alreadyBuilt).toBe(false);
   });
 });
 

@@ -915,6 +915,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
            style-src ${cspSource} 'unsafe-inline';
            script-src 'nonce-${nonce}' ${cspSource};">
 <title>AIDLC Workspace</title>
+<style>html,body{background:var(--vscode-editor-background,#1e1e1e);color:var(--vscode-foreground,#ccc);}</style>
 <link rel="stylesheet" href="${cssUri}">
 </head>
 <body>

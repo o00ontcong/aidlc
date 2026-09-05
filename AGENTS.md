@@ -27,3 +27,20 @@ Keep using grep/read/edit for:
 If the graph looks stale, ask the user to run `AIDLC: Rescan AST Graph`. The
 extension also rescans automatically a few seconds after any source file save.
 <!-- aidlc:ast-graph:end -->
+
+## Webview rebuild before done
+
+Applies when editing `packages/extension/src/webview/**/*.{tsx,ts,css}`.
+
+F5 alone does **not** guarantee a fresh UI. The Extension Host loads
+`packages/extension/out/webviews/*.js`. Editing TSX/CSS without rebuilding
+leaves a stale bundle — users will still see the old UI after F5.
+
+After any webview UI change:
+
+1. Run `pnpm --filter aidlc-o00ontcong bundle:webviews` (or `compile`).
+2. Confirm `packages/extension/out/webviews/workspace.js` (or the relevant
+   entry) is **newer** than the edited source before reporting done.
+3. Do **not** tell the user to only F5 after source edits with no rebuild.
+
+Optional while iterating: `cd packages/extension && pnpm watch`.

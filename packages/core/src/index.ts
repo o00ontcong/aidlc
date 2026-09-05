@@ -17,6 +17,7 @@ export * from './capabilities';
 export * from './project';
 export * from './shape';
 export * from './discover';
+export * from './work';
 export * from './workflows';
 export * from './application';
 export * from './migration';
@@ -66,11 +67,19 @@ export {
   type DiscoverHandoff,
   type DiscoverScope,
   type DiscoverSourceRepo,
+  type DiscoverSourceRevision,
+  type DiscoverSourceSnapshot,
+  type WorkItem,
+  type WorkItemRequirement,
+  type WorkItemContextRef,
+  type WorkItemStatus,
+  type WorkItemPriority,
   type CofofoRecipeId,
   COFOFO_RECIPE_IDS,
   DISCOVER_HANDOFF_RECIPE_IDS,
   parseDiscoverIndex,
   parseDiscoverScope,
+  parseWorkItem,
 } from './contracts';
 
 export {

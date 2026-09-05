@@ -3,8 +3,8 @@
  * needs — a diff and a checks list.
  */
 
-import { useEffect, useState } from 'react';
-import { AlertTriangle, ExternalLink, FolderTree, GitCommit, PanelRight, Play, RefreshCw, Rocket, ScanSearch, Upload } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, ExternalLink, PanelRight, Play, RefreshCw, Rocket, ScanSearch, Upload } from 'lucide-react';
 import type { DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
@@ -14,12 +14,13 @@ import { DocsMode } from './DocsMode';
 import { MarkdownLite } from './MarkdownLite';
 import { RawMarkdownPane } from './RawMarkdownPane';
 import { HandoffPanel } from './HandoffPanel';
+import { WorkItemsPanel } from './WorkItemsPanel';
 import { StepStatusView, stepHasStatusView } from './StepStatusView';
 import { DISCOVER_RAIL_DEFAULT_WIDTH, DISCOVER_RAIL_MAX_WIDTH, DISCOVER_RAIL_MIN_WIDTH, StepRail } from './StepRail';
 import { docsForStep } from './lib';
 import { cn } from '@/lib/utils';
 
-type Mode = 'pipeline' | 'docs' | 'checks';
+type Mode = 'pipeline' | 'docs' | 'checks' | 'work';
 type StepPane = 'raw' | 'preview';
 
 function clampRailWidth(value: number): number {
@@ -53,7 +54,7 @@ function ScanPassStepper({
   const passes: Array<1 | 2 | 3> = [1, 2, 3];
   const busy = Boolean(discover.activeRun);
   return (
-    <span className="flex items-center gap-0.5">
+    <span className="flex flex-wrap items-center gap-0.5">
       {passes.map((pass, i) => {
         const state = scanChipState(pass, campaign.lastKeptPass, active?.scanPass, active?.status === 'review' || active?.status === 'running' ? active.status : undefined);
         const label = copy.scanPassShort(pass);
@@ -118,8 +119,15 @@ export function DiscoverWorkspace({
     postMessage({ type: 'persistDiscoverUi', discoverView: { agentPanelOpen: open } });
   };
 
-  // Follow real workflow moves; selecting a step in the rail is navigation only.
-  useEffect(() => { setViewing(discover.currentStep); }, [discover.currentStep]);
+  // Follow workflow moves only (agent Keep / advance). Rail clicks are local
+  // navigation — writing currentStep on every click bumped revision + refreshed
+  // the whole workspace and yanked the view around.
+  const syncedCurrentStep = useRef(discover.currentStep);
+  useEffect(() => {
+    if (discover.currentStep === syncedCurrentStep.current) { return; }
+    syncedCurrentStep.current = discover.currentStep;
+    setViewing(discover.currentStep);
+  }, [discover.currentStep]);
 
   const step = discover.steps.find((s) => s.id === viewing) ?? discover.steps[0]!;
   const active = discover.activeRun;
@@ -139,22 +147,22 @@ export function DiscoverWorkspace({
         <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{discover.docsRoot}/</code>
 
         <div className="flex overflow-hidden rounded-md border border-border">
-          {(['pipeline', 'docs'] as const).map((m) => (
+          {(['pipeline', 'docs', 'work'] as const).map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => setMode(m)}
-              title={m === 'pipeline' ? copy.hints.showPipeline : copy.hints.showDocs}
+              title={m === 'pipeline' ? copy.hints.showPipeline : m === 'docs' ? copy.hints.showDocs : 'Công việc dự án'}
               className={`px-2.5 py-1 text-[11px] transition ${
                 mode === m ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
             >
-              {m === 'pipeline' ? copy.modePipeline : copy.modeDocs}
+              {m === 'pipeline' ? copy.modePipeline : m === 'docs' ? copy.modeDocs : 'Công việc'}
             </button>
           ))}
         </div>
 
-        <span className="ml-auto flex items-center gap-1.5">
+        <span className="ml-auto flex items-start gap-1.5">
           <span title={discover.context.nextAction} className={`rounded border px-1.5 py-0.5 font-mono text-[9.5px] font-semibold ${contextTone}`}>
             Context · {discover.context.status}{discover.context.discoverRevision ? ` · ${discover.context.discoverRevision}` : ''}
           </span>
@@ -177,7 +185,12 @@ export function DiscoverWorkspace({
                 : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
-            <GitCommit className="h-3 w-3" />{copy.commitAll}
+            {copy.commitAll}
+            {discover.hasUncommittedChanges && (
+              <span className="rounded bg-primary-foreground/20 px-1 text-[10px] font-semibold">
+                {discover.uncommittedChangeCount ?? 0}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -209,23 +222,17 @@ export function DiscoverWorkspace({
           >
             <ExternalLink className="h-3 w-3" />{copy.openInEditor}
           </button>
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'declareDiscoverScope' })}
-            title={copy.hints.repoLayout}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <FolderTree className="h-3 w-3" />{copy.repoLayout(discover.scope)}
-          </button>
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'scanDiscoverProject' })}
-            title={copy.hints.scanProject}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <ScanSearch className="h-3 w-3" />{copy.scanProject}
-          </button>
-          <ScanPassStepper discover={discover} copy={copy} />
+          <div className="inline-flex flex-col items-start gap-1">
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'scanDiscoverProject' })}
+              title={copy.hints.scanProject}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ScanSearch className="h-3 w-3" />{copy.scanProject}
+            </button>
+            <ScanPassStepper discover={discover} copy={copy} />
+          </div>
           <button
             type="button"
             onClick={() => persistAgentPanel(!agentPanelOpen)}
@@ -256,7 +263,14 @@ export function DiscoverWorkspace({
             {active.run.kind === 'edit' ? copy.editBanner(active.run.id, active.run.mode) : copy.runBanner(active.run.id, active.run.mode)}
           </span>
           {active.run.kind === 'scan' && (
-            <span className="rounded bg-warning/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{copy.scanPassBadge(active.run.scanPass)}</span>
+            <>
+              <span className="rounded bg-warning/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{copy.scanPassBadge(active.run.scanPass)}</span>
+              {active.run.sourceSnapshot?.repos.map((repo) => (
+                <span key={repo.path} title={`Scan base: ${repo.path} · ${repo.ref} · ${repo.head || 'uncommitted'}`} className="font-mono text-[10px] text-warning/90">
+                  {repo.path}@{repo.head ? repo.head.slice(0, 8) : 'uncommitted'}
+                </span>
+              ))}
+            </>
           )}
           <span>
             +{active.added.length} ~{active.updated.length} −{active.removed.length}
@@ -272,6 +286,7 @@ export function DiscoverWorkspace({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {mode === 'checks' && <ChecksView discover={discover} copy={copy} onBack={() => setMode('pipeline')} />}
         {mode === 'docs' && <DocsMode discover={discover} copy={copy} />}
+        {mode === 'work' && <WorkItemsPanel discover={discover} />}
         {mode === 'pipeline' && (
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <StepRail
@@ -286,9 +301,6 @@ export function DiscoverWorkspace({
               }}
               onSelect={(id) => {
                 setViewing(id);
-                if (id !== discover.currentStep) {
-                  postMessage({ type: 'setDiscoverStep', step: id });
-                }
               }}
             />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

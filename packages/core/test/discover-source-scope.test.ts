@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,6 +12,8 @@ import {
   probeRepoLayout,
   singleRepoScope,
   sourceExcludes,
+  snapshotSourceRevisions,
+  sourceRevisionDrift,
   sourceRoots,
   listProductSourceFiles,
   walkProductSourceFiles,
@@ -34,6 +37,14 @@ function write(root: string, relative: string, body = ''): void {
   const file = path.join(root, relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, body);
+}
+
+function initGit(root: string): void {
+  execFileSync('git', ['init', '--quiet'], { cwd: root });
+  execFileSync('git', ['config', 'user.email', 'test@aidlc.dev'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'AIDLC Test'], { cwd: root });
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '--quiet', '-m', 'initial'], { cwd: root });
 }
 
 /** A folder that looks like its own git repo, without shelling out to git. */
@@ -225,6 +236,37 @@ describe('checkSourceRepoWrites', () => {
   it('stays quiet when git could not be asked, or a repo vanished mid-run', () => {
     expect(checkSourceRepoWrites({ app: '' }, { app: '' })).toEqual([]);
     expect(checkSourceRepoWrites({ app: 'head-a\n' }, {})).toEqual([]);
+  });
+});
+
+describe('source revision snapshots', () => {
+  it('treats a moved checkout as stale input, not as an agent-owned write', () => {
+    const before = {
+      capturedAt: '2026-09-05T00:00:00.000Z',
+      repos: [{ path: '.', head: 'abc123', ref: 'main', worktree: '' }],
+    };
+    const after = {
+      capturedAt: '2026-09-05T00:01:00.000Z',
+      repos: [{ path: '.', head: 'def456', ref: 'main', worktree: '' }],
+    };
+    const issues = sourceRevisionDrift(before, after);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ code: 'source-revision-changed', file: '.' });
+  });
+
+  it('permits blueprint docs changes but makes source working-tree changes stale', () => {
+    const root = newRoot();
+    write(root, 'package.json', '{"name":"thing"}\n');
+    initGit(root);
+    const scope = singleRepoScope(root, '2026-09-05T00:00:00.000Z');
+    const before = snapshotSourceRevisions(root, scope, { docsRoot: 'docs', capturedAt: '2026-09-05T00:00:00.000Z' });
+
+    write(root, 'docs/product/IDEA.md', '# Idea\n');
+    expect(sourceRevisionDrift(before, snapshotSourceRevisions(root, scope, { docsRoot: 'docs' }))).toEqual([]);
+
+    write(root, 'src/index.ts', 'export const changed = true;\n');
+    expect(sourceRevisionDrift(before, snapshotSourceRevisions(root, scope, { docsRoot: 'docs' }))[0])
+      .toMatchObject({ code: 'source-worktree-changed', file: '.' });
   });
 });
 

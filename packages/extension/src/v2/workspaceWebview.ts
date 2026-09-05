@@ -186,6 +186,8 @@ import {
   DiscoverService,
   DiscoverContextPublisher,
   DiscoverRevisionConflictError,
+  ProjectWorkService,
+  snapshotSourceRevisions,
   DISCOVER_COMMAND_NAME,
   DISCOVER_PIPELINE_COMMAND_NAME,
   DISCOVER_DEV_DOCS_COMMAND_NAME,
@@ -318,6 +320,33 @@ function runSlashCommandInProvider(slash: string, root: string, extensionPath: s
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function normalizedTerms(value: string): Set<string> {
+  return new Set(value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .split(/[^a-z0-9]+/).filter((term) => term.length >= 4));
+}
+
+/** Deterministic first pass: propose only existing context IDs with lexical evidence. */
+function proposeWorkItemContextIds(service: DiscoverService, title: string, outcome: string): string[] {
+  const wanted = normalizedTerms(`${title} ${outcome}`);
+  if (wanted.size === 0) { return []; }
+  const matches: Array<{ id: string; score: number }> = [];
+  for (const doc of service.readBlueprint().docs.values()) {
+    for (const section of doc.sections) {
+      for (const item of section.items) {
+        const haystack = normalizedTerms(`${item.id} ${item.text} ${item.description ?? ''}`);
+        const score = [...wanted].filter((term) => haystack.has(term)).length;
+        if (score > 0) { matches.push({ id: item.id, score }); }
+      }
+      for (const record of section.records) {
+        const haystack = normalizedTerms(`${record.id} ${record.title} ${record.fields.map((field) => `${field.label} ${field.value} ${field.items.join(' ')}`).join(' ')}`);
+        const score = [...wanted].filter((term) => haystack.has(term)).length;
+        if (score > 0) { matches.push({ id: record.id, score }); }
+      }
+    }
+  }
+  return matches.sort((left, right) => right.score - left.score || left.id.localeCompare(right.id)).slice(0, 12).map((match) => match.id);
 }
 
 /**
@@ -1724,14 +1753,16 @@ export class WorkspaceWebview {
   private lastBundleMtime = 0;
   /** Debounce for the Discover docs watcher — an agent saves several times per step. */
   private discoverAbsorbTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When HTML (with embedded initial state) was last written — used to skip redundant ready/refresh paints. */
+  private lastHtmlLoadAt = 0;
   static show(extensionUri: vscode.Uri, initialView: WorkspaceView = 'project'): void {
     const column = vscode.ViewColumn.One;
     const title = extensionDisplayName(extensionUri.fsPath);
     if (WorkspaceWebview.current) {
       WorkspaceWebview.current.panel.title = title;
-      // Always remount: F5 / window reload can restore a panel whose HTML
-      // still points at deleted webview URIs even when the bundle mtime matches.
-      WorkspaceWebview.current.remountHtml();
+      // Prefer mtime check over always remounting — a full HTML swap flashes the
+      // shell. F5 restore goes through revive(), which remounts when needed.
+      WorkspaceWebview.current.reloadHtmlIfNeeded();
       WorkspaceWebview.current.panel.reveal(column);
       WorkspaceWebview.current.setView(initialView);
       WorkspaceWebview.current.refresh();
@@ -1801,8 +1832,10 @@ export class WorkspaceWebview {
   static scheduleAutoOpen(extensionUri: vscode.Uri, fallbackView: WorkspaceView): void {
     setTimeout(() => {
       if (WorkspaceWebview.current) {
-        WorkspaceWebview.current.remountHtml();
-        WorkspaceWebview.current.refresh();
+        // revive()/show() already loaded HTML with embedded state. Only remount
+        // when the bundle changed; skip an immediate refresh — it double-paints
+        // the shell ~400ms after first open (visible flicker).
+        WorkspaceWebview.current.reloadHtmlIfNeeded();
         return;
       }
       const last = workspaceUiPrefs.get().lastView ?? fallbackView;
@@ -1981,7 +2014,8 @@ export class WorkspaceWebview {
       this.disposables.push(breakdownWatcher);
     }
 
-    this.refresh();
+    // Do not refresh() here — getHtml() already embeds __AIDLC_INITIAL_STATE__.
+    // A post-construct refresh races the first React paint and flashes the UI.
   }
 
   refresh(): void {
@@ -2024,6 +2058,7 @@ export class WorkspaceWebview {
     this.panel.title = extensionDisplayName(this.extensionUri.fsPath);
     this.panel.webview.html = this.getHtml();
     this.lastBundleMtime = this.bundleMtime();
+    this.lastHtmlLoadAt = Date.now();
   }
 
   /** Build the curated, script-free state consumed by the React webview. */
@@ -2239,6 +2274,11 @@ export class WorkspaceWebview {
   private async handleMessage(msg: { type: string; [k: string]: unknown }): Promise<void> {
     switch (msg.type) {
       case 'ready':
+        // HTML already shipped a full state snapshot. React posts `ready` on
+        // mount (twice under StrictMode); re-pushing immediately redraws the
+        // whole shell. Only refresh when this is a stale panel that missed
+        // the embedded state (e.g. ready long after loadHtml).
+        if (Date.now() - this.lastHtmlLoadAt < 2000) { return; }
         this.refresh();
         return;
 
@@ -2335,7 +2375,7 @@ export class WorkspaceWebview {
       // ── Discover blueprint ───────────────────────────────────────────────
       // Content lives in Markdown under docsRoot and is authoritative; these
       // handlers only ever go through DiscoverService, never write a doc by
-      // hand. See docs/DISCOVER_TAB_PLAN.md.
+      // hand.
       case 'initDiscover': {
         const root = this.getRootOrWarn();
         if (!root) { return; }
@@ -2348,6 +2388,74 @@ export class WorkspaceWebview {
             actor: { kind: 'user', id: 'vscode-user' },
           });
         });
+        return;
+      }
+
+      case 'createProjectWorkItem': {
+        const root = this.getRootOrWarn();
+        const title = typeof msg.title === 'string' ? msg.title.trim() : '';
+        const outcome = typeof msg.outcome === 'string' ? msg.outcome.trim() : '';
+        const type = msg.workType;
+        const priority = msg.priority;
+        const acceptanceCriteria = Array.isArray(msg.acceptanceCriteria)
+          ? msg.acceptanceCriteria.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).map((value) => value.trim())
+          : [];
+        if (!root || !title || !outcome || !['feature', 'bug', 'refactor', 'spike', 'maintenance'].includes(String(type))) { return; }
+        const discover = new DiscoverService(root);
+        const index = discover.load();
+        const work = new ProjectWorkService(root);
+        const stem = title.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 56) || 'REQUEST';
+        let id = `WORK-${stem}`;
+        let sequence = 2;
+        while (work.load(id)) { id = `WORK-${stem}-${sequence++}`; }
+        const source = index
+          ? snapshotSourceRevisions(root, discover.effectiveScope(index), { docsRoot: index.docsRoot }).repos.map(({ path: repoPath, head, ref }) => ({ path: repoPath, head, ref }))
+          : [];
+        work.create({
+          id,
+          title,
+          type: type as 'feature' | 'bug' | 'refactor' | 'spike' | 'maintenance',
+          priority: ['critical', 'high', 'normal', 'low'].includes(String(priority)) ? priority as 'critical' | 'high' | 'normal' | 'low' : 'normal',
+          requirement: { outcome, acceptanceCriteria, inScope: [], outOfScope: [], links: [] },
+          context: { discoverRevision: index?.revision, source, capturedAt: new Date().toISOString() },
+        });
+        this.refresh();
+        return;
+      }
+
+      case 'analyzeProjectWorkItemImpact': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.id === 'string' ? msg.id : '';
+        const revision = Number(msg.revision);
+        if (!root || !id || !Number.isInteger(revision)) { return; }
+        try {
+          const discover = new DiscoverService(root);
+          if (!discover.exists()) { throw new Error('Cần có Project Context trước khi phân tích impact.'); }
+          const work = new ProjectWorkService(root);
+          const item = work.require(id);
+          const contextIds = proposeWorkItemContextIds(discover, item.title, item.requirement.outcome);
+          work.proposeImpact(id, {
+            contextIds,
+            risks: item.type === 'bug' ? ['regression'] : item.type === 'maintenance' ? ['operational-change'] : [],
+          }, revision);
+          this.refresh();
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        return;
+      }
+
+      case 'confirmProjectWorkItemImpact': {
+        const root = this.getRootOrWarn();
+        const id = typeof msg.id === 'string' ? msg.id : '';
+        const revision = Number(msg.revision);
+        if (!root || !id || !Number.isInteger(revision)) { return; }
+        try {
+          new ProjectWorkService(root).confirmImpact(id, revision);
+          this.refresh();
+        } catch (error) {
+          void vscode.window.showWarningMessage(`AIDLC: ${error instanceof Error ? error.message : String(error)}`);
+        }
         return;
       }
 
@@ -6165,13 +6273,21 @@ export class WorkspaceWebview {
            script-src 'nonce-${nonce}' ${cspSource};
            frame-src ${cspSource};">
 <title>${title}</title>
+<style>html,body{background:var(--vscode-editor-background,#1e1e1e);color:var(--vscode-foreground,#ccc);}</style>
 <link rel="stylesheet" href="${cssUri}">
 </head>
 <body>
-<div id="app"><p style="margin:24px;font:13px/1.5 var(--vscode-font-family);color:var(--vscode-descriptionForeground)">Loading AIDLC Workspace…</p></div>
+<div id="app"></div>
 <script nonce="${nonce}">
 window.__AIDLC_INITIAL_STATE__ = ${embedJsonForScript(initialState)};
 window.__AIDLC_INITIAL_THEME__ = ${embedJsonForScript(initialTheme)};
+(function () {
+  var mode = window.__AIDLC_INITIAL_THEME__ || 'auto';
+  var dark = mode === 'dark'
+    || (mode !== 'light' && /vscode-dark|vscode-high-contrast/.test(document.body.className || ''));
+  if (dark) { document.documentElement.classList.add('dark'); }
+  else { document.documentElement.classList.remove('dark'); }
+})();
 </script>
 <script type="module" nonce="${nonce}" src="${entryUri}"></script>
 </body>
