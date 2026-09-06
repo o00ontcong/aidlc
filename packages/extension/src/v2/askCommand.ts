@@ -44,9 +44,9 @@ const QUICK_ANSWERS: QuickAnswer[] = [
     answer: [
       '**AIDLC Workspace** separates shared project memory from focused task work.',
       '1. Open **Workspace → Project**.',
-      '2. Choose **Create missing files** to scaffold `AGENTS.md`, `PROJECT.md`, `STATUS.md`, and `DECISIONS.md`. Existing files are preserved.',
+      '2. Choose **Create missing files** to scaffold `AGENTS.md`. Existing files are preserved.',
       '3. Open **Tasks → New Task** for each distinct outcome. Every task keeps its own pipeline state, artifacts, diff, and verification history.',
-      '4. Before work, the agent reads the shared files and summarizes what is already complete. Before handoff, it updates `STATUS.md` and records durable decisions.',
+      '4. Before work, the agent reads `AGENTS.md` and summarizes what is already complete. Before handoff, it reports completed work and remaining risks.',
       '',
       'Use one local checkout for dependent tasks so they see completed file changes immediately. Use separate worktrees only for independent parallel tasks; integrate them before validating the combined application.',
     ].join('\n'),

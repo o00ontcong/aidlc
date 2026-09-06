@@ -218,6 +218,7 @@ import {
   ProjectContextRepository,
   ContextProposalService,
   epicIdFromChangeId,
+  isEpicId,
   generateExternalRefId,
   GitHeadSourceReader,
   FilesystemSourceReader,
@@ -241,13 +242,14 @@ import {
   scaffoldEpicFromSuggestion,
   type DiscoverUi,
 } from './discoverHost';
+import { suggestNextEpicId, formatSequencedEpicId } from './suggestNextEpicId';
 import { jiraCredentials, verifyAndStoreJiraCredentials } from './jiraCredentials';
 import { jiraSprintService } from './jiraSprintService';
 import { jiraSubtaskService } from './jiraSubtaskService';
 import { issueBrowseUrl } from './jiraSubtaskLogic';
 import { productTourService } from './productTour/ProductTourService';
-import { productTourDemoService } from './productTour/ProductTourDemoService';
 import type { ProductTourRuntimeSnapshot, ProductTourUiState } from '../shared/productTour';
+import { PRODUCT_TOUR_GOAL_IDS } from '../shared/productTour';
 import { buildTicketBrief, type EpicLinkSource, type SprintState } from './jiraSprintLogic';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
@@ -756,20 +758,30 @@ interface WorkspaceState {
   sprint?: SprintState;
 }
 
-function productTourState(
+let lastProductTourSnapshot: ProductTourRuntimeSnapshot = {
+  changes: [],
+  scans: [],
+  proposals: [],
+  discoverContextStatus: 'not-required',
+};
+
+function buildProductTourSnapshot(
   changes: readonly ProjectChangeReadModel[],
   contextProposals: readonly ContextProposal[],
   discover?: DiscoverUi,
-): ProductTourUiState {
+): ProductTourRuntimeSnapshot {
   const scanRuns = [
     ...(discover?.runs ?? []),
     ...(discover?.activeRun?.run ? [discover.activeRun.run] : []),
   ];
-  const snapshot: ProductTourRuntimeSnapshot = {
+  lastProductTourSnapshot = {
     changes: changes.map((readModel) => ({
       id: readModel.change.id,
-      epicId: readModel.change.epicLink?.state === 'linked' ? readModel.change.epicLink.epicId : undefined,
+      epicId: readModel.change.epicLink?.state === 'linked' || readModel.change.epicLink?.state === 'pending'
+        ? readModel.change.epicLink.epicId
+        : undefined,
       epicLinked: readModel.change.epicLink?.state === 'linked',
+      epicLinkPending: readModel.change.epicLink?.state === 'pending',
       derivedState: readModel.derived.state,
       contextSyncStatus: readModel.change.contextSync.status,
     })),
@@ -781,9 +793,19 @@ function productTourState(
         status: run.status,
       })),
     proposals: contextProposals.map((proposal) => ({ id: proposal.id, status: proposal.status })),
+    discoverContextStatus: discover?.context?.status ?? 'not-required',
   };
-  return productTourService.state(snapshot);
+  return lastProductTourSnapshot;
 }
+
+function productTourState(
+  changes: readonly ProjectChangeReadModel[],
+  contextProposals: readonly ContextProposal[],
+  discover?: DiscoverUi,
+): ProductTourUiState {
+  return productTourService.state(buildProductTourSnapshot(changes, contextProposals, discover));
+}
+
 
 const SKILL_TEMPLATE_REFS: SkillTemplateRef[] = SKILL_TEMPLATES.map((t) => ({
   id: t.id,
@@ -902,7 +924,7 @@ function buildState(initialView: WorkspaceView): WorkspaceState {
       agentsCount: 0, skillsCount: 0, pipelinesCount: 0, epicsCount: 0,
       runIds: [],
       skillTemplates: SKILL_TEMPLATE_REFS,
-      nextEpicId: 'EPIC-001',
+      nextEpicId: '1',
       existingEpicIds: [],
       requirementRuns: [],
       initialView: 'project',
@@ -1228,15 +1250,6 @@ function listEpicIdsFromDir(workspaceRoot: string, epicRoot: string): string[] {
   } catch {
     return [];
   }
-}
-
-function suggestNextEpicId(existing: string[]): string {
-  const numbered = existing
-    .map((n) => n.match(/^EPIC-(\d+)$/i))
-    .filter((m): m is RegExpMatchArray => !!m)
-    .map((m) => parseInt(m[1], 10));
-  const next = numbered.length > 0 ? Math.max(...numbered) + 1 : 1;
-  return `EPIC-${String(next).padStart(3, '0')}`;
 }
 
 /**
@@ -1892,12 +1905,37 @@ function formatEpicMemoryMarkdown(mem: Record<string, unknown>, epicId: string):
   return lines.join('\n') + '\n';
 }
 
+/** Messages that must not flash global busy chrome (prefs / navigation only). */
+function isSilentWebviewMessage(type: string): boolean {
+  switch (type) {
+    case 'ready':
+    case 'setView':
+    case 'persistDiscoverUi':
+    case 'persistEpicsUi':
+    case 'productTourNavigate':
+    case 'productTourOpenMenu':
+    case 'productTourOpenWalkthrough':
+    case 'pickFolder':
+    case 'pickFile':
+    case 'pickAndReadFile':
+    case 'pickBugImages':
+    case 'savePastedBugImage':
+      return true;
+    default:
+      return false;
+  }
+}
+
 export class WorkspaceWebview {
   static readonly viewType = 'aidlc.workspace';
   static current: WorkspaceWebview | undefined;
   private disposables: vscode.Disposable[] = [];
   private currentView: WorkspaceView;
   private lastBundleMtime = 0;
+  /** Nested host work / refresh in flight — drives webview `{ type: 'hostBusy' }`. */
+  private hostBusyCount = 0;
+  /** Serialized refresh chain so callers can await the latest rebuild. */
+  private refreshTail: Promise<void> = Promise.resolve();
   /** Debounce for the Discover docs watcher — an agent saves several times per step. */
   private discoverAbsorbTimer: ReturnType<typeof setTimeout> | undefined;
   /** When HTML (with embedded initial state) was last written — used to skip redundant ready/refresh paints. */
@@ -2062,12 +2100,23 @@ export class WorkspaceWebview {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.panel.webview.onDidReceiveMessage(
       (msg) => {
-        void this.handleMessage(msg).catch((error: unknown) => {
-          const detail = error instanceof Error ? error.message : String(error);
-          workspaceOutput.appendLine(`[webview:${String(msg?.type ?? 'unknown')}] ${detail}`);
-          workspaceOutput.show(true);
-          void vscode.window.showErrorMessage(`AIDLC action failed: ${detail}`);
-        });
+        void (async () => {
+          const silent = isSilentWebviewMessage(String(msg?.type ?? ''));
+          if (!silent) { this.beginHostBusy(); }
+          try {
+            await this.handleMessage(msg);
+            // Handlers often call refresh() without awaiting — hold busy until
+            // the rebuild that advances Product Tour evidence actually lands.
+            await this.refreshTail;
+          } catch (error: unknown) {
+            const detail = error instanceof Error ? error.message : String(error);
+            workspaceOutput.appendLine(`[webview:${String(msg?.type ?? 'unknown')}] ${detail}`);
+            workspaceOutput.show(true);
+            void vscode.window.showErrorMessage(`AIDLC action failed: ${detail}`);
+          } finally {
+            if (!silent) { this.endHostBusy(); }
+          }
+        })();
       },
       null,
       this.disposables,
@@ -2090,7 +2139,7 @@ export class WorkspaceWebview {
 
       const projectDocsPattern = new vscode.RelativePattern(
         vscode.Uri.file(root),
-        '{AGENTS.md,PROJECT.md,STATUS.md,DECISIONS.md}',
+        'AGENTS.md',
       );
       const projectDocsWatcher = vscode.workspace.createFileSystemWatcher(projectDocsPattern);
       projectDocsWatcher.onDidChange(refresh, null, this.disposables);
@@ -2172,10 +2221,27 @@ export class WorkspaceWebview {
   }
 
   refresh(): void {
-    void this.refreshAsync();
+    this.refreshTail = this.refreshTail
+      .catch(() => undefined)
+      .then(() => this.refreshAsync());
+  }
+
+  private beginHostBusy(): void {
+    this.hostBusyCount += 1;
+    if (this.hostBusyCount === 1) {
+      void this.panel.webview.postMessage({ type: 'hostBusy', busy: true });
+    }
+  }
+
+  private endHostBusy(): void {
+    this.hostBusyCount = Math.max(0, this.hostBusyCount - 1);
+    if (this.hostBusyCount === 0) {
+      void this.panel.webview.postMessage({ type: 'hostBusy', busy: false });
+    }
   }
 
   private async refreshAsync(): Promise<void> {
+    this.beginHostBusy();
     try {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (root) { this.ensureWorkflowTemplates(root); }
@@ -2185,6 +2251,8 @@ export class WorkspaceWebview {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       workspaceOutput.appendLine(`[workspace refresh] ${detail}`);
+    } finally {
+      this.endHostBusy();
     }
   }
 
@@ -2503,10 +2571,19 @@ export class WorkspaceWebview {
 
       // Product Tour commands only change personal VS Code memento state.
       // They never mutate a Change, Context or source tree.
+      case 'productTourStartGoal': {
+        const goalId = String(msg.goalId ?? '');
+        if ((PRODUCT_TOUR_GOAL_IDS as readonly string[]).includes(goalId)) {
+          void buildState(this.currentView);
+          productTourService.startGoal(goalId as typeof PRODUCT_TOUR_GOAL_IDS[number], lastProductTourSnapshot);
+          this.refresh();
+        }
+        return;
+      }
       case 'productTourStart': {
         const tourId = String(msg.tourId ?? '');
         if (tourId === 'lifecycle-basics' || tourId === 'safe-scan' || tourId === 'rejection-recovery') {
-          productTourService.start(tourId);
+          productTourService.startFixed(tourId);
           this.refresh();
         }
         return;
@@ -2520,7 +2597,8 @@ export class WorkspaceWebview {
         this.refresh();
         return;
       case 'productTourRestart':
-        productTourService.restart();
+        void buildState(this.currentView);
+        productTourService.restart(lastProductTourSnapshot);
         this.refresh();
         return;
       case 'productTourExit':
@@ -2547,16 +2625,8 @@ export class WorkspaceWebview {
       case 'productTourOpenWalkthrough':
         await vscode.commands.executeCommand('aidlc.openGettingStarted');
         return;
-      case 'productTourOpenDemo': {
-        const tourId = String(msg.tourId ?? 'lifecycle-basics');
-        if (tourId === 'lifecycle-basics' || tourId === 'safe-scan' || tourId === 'rejection-recovery') {
-          await productTourDemoService.open(tourId);
-        }
-        return;
-      }
-      case 'productTourDismissCard':
-        productTourService.dismissCard();
-        this.refresh();
+      case 'productTourOpenMenu':
+        void this.panel.webview.postMessage({ type: 'openProductTourMenu' });
         return;
 
       case 'setView': {
@@ -2664,22 +2734,20 @@ export class WorkspaceWebview {
       case 'publishDiscoverContext': {
         const root = this.getRootOrWarn();
         if (!root) { return; }
-        const reason = await vscode.window.showInputBox({
-          title: 'Publish Discover Context',
-          prompt: 'Lý do Publish (được lưu trong immutable history)',
-          placeHolder: 'Ví dụ: Xác nhận requirement và feature cho handoff đầu tiên',
-          ignoreFocusOut: true,
-          validateInput: (value) => value.trim() ? undefined : 'Cần một lý do thay đổi.',
-        });
-        if (!reason?.trim()) { return; }
+        const title = typeof msg.title === 'string' ? msg.title.trim()
+          : typeof msg.reason === 'string' ? msg.reason.trim() : '';
+        const description = typeof msg.description === 'string' ? msg.description.trim() : '';
+        if (!title) { return; }
         try {
           const context = new DiscoverContextPublisher(root).publish({
             actor: { kind: 'user', id: 'vscode-user' },
-            reason,
+            title,
+            ...(description ? { description } : {}),
             source: { command: 'Discover: Publish context' },
           });
           this.refresh();
-          void vscode.window.showInformationMessage(`AIDLC Discover Context: ${context.discoverRevision} đã sẵn sàng.`);
+          const label = context.title?.trim() || context.discoverRevision;
+          void vscode.window.showInformationMessage(`AIDLC Discover Context: ${label} đã sẵn sàng.`);
         } catch (error) {
           const issues = error instanceof Error && 'issues' in error && Array.isArray((error as { issues?: unknown }).issues)
             ? (error as { issues: Array<{ message?: unknown }> }).issues.map((issue) => typeof issue.message === 'string' ? issue.message : '').filter(Boolean)
@@ -2732,13 +2800,6 @@ export class WorkspaceWebview {
         return;
       }
 
-      case 'requestNewChange': {
-        // WorkItemsPanel's "New change" — there is exactly one Change Composer
-        // (plan §12.1), owned by WorkspaceShell; this just asks it to open.
-        void this.panel.webview.postMessage({ type: 'openStartEpicModal', prefill: undefined });
-        return;
-      }
-
       case 'startEpicForChange': {
         const root = this.getRootOrWarn();
         if (!root) { return; }
@@ -2756,7 +2817,7 @@ export class WorkspaceWebview {
           return;
         }
         if (change.epicLink?.state === 'pending') {
-          void vscode.window.showWarningMessage(`AIDLC: ${change.id} đang có Epic khởi tạo dở. Hãy Resume hoặc Roll back pending link trước.`);
+          await this.resumeOrSurfacePendingEpic(root, change);
           return;
         }
         void this.panel.webview.postMessage({
@@ -2788,6 +2849,23 @@ export class WorkspaceWebview {
         }));
         if (result.status !== 'ok') {
           void vscode.window.showWarningMessage(`AIDLC: không thể đóng Context sync — ${result.error?.summary ?? 'unknown error'}`);
+        }
+        this.refresh();
+        return;
+      }
+
+      case 'cancelChange': {
+        const root = this.getRootOrWarn();
+        if (!root) { return; }
+        const actor = { kind: 'user' as const, id: 'vscode-user' };
+        const app = new AidlcApplication(root);
+        const result = await app.bus.dispatch(app.bus.command(crypto.randomUUID(), 'change.cancel', actor, {
+          changeId: String(msg.changeId ?? ''),
+          guard: msg.guard,
+          reason: String(msg.reason ?? '') || undefined,
+        }));
+        if (result.status !== 'ok') {
+          void vscode.window.showWarningMessage(`AIDLC: could not cancel the change — ${result.error?.summary ?? 'unknown error'}`);
         }
         this.refresh();
         return;
@@ -4174,33 +4252,6 @@ export class WorkspaceWebview {
           String(msg.pipelineId ?? ''),
         );
         return;
-      case 'agentMenu': {
-        // Simple action picker — replaces the kebab menu in the React card.
-        const id = String(msg.id ?? '');
-        const filePath = String(msg.filePath ?? '');
-        if (!id) { return; }
-        const pick = await vscode.window.showQuickPick(
-          [
-            { label: 'Open file', value: 'open', detail: filePath },
-            { label: 'Rename', value: 'rename' },
-            { label: 'Duplicate', value: 'duplicate' },
-            { label: 'Delete', value: 'delete' },
-          ],
-          { placeHolder: `Agent ${id}` },
-        );
-        if (!pick) { return; }
-        if (pick.value === 'open' && filePath) {
-          const doc = await vscode.workspace.openTextDocument(filePath);
-          await vscode.window.showTextDocument(doc, { preview: false });
-        } else if (pick.value === 'rename') {
-          await this.renameItem('agents', id);
-        } else if (pick.value === 'duplicate') {
-          await this.duplicateItem('agents', id);
-        } else if (pick.value === 'delete') {
-          await this.deleteItem('agents', id);
-        }
-        return;
-      }
     }
   }
 
@@ -5231,14 +5282,27 @@ export class WorkspaceWebview {
         return;
       }
       if (existing.epicLink?.state === 'pending') {
-        void vscode.window.showWarningMessage(`AIDLC: ${existing.id} đang có Epic khởi tạo dở. Hãy Resume hoặc Roll back pending link trước.`);
-        this.refresh();
+        await this.resumeOrSurfacePendingEpic(root, existing);
         return;
       }
       await this.startEpicInline(
         {
           ...draft,
-          epicId: epicIdFromChangeId(existing.id as ChangeId),
+          epicId: (() => {
+            const fromDraft = String(draft.epicId ?? '').trim();
+            if (fromDraft) {
+              const normalized = formatSequencedEpicId(fromDraft);
+              if (isEpicId(normalized)) { return normalized; }
+            }
+            const docForIds = readYaml(root);
+            const epicRootRel = (() => {
+              const absolute = epicsRoot(root, docForIds);
+              const rel = path.relative(root, absolute);
+              return rel && !rel.startsWith('..') ? rel : 'docs/epics';
+            })();
+            const sequenced = formatSequencedEpicId(suggestNextEpicId(listEpicIdsFromDir(root, epicRootRel)));
+            return isEpicId(sequenced) ? sequenced : epicIdFromChangeId(existing.id as ChangeId);
+          })(),
           title: existing.title,
           description: existing.requirement.desiredOutcome,
           nextAction: 'start-epic',
@@ -5297,6 +5361,9 @@ export class WorkspaceWebview {
       return;
     }
     const change = (created.data as { change: { id: string; revision: number; contentHash: string } }).change;
+    // The user just created this Change via the tour-guided New change action —
+    // bind that exact id (not "latest in project") so step 1 can advance.
+    productTourService.bindCreatedChange(change.id);
 
     if (nextAction === 'explore') {
       const explored = await app.bus.dispatch(app.bus.command(crypto.randomUUID(), 'change.explore.start', actor, {
@@ -5316,12 +5383,22 @@ export class WorkspaceWebview {
       return;
     }
 
-    // New lifecycle Epics never inherit the old incrementing `EPIC-001`
-    // suggestion. The Change owns identity, so its stable ULID suffix is the
-    // only legal new Epic id; this also makes a repeat Start navigate rather
-    // than creating a second delivery record.
+    // Prefer the Task id from the composer (empty → next sequenced number).
+    // Bare digits / PREFIX-NNN are normalized to EPIC-{n}; ULID only as last resort.
+    const draftEpicId = String(draft.epicId ?? '').trim();
+    const docForIds = readYaml(root);
+    const epicRootRel = (() => {
+      const absolute = epicsRoot(root, docForIds);
+      const rel = path.relative(root, absolute);
+      return rel && !rel.startsWith('..') ? rel : 'docs/epics';
+    })();
+    const epicIds = listEpicIdsFromDir(root, epicRootRel);
+    const sequencedId = formatSequencedEpicId(suggestNextEpicId(epicIds));
+    const normalizedDraft = draftEpicId ? formatSequencedEpicId(draftEpicId) : '';
+    const candidate = normalizedDraft || sequencedId;
+    const chosenEpicId = isEpicId(candidate) ? candidate : isEpicId(sequencedId) ? sequencedId : epicIdFromChangeId(change.id as ChangeId);
     await this.startEpicInline(
-      { ...draft, epicId: epicIdFromChangeId(change.id as ChangeId) },
+      { ...draft, epicId: chosenEpicId },
       { changeId: change.id, guard: { expectedRevision: change.revision, expectedContentHash: change.contentHash } },
     );
   }
@@ -5391,6 +5468,38 @@ export class WorkspaceWebview {
       void vscode.window.showWarningMessage(`AIDLC: không thể pin Context/source cho Epic — ${error instanceof Error ? error.message : String(error)}`);
       return undefined;
     }
+  }
+
+  /**
+   * Pending Start Epic saga: try resume; on success open the Epic. Always
+   * refresh so Product Tour can advance past link-epic (pending counts as started).
+   */
+  private async resumeOrSurfacePendingEpic(
+    root: string,
+    change: { id: string; revision: number; contentHash: string; epicLink?: { state: string; commandId?: string; epicId?: string } },
+  ): Promise<void> {
+    const link = change.epicLink;
+    if (!link || link.state !== 'pending' || !link.commandId || !link.epicId) {
+      this.refresh();
+      return;
+    }
+    const app = new AidlcApplication(root);
+    const actor = { kind: 'user' as const, id: 'vscode-user' };
+    const resumed = await app.bus.dispatch(app.bus.command(crypto.randomUUID(), 'change.epic.pending.resume', actor, {
+      changeId: change.id,
+      guard: { expectedRevision: change.revision, expectedContentHash: change.contentHash },
+      pendingCommandId: link.commandId,
+    }));
+    if (resumed.status === 'ok') {
+      this.setView('epics');
+      void this.panel.webview.postMessage({ type: 'selectEpic', epicId: link.epicId });
+      this.refresh();
+      return;
+    }
+    void vscode.window.showWarningMessage(
+      `AIDLC: ${change.id} đang có Epic khởi tạo dở — ${resumed.error?.summary ?? 'resume thất bại'}. Roll back pending link rồi Start Epic lại, hoặc Resume từ Change khi đủ snapshot.`,
+    );
+    this.refresh();
   }
 
   private async startEpicInline(
@@ -5519,6 +5628,40 @@ export class WorkspaceWebview {
       ? (doc.pipelines as PipelineConfig[] | undefined)?.find((p) => p.id === targetId)
       : undefined;
 
+    // CoFoFo delivery pipelines pin a task-specific Discover context pack.
+    // Discover handoff already creates one; New change → Start Epic must too.
+    let discoverProvenance: {
+      id: string;
+      revision: number;
+      contextRef: NonNullable<Parameters<typeof scaffoldEpic>[0]['discoverProvenance']>['contextRef'];
+    } | undefined;
+    if (pipelineCfg?.discover_context || (targetKind === 'pipeline' && isCofofoPipelineId(targetId))) {
+      try {
+        const publisher = new DiscoverContextPublisher(root);
+        const inspection = publisher.inspect();
+        if (inspection.status !== 'ready' || !inspection.context) {
+          void vscode.window.showWarningMessage(
+            `AIDLC: ${targetId} cần Discover Context READY. ${inspection.nextAction}`,
+          );
+          return;
+        }
+        if (!inputs.context_pack) {
+          const taskKind = targetId === 'cofofo-bugfix' ? 'bugfix' as const : 'feature' as const;
+          const pack = publisher.createContextPack({ taskKind });
+          inputs.context_pack = publisher.contextPackPath(pack.contextRef.packHash);
+          discoverProvenance = {
+            id: inspection.context.blueprint.id,
+            revision: inspection.context.blueprint.revision,
+            contextRef: pack.contextRef,
+          };
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        void vscode.window.showWarningMessage(`AIDLC: không tạo được Discover context pack — ${message}`);
+        return;
+      }
+    }
+
     // `change.epic.start` is the one owning saga for a new lifecycle Epic.
     // Existing standalone legacy entry points can still invoke this helper
     // without `owner` during migration, but a Change-created Epic cannot
@@ -5544,6 +5687,7 @@ export class WorkspaceWebview {
         extraProjects: extraProjects && extraProjects.length > 0 ? extraProjects : undefined,
         pipeline: pipelineCfg,
         runMode,
+        discoverProvenance,
         // aidlc-autopilot is experimental / "coming soon": off unless the user
         // opts in via the `aidlc.autopilot.enabled` setting.
         enableAutopilot: vscode.workspace
@@ -5560,8 +5704,8 @@ export class WorkspaceWebview {
       const issues = err instanceof Error && 'issues' in err && Array.isArray((err as { issues?: unknown }).issues)
         ? ((err as { issues: string[] }).issues)
         : [];
-      const short = message.includes('CoFoFo foundation is not ready')
-        ? 'Không tạo được epic CoFoFo: Context chưa sẵn sàng. Hãy Publish Context từ tab Discover rồi tạo task mới.'
+      const short = message.includes('CoFoFo foundation is not ready') || message.includes('READY Discover Context')
+        ? 'Không tạo được epic CoFoFo: Discover Context chưa READY. Hãy Publish Context từ tab Discover rồi Start Epic lại (không cần tạo Change mới).'
         : `Epic could not be scaffolded: ${message}`;
       const agentBrief = [
         'AIDLC scaffoldEpic failed',
@@ -5596,6 +5740,7 @@ export class WorkspaceWebview {
         },
         source: canonicalStart.source,
         context: canonicalStart.context,
+        epicId,
       }));
       if (linked.status !== 'ok') {
         // The delivery files were safely scaffolded first. Do not delete them:
@@ -6395,33 +6540,12 @@ export class WorkspaceWebview {
     const pipeline = doc.pipelines.find((x) => x.id === pipelineId);
     if (!pipeline) { return; }
 
-    let chosenId: string | undefined;
-    if (agentIdArg) {
-      // Webview already showed an inline StepPickerModal — trust the choice
-      // but verify the agent still exists in workspace.yaml.
-      if (doc.agents.some((a) => String(a.id) === agentIdArg)) {
-        chosenId = agentIdArg;
-      }
-    } else {
-      const currentSteps = Array.isArray(pipeline.steps)
-        ? pipeline.steps.map(stepAgentId)
-        : [];
-      const picked = await vscode.window.showQuickPick(
-        doc.agents.map((a) => {
-          const id = String(a.id);
-          const name = typeof a.name === 'string' ? a.name : id;
-          const inPipeline = currentSteps.includes(id);
-          return {
-            label: id,
-            description: name,
-            detail: inPipeline ? '· already in pipeline (will duplicate)' : '',
-            id,
-          };
-        }),
-        { placeHolder: `Append a step to \`${pipelineId}\``, ignoreFocusOut: true, matchOnDetail: true },
-      );
-      chosenId = picked?.id;
-    }
+    // Webview always shows an inline StepPickerModal before sending this
+    // message — trust the choice but verify the agent still exists in
+    // workspace.yaml.
+    const chosenId = agentIdArg && doc.agents.some((a) => String(a.id) === agentIdArg)
+      ? agentIdArg
+      : undefined;
     if (!chosenId) { return; }
     this.mutateYaml((d) => {
       const p = d.pipelines.find((x) => x.id === pipelineId);
@@ -6639,20 +6763,12 @@ export class WorkspaceWebview {
   private async renameItem(
     field: 'agents' | 'skills' | 'pipelines',
     id: string,
-    /** Webview already prompted via inline RenameModal — use this directly
-     * and skip the VS Code input box. Falsy for command-palette flows. */
+    /** Webview always prompts via the inline RenameModal before sending
+     * this message. */
     newIdArg?: string,
   ): Promise<void> {
     if (!id) { return; }
-    let newId = newIdArg;
-    if (!newId) {
-      newId = await vscode.window.showInputBox({
-        prompt: `New ID for ${field.replace(/s$/, '')} \`${id}\``,
-        value: id,
-        validateInput: (v) => v && v.trim() ? null : 'ID cannot be empty',
-      });
-    }
-    const trimmed = newId?.trim();
+    const trimmed = newIdArg?.trim();
     if (!trimmed || trimmed === id) { return; }
     this.mutateYaml((doc) => {
       const arr = doc[field];

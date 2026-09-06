@@ -10,6 +10,7 @@
 import type { CSSProperties, DragEvent } from 'react';
 import type { EpicFilter, EpicSummary } from '@/lib/types';
 import { useHorizontalPanelResize } from '@/hooks/useHorizontalPanelResize';
+import { useHostAction } from '@/hooks/useHostAction';
 import { EPIC_DND_MIME } from '../EpicCard';
 import { FILTER_LABEL, ROW_DOT } from './adapt';
 import { DisclosureBtn } from './primitives';
@@ -177,6 +178,7 @@ function OpenList(p: EpicListPanelProps) {
   const chipLabel = q ? `"${q}"` : FILTER_LABEL[p.filter];
   const chipActive = !!q || p.filter !== 'all';
   const isEmpty = p.visible.length === 0;
+  const { pending, run, isPending } = useHostAction();
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -211,22 +213,41 @@ function OpenList(p: EpicListPanelProps) {
           </div>
           <button
             type="button"
-            onClick={p.onMigrate}
+            onClick={() => run(() => p.onMigrate(), 'migrate')}
+            disabled={pending}
             title="Đồng bộ task cũ với cấu trúc workspace mới nhất"
             style={{
-              cursor: 'pointer', height: 26, padding: '0 9px', borderRadius: 6,
+              cursor: pending ? 'wait' : 'pointer', height: 26, padding: '0 9px', borderRadius: 6,
               border: '1px solid var(--acc-bd)', background: 'var(--acc-bg)',
               color: 'var(--acc-txt)', fontSize: 10.5, fontWeight: 600,
               whiteSpace: 'nowrap', flex: 'none',
+              opacity: pending ? 0.7 : 1,
+              display: 'inline-flex', alignItems: 'center', gap: 5,
             }}
           >
-            Migrate
+            {isPending('migrate') && (
+              <span
+                aria-hidden
+                style={{
+                  width: 9, height: 9, borderRadius: '50%',
+                  border: '1.5px solid currentColor', borderRightColor: 'transparent',
+                  animation: 'aidlcSpin 0.7s linear infinite',
+                }}
+              />
+            )}
+            {isPending('migrate') ? 'Migrating…' : 'Migrate'}
           </button>
           <button
             type="button"
-            onClick={p.onRefresh}
+            onClick={() => run(() => p.onRefresh(), 'refresh')}
+            disabled={pending}
             title="Đọc lại danh sách task từ disk; không chạy agent và không thay đổi dữ liệu"
-            style={iconBtn}
+            style={{
+              ...iconBtn,
+              cursor: pending ? 'wait' : iconBtn.cursor,
+              opacity: pending ? 0.7 : 1,
+              animation: isPending('refresh') ? 'aidlcSpin 0.7s linear infinite' : undefined,
+            }}
           >
             ↻
           </button>

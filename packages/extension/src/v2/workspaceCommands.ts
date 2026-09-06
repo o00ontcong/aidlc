@@ -84,8 +84,6 @@ import {
   deleteEpicCommand,
 } from './runCommands';
 import { resolveTechStackForRoot } from './techStackResolver';
-import { productTourService } from './productTour/ProductTourService';
-
 /**
  * Sentinel `workflowId` value that `aidlc.initWorkspace` accepts to mean
  * "scaffold an empty workspace, no preset". Used by the webview's
@@ -146,7 +144,7 @@ export function registerV2WorkspaceCommands(
   const startProductTourCmd = vscode.commands.registerCommand(
     'aidlc.startProductTour',
     () => {
-      productTourService.start('lifecycle-basics');
+      // Opens the goal picker on the current project — no separate demo window.
       WorkspaceWebview.openProductTour(context.extensionUri);
     },
   );

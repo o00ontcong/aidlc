@@ -27,3 +27,23 @@ Keep using grep/read/edit for:
 If the graph looks stale, ask the user to run `AIDLC: Rescan AST Graph`. The
 extension also rescans automatically a few seconds after any source file save.
 <!-- aidlc:ast-graph:end -->
+
+## Quy tắc UI cho packages/extension: không dùng native input widget
+
+Khi viết code cho extension VS Code này (`packages/extension`), **không bao giờ**
+dùng `vscode.window.showInputBox` hoặc `vscode.window.showQuickPick` để hỏi
+người dùng nhập liệu cho các luồng nghiệp vụ của AIDLC Workspace (ví dụ: lý do
+publish, tên epic, cấu hình bước...). Đây là quick-input gốc của VS Code (cùng
+loại UI với Command Palette) — nó nổi tách biệt khỏi webview, không theo theme
+riêng của AIDLC, và tạo trải nghiệm không nhất quán.
+
+Thay vào đó, dựng dialog/popup **bên trong webview**, theo mẫu các component đã
+có ở `packages/extension/src/webview/components/` (`Modal.tsx` và các
+`*Modal.tsx` / `*Dialog.tsx` khác, ví dụ `ConfirmModal.tsx`,
+`DiscoverCommitModal.tsx`, `RenameModal.tsx`). Nếu chưa có modal phù hợp cho
+luồng mới, tạo component mới theo đúng pattern đó thay vì gọi `showInputBox`.
+
+Ngoại lệ hợp lệ: các thao tác thuần túy của VS Code core không liên quan tới
+webview (ví dụ file picker hệ thống `showOpenDialog`). Nếu không chắc một
+trường hợp có phải ngoại lệ hay không, hỏi lại người dùng trước khi dùng native
+widget.

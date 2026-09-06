@@ -32,7 +32,6 @@ import { ConfirmModal } from './ConfirmModal';
 import { ProviderSection } from './ProviderSection';
 import { SavePresetModal } from './SavePresetModal';
 import { LoadDemoModal } from './LoadDemoModal';
-import { BugReportModal } from './BugReportModal';
 import { ThemeToggle } from './ThemeToggle';
 import { postMessage, getPersistedUi, setPersistedUi } from '@/lib/bridge';
 
@@ -63,7 +62,6 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
     ...DEFAULT_COLLAPSED,
     ...(seed.collapsed ?? {}),
   });
-  const [bugReportOpen, setBugReportOpen] = useState(false);
   const persist = useCallback(
     (next: { collapsed?: CollapseState }) => {
       const merged: PersistedUi = {
@@ -159,23 +157,6 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
                   <ChevronRight className="ml-auto h-3.5 w-3.5 opacity-70" />
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setBugReportOpen(true)}
-                  className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <Beaker className="h-3.5 w-3.5" />
-                  <span>Báo lỗi CoFoFo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => postMessage({ type: 'cofofoDoctor' })}
-                  className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  <span>Kiểm tra &amp; sửa workspace</span>
-                </button>
-
                 <StatsGrid state={state} />
 
                 {state.recentEpics.length > 0 && (
@@ -211,13 +192,6 @@ export function AppSidebar({ state }: { state: SidebarState | null }) {
       </div>
 
       <Footer hasFolder={state.hasFolder} />
-      {bugReportOpen && (
-        <BugReportModal
-          onSubmit={(fields) => postMessage({ type: 'reportCofofoBug', fields })}
-          onClose={() => setBugReportOpen(false)}
-        />
-      )}
-
     </aside>
   );
 }

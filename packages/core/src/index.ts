@@ -164,6 +164,7 @@ export {
   ProjectIdSchema,
   generateProjectId,
   epicIdFromChangeId,
+  isEpicId,
   type LifecycleRunId,
   LifecycleRunIdSchema,
   isLifecycleRunId,

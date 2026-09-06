@@ -24,7 +24,6 @@ import { WorkspaceWebview } from './v2/workspaceWebview';
 import { themeManager } from './v2/themeManager';
 import { workspaceUiPrefs } from './v2/workspaceUiPrefs';
 import { productTourService } from './v2/productTour/ProductTourService';
-import { productTourDemoService } from './v2/productTour/ProductTourDemoService';
 import {
   connectJiraCommand,
   disconnectJiraCommand,
@@ -101,8 +100,6 @@ export function activate(context: vscode.ExtensionContext): void {
   workspaceUiPrefs.init(context);
   // Product Tour is personal UI progress, never a file in the shared repo.
   productTourService.init(context);
-  productTourDemoService.init(context);
-  productTourDemoService.resumeIfCurrentWorkspace();
   WorkspaceWebview.registerSerializer(context);
 
   // Jira: credentials in SecretStorage, sprint data cached in workspaceState.

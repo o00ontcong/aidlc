@@ -103,7 +103,7 @@
       },
       {
         "command": "aidlc.startProductTour",
-        "title": "Start Product Tour: Change → Epic → Context",
+        "title": "Start Product Tour (goal-based on current project)",
         "icon": "$(mortar-board)",
         "category": "AIDLC"
       },

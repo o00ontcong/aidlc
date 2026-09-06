@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -31,6 +32,18 @@ function temporary(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidlc-discover-publish-'));
   roots.push(root);
   return root;
+}
+
+function git(root: string, args: string[]): void {
+  execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+}
+
+function initGit(root: string): void {
+  git(root, ['init', '--quiet']);
+  git(root, ['config', 'user.email', 'test@aidlc.dev']);
+  git(root, ['config', 'user.name', 'AIDLC Test']);
+  git(root, ['add', '.']);
+  git(root, ['commit', '--quiet', '-m', 'initial']);
 }
 
 /** A minimal but internally-consistent Discover blueprint: one draft FR cited by one draft Feature. */
@@ -76,11 +89,25 @@ describe('DiscoverContextPublisher', () => {
     expect(inspection.context?.discoverRevision).toBe(first.discoverRevision);
   });
 
-  it('requires a change reason and rejects a blank one', () => {
+  it('stays READY when only Discover index.revision bookkeeping moves after publish', () => {
     const root = temporary();
-    seedBlueprint(root);
+    const service = seedBlueprint(root);
     const publisher = new DiscoverContextPublisher(root);
-    expect(() => publisher.publish({ actor: USER, reason: '   ' })).toThrow(/change reason/);
+    const published = publisher.publish({ actor: USER, reason: 'Baseline publish.' });
+    expect(publisher.inspect().status).toBe('ready');
+
+    // Sidecar revision bumps used to poison canonicalHash even when docs and
+    // source were unchanged — the exact failure after Publish → Start Epic.
+    const before = service.require().revision;
+    service.setCurrentStep(service.require().currentStep);
+    expect(service.require().revision).toBe(before + 1);
+    // Even if reindex rewrites a doc hash normalization edge-case, READY must
+    // remain content-based — not tied to the sidecar counter.
+    service.reindexAll(USER);
+
+    const inspection = publisher.inspect();
+    expect(inspection.status).toBe('ready');
+    expect(inspection.context?.discoverRevision).toBe(published.discoverRevision);
   });
 
   it('records a semantic history event with the human-provided reason when an entity changes', () => {
@@ -105,6 +132,105 @@ describe('DiscoverContextPublisher', () => {
     const detail = publisher.historyDetailsFor('FR-01')[0]!;
     expect(detail.before?.title).toBe('Canh bao khi nhiet do vuot nguong.');
     expect(detail.after?.title).toBe('Canh bao khi nhiet do vuot nguong an toan.');
+
+    const publishHistory = publisher.listPublishHistory();
+    expect(publishHistory).toHaveLength(2);
+    expect(publishHistory[0]!.discoverRevision).toBe(revised.discoverRevision);
+    expect(publishHistory[0]!.title).toBe('Tighten the requirement wording.');
+    expect(publishHistory[0]!.reason).toBe('Tighten the requirement wording.');
+    expect(publishHistory[0]!.isCurrent).toBe(true);
+    expect(publishHistory[1]!.isCurrent).toBe(false);
+    expect(publishHistory[0]!.parentRevision).toBe(publishHistory[1]!.discoverRevision);
+  });
+
+  it('previewPublishDiff reports entity/doc deltas vs the last publish', () => {
+    const root = temporary();
+    const service = seedBlueprint(root);
+    const publisher = new DiscoverContextPublisher(root);
+
+    const firstPreview = publisher.previewPublishDiff();
+    expect(firstPreview.hasPrevious).toBe(false);
+    expect(firstPreview.unchanged).toBe(false);
+    expect(firstPreview.entities.map((e) => e.id).sort()).toEqual(['F-ALERT-01', 'FR-01']);
+    expect(firstPreview.entities.every((e) => e.change === 'created')).toBe(true);
+
+    publisher.publish({ actor: USER, title: 'Baseline', description: 'Ready.' });
+    expect(publisher.previewPublishDiff().unchanged).toBe(true);
+    expect(publisher.previewPublishDiff().entities).toEqual([]);
+
+    service.applyOps(DOC_REQUIREMENTS, [
+      { op: 'updateItem', id: 'FR-01', text: 'Canh bao khi nhiet do vuot nguong an toan.' },
+    ], { actor: USER });
+
+    const dirty = publisher.previewPublishDiff();
+    expect(dirty.hasPrevious).toBe(true);
+    expect(dirty.unchanged).toBe(false);
+    expect(dirty.previousTitle).toBe('Baseline');
+    expect(dirty.entities).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'FR-01',
+        change: 'updated',
+        beforeTitle: 'Canh bao khi nhiet do vuot nguong.',
+        title: 'Canh bao khi nhiet do vuot nguong an toan.',
+      }),
+    ]));
+    expect(dirty.documents.some((doc) => doc.path === DOC_REQUIREMENTS && doc.change === 'updated')).toBe(true);
+  });
+
+  it('stays READY when Publish rewrites provider stubs or docs/epics change, but stales on product source edits', () => {
+    const root = temporary();
+    write(root, 'src/app.ts', 'export const version = 1;\n');
+    write(root, '.cursor/commands/cofofo-feature-implement.md', 'Context hash: pending\n');
+    write(root, 'docs/epics/EPIC-001/state.json', '{"ok":true}\n');
+    seedBlueprint(root);
+    initGit(root);
+
+    const publisher = new DiscoverContextPublisher(root);
+    publisher.publish({ actor: USER, title: 'Baseline' });
+    expect(publisher.inspect().status).toBe('ready');
+
+    // Exact failure from the wild: Publish Context embeds the new hash into
+    // provider command files, and deleting epic workspaces dirties docs/.
+    write(root, '.cursor/commands/cofofo-feature-implement.md', 'Context hash: sha256:deadbeef\n');
+    write(root, '.claude/commands/cofofo-feature-implement.md', 'Context hash: sha256:deadbeef\n');
+    fs.rmSync(path.join(root, 'docs/epics/EPIC-001'), { recursive: true, force: true });
+    expect(publisher.inspect().status).toBe('ready');
+    expect(publisher.previewPublishDiff()).toEqual(expect.objectContaining({
+      unchanged: true,
+      source: expect.objectContaining({ changed: false, changedPaths: [] }),
+    }));
+
+    write(root, 'src/app.ts', 'export const version = 2;\n');
+    expect(publisher.inspect().status).toBe('stale');
+    expect(publisher.previewPublishDiff().source.changedPaths).toContain('src/app.ts');
+  });
+
+  it('stores title and description on the publish revision and surfaces them in history', () => {
+    const root = temporary();
+    const service = seedBlueprint(root);
+    const publisher = new DiscoverContextPublisher(root);
+    const first = publisher.publish({
+      actor: USER,
+      title: 'Baseline ready',
+      description: 'Requirements and features confirmed for handoff.',
+    });
+    expect(first.title).toBe('Baseline ready');
+    expect(first.description).toBe('Requirements and features confirmed for handoff.');
+
+    service.applyOps(DOC_REQUIREMENTS, [
+      { op: 'updateItem', id: 'FR-01', text: 'Canh bao khi nhiet do vuot nguong an toan.' },
+    ], { actor: USER });
+    const second = publisher.publish({
+      actor: USER,
+      title: 'Tighten FR wording',
+      description: 'Clarify threshold language before delivery.',
+    });
+
+    const history = publisher.listPublishHistory();
+    expect(history[0]!.discoverRevision).toBe(second.discoverRevision);
+    expect(history[0]!.title).toBe('Tighten FR wording');
+    expect(history[0]!.description).toBe('Clarify threshold language before delivery.');
+    expect(history[1]!.title).toBe('Baseline ready');
   });
 
   it('writes real code, test, entry-point, dependency, and architecture reconciliation evidence', () => {

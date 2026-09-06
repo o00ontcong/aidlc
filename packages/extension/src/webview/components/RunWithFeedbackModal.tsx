@@ -5,6 +5,7 @@ import {
   savePastedBugImage,
   type BugImageResult,
 } from '@/lib/pickFile';
+import { useHostAction } from '@/hooks/useHostAction';
 import { Btn, Mono, SectionLabel } from './epic-v3/primitives';
 import { V3Callout, V3Label, V3Modal, V3ModalFooter, V3ModalHeader } from './epic-v3/V3Modal';
 
@@ -42,6 +43,7 @@ export function RunWithFeedbackModal({
   const [loadInfo, setLoadInfo] = useState<{ kind: 'loaded' | 'error'; text: string } | null>(
     null,
   );
+  const { pending: submitting, run: runSubmit } = useHostAction({ onSettled: onClose });
 
   const remaining = MAX_BUG_IMAGES - images.length;
 
@@ -151,13 +153,13 @@ export function RunWithFeedbackModal({
 
   const trimmed = feedback.trim();
   const submit = () => {
+    if (submitting) { return; }
     const screenshotMd = screenshotSection(images.map((img) => img.relativePath));
     const body = [
       trimmed || (images.length > 0 ? 'See attached screenshots.' : ''),
       screenshotMd,
     ].filter(Boolean).join('\n\n');
-    onSubmit(body);
-    onClose();
+    runSubmit(() => onSubmit(body));
   };
 
   const previewPrompt = trimmed || images.length > 0
@@ -169,20 +171,24 @@ export function RunWithFeedbackModal({
       width={660}
       paddingTop={90}
       onClose={onClose}
+      busy={submitting}
       header={
         <V3ModalHeader
           title="Run with feedback"
           sub={`${agent} · run ${runId}`}
           onClose={onClose}
+          disabled={submitting}
         />
       }
       footer={
         <V3ModalFooter cli={`${slashCommand} ${runId}`}>
-          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} disabled={submitting} />
           <Btn
             label="Run in Claude"
             variant="primary"
             onClick={submit}
+            loading={submitting}
+            loadingLabel="Starting…"
             pad="9px 16px"
             fs={12.5}
           />

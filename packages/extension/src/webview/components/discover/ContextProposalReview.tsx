@@ -7,9 +7,10 @@
  * queue for anything staged as a real `ContextProposal`.
  */
 import { useState } from 'react';
-import { AlertTriangle, Check, GitBranch, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, GitBranch, Loader2, Trash2 } from 'lucide-react';
 import type { ContextProposal, ProjectContextHead } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
+import { useHostAction } from '@/hooks/useHostAction';
 import { Modal, ModalFooter } from '../Modal';
 
 const REVIEW_WORTHY_STATUSES = new Set(['review', 'needs-rebase', 'changes-requested', 'partially-applied']);
@@ -75,41 +76,59 @@ function StatusBadge({ status }: { status: ContextProposal['status'] }) {
 function ProposalDetail({ proposal, contextHead }: { proposal: ContextProposal; contextHead?: ProjectContextHead }) {
   const [discarding, setDiscarding] = useState(false);
   const [reason, setReason] = useState('');
+  const { pending, run, isPending } = useHostAction();
   const guard = { expectedRevision: proposal.revision, expectedContentHash: proposal.contentHash };
   const contextGuard = contextHead ? { expectedRevision: contextHead.currentRevisionNumber, expectedContentHash: contextHead.rootHash } : undefined;
   const needsRebase = proposal.status === 'needs-rebase';
 
   const approve = (groupId: string) => {
-    postMessage({ type: 'contextProposalApprove', proposalId: proposal.id, guard, groupIds: [groupId] });
+    run(() => {
+      postMessage({ type: 'contextProposalApprove', proposalId: proposal.id, guard, groupIds: [groupId] });
+    }, `approve:${groupId}`);
   };
   const applyGroup = (groupId: string) => {
     if (!contextGuard) return;
-    postMessage({ type: 'contextProposalApply', proposalId: proposal.id, guard, contextGuard, groupIds: [groupId] });
+    run(() => {
+      postMessage({ type: 'contextProposalApply', proposalId: proposal.id, guard, contextGuard, groupIds: [groupId] });
+    }, `apply:${groupId}`);
   };
   const applyAll = () => {
     if (!contextGuard) return;
     const groupIds = proposal.groups.filter((g) => g.decision !== 'applied' && g.decision !== 'discarded').map((g) => g.id);
-    postMessage({ type: 'contextProposalApply', proposalId: proposal.id, guard, contextGuard, groupIds });
+    run(() => {
+      postMessage({ type: 'contextProposalApply', proposalId: proposal.id, guard, contextGuard, groupIds });
+    }, 'apply-all');
   };
   const rebase = () => {
-    postMessage({ type: 'contextProposalRebase', proposalId: proposal.id, guard, contextGuard: { expectedRevisionId: proposal.baseContext.revisionId, expectedRootHash: proposal.baseContext.rootHash } });
+    run(() => {
+      postMessage({ type: 'contextProposalRebase', proposalId: proposal.id, guard, contextGuard: { expectedRevisionId: proposal.baseContext.revisionId, expectedRootHash: proposal.baseContext.rootHash } });
+    }, 'rebase');
   };
   const discard = () => {
     if (!reason.trim()) return;
-    postMessage({ type: 'contextProposalDiscard', proposalId: proposal.id, guard, reason: reason.trim() });
-    setDiscarding(false);
-    setReason('');
+    run(() => {
+      postMessage({ type: 'contextProposalDiscard', proposalId: proposal.id, guard, reason: reason.trim() });
+      setDiscarding(false);
+      setReason('');
+    }, 'discard');
   };
 
   return (
-    <div className="min-w-0 space-y-3">
+    <div className="min-w-0 space-y-3" aria-busy={pending || undefined}>
       {needsRebase && (
         <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 p-2.5 text-[11px] text-warning">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div>
             The canonical Context moved since this proposal was based. Rebase before applying.
-            <button type="button" data-tour-id="context-proposal-rebase" onClick={rebase} className="ml-2 inline-flex items-center gap-1 rounded border border-warning/50 px-1.5 py-0.5 font-semibold hover:bg-warning/10">
-              <GitBranch className="h-3 w-3" />Rebase
+            <button
+              type="button"
+              data-tour-id="context-proposal-rebase"
+              onClick={rebase}
+              disabled={pending}
+              className="ml-2 inline-flex items-center gap-1 rounded border border-warning/50 px-1.5 py-0.5 font-semibold hover:bg-warning/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isPending('rebase') ? <Loader2 className="h-3 w-3 animate-spin" /> : <GitBranch className="h-3 w-3" />}
+              {isPending('rebase') ? 'Rebasing…' : 'Rebase'}
             </button>
           </div>
         </div>
@@ -129,11 +148,23 @@ function ProposalDetail({ proposal, contextHead }: { proposal: ContextProposal; 
             )}
             {group.decision === 'pending' && (
               <div className="mt-2 flex gap-1.5">
-                <button type="button" onClick={() => approve(group.id)} className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground">
-                  <Check className="h-2.5 w-2.5" />Approve
+                <button
+                  type="button"
+                  onClick={() => approve(group.id)}
+                  disabled={pending}
+                  className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {isPending(`approve:${group.id}`) ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
+                  {isPending(`approve:${group.id}`) ? 'Approving…' : 'Approve'}
                 </button>
-                <button type="button" disabled={needsRebase || !contextGuard} onClick={() => applyGroup(group.id)} className="inline-flex items-center gap-1 rounded border border-primary/50 px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-40">
-                  Apply this group
+                <button
+                  type="button"
+                  disabled={needsRebase || !contextGuard || pending}
+                  onClick={() => applyGroup(group.id)}
+                  className="inline-flex items-center gap-1 rounded border border-primary/50 px-1.5 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-40"
+                >
+                  {isPending(`apply:${group.id}`) && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                  {isPending(`apply:${group.id}`) ? 'Applying…' : 'Apply this group'}
                 </button>
               </div>
             )}
@@ -142,11 +173,22 @@ function ProposalDetail({ proposal, contextHead }: { proposal: ContextProposal; 
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        <button type="button" disabled={needsRebase || !contextGuard} onClick={applyAll} className="rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40">
-          Apply all pending groups
+        <button
+          type="button"
+          disabled={needsRebase || !contextGuard || pending}
+          onClick={applyAll}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+        >
+          {isPending('apply-all') && <Loader2 className="h-3 w-3 animate-spin" />}
+          {isPending('apply-all') ? 'Applying…' : 'Apply all pending groups'}
         </button>
         {!discarding ? (
-          <button type="button" onClick={() => setDiscarding(true)} className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2.5 py-1.5 text-[11px] text-destructive hover:bg-destructive/10">
+          <button
+            type="button"
+            onClick={() => setDiscarding(true)}
+            disabled={pending}
+            className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-2.5 py-1.5 text-[11px] text-destructive hover:bg-destructive/10 disabled:opacity-40"
+          >
             <Trash2 className="h-3 w-3" />Discard
           </button>
         ) : (
@@ -156,17 +198,32 @@ function ProposalDetail({ proposal, contextHead }: { proposal: ContextProposal; 
               onChange={(e) => setReason(e.target.value)}
               placeholder="Reason for discarding"
               autoFocus
-              className="flex-1 rounded border border-border bg-input/50 px-2 py-1 text-[11px]"
+              disabled={pending}
+              className="flex-1 rounded border border-border bg-input/50 px-2 py-1 text-[11px] disabled:opacity-40"
             />
-            <button type="button" disabled={!reason.trim()} onClick={discard} className="rounded border border-destructive/50 px-2 py-1 text-[10.5px] font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-40">
-              Confirm
+            <button
+              type="button"
+              disabled={!reason.trim() || pending}
+              onClick={discard}
+              className="inline-flex items-center gap-1 rounded border border-destructive/50 px-2 py-1 text-[10.5px] font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-40"
+            >
+              {isPending('discard') && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+              {isPending('discard') ? 'Discarding…' : 'Confirm'}
             </button>
-            <button type="button" onClick={() => { setDiscarding(false); setReason(''); }} className="rounded border border-border px-2 py-1 text-[10.5px] text-muted-foreground hover:bg-accent">
+            <button
+              type="button"
+              onClick={() => { setDiscarding(false); setReason(''); }}
+              disabled={pending}
+              className="rounded border border-border px-2 py-1 text-[10.5px] text-muted-foreground hover:bg-accent disabled:opacity-40"
+            >
               Cancel
             </button>
           </div>
         )}
       </div>
+      {pending && (
+        <p className="text-[10px] text-muted-foreground">Working… waiting for host refresh.</p>
+      )}
       {!contextGuard && (
         <p className="text-[10px] text-warning">Project Context has not been bootstrapped yet in this workspace — Apply is unavailable until it is.</p>
       )}

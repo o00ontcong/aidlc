@@ -5,9 +5,11 @@ import type { AgentMeta, ExtraProject, PipelineSummary } from '@/lib/types';
 import { Modal, ModalFooter, ModalCancelButton, ModalConfirmButton } from './Modal';
 import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
+import { useHostAction } from '@/hooks/useHostAction';
 import { pickDefaultPipelineId } from '../../defaultWorkflow';
 
-const ID_PATTERN = /^[A-Z][A-Z0-9-]*$/;
+/** Bare digits (auto-sequence) or PREFIX-… style ids. */
+const ID_PATTERN = /^(?:\d+|[A-Z][A-Z0-9-]*)$/;
 
 interface CapabilityPrompt {
   prompt: string;
@@ -81,6 +83,8 @@ interface Props {
   /** When false (no folder open), the user must add at least one project. */
   hasFolder?: boolean;
   prefill?: StartEpicPrefill;
+  /** Discover Context gate for cofofo delivery pipelines — blocks Create & start when not ready. */
+  discoverContextStatus?: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
   onSubmit: (draft: StartEpicDraft) => void;
   onClose: () => void;
 }
@@ -102,13 +106,14 @@ export function StartEpicModal({
   workspaceName,
   hasFolder = true,
   prefill,
+  discoverContextStatus,
   onSubmit,
   onClose,
 }: Props) {
   const existingChange = prefill?.existingChange;
   const [selected, setSelected] = useState<Selection>(() => defaultSelection(pipelines));
-  // Start empty (nextEpicId is shown only as a placeholder). A pre-filled
-  // "EPIC-100" looks like a Jira key and would trigger auto-analysis on open.
+  // Start empty (nextEpicId is shown only as a placeholder — digits only).
+  // A pre-filled long id would crowd the Title field beside it.
   // A real prefill from the Sprint tab is different: the key IS a Jira key, and
   // the description is already the ticket's own text, so there is nothing to
   // auto-fetch.
@@ -386,13 +391,21 @@ export function StartEpicModal({
   const effectiveId = epicId.trim() || nextEpicId;
   const trimmedId = epicId.trim();
   const startingEpicNow = Boolean(existingChange) || nextAction === 'start-epic';
+  const selectedNeedsDiscoverContext = selected.id === 'cofofo-feature' || selected.id === 'cofofo-bugfix';
+  const discoverContextBlocksStart = startingEpicNow
+    && selectedNeedsDiscoverContext
+    && discoverContextStatus !== undefined
+    && discoverContextStatus !== 'ready';
   const idError = useMemo(() => {
     if (!startingEpicNow) { return null; }
     if (!effectiveId) { return 'Epic id is required'; }
     if (!ID_PATTERN.test(effectiveId)) {
-      return 'Uppercase letters / digits / dashes only — must start with a letter';
+      return 'Digits only, or uppercase letters / digits / dashes starting with a letter';
     }
     if (existingEpicIds.includes(effectiveId)) { return `Epic "${effectiveId}" already exists`; }
+    if (/^\d+$/.test(effectiveId) && existingEpicIds.includes(`EPIC-${effectiveId}`)) {
+      return `Epic "EPIC-${effectiveId}" already exists`;
+    }
     return null;
   }, [startingEpicNow, effectiveId, existingEpicIds]);
 
@@ -403,35 +416,57 @@ export function StartEpicModal({
   const requirementError = !startingEpicNow && !title.trim() && !description.trim()
     ? 'Add a title or description'
     : null;
-  const error = idError || targetError || projectError || requirementError;
+  const discoverError = discoverContextBlocksStart
+    ? `Discover Context · ${discoverContextStatus}. Publish context in Discover before Start Epic with ${selected.id}.`
+    : null;
+  const error = idError || targetError || projectError || requirementError || discoverError;
+
+  // Keep epics-dir edits with the other form state hooks.
+  const [localEpicsDir, setLocalEpicsDir] = useState(epicsDir);
+  const { pending: submitting, run: runSubmit } = useHostAction({ onSettled: onClose });
 
   const submit = () => {
-    if (error) { return; }
+    if (error || submitting) { return; }
     const cleanInputs: Record<string, string> = {};
     for (const cap of capabilities) {
       const v = (inputs[cap] ?? '').trim();
       if (v) { cleanInputs[cap] = v; }
     }
-    onSubmit({
-      target: { kind: 'pipeline', id: selected.id },
-      epicId: effectiveId,
-      title: title.trim(),
-      description: description.trim(),
-      inputs: cleanInputs,
-      nextAction,
-      extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
-      sourceShapeId: prefill?.sourceShapeId,
-      sourceShapeRevision: prefill?.sourceShapeRevision,
-      existingChange,
+    runSubmit(() => {
+      onSubmit({
+        target: { kind: 'pipeline', id: selected.id },
+        epicId: effectiveId,
+        title: title.trim(),
+        description: description.trim(),
+        inputs: cleanInputs,
+        nextAction,
+        extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
+        sourceShapeId: prefill?.sourceShapeId,
+        sourceShapeRevision: prefill?.sourceShapeRevision,
+        existingChange,
+      });
     });
-    onClose();
   };
 
-  const [localEpicsDir, setLocalEpicsDir] = useState(epicsDir);
-
   return (
-    <Modal title={existingChange ? `Start Epic · ${existingChange.id}` : 'New task'} maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit} closeOnBackdrop={false}>
+    <Modal title={existingChange ? `Start Epic · ${existingChange.id}` : 'New change'} maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit} closeOnBackdrop={false} busy={submitting}>
       <div className="space-y-4">
+        {discoverContextBlocksStart && (
+          <div className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2.5 text-[11px] text-warning">
+            <div className="font-semibold text-foreground">Discover Context chưa READY ({discoverContextStatus})</div>
+            <p className="mt-1 leading-relaxed text-muted-foreground">
+              Pipeline <code className="font-mono">{selected.id}</code> cần Publish context trước.
+              Mở tab Discover → Publish context, rồi quay lại Start Epic. Hoặc chọn Save for later / Explore để chỉ capture Change.
+            </p>
+            <button
+              type="button"
+              onClick={() => { postMessage({ type: 'setView', view: 'discover' }); onClose(); }}
+              className="mt-2 rounded border border-warning/60 px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-warning/20"
+            >
+              Mở Discover để Publish
+            </button>
+          </div>
+        )}
         {isFirstEpic && hasFolder && (
           <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
             <label className="mb-1.5 flex items-center gap-1.5 text-[10.5px] font-bold uppercase tracking-wider text-primary">
@@ -634,18 +669,24 @@ export function StartEpicModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-              Task id
+              Task id{' '}
+              <span className="font-normal normal-case tracking-normal text-muted-foreground/80">(optional)</span>
             </label>
             <input
               ref={idInputRef}
               type="text"
               value={epicId}
               onChange={(e) => setEpicId(e.target.value)}
-              placeholder={nextEpicId || 'EPIC-001'}
+              placeholder={nextEpicId || '1'}
               spellCheck={false}
               disabled={!hasWorkflows || Boolean(existingChange)}
               className="w-full rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
             />
+            {!trimmedId && nextEpicId && startingEpicNow ? (
+              <div className="mt-1 text-[10.5px] text-muted-foreground">
+                Để trống → dùng <code className="font-mono text-foreground/80">{nextEpicId}</code>
+              </div>
+            ) : null}
             {idError && trimmedId && (
               <div className="mt-1 text-[10.5px] text-destructive">{idError}</div>
             )}
@@ -836,11 +877,14 @@ export function StartEpicModal({
       </div>
 
       <ModalFooter>
-        <ModalCancelButton onClick={onClose} />
+        <ModalCancelButton onClick={onClose} disabled={submitting} />
         <ModalConfirmButton
           onClick={submit}
           label={existingChange ? 'Start linked Epic' : nextAction === 'start-epic' ? 'Create & start' : nextAction === 'explore' ? 'Create & explore' : 'Save change'}
           disabled={!!error}
+          loading={submitting}
+          loadingLabel={existingChange ? 'Starting…' : nextAction === 'start-epic' ? 'Creating…' : nextAction === 'explore' ? 'Creating…' : 'Saving…'}
+          tourId={existingChange || nextAction === 'start-epic' ? 'change-route-start-epic' : undefined}
         />
       </ModalFooter>
     </Modal>

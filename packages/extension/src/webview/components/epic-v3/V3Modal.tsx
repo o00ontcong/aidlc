@@ -22,6 +22,7 @@ export function V3Modal({
   onClose,
   paddingTop = 90,
   closeOnBackdrop = true,
+  busy = false,
 }: {
   width?: number;
   maxHeight?: number;
@@ -35,18 +36,24 @@ export function V3Modal({
   /** When false a backdrop click does not dismiss (Esc still does). Use for
    *  forms where an accidental outside click would discard typed input. */
   closeOnBackdrop?: boolean;
+  /** Host action in flight — blocks Esc / backdrop dismiss. */
+  busy?: boolean;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (!busy) { onClose(); }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, busy]);
 
   return (
     <div
-      onClick={closeOnBackdrop ? onClose : undefined}
+      onClick={(closeOnBackdrop && !busy) ? onClose : undefined}
+      aria-busy={busy || undefined}
       style={{
         position: 'fixed',
         inset: 0,
@@ -96,13 +103,14 @@ export function V3Modal({
 
 /** dc.html:61-68 — header row. `tone` paints the --err-bg strip of the Gate modal. */
 export function V3ModalHeader({
-  icon, title, sub, onClose, tone,
+  icon, title, sub, onClose, tone, disabled,
 }: {
   icon?: ReactNode;
   title: string;
   sub?: string;
   onClose: () => void;
   tone?: 'err';
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -124,10 +132,12 @@ export function V3ModalHeader({
       <button
         type="button"
         onClick={onClose}
-        title="Đóng (Esc)"
+        disabled={disabled}
+        title={disabled ? 'Working…' : 'Đóng (Esc)'}
         style={{
-          cursor: 'pointer',
+          cursor: disabled ? 'not-allowed' : 'pointer',
           fontSize: 11,
+          opacity: disabled ? 0.4 : 1,
           color: 'var(--txt2)',
           border: '1px solid var(--bd)',
           borderRadius: 5,
@@ -298,18 +308,20 @@ export function V3Callout({
 
 /** dc.html:78 — text input inside a modal body. */
 export function V3Input({
-  value, onChange, placeholder, mono,
+  value, onChange, placeholder, mono, disabled,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   mono?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      disabled={disabled}
       className={mono ? 'v3-mono' : undefined}
       style={{
         background: 'var(--panel)',
@@ -320,6 +332,7 @@ export function V3Input({
         fontSize: 12.5,
         fontFamily: mono ? undefined : 'inherit',
         outline: 'none',
+        opacity: disabled ? 0.7 : 1,
       }}
     />
   );

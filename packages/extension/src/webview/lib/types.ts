@@ -733,7 +733,7 @@ export interface AgentMeta {
 }
 
 export interface ProjectDocumentSummary {
-  id: 'agents' | 'project' | 'status' | 'decisions';
+  id: 'agents';
   label: string;
   description: string;
   path: string;
@@ -794,6 +794,7 @@ export interface DiscoverItemDetail {
     status: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
     nextAction: string;
     discoverRevision?: string;
+    title?: string;
     publishedAt?: string;
     sourceCommit?: string | null;
     dirty?: boolean;
@@ -1046,7 +1047,48 @@ export interface DiscoverSummary {
     status: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
     discoverRevision?: string;
     publishedAt?: string;
+    title?: string;
+    description?: string;
     nextAction: string;
+    /** Project-level Publish Context revisions (newest first). */
+    publishHistory?: Array<{
+      discoverRevision: string;
+      parentRevision: string | null;
+      publishedAt: string;
+      title: string;
+      description: string;
+      reason: string;
+      eventCount: number;
+      entityIds: string[];
+      sourceCommit: string | null;
+      isCurrent: boolean;
+    }>;
+    /** Live vs last publish — shown in Publish Context modal. */
+    publishDiff?: {
+      hasPrevious: boolean;
+      previousRevision: string | null;
+      previousTitle: string | null;
+      unchanged: boolean;
+      documents: Array<{ path: string; change: 'added' | 'updated' | 'removed' }>;
+      entities: Array<{
+        id: string;
+        kind: 'requirement' | 'feature' | 'other';
+        change: 'created' | 'updated' | 'removed' | 'deprecated' | 'relinked';
+        title: string;
+        beforeTitle?: string;
+        changedFields: string[];
+        status: 'draft' | 'review' | 'ready' | 'deprecated';
+        beforeStatus?: 'draft' | 'review' | 'ready' | 'deprecated';
+      }>;
+      rules: Array<{ id: string; change: 'added' | 'updated' | 'removed'; text?: string; beforeText?: string }>;
+      source: {
+        changed: boolean;
+        previousCommit: string | null;
+        currentCommit: string | null;
+        dirty: boolean;
+        changedPaths: string[];
+      };
+    };
   };
   workItems: Array<{
     id: string;

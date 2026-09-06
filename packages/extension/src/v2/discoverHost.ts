@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { discoverRepoChangeCount, discoverRepoIsDirty } from './discoverGitCommit';
+import { suggestNextEpicId, formatSequencedEpicId } from './suggestNextEpicId';
 import {
   resolveCofofoPipelineId,
   CofofoFoundationService,
@@ -88,6 +89,7 @@ export interface DiscoverItemDetailUi {
     status: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
     nextAction: string;
     discoverRevision?: string;
+    title?: string;
     publishedAt?: string;
     sourceCommit?: string | null;
     dirty?: boolean;
@@ -202,7 +204,48 @@ export interface DiscoverUi {
     status: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
     discoverRevision?: string;
     publishedAt?: string;
+    title?: string;
+    description?: string;
     nextAction: string;
+    /** Project-level Publish Context revisions (newest first). */
+    publishHistory: Array<{
+      discoverRevision: string;
+      parentRevision: string | null;
+      publishedAt: string;
+      title: string;
+      description: string;
+      reason: string;
+      eventCount: number;
+      entityIds: string[];
+      sourceCommit: string | null;
+      isCurrent: boolean;
+    }>;
+    /** Live vs last publish — what Publish Context would lock in. */
+    publishDiff: {
+      hasPrevious: boolean;
+      previousRevision: string | null;
+      previousTitle: string | null;
+      unchanged: boolean;
+      documents: Array<{ path: string; change: 'added' | 'updated' | 'removed' }>;
+      entities: Array<{
+        id: string;
+        kind: 'requirement' | 'feature' | 'other';
+        change: 'created' | 'updated' | 'removed' | 'deprecated' | 'relinked';
+        title: string;
+        beforeTitle?: string;
+        changedFields: string[];
+        status: 'draft' | 'review' | 'ready' | 'deprecated';
+        beforeStatus?: 'draft' | 'review' | 'ready' | 'deprecated';
+      }>;
+      rules: Array<{ id: string; change: 'added' | 'updated' | 'removed'; text?: string; beforeText?: string }>;
+      source: {
+        changed: boolean;
+        previousCommit: string | null;
+        currentCommit: string | null;
+        dirty: boolean;
+        changedPaths: string[];
+      };
+    };
   };
   /** Feature, bug and maintenance requests; each is promoted to an Epic separately. */
   workItems: WorkItem[];
@@ -446,6 +489,7 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
               publishedAt: contextInspection.context.publishedAt,
               sourceCommit: contextInspection.context.sourceCommit,
               dirty: contextInspection.context.dirty,
+              ...(contextInspection.context.title ? { title: contextInspection.context.title } : {}),
             } : {}),
           },
           ...(publishedEntity ? {
@@ -535,8 +579,23 @@ export function buildDiscoverUi(root: string): DiscoverUi | undefined {
       ...(contextInspection.context ? {
         discoverRevision: contextInspection.context.discoverRevision,
         publishedAt: contextInspection.context.publishedAt,
+        ...(contextInspection.context.title ? { title: contextInspection.context.title } : {}),
+        ...(contextInspection.context.description ? { description: contextInspection.context.description } : {}),
       } : {}),
       nextAction: contextInspection.nextAction,
+      publishHistory: publisher.listPublishHistory().map((entry) => ({
+        discoverRevision: entry.discoverRevision,
+        parentRevision: entry.parentRevision,
+        publishedAt: entry.publishedAt,
+        title: entry.title,
+        description: entry.description,
+        reason: entry.reason,
+        eventCount: entry.eventCount,
+        entityIds: entry.entityIds,
+        sourceCommit: entry.sourceCommit,
+        isCurrent: entry.isCurrent,
+      })),
+      publishDiff: publisher.previewPublishDiff(),
     },
     workItems: new ProjectWorkService(root).list(),
     runs: [...index.runs].reverse().slice(0, 20),
@@ -754,17 +813,12 @@ export function scaffoldEpicFromSuggestion(root: string, input: ScaffoldSuggesti
   return { epicId, contextPath };
 }
 
-/** `EPIC-004` — continues whatever numbering the workspace already uses. */
+/** `EPIC-1060` — digits from existing folders, stored with EPIC- prefix. */
 function nextEpicId(root: string, doc: { state?: unknown }): string {
   const epicRoot = ((doc.state as { epics_dir?: unknown } | undefined)?.epics_dir as string | undefined) ?? 'docs/epics';
   const dir = path.join(root, epicRoot);
   const existing = fs.existsSync(dir)
     ? fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
     : [];
-  const numbers = existing
-    .map((id) => /^EPIC-(\d+)$/.exec(id)?.[1])
-    .filter((n): n is string => !!n)
-    .map(Number);
-  const next = numbers.length ? Math.max(...numbers) + 1 : 1;
-  return `EPIC-${String(next).padStart(3, '0')}`;
+  return formatSequencedEpicId(suggestNextEpicId(existing));
 }

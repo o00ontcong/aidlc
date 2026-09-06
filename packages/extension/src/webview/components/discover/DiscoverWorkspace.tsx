@@ -4,10 +4,11 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ExternalLink, PanelRight, Play, RefreshCw, Rocket, ScanSearch, Upload } from 'lucide-react';
-import type { ContextProposal, DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary, ProjectChangeReadModel, ProjectContextHead } from '@/lib/types';
+import { AlertTriangle, ExternalLink, Loader2, PanelRight, Play, RefreshCw, Rocket, Upload } from 'lucide-react';
+import type { ContextProposal, DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary, ProjectContextHead } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
-import { discoverCopy, type DiscoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
+import { useHostAction } from '@/hooks/useHostAction';
+import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 import { AgentPanel } from './AgentPanel';
 import { DiffView } from './DiffView';
 import { ContextProposalReview, reviewWorthyProposals } from './ContextProposalReview';
@@ -15,90 +16,23 @@ import { DocsMode } from './DocsMode';
 import { MarkdownLite } from './MarkdownLite';
 import { RawMarkdownPane } from './RawMarkdownPane';
 import { HandoffPanel } from './HandoffPanel';
-import { WorkItemsPanel } from './WorkItemsPanel';
 import { StepStatusView, stepHasStatusView } from './StepStatusView';
+import { DiscoverPublishContextModal } from './DiscoverPublishContextModal';
 import { DISCOVER_RAIL_DEFAULT_WIDTH, DISCOVER_RAIL_MAX_WIDTH, DISCOVER_RAIL_MIN_WIDTH, StepRail } from './StepRail';
 import { docsForStep } from './lib';
 import { cn } from '@/lib/utils';
 
-type Mode = 'pipeline' | 'docs' | 'checks' | 'work';
+type Mode = 'pipeline' | 'docs' | 'checks';
 type StepPane = 'raw' | 'preview';
 
 function clampRailWidth(value: number): number {
   return Math.max(DISCOVER_RAIL_MIN_WIDTH, Math.min(DISCOVER_RAIL_MAX_WIDTH, Math.round(value)));
 }
 
-type ScanChipState = 'locked' | 'next' | 'running' | 'review' | 'kept';
-
-function scanChipState(
-  pass: 1 | 2 | 3,
-  lastKeptPass: 0 | 1 | 2 | 3,
-  activeScanPass?: 1 | 2 | 3,
-  activeStatus?: 'running' | 'review',
-): ScanChipState {
-  if (activeScanPass === pass) { return activeStatus === 'review' ? 'review' : 'running'; }
-  if (pass <= lastKeptPass) { return 'kept'; }
-  if (pass === lastKeptPass + 1) { return 'next'; }
-  return 'locked';
-}
-
-function ScanPassStepper({
-  discover, copy,
-}: {
-  discover: DiscoverSummary;
-  copy: DiscoverCopy;
-}) {
-  const campaign = discover.scanCampaign;
-  // Only while a campaign is in progress — hide the stepper once all 3 passes are done.
-  if (!campaign || campaign.status !== 'active') { return null; }
-  const active = discover.activeRun?.run.kind === 'scan' ? discover.activeRun.run : undefined;
-  const passes: Array<1 | 2 | 3> = [1, 2, 3];
-  const busy = Boolean(discover.activeRun);
-  return (
-    <span className="flex flex-wrap items-center gap-0.5">
-      {passes.map((pass, i) => {
-        const state = scanChipState(pass, campaign.lastKeptPass, active?.scanPass, active?.status === 'review' || active?.status === 'running' ? active.status : undefined);
-        const label = copy.scanPassShort(pass);
-        const clickable = !busy && (state === 'next' || state === 'kept');
-        const tone =
-          state === 'kept' ? 'border-success/40 bg-success/10 text-success'
-          : state === 'next' ? 'border-primary/50 bg-primary/10 font-semibold text-foreground'
-          : state === 'running' || state === 'review' ? 'border-warning/50 bg-warning/10 text-warning'
-          : 'border-border text-muted-foreground/60';
-        return (
-          <span key={pass} className="flex items-center gap-0.5">
-            {i > 0 && <span className="px-0.5 text-[9px] text-muted-foreground/50">→</span>}
-            <button
-              type="button"
-              disabled={!clickable}
-              title={copy.hints.scanPassChip(label, state)}
-              onClick={() => postMessage({ type: 'runDiscoverScanPass', pass })}
-              className={`rounded border px-1.5 py-0.5 text-[10px] ${tone} ${clickable ? 'hover:bg-accent' : 'cursor-not-allowed'}`}
-            >
-              {pass} {label}
-            </button>
-          </span>
-        );
-      })}
-      {campaign.status === 'active' && !busy && (
-        <button
-          type="button"
-          title={copy.hints.abandonScan}
-          onClick={() => postMessage({ type: 'abandonDiscoverScan' })}
-          className="ml-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {copy.abandonScan}
-        </button>
-      )}
-    </span>
-  );
-}
-
 export function DiscoverWorkspace({
-  discover, changes, contextProposals, contextHead, language, savedRailWidth, savedAgentPanelOpen,
+  discover, contextProposals, contextHead, language, savedRailWidth, savedAgentPanelOpen,
 }: {
   discover: DiscoverSummary;
-  changes: ProjectChangeReadModel[];
   contextProposals: ContextProposal[];
   contextHead?: ProjectContextHead;
   language: DiscoverLanguage;
@@ -111,6 +45,7 @@ export function DiscoverWorkspace({
   const [pane, setPane] = useState<StepPane>('preview');
   const [diffOpen, setDiffOpen] = useState(false);
   const [proposalReviewOpen, setProposalReviewOpen] = useState(false);
+  const [publishContextOpen, setPublishContextOpen] = useState(false);
   const proposalsAwaitingReview = reviewWorthyProposals(contextProposals);
   const [agentPanelOpen, setAgentPanelOpen] = useState(savedAgentPanelOpen === true);
   const [railWidth, setRailWidth] = useState(() => {
@@ -119,6 +54,7 @@ export function DiscoverWorkspace({
     }
     return clampRailWidth(savedRailWidth);
   });
+  const { pending: actionPending, run: runAction, isPending } = useHostAction();
 
   const persistAgentPanel = (open: boolean) => {
     setAgentPanelOpen(open);
@@ -145,6 +81,10 @@ export function DiscoverWorkspace({
       : discover.context.status === 'stale'
         ? 'border-warning/50 bg-warning/10 text-warning'
         : 'border-border text-muted-foreground';
+  const publishDisabled = discover.context.status === 'ready';
+  const publishTitle = publishDisabled
+    ? copy.publishContextModal.publishDisabledReady
+    : discover.context.nextAction;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -153,46 +93,66 @@ export function DiscoverWorkspace({
         <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{discover.docsRoot}/</code>
 
         <div className="flex overflow-hidden rounded-md border border-border">
-          {(['pipeline', 'docs', 'work'] as const).map((m) => (
+          {(['pipeline', 'docs'] as const).map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => setMode(m)}
-              title={m === 'pipeline' ? copy.hints.showPipeline : m === 'docs' ? copy.hints.showDocs : 'Công việc dự án'}
+              title={m === 'pipeline' ? copy.hints.showPipeline : copy.hints.showDocs}
               className={`px-2.5 py-1 text-[11px] transition ${
                 mode === m ? 'bg-primary font-semibold text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
             >
-              {m === 'pipeline' ? copy.modePipeline : m === 'docs' ? copy.modeDocs : 'Công việc'}
+              {m === 'pipeline' ? copy.modePipeline : copy.modeDocs}
             </button>
           ))}
         </div>
 
-        <span className="ml-auto flex items-start gap-1.5">
-          <span title={discover.context.nextAction} className={`rounded border px-1.5 py-0.5 font-mono text-[9.5px] font-semibold ${contextTone}`}>
-            Context · {discover.context.status}{discover.context.discoverRevision ? ` · ${discover.context.discoverRevision}` : ''}
+        <span className="ml-auto flex items-center gap-1.5">
+          <span
+            title={discover.context.nextAction}
+            className={cn(
+              'inline-flex h-[26px] items-center rounded-md border px-2 text-[11px] font-semibold',
+              contextTone,
+              !discover.context.title && 'font-mono',
+            )}
+          >
+            Context · {discover.context.status}{discover.context.title
+              ? ` · ${discover.context.title}`
+              : discover.context.discoverRevision
+                ? ` · ${discover.context.discoverRevision}`
+                : ''}
           </span>
           <button
             type="button"
-            onClick={() => postMessage({ type: 'publishDiscoverContext' })}
-            title={discover.context.nextAction}
-            className="inline-flex items-center gap-1 rounded-md border border-primary/50 bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20"
+            onClick={() => { if (!publishDisabled) { setPublishContextOpen(true); } }}
+            disabled={publishDisabled}
+            data-tour-id="discover-publish-context"
+            title={publishTitle}
+            className={cn(
+              'inline-flex h-[26px] items-center gap-1 rounded-md border px-2 text-[11px] font-semibold transition',
+              publishDisabled
+                ? 'cursor-not-allowed border-border bg-muted/40 text-muted-foreground opacity-60'
+                : 'border-primary/50 bg-primary/10 text-primary hover:bg-primary/20',
+            )}
           >
             <Upload className="h-3 w-3" />Publish context
           </button>
           <button
             type="button"
-            onClick={() => postMessage({ type: 'commitDiscoverChanges' })}
+            onClick={() => runAction(() => postMessage({ type: 'commitDiscoverChanges' }), 'commit')}
+            disabled={actionPending}
             title={copy.hints.commitAll}
             className={cn(
-              'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition',
+              'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition disabled:cursor-wait disabled:opacity-70',
               discover.hasUncommittedChanges
                 ? 'border-primary bg-primary font-semibold text-primary-foreground hover:bg-primary/90'
                 : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
-            {copy.commitAll}
-            {discover.hasUncommittedChanges && (
+            {isPending('commit') ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            {isPending('commit') ? 'Committing…' : copy.commitAll}
+            {!isPending('commit') && discover.hasUncommittedChanges && (
               <span className="rounded bg-primary-foreground/20 px-1 text-[10px] font-semibold">
                 {discover.uncommittedChangeCount ?? 0}
               </span>
@@ -213,12 +173,13 @@ export function DiscoverWorkspace({
           </button>
           <button
             type="button"
-            onClick={() => postMessage({ type: 'reloadDiscover' })}
+            onClick={() => runAction(() => postMessage({ type: 'reloadDiscover' }), 'reload')}
+            disabled={actionPending}
             title={copy.hints.reloadDocs}
             aria-label={copy.reload}
-            className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-70"
           >
-            <RefreshCw className="h-3 w-3" />
+            <RefreshCw className={cn('h-3 w-3', isPending('reload') && 'animate-spin')} />
           </button>
           <button
             type="button"
@@ -228,18 +189,6 @@ export function DiscoverWorkspace({
           >
             <ExternalLink className="h-3 w-3" />{copy.openInEditor}
           </button>
-          <div className="inline-flex flex-col items-start gap-1">
-          <button
-            type="button"
-            onClick={() => postMessage({ type: 'scanDiscoverProject' })}
-            data-tour-id="discover-scan"
-              title={copy.hints.scanProject}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <ScanSearch className="h-3 w-3" />{copy.scanProject}
-            </button>
-            <ScanPassStepper discover={discover} copy={copy} />
-          </div>
           <button
             type="button"
             onClick={() => persistAgentPanel(!agentPanelOpen)}
@@ -255,11 +204,13 @@ export function DiscoverWorkspace({
           </button>
           <button
             type="button"
-            onClick={() => postMessage({ type: 'runDiscoverPipeline' })}
+            onClick={() => runAction(() => postMessage({ type: 'runDiscoverPipeline' }), 'pipeline')}
+            disabled={actionPending}
             title={copy.hints.runPipeline}
-            className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+            className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
           >
-            <Play className="h-3 w-3" />{copy.runPipeline}
+            {isPending('pipeline') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+            {isPending('pipeline') ? 'Starting…' : copy.runPipeline}
           </button>
         </span>
       </header>
@@ -284,8 +235,26 @@ export function DiscoverWorkspace({
           </span>
           <span className="ml-auto flex gap-2">
             <button type="button" title={copy.hints.showDiff} onClick={() => setDiffOpen(true)} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.viewDiff}</button>
-            <button type="button" title={copy.hints.keepRun} onClick={() => postMessage({ type: 'keepDiscoverRun', runId: active.run.id })} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.keep}</button>
-            <button type="button" title={copy.hints.revertRun} onClick={() => postMessage({ type: 'revertDiscoverRun', runId: active.run.id })} className="rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20">{copy.revert}</button>
+            <button
+              type="button"
+              title={copy.hints.keepRun}
+              disabled={actionPending}
+              onClick={() => runAction(() => postMessage({ type: 'keepDiscoverRun', runId: active.run.id }), 'keep')}
+              className="inline-flex items-center gap-1 rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20 disabled:cursor-wait disabled:opacity-70"
+            >
+              {isPending('keep') && <Loader2 className="h-3 w-3 animate-spin" />}
+              {isPending('keep') ? 'Keeping…' : copy.keep}
+            </button>
+            <button
+              type="button"
+              title={copy.hints.revertRun}
+              disabled={actionPending}
+              onClick={() => runAction(() => postMessage({ type: 'revertDiscoverRun', runId: active.run.id }), 'revert')}
+              className="inline-flex items-center gap-1 rounded border border-warning/50 px-2 py-0.5 hover:bg-warning/20 disabled:cursor-wait disabled:opacity-70"
+            >
+              {isPending('revert') && <Loader2 className="h-3 w-3 animate-spin" />}
+              {isPending('revert') ? 'Reverting…' : copy.revert}
+            </button>
           </span>
         </div>
       )}
@@ -304,7 +273,6 @@ export function DiscoverWorkspace({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {mode === 'checks' && <ChecksView discover={discover} copy={copy} onBack={() => setMode('pipeline')} />}
         {mode === 'docs' && <DocsMode discover={discover} copy={copy} />}
-        {mode === 'work' && <WorkItemsPanel changes={changes} />}
         {mode === 'pipeline' && (
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <StepRail
@@ -342,6 +310,14 @@ export function DiscoverWorkspace({
       {proposalReviewOpen && (
         <ContextProposalReview proposals={contextProposals} contextHead={contextHead} onClose={() => setProposalReviewOpen(false)} />
       )}
+      {publishContextOpen && (
+        <DiscoverPublishContextModal
+          language={language}
+          history={discover.context.publishHistory ?? []}
+          publishDiff={discover.context.publishDiff}
+          onClose={() => setPublishContextOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -357,6 +333,7 @@ function StepDetail({
 }) {
   const step = discover.steps.find((s) => s.id === stepId)!;
   const docs = docsForStep(discover, stepId);
+  const { pending, run } = useHostAction();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -415,11 +392,13 @@ function StepDetail({
       <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-2">
         <button
           type="button"
-          onClick={() => postMessage({ type: 'runDiscoverStep', step: stepId })}
+          disabled={pending}
+          onClick={() => run(() => postMessage({ type: 'runDiscoverStep', step: stepId }))}
           title={copy.hints.runStep}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
         >
-          <Play className="h-3 w-3" />{copy.runStep}
+          {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+          {pending ? 'Starting…' : copy.runStep}
         </button>
       </footer>
     </div>
@@ -453,6 +432,7 @@ function SuggestionCard({ suggestion, copy }: { suggestion: DiscoverEpicSuggesti
     : suggestion.level === 'warn'
       ? 'border-warning/40 bg-warning/5'
       : 'border-border bg-card';
+  const { pending, run } = useHostAction();
   return (
     <li className={`overflow-hidden rounded-lg border ${levelClass}`}>
       <header className="flex flex-wrap items-start gap-2 border-b border-border/50 px-3 py-2">
@@ -487,11 +467,13 @@ function SuggestionCard({ suggestion, copy }: { suggestion: DiscoverEpicSuggesti
       <footer className="flex justify-end border-t border-border/40 px-3 py-1.5">
         <button
           type="button"
+          disabled={pending}
           title={copy.hints.createEpic}
-          onClick={() => postMessage({ type: 'scaffoldEpicFromSuggestion', suggestionId: suggestion.id })}
-          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90"
+          onClick={() => run(() => postMessage({ type: 'scaffoldEpicFromSuggestion', suggestionId: suggestion.id }))}
+          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[10.5px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
         >
-          <Rocket className="h-3 w-3" />{copy.startEpicFromCheck}
+          {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Rocket className="h-3 w-3" />}
+          {pending ? 'Starting…' : copy.startEpicFromCheck}
         </button>
       </footer>
     </li>

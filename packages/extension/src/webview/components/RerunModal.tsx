@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useHostAction } from '@/hooks/useHostAction';
 import { Btn, Mono } from './epic-v3/primitives';
 import {
   V3Callout, V3Field, V3Modal, V3ModalFooter, V3ModalHeader, V3Textarea,
@@ -31,10 +32,11 @@ export function RerunModal({
   onClose,
 }: Props) {
   const [feedback, setFeedback] = useState(initialFeedback);
+  const { pending, run } = useHostAction({ onSettled: onClose });
 
   const submit = () => {
-    onSubmit(feedback.trim());
-    onClose();
+    if (pending) { return; }
+    run(() => onSubmit(feedback.trim()));
   };
 
   return (
@@ -42,17 +44,27 @@ export function RerunModal({
       width={560}
       paddingTop={110}
       onClose={onClose}
+      busy={pending}
       header={
         <V3ModalHeader
           title="Rerun step"
           sub={`${agent} · run ${runId}`}
           onClose={onClose}
+          disabled={pending}
         />
       }
       footer={
         <V3ModalFooter cli={`aidlc step rerun ${runId}`}>
-          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
-          <Btn label="Rerun" variant="primary" onClick={submit} pad="9px 16px" fs={12.5} />
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} disabled={pending} />
+          <Btn
+            label="Rerun"
+            variant="primary"
+            onClick={submit}
+            loading={pending}
+            loadingLabel="Rerunning…"
+            pad="9px 16px"
+            fs={12.5}
+          />
         </V3ModalFooter>
       }
     >
@@ -68,6 +80,7 @@ export function RerunModal({
           placeholder={rejectReason ?? 'ví dụ: xử lý phản hồi của reviewer về test coverage'}
           autoFocus
           selectOnFocus
+          disabled={pending}
         />
       </V3Field>
     </V3Modal>

@@ -7,16 +7,23 @@ type Rect = { top: number; left: number; width: number; height: number };
  * Optional spotlight, activated only by the user. Four panes leave the target
  * unobscured; `pointer-events: none` means it never turns the tour into a
  * wizard or blocks the underlying action. Escape first returns to coach mode.
+ *
+ * scrollIntoView runs once when the target first appears — never on scroll/
+ * mutation follow-ups, otherwise the layer fights the user and traps them.
  */
 export function ProductTourFocusLayer({ anchor, onDismiss }: { anchor?: ProductTourAnchor; onDismiss: () => void }) {
   const [rect, setRect] = useState<Rect | null>(null);
   useEffect(() => {
     if (!anchor) { setRect(null); return; }
     let frame = 0;
+    let scrolledFor: HTMLElement | null = null;
     const locate = () => {
       const element = document.querySelector<HTMLElement>(`[data-tour-id="${anchor}"]`);
       if (!element) { setRect(null); return; }
-      element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+      if (scrolledFor !== element) {
+        scrolledFor = element;
+        element.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      }
       const next = element.getBoundingClientRect();
       setRect({ top: next.top, left: next.left, width: next.width, height: next.height });
     };

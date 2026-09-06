@@ -2,33 +2,23 @@
  *
  * Markdown under docsRoot is the source of truth; this tab is a structured way
  * to read and edit those files, plus the review surface for what an agent
- * wrote into them.
+ * wrote into them. Scan entry lives on Project (Safe scan panel).
  */
 
 import { useEffect, useState } from 'react';
 import { BookOpen, Compass, ScanSearch } from 'lucide-react';
-import type { DiscoverCommitModalOpen, DiscoverScopeModalOpen, WorkspaceState } from '@/lib/types';
+import type { DiscoverCommitModalOpen, WorkspaceState } from '@/lib/types';
 import { onHostMessage, postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 import { DiscoverWorkspace } from './discover/DiscoverWorkspace';
-import { DiscoverScopeModal } from './discover/DiscoverScopeModal';
 import { DiscoverCommitModal } from './discover/DiscoverCommitModal';
 
 export function DiscoverView({ state }: { state: WorkspaceState }) {
   const language = (state.displayLanguage ?? 'en') as DiscoverLanguage;
-  const [scopeModal, setScopeModal] = useState<DiscoverScopeModalOpen | null>(null);
   const [commitModal, setCommitModal] = useState<DiscoverCommitModalOpen | null>(null);
 
   useEffect(() => {
     return onHostMessage((msg) => {
-      if (msg.type === 'openDiscoverScopeModal') {
-        setScopeModal({
-          intent: msg.intent === 'edit' ? 'edit' : 'scan',
-          mode: msg.mode === 'confirm' ? 'confirm' : 'wizard',
-          probe: msg.probe as DiscoverScopeModalOpen['probe'],
-          existing: msg.existing as DiscoverScopeModalOpen['existing'],
-        });
-      }
       if (msg.type === 'openDiscoverCommitModal') {
         setCommitModal({
           defaultMessage: String(msg.defaultMessage ?? ''),
@@ -44,7 +34,6 @@ export function DiscoverView({ state }: { state: WorkspaceState }) {
       {state.discover
         ? <DiscoverWorkspace
             discover={state.discover}
-            changes={state.changes}
             contextProposals={state.contextProposals}
             contextHead={state.contextHead}
             language={language}
@@ -52,13 +41,6 @@ export function DiscoverView({ state }: { state: WorkspaceState }) {
             savedAgentPanelOpen={state.discoverViewUi?.agentPanelOpen}
           />
         : <EmptyState language={language} />}
-      {scopeModal && (
-        <DiscoverScopeModal
-          open={scopeModal}
-          language={language}
-          onClose={() => setScopeModal(null)}
-        />
-      )}
       {commitModal && (
         <DiscoverCommitModal
           open={commitModal}
@@ -117,7 +99,11 @@ function EmptyState({ language }: { language: DiscoverLanguage }) {
         <div className="mt-4 flex items-start gap-3 rounded-md border border-border bg-secondary/30 p-3">
           <ScanSearch className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] leading-relaxed text-muted-foreground">{copy.scanExistingHint}</p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {language === 'vi'
+                ? 'Hoặc quét từ tab Dự án (Quét an toàn như Git) — scope modal mở từ mọi tab.'
+                : 'Or scan from the Project tab (Safe scan) — the scope modal opens from any tab.'}
+            </p>
             <button
               type="button"
               onClick={() => postMessage({ type: 'scanDiscoverProject' })}

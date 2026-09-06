@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { postMessage } from '@/lib/bridge';
+import { useHostAction } from '@/hooks/useHostAction';
 import { runStepButtonLabel, isRunStepDisabled, runStepDisabledHint } from '@/lib/providers';
 import type { AgentMeta, EpicStepDetailFull, EpicSummary, ProviderConfig, StepStatus, WorkspaceState } from '@/lib/types';
 import { EpicVisualsCard } from './EpicVisuals';
@@ -144,39 +145,41 @@ export function EpicDetail({
 
       <EpicVisualsCard epic={epic} />
 
-      {/* ⑤ flow */}
-      {steps.length > 0 && (
-        <FlowCard
-          epic={epic}
-          focused={focused}
-          focusedIdx={focusedIdx}
-          onNodeClick={setFocusedIdx}
-        />
-      )}
-
-      {/* gate banner — trước chi tiết step đang focus */}
-      {focused && (
-        <GateBanner
-          epic={epic}
-          focused={focused}
-          focusedIdx={focusedIdx}
-          providerConfig={state.providerConfig}
-        />
-      )}
-
-      {/* step detail + history — ngay dưới flow */}
-      {focused && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: GAP, flex: 'none' }}>
-          <StepDetailCard
+      {/* ⑤ flow + gate + step actions — tour spotlight for delivery work */}
+      <div data-tour-id="epic-delivery-pipeline" style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
+        {steps.length > 0 && (
+          <FlowCard
             epic={epic}
-            step={focused}
+            focused={focused}
             focusedIdx={focusedIdx}
-            agentMeta={state.agentMeta}
+            onNodeClick={setFocusedIdx}
+          />
+        )}
+
+        {/* gate banner — trước chi tiết step đang focus */}
+        {focused && (
+          <GateBanner
+            epic={epic}
+            focused={focused}
+            focusedIdx={focusedIdx}
             providerConfig={state.providerConfig}
           />
-          <HistoryCard step={focused} />
-        </div>
-      )}
+        )}
+
+        {/* step detail + history — ngay dưới flow */}
+        {focused && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: GAP, flex: 'none' }}>
+            <StepDetailCard
+              epic={epic}
+              step={focused}
+              focusedIdx={focusedIdx}
+              agentMeta={state.agentMeta}
+              providerConfig={state.providerConfig}
+            />
+            <HistoryCard step={focused} />
+          </div>
+        )}
+      </div>
 
       {/* epic config */}
       <EpicConfigCard epic={epic} />
@@ -330,16 +333,19 @@ function EpicRequestCard({ epic }: { epic: EpicSummary }) {
 function EpicOwningChangeCard({ epic, state }: { epic: EpicSummary; state: WorkspaceState }) {
   const owning = state.changes.find((rm) => rm.change.epicLink?.state === 'linked' && rm.change.epicLink.epicId === epic.id);
   const canMarkContextNotRequired = owning?.availableActions.some((action) => action.command === 'change.context.notrequired') ?? false;
+  const { pending, run } = useHostAction();
   const markContextNotRequired = () => {
-    if (!owning) return;
+    if (!owning || pending) return;
     const reason = window.prompt('Vì sao delivery này không cần cập nhật Project Context?');
     if (!reason?.trim()) return;
-    postMessage({
-      type: 'markChangeContextNotRequired',
-      changeId: owning.change.id,
-      epicId: epic.id,
-      guard: { expectedRevision: owning.change.revision, expectedContentHash: owning.change.contentHash },
-      reason: reason.trim(),
+    run(() => {
+      postMessage({
+        type: 'markChangeContextNotRequired',
+        changeId: owning.change.id,
+        epicId: epic.id,
+        guard: { expectedRevision: owning.change.revision, expectedContentHash: owning.change.contentHash },
+        reason: reason.trim(),
+      });
     });
   };
 
@@ -374,7 +380,15 @@ function EpicOwningChangeCard({ epic, state }: { epic: EpicSummary; state: Works
             )}
             {canMarkContextNotRequired && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Btn label="Không cần cập nhật Context" variant="ghost" pad="5px 8px" fs={11} onClick={markContextNotRequired} />
+                <Btn
+                  label="Không cần cập nhật Context"
+                  variant="ghost"
+                  pad="5px 8px"
+                  fs={11}
+                  onClick={markContextNotRequired}
+                  loading={pending}
+                  loadingLabel="Saving…"
+                />
                 <span style={{ fontSize: 10.5, color: 'var(--txt3)' }}>Cần nêu rõ lý do; không tự đánh dấu Done.</span>
               </div>
             )}
@@ -465,9 +479,10 @@ function FlowCard({
 function EpicConfigCard({ epic }: { epic: EpicSummary }) {
   const rows = useMemo(() => configRows(epic), [epic]);
   const hasPipelineCheckpoint = Boolean(epic.pipeline && epic.runId);
+  const { pending, run, isPending } = useHostAction();
   const setRunMode = (mode: 'guided' | 'autonomous') => {
-    if (!hasPipelineCheckpoint || epic.runMode === mode) { return; }
-    postMessage({ type: 'setEpicRunMode', epicId: epic.id, mode });
+    if (!hasPipelineCheckpoint || epic.runMode === mode || pending) { return; }
+    run(() => postMessage({ type: 'setEpicRunMode', epicId: epic.id, mode }), `mode:${mode}`);
   };
   return (
     <Card>
@@ -531,13 +546,15 @@ function EpicConfigCard({ epic }: { epic: EpicSummary }) {
             variant="primary"
             pad="7px 11px"
             fs={11.5}
-            disabled={!hasPipelineCheckpoint || epic.runMode !== 'autonomous'}
+            disabled={!hasPipelineCheckpoint || epic.runMode !== 'autonomous' || pending}
+            loading={isPending('provider-run')}
+            loadingLabel="Starting…"
             title={!hasPipelineCheckpoint
               ? 'Epic này không có pipeline checkpoint để chạy.'
               : epic.runMode !== 'autonomous'
                 ? 'Chọn Provider-managed trước khi chạy provider master.'
                 : 'Chạy hoặc tiếp tục pipeline từ checkpoint hiện có; có thể dùng lại sau khi pause/fail.'}
-            onClick={() => postMessage({ type: 'runTaskWithProvider', epicId: epic.id })}
+            onClick={() => run(() => postMessage({ type: 'runTaskWithProvider', epicId: epic.id }), 'provider-run')}
           />
         </div>
       </div>
@@ -595,6 +612,7 @@ function GateBanner({
   const [gateOpen, setGateOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const { pending, run } = useHostAction();
 
   // Only a step actually parked on human review is a gate (EpicCard's
   // awaiting_review branch). Everything else has no banner.
@@ -653,7 +671,9 @@ function GateBanner({
             pad="8px 14px"
             fs={12.5}
             title="Mở artifact bundle bất biến trong Annotron và chờ verdict content-addressed."
-            onClick={() => postMessage({ type: 'reviewCanvasStep', runId, stepIdx: focusedIdx })}
+            loading={pending}
+            loadingLabel="Opening…"
+            onClick={() => run(() => postMessage({ type: 'reviewCanvasStep', runId, stepIdx: focusedIdx }))}
           />
         ) : (
           <>
@@ -739,6 +759,7 @@ function StepActions({
 }) {
   const [rerunOpen, setRerunOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const { pending, run, isPending } = useHostAction();
 
   if (!epic.runId) { return null; }
   const ui = runStatusUi(step.runStatus);
@@ -769,24 +790,29 @@ function StepActions({
                     : runStepButtonLabel(providerConfig, 'default')
               }
               title={runHint}
-              disabled={runDisabled}
+              disabled={runDisabled || pending}
+              loading={isPending('run')}
               onClick={stop(() => {
-                if (runDisabled) { return; }
+                if (runDisabled || pending) { return; }
                 if (hasFeedback) { setRunOpen(true); return; }
-                postMessage({ type: 'runStepWithFeedback', runId, slashCommand, feedback: '' });
+                run(() => postMessage({ type: 'runStepWithFeedback', runId, slashCommand, feedback: '' }), 'run');
               })}
             />
           )}
           <StepBtn
             label="Đánh dấu step xong"
             title="Bỏ qua agent — ghi step này là done trên disk. Không chạy code, không tạo artifact."
-            onClick={stop(() => postMessage({ type: 'markStepDone', runId, stepIdx }))}
+            disabled={pending}
+            loading={isPending('done')}
+            onClick={stop(() => run(() => postMessage({ type: 'markStepDone', runId, stepIdx }), 'done'))}
           />
           {step.stepSkippable && (
             <StepBtn
               label="Bỏ qua step này"
               title="Bỏ qua toàn bộ step này, không tạo artifact. Dùng khi step không có việc cần làm."
-              onClick={stop(() => postMessage({ type: 'skipStep', runId, stepIdx }))}
+              disabled={pending}
+              loading={isPending('skip')}
+              onClick={stop(() => run(() => postMessage({ type: 'skipStep', runId, stepIdx }), 'skip'))}
             />
           )}
         </>
@@ -796,7 +822,9 @@ function StepActions({
           kind="primary"
           label="Chạy auto-review"
           title="Chạy validator máy cho step này. Không phải Approve."
-          onClick={stop(() => postMessage({ type: 'runAutoReview', runId, stepIdx }))}
+          disabled={pending}
+          loading={isPending('auto-review')}
+          onClick={stop(() => run(() => postMessage({ type: 'runAutoReview', runId, stepIdx }), 'auto-review'))}
         />
       )}
       {status === 'rejected' && (
@@ -806,22 +834,26 @@ function StepActions({
               kind="primary"
               label={runStepButtonLabel(providerConfig, 'again')}
               title={runHint}
-              disabled={runDisabled}
+              disabled={runDisabled || pending}
+              loading={isPending('rerun')}
               onClick={stop(() => {
-                if (runDisabled) { return; }
-                postMessage({
-                  type: 'rerunAndRunWithClaude',
-                  runId,
-                  stepIdx,
-                  slashCommand,
-                  feedback: step.rejectReason ?? '',
-                });
+                if (runDisabled || pending) { return; }
+                run(() => {
+                  postMessage({
+                    type: 'rerunAndRunWithClaude',
+                    runId,
+                    stepIdx,
+                    slashCommand,
+                    feedback: step.rejectReason ?? '',
+                  });
+                }, 'rerun');
               })}
             />
           )}
           <StepBtn
             label="Sửa feedback rồi chạy"
             title="Mở form sửa lý do reject trước khi rerun. Khác nút chạy lại ngay bên cạnh."
+            disabled={pending}
             onClick={stop(() => setRerunOpen(true))}
           />
         </>
@@ -852,13 +884,14 @@ function StepActions({
 
 /* dc.html:888 — step action button */
 function StepBtn({
-  label, onClick, kind = 'default', disabled = false, title,
+  label, onClick, kind = 'default', disabled = false, title, loading = false,
 }: {
   label: string;
   onClick: () => void;
   kind?: 'default' | 'primary' | 'danger';
   disabled?: boolean;
   title?: string;
+  loading?: boolean;
 }) {
   const skin =
     kind === 'primary'
@@ -866,19 +899,33 @@ function StepBtn({
       : kind === 'danger'
         ? { border: '1px solid var(--err-bd)', background: 'transparent', color: 'var(--err)' }
         : { border: '1px solid var(--bd)', background: 'transparent', color: 'var(--txt)' };
+  const busy = disabled || loading;
   return (
     <button
       type="button"
       title={title}
-      disabled={disabled}
+      disabled={busy}
+      aria-busy={loading || undefined}
       onClick={onClick}
       style={{
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.45 : 1,
+        cursor: busy ? 'not-allowed' : 'pointer',
+        opacity: busy ? 0.45 : 1,
         fontSize: 11, padding: '5px 9px', borderRadius: 6,
-        whiteSpace: 'nowrap', fontFamily: 'inherit', ...skin,
+        whiteSpace: 'nowrap', fontFamily: 'inherit',
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        ...skin,
       }}
     >
+      {loading && (
+        <span
+          aria-hidden
+          style={{
+            width: 10, height: 10, borderRadius: '50%',
+            border: '1.5px solid currentColor', borderRightColor: 'transparent',
+            animation: 'aidlcSpin 0.7s linear infinite', flex: 'none',
+          }}
+        />
+      )}
       {label}
     </button>
   );
@@ -897,6 +944,7 @@ function StepListFooter({
   const canStart = !epic.runId && !!epic.pipeline;
   const runDisabled = isRunStepDisabled(providerConfig);
   const runHint = runDisabled ? runStepDisabledHint() : undefined;
+  const { pending, run, isPending } = useHostAction();
   return (
     <div style={{ padding: '10px 14px', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       {canRerun && (
@@ -904,15 +952,19 @@ function StepListFooter({
           label={runStepButtonLabel(providerConfig, 'again')}
           pad="6px 11px"
           title={runHint}
-          disabled={runDisabled}
+          disabled={runDisabled || pending}
+          loading={isPending('rerun')}
+          loadingLabel="Starting…"
           onClick={() => {
-            if (runDisabled) { return; }
-            postMessage({
-              type: 'runStepWithFeedback',
-              runId: epic.runId!,
-              slashCommand: step.slashCommand!,
-              feedback: '',
-            });
+            if (runDisabled || pending) { return; }
+            run(() => {
+              postMessage({
+                type: 'runStepWithFeedback',
+                runId: epic.runId!,
+                slashCommand: step.slashCommand!,
+                feedback: '',
+              });
+            }, 'rerun');
           }}
         />
       )}
@@ -921,11 +973,14 @@ function StepListFooter({
           label="Start pipeline run"
           variant="primary"
           pad="6px 11px"
-          onClick={() => postMessage({
+          loading={isPending('start')}
+          loadingLabel="Starting…"
+          disabled={pending && !isPending('start')}
+          onClick={() => run(() => postMessage({
             type: 'startPipelineRunForEpic',
             epicId: epic.id,
             pipelineId: epic.pipeline,
-          })}
+          }), 'start')}
         />
       )}
       {step?.stepHelp && (

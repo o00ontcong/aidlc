@@ -113,7 +113,7 @@ export type BtnVariant = 'primary' | 'default' | 'danger' | 'warn' | 'ghost';
  * V3_HANDOFF §5's lg = `9px 14px` disagrees with the file — the file wins.
  */
 export function Btn({
-  label, onClick, variant = 'default', pad = '5px 10px', fs = 11.5, title, disabled, flex, mono, style,
+  label, onClick, variant = 'default', pad = '5px 10px', fs = 11.5, title, disabled, loading, loadingLabel, flex, mono, style,
 }: {
   label: ReactNode;
   onClick?: () => void;
@@ -122,6 +122,8 @@ export function Btn({
   fs?: number;
   title?: string;
   disabled?: boolean;
+  loading?: boolean;
+  loadingLabel?: ReactNode;
   flex?: boolean;
   mono?: boolean;
   style?: CSSProperties;
@@ -132,24 +134,26 @@ export function Btn({
         : variant === 'warn' ? { border: '1px solid var(--warn-bd)', color: 'var(--warn)' }
           : variant === 'ghost' ? { color: 'var(--acc-txt)', border: '1px solid transparent' }
             : { border: '1px solid var(--bd)', color: 'var(--txt)' };
+  const busy = Boolean(loading);
   return (
     <button
       type="button"
       title={title}
-      disabled={disabled}
+      disabled={disabled || busy}
+      aria-busy={busy || undefined}
       onClick={onClick}
       className={mono ? 'v3-mono' : undefined}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 4,
+        gap: 6,
         boxSizing: 'border-box',
         minHeight: 28,
         flex: flex ? 1 : 'none',
         whiteSpace: 'nowrap',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.45 : 1,
+        cursor: disabled || busy ? 'not-allowed' : 'pointer',
+        opacity: disabled || busy ? 0.45 : 1,
         fontSize: fs,
         padding: pad,
         borderRadius: 6,
@@ -162,7 +166,21 @@ export function Btn({
         ...style,
       }}
     >
-      {label}
+      {busy && (
+        <span
+          aria-hidden
+          style={{
+            width: 11,
+            height: 11,
+            borderRadius: '50%',
+            border: '1.5px solid currentColor',
+            borderRightColor: 'transparent',
+            animation: 'aidlcSpin 0.7s linear infinite',
+            flex: 'none',
+          }}
+        />
+      )}
+      {busy ? (loadingLabel ?? label) : label}
     </button>
   );
 }

@@ -1784,13 +1784,19 @@ Development Host nếu repo có script tương ứng.
 
 1. Mở `Hướng dẫn`, chọn demo và hoàn thành lifecycle basics; project thật không
    có file thay đổi và report chỉ Pass step có evidence.
-2. Reload giữa một step, Resume đúng tour/step/subject; Restart chỉ reset tour
+2. Trên current project có CoFoFo: nếu Context stale/draft, coach dừng ở
+   `Publish Discover Context` trước New change / Start Epic; Publish tới `ready`
+   rồi mới Create & start. Không được Pass bước này chỉ vì mở tab Discover.
+   READY so sánh content identity (docs/entities/rules/sourceTreeHash), không
+   gắn `index.revision` bookkeeping — Publish rồi Reload Discover không được
+   làm Context stale nếu nội dung không đổi.
+3. Reload giữa một step, Resume đúng tour/step/subject; Restart chỉ reset tour
    progress, không sửa Change/Epic/Proposal.
-3. Mở lại Product Tour từ TopBar và Command Palette nhiều lần; chạy safe-scan và
+4. Mở lại Product Tour từ TopBar và Command Palette nhiều lần; chạy safe-scan và
    rejection-recovery mà không gặp dead-end.
-4. Trên current project, coach không block mặc định; `Chỉ cho tôi vị trí` bật
+5. Trên current project, coach không block mặc định; `Chỉ cho tôi vị trí` bật
    spotlight, `Esc` trả về coach và Skip/Exit luôn dùng được.
-5. Thử reset demo với missing/wrong marker và symlink escape; mọi case bị từ
+6. Thử reset demo với missing/wrong marker và symlink escape; mọi case bị từ
    chối trước mutation. Marker hợp lệ chỉ reset exact extension-owned directory.
 
 ## 16. Definition of Done
@@ -2998,6 +3004,7 @@ export const PRODUCT_TOUR_ANCHORS = [
   'change-route-save',
   'change-route-explore',
   'change-route-start-epic',
+  'discover-publish-context',
   'discover-change-shape',
   'discover-scan',
   'context-proposal-review',
@@ -3187,24 +3194,20 @@ Tour state vẫn là source of truth của guide trong app.
 
 ### 19.8 Scenario khóa
 
-#### A. `lifecycle-basics`
+#### A. Menu Hướng dẫn + Dynamic tour popup
 
-| Step | Target | Pass/branch |
-| --- | --- | --- |
-| `lifecycle.choose-mode` | launcher | Learn; user chọn demo/current project |
-| `lifecycle.open-project` | Project tab | Learn; navigate bằng existing `setView` |
-| `lifecycle.bind-change` | `project-new-change` hoặc Change picker | Pass khi exact `changeId` tồn tại; current project cho create hoặc select existing, không auto-bind latest |
-| `lifecycle.choose-route` | shared Change Composer/detail | Branch theo fact: Explore, Start Epic, Save/Shelve, Cancel |
-| `lifecycle.shape` | `discover-change-shape` | Chỉ có trên Explore branch; Pass khi Shape của exact Change accepted |
-| `lifecycle.epic` | `change-route-start-epic` | Pass khi exact Change link đúng một Epic |
-| `lifecycle.sprint` | `sprint-epic-placement` | Optional: Pass nếu scheduled; `skipped` nếu user xác nhận làm ngay, không fake placement |
-| `lifecycle.delivery` | `epic-delivery-review` | Pass khi exact Epic delivery complete |
-| `lifecycle.context` | `epic-context-closeout`/proposal | Pass khi proposal applied hoặc domain fact `context not required` có rationale |
-| `lifecycle.done` | coach report | Pass khi exact Change derived state là Done |
+Menu giữ **3 scenario cố định** + **1 row Dynamic tour** (thay demo riêng):
 
-Nếu user Save/Shelve, tour pause hợp lệ và Resume mở lại exact Change. Nếu Cancel,
-scenario kết thúc `needs-attention` với action bind Change khác hoặc Restart;
-không tự chuyển sang một Change bất kỳ.
+| Row | Hành vi |
+| --- | --- |
+| Dynamic tour trên project này | Mở popup hỏi mục tiêu; host plan từ snapshot; chỉ còn bước thiếu |
+| `lifecycle-basics` | Fixed full path Change → Epic → Context → Done |
+| `safe-scan` | Fixed scan → proposal → resolve |
+| `rejection-recovery` | Fixed acknowledgement |
+
+Dynamic goals trong popup: `publish-context`, `start-delivery`, `finish-change`,
+`safe-scan`, `close-context`, `rejection-recovery`. Badge **Gợi ý** theo state.
+Không mở demo window trong globalStorage.
 
 #### B. `safe-scan`
 

@@ -26,6 +26,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { suggestNextEpicId, formatSequencedEpicId } from './suggestNextEpicId';
 import {
   stepAgentId,
   startRun,
@@ -455,38 +456,35 @@ function readEpicRoot(doc: YamlDocument): string {
 
 /**
  * Suggest the next sequential epic id by scanning existing folders under
- * the epic root. Falls back to EPIC-001 when none exist.
+ * the epic root. Falls back to EPIC-1 when none exist.
  */
 async function pickEpicId(workspaceRoot: string, epicRoot: string): Promise<string | undefined> {
   const dir = path.resolve(workspaceRoot, epicRoot);
-  let next = 1;
+  let existing: string[] = [];
   if (fs.existsSync(dir)) {
-    const existing = fs.readdirSync(dir, { withFileTypes: true })
+    existing = fs.readdirSync(dir, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name);
-    const numbered = existing
-      .map((n) => n.match(/^EPIC-(\d+)$/i))
-      .filter((m): m is RegExpMatchArray => !!m)
-      .map((m) => parseInt(m[1], 10));
-    if (numbered.length > 0) { next = Math.max(...numbered) + 1; }
   }
 
-  const suggested = `EPIC-${String(next).padStart(3, '0')}`;
+  const suggested = formatSequencedEpicId(suggestNextEpicId(existing));
   const id = await vscode.window.showInputBox({
     prompt: 'Epic id',
-    placeHolder: 'e.g. EPIC-001 (uppercase + dashes + digits)',
+    placeHolder: 'e.g. EPIC-1060 (or leave as suggested)',
     value: suggested,
     ignoreFocusOut: true,
     validateInput: (v) => {
       const t = v.trim();
       if (!t) { return 'Required'; }
-      if (!/^[A-Z][A-Z0-9-]*$/.test(t)) {
-        return 'Uppercase letters / digits / dashes only — must start with a letter';
+      if (!/^(?:\d+|[A-Z][A-Z0-9-]*)$/.test(t)) {
+        return 'Digits only, or uppercase letters / digits / dashes starting with a letter';
       }
       return null;
     },
   });
-  return id?.trim();
+  const trimmed = id?.trim();
+  if (!trimmed) { return undefined; }
+  return /^\d+$/.test(trimmed) ? formatSequencedEpicId(trimmed) : trimmed;
 }
 
 /**

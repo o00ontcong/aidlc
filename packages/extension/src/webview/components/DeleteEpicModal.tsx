@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useHostAction } from '@/hooks/useHostAction';
 import { Btn, Mono } from './epic-v3/primitives';
 import { V3Input, V3Modal, V3ModalFooter, V3ModalHeader } from './epic-v3/V3Modal';
 
@@ -27,11 +28,11 @@ export function DeleteEpicModal({ epicId, epicDir, hasRun, onConfirm, onClose }:
   const [deleteFolder, setDeleteFolder] = useState(false);
   const [typed, setTyped] = useState('');
   const canConfirm = !deleteFolder || typed.trim() === epicId;
+  const { pending, run } = useHostAction({ onSettled: onClose });
 
   const submit = () => {
-    if (!canConfirm) { return; }
-    onConfirm(deleteFolder);
-    onClose();
+    if (!canConfirm || pending) { return; }
+    run(() => onConfirm(deleteFolder));
   };
 
   return (
@@ -43,15 +44,18 @@ export function DeleteEpicModal({ epicId, epicDir, hasRun, onConfirm, onClose }:
       // the typed confirmation (matches the previous closeOnBackdrop={false}).
       closeOnBackdrop={false}
       onClose={onClose}
-      header={<V3ModalHeader title={`Delete epic ${epicId}`} onClose={onClose} tone="err" icon="🗑" />}
+      busy={pending}
+      header={<V3ModalHeader title={`Delete epic ${epicId}`} onClose={onClose} tone="err" icon="🗑" disabled={pending} />}
       footer={
         <V3ModalFooter cli={`aidlc epic delete ${epicId}${deleteFolder ? ' --delete-folder' : ''}`}>
-          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} disabled={pending} />
           <Btn
             label={deleteFolder ? 'Delete epic + folder' : 'Delete run state'}
             variant="danger"
             onClick={submit}
             disabled={!canConfirm}
+            loading={pending}
+            loadingLabel="Deleting…"
             title={canConfirm ? undefined : `Nhập đúng ${epicId} để xác nhận`}
             pad="9px 16px"
             fs={12.5}
@@ -99,7 +103,7 @@ export function DeleteEpicModal({ epicId, epicDir, hasRun, onConfirm, onClose }:
           <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>
             Nhập <Mono style={{ color: 'var(--txt)', fontWeight: 600 }}>{epicId}</Mono> để xác nhận:
           </div>
-          <V3Input value={typed} onChange={setTyped} placeholder={epicId} mono />
+          <V3Input value={typed} onChange={setTyped} placeholder={epicId} mono disabled={pending} />
         </div>
       )}
     </V3Modal>

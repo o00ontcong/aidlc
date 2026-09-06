@@ -130,6 +130,38 @@ export interface DiscoverCopy {
     confirm: string;
   };
 
+  publishContextModal: {
+    title: string;
+    subtitle: string;
+    titleLabel: string;
+    titlePlaceholder: string;
+    descriptionLabel: string;
+    descriptionPlaceholder: string;
+    confirm: string;
+    historyCta: string;
+    historyHide: string;
+    historyTitle: string;
+    historyEmpty: string;
+    historyCurrent: string;
+    historyEvents: (count: number) => string;
+    historyRevision: string;
+    historyParent: string;
+    publishDisabledReady: string;
+    diffTitle: string;
+    diffFirstPublish: string;
+    diffUnchanged: string;
+    diffVs: (label: string) => string;
+    diffDocuments: string;
+    diffEntities: string;
+    diffRules: string;
+    diffSource: string;
+    diffSourceDirty: string;
+    diffSourceClean: string;
+    diffSourcePaths: (count: number) => string;
+    diffEmptySection: string;
+    changeLabel: (change: string) => string;
+  };
+
   // chrome
   modePipeline: string;
   modeDocs: string;
@@ -485,6 +517,45 @@ const VI: DiscoverCopy = {
     confirm: 'Commit',
   },
 
+  publishContextModal: {
+    title: 'Publish Discover Context',
+    subtitle: 'Xem diff so với lần Publish trước, rồi ghi title/description vào immutable history.',
+    titleLabel: 'Title',
+    titlePlaceholder: 'Ví dụ: Handoff đầu tiên — requirements sẵn sàng',
+    descriptionLabel: 'Description',
+    descriptionPlaceholder: 'Mô tả ngắn những gì đã chốt trong lần Publish này (không bắt buộc)',
+    confirm: 'Publish',
+    historyCta: 'Lịch sử',
+    historyHide: 'Ẩn lịch sử',
+    historyTitle: 'Lịch sử Publish Context',
+    historyEmpty: 'Chưa có lần Publish nào.',
+    historyCurrent: 'Hiện tại',
+    historyEvents: (count) => count === 1 ? '1 entity đổi' : `${count} entity đổi`,
+    historyRevision: 'Revision',
+    historyParent: 'Parent',
+    publishDisabledReady: 'Không có thay đổi để Publish — Context đang READY.',
+    diffTitle: 'Thay đổi sẽ Publish',
+    diffFirstPublish: 'Lần Publish đầu — toàn bộ docs/entities/rules hiện tại sẽ được khóa.',
+    diffUnchanged: 'Không có thay đổi nội dung so với lần Publish trước (Publish sẽ giữ nguyên revision).',
+    diffVs: (label) => `So với: ${label}`,
+    diffDocuments: 'Documents',
+    diffEntities: 'Entities',
+    diffRules: 'Rules',
+    diffSource: 'Source tree',
+    diffSourceDirty: 'Worktree dirty',
+    diffSourceClean: 'Worktree sạch',
+    diffSourcePaths: (count) => count === 1 ? '1 file product source đổi' : `${count} file product source đổi`,
+    diffEmptySection: 'Không đổi',
+    changeLabel: (change) => ({
+      added: 'thêm',
+      created: 'tạo',
+      updated: 'sửa',
+      removed: 'xóa',
+      deprecated: 'deprecated',
+      relinked: 'relink',
+    } as Record<string, string>)[change] ?? change,
+  },
+
   modePipeline: 'Pipeline',
   modeDocs: 'Docs',
   openInEditor: 'Mở trong editor',
@@ -678,6 +749,45 @@ const EN: DiscoverCopy = {
     changeHint: (count) => `${count} changed file${count === 1 ? '' : 's'} in this repo.`,
     generateWithAi: 'Let agent commit all',
     confirm: 'Commit',
+  },
+
+  publishContextModal: {
+    title: 'Publish Discover Context',
+    subtitle: 'Review the diff vs the last publish, then save title/description to immutable history.',
+    titleLabel: 'Title',
+    titlePlaceholder: 'e.g. First handoff — requirements ready',
+    descriptionLabel: 'Description',
+    descriptionPlaceholder: 'Short note about what this publish locks in (optional)',
+    confirm: 'Publish',
+    historyCta: 'History',
+    historyHide: 'Hide history',
+    historyTitle: 'Publish Context history',
+    historyEmpty: 'No publishes yet.',
+    historyCurrent: 'Current',
+    historyEvents: (count) => count === 1 ? '1 entity changed' : `${count} entities changed`,
+    historyRevision: 'Revision',
+    historyParent: 'Parent',
+    publishDisabledReady: 'Nothing to publish — Context is already READY.',
+    diffTitle: 'Changes to publish',
+    diffFirstPublish: 'First publish — all current docs/entities/rules will be locked.',
+    diffUnchanged: 'No content changes vs the last publish (Publish keeps the same revision).',
+    diffVs: (label) => `Compared to: ${label}`,
+    diffDocuments: 'Documents',
+    diffEntities: 'Entities',
+    diffRules: 'Rules',
+    diffSource: 'Source tree',
+    diffSourceDirty: 'Dirty worktree',
+    diffSourceClean: 'Clean worktree',
+    diffSourcePaths: (count) => count === 1 ? '1 product source file changed' : `${count} product source files changed`,
+    diffEmptySection: 'Unchanged',
+    changeLabel: (change) => ({
+      added: 'added',
+      created: 'created',
+      updated: 'updated',
+      removed: 'removed',
+      deprecated: 'deprecated',
+      relinked: 'relinked',
+    } as Record<string, string>)[change] ?? change,
   },
 
   modePipeline: 'Pipeline',

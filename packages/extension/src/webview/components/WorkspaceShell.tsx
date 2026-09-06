@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FolderOpen, Plus, ExternalLink, Globe2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { SprintState, WorkspaceState, WorkspaceView } from '@/lib/types';
+import type { DiscoverScopeModalOpen, SprintState, WorkspaceState, WorkspaceView } from '@/lib/types';
 import { BuilderView } from './BuilderView';
 import { EpicsView } from './EpicsView';
 import { ThemeToggle } from './ThemeToggle';
@@ -12,7 +12,9 @@ import { ArchitectureStudio } from './architecture/ArchitectureStudio';
 import { ProjectOverview } from './ProjectOverview';
 import { SprintView } from './SprintView';
 import { DiscoverView } from './DiscoverView';
+import { DiscoverScopeModal } from './discover/DiscoverScopeModal';
 import { onHostMessage, postMessage } from '@/lib/bridge';
+import { useHostBusy } from '@/hooks/useHostBusy';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 import { ProductTourMenu } from './product-tour/ProductTourMenu';
 import { ProductTourCoach } from './product-tour/ProductTourCoach';
@@ -30,7 +32,9 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   const [epicPrefill, setEpicPrefill] = useState<StartEpicPrefill | undefined>();
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
   const [tourSpotlight, setTourSpotlight] = useState<ProductTourAnchor | undefined>();
+  const [scopeModal, setScopeModal] = useState<DiscoverScopeModalOpen | null>(null);
   const seededView = useRef(Boolean(state?.initialView));
+  const hostBusy = useHostBusy();
   // Sprint data arrives on its own channel: the host fetches it asynchronously,
   // so it cannot ride along in the synchronous `state` push. The snapshot in
   // `state.sprint` (read from cache) seeds the first paint.
@@ -49,7 +53,16 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
       if (msg.type === 'sprintState') {
         setSprint(msg.state as SprintState);
       }
+      if (msg.type === 'openDiscoverScopeModal') {
+        setScopeModal({
+          intent: msg.intent === 'edit' ? 'edit' : 'scan',
+          mode: msg.mode === 'confirm' ? 'confirm' : 'wizard',
+          probe: msg.probe as DiscoverScopeModalOpen['probe'],
+          existing: msg.existing as DiscoverScopeModalOpen['existing'],
+        });
+      }
       if (msg.type === 'openStartEpicModal') {
+        setTourSpotlight(undefined);
         setView('epics');
         seededView.current = true;
         setEpicPrefill(msg.prefill as StartEpicPrefill | undefined);
@@ -93,7 +106,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   if (!state.hasFolder) {
     return (
       <div className="flex h-full flex-col">
-        <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} tour={state.productTour ?? { version: 1 }} />
+        <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} tour={state.productTour ?? { version: 3, goals: [] }} />
         {view === 'sprint' ? (
           // Jira needs credentials, not a workspace folder — so the Sprint tab
           // stays usable here. Starting a task from a ticket then surfaces the
@@ -141,28 +154,53 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
             workspaceName={state.workspaceName}
             hasFolder={state.hasFolder}
             prefill={epicPrefill}
+            discoverContextStatus={state.discover?.context.status}
             onSubmit={(draft) => postMessage({ type: 'submitChangeComposer', draft })}
             onClose={() => { setStartEpicOpen(false); setEpicPrefill(undefined); }}
           />
         )}
         <ProductTourFocusLayer anchor={tourSpotlight} onDismiss={() => setTourSpotlight(undefined)} />
-        <ProductTourCoach active={state.productTour?.active} changes={state.changes} proposals={state.contextProposals} onFocus={setTourSpotlight} />
+        <ProductTourCoach
+          active={state.productTour?.active}
+          changes={state.changes}
+          proposals={state.contextProposals}
+          composerOpen={startEpicOpen}
+          discoverContextStatus={state.discover?.context.status}
+          onOpenComposer={() => { setTourSpotlight(undefined); setStartEpicOpen(true); }}
+          onFocus={setTourSpotlight}
+        />
       </div>
     );
   }
 
+  const openChangeComposer = (prefill?: StartEpicPrefill) => {
+    setTourSpotlight(undefined);
+    setEpicPrefill(prefill);
+    setStartEpicOpen(true);
+  };
+
   return (
     <div className="flex h-full flex-col">
-      <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} tour={state.productTour ?? { version: 1 }} />
+      <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} tour={state.productTour ?? { version: 3, goals: [] }} />
+      {hostBusy && (
+        <div
+          className="pointer-events-none h-0.5 w-full shrink-0 overflow-hidden bg-primary/15"
+          role="progressbar"
+          aria-label="Updating workspace"
+          aria-busy="true"
+        >
+          <div className="h-full w-1/3 animate-[indeterminate_1.1s_ease-in-out_infinite] bg-primary" />
+        </div>
+      )}
       {view === 'project' ? (
         <main className="flex-1 overflow-y-auto p-6">
           <ProjectOverview
             state={state}
-            onNewTask={() => setStartEpicOpen(true)}
-            onOpenDiscover={() => onView('discover')}
+            tourBoundChangeId={state.productTour?.active?.boundChangeId}
+            hideStartEpicTourAnchor={startEpicOpen}
+            onNewTask={() => openChangeComposer()}
             onStartEpicForChange={(readModel) => {
-              setEpicPrefill({
-                epicId: `EPIC-${readModel.change.id.replace(/^CHG-/, '')}`,
+              openChangeComposer({
                 title: readModel.change.title,
                 description: readModel.change.requirement.desiredOutcome,
                 existingChange: {
@@ -171,7 +209,6 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
                   expectedContentHash: readModel.change.contentHash,
                 },
               });
-              setStartEpicOpen(true);
             }}
             onOpenTask={(taskId) => {
               setSelectedTaskId(taskId);
@@ -201,7 +238,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
               Create a task to select a pipeline, or open Builder to configure the workspace manually.
             </p>
             <div className="mt-4 flex justify-center gap-2">
-              <button type="button" onClick={() => setStartEpicOpen(true)} className="rounded-md bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90">
+              <button type="button" onClick={() => openChangeComposer()} className="rounded-md bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90">
                 New task
               </button>
               <button type="button" onClick={() => onView('builder')} className="rounded-md border border-border bg-card px-3.5 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
@@ -216,7 +253,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
         // wrapped in the padded scroll box. The other views keep their exact
         // previous wrapper markup below — nothing about them changes.
         <main className="min-h-0 flex-1 overflow-hidden">
-          <EpicsView state={state} initialSelectedId={selectedTaskId} onNewEpic={() => setStartEpicOpen(true)} />
+          <EpicsView state={state} initialSelectedId={selectedTaskId} onNewEpic={() => openChangeComposer()} />
         </main>
       ) : (
         <main className="flex-1 overflow-y-auto">
@@ -244,6 +281,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
           workspaceName={state.workspaceName}
           hasFolder={state.hasFolder}
           prefill={epicPrefill}
+          discoverContextStatus={state.discover?.context.status}
           onSubmit={(draft) => {
             setStartEpicOpen(false);
             postMessage({ type: 'submitChangeComposer', draft });
@@ -252,7 +290,35 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
         />
       )}
       <ProductTourFocusLayer anchor={tourSpotlight} onDismiss={() => setTourSpotlight(undefined)} />
-      <ProductTourCoach active={state.productTour?.active} changes={state.changes} proposals={state.contextProposals} onFocus={setTourSpotlight} />
+      <ProductTourCoach
+        active={state.productTour?.active}
+        changes={state.changes}
+        proposals={state.contextProposals}
+        composerOpen={startEpicOpen}
+        discoverContextStatus={state.discover?.context.status}
+        onOpenComposer={() => openChangeComposer()}
+        onOpenBoundStartEpic={(changeId) => {
+          const readModel = state.changes.find((rm) => rm.change.id === changeId);
+          if (!readModel) return;
+          openChangeComposer({
+            title: readModel.change.title,
+            description: readModel.change.requirement.desiredOutcome,
+            existingChange: {
+              id: readModel.change.id,
+              expectedRevision: readModel.change.revision,
+              expectedContentHash: readModel.change.contentHash,
+            },
+          });
+        }}
+        onFocus={setTourSpotlight}
+      />
+      {scopeModal && (
+        <DiscoverScopeModal
+          open={scopeModal}
+          language={(state.displayLanguage ?? 'en') as DiscoverLanguage}
+          onClose={() => setScopeModal(null)}
+        />
+      )}
     </div>
   );
 }

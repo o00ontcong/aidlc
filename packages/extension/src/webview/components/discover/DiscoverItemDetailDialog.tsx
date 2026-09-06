@@ -291,7 +291,7 @@ export function DiscoverItemDetailDialog({
                     <p><span className="font-medium text-foreground">Trạng thái:</span> {detail.status}</p>
                     <p className="break-all"><span className="font-medium text-foreground">Nguồn canonical:</span> <code>{detail.editable?.docPath ?? '—'}#{detail.editable?.section ?? '—'}</code></p>
                     <p><span className="font-medium text-foreground">Discover revision:</span> {detail.editable?.revision ?? '—'}</p>
-                    <p><span className="font-medium text-foreground">Publish context:</span> {detail.publication.status}{detail.publication.discoverRevision ? ` · ${detail.publication.discoverRevision}` : ''}</p>
+                    <p><span className="font-medium text-foreground">Publish context:</span> {detail.publication.status}{detail.publication.title ? ` · ${detail.publication.title}` : detail.publication.discoverRevision ? ` · ${detail.publication.discoverRevision}` : ''}</p>
                     <p><span className="font-medium text-foreground">Lần Publish:</span> {formatPublishedAt(detail.publication.publishedAt)}</p>
                     {detail.editable?.updatedAt && <p><span className="font-medium text-foreground">Cập nhật tài liệu:</span> {formatPublishedAt(detail.editable.updatedAt)}</p>}
                     {detail.contextPreview && <p><span className="font-medium text-foreground">Context slice:</span> ~{detail.contextPreview.estimatedTokens} tokens</p>}

@@ -24,6 +24,7 @@
  */
 
 @keyframes aidlcPulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+@keyframes aidlcSpin { to { transform: rotate(360deg) } }
 
 .aidlc-v3.thm-dark {
   --bg:#1B1D1E; --panel:#202324; --panel2:#262A2B; --side:#1E2122; --chrome:#232729;

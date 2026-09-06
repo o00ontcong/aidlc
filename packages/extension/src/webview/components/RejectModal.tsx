@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { postMessage } from '@/lib/bridge';
+import { useHostAction } from '@/hooks/useHostAction';
 import { Btn, Ellipsis, SectionLabel } from './epic-v3/primitives';
 import { V3Field, V3Modal, V3ModalFooter, V3ModalHeader, V3Textarea } from './epic-v3/V3Modal';
 
@@ -19,16 +20,19 @@ interface Props {
 export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Props) {
   const [reason, setReason] = useState('');
   const [targetIdx, setTargetIdx] = useState(currentStepIdx);
+  const { pending, run } = useHostAction({ onSettled: onClose });
 
   const submit = () => {
-    postMessage({
-      type: 'rejectStepInline',
-      runId,
-      reason: reason.trim(),
-      targetIdx,
-      stepIdx: currentStepIdx,
+    if (pending) { return; }
+    run(() => {
+      postMessage({
+        type: 'rejectStepInline',
+        runId,
+        reason: reason.trim(),
+        targetIdx,
+        stepIdx: currentStepIdx,
+      });
     });
-    onClose();
   };
 
   const currentAgent = stepAgents[currentStepIdx] ?? '';
@@ -41,6 +45,7 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
       width={560}
       paddingTop={110}
       onClose={onClose}
+      busy={pending}
       header={
         <V3ModalHeader
           icon="✕"
@@ -48,12 +53,21 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
           title={`Reject step ${currentStepIdx + 1}`}
           sub={`${currentAgent} · run ${runId}`}
           onClose={onClose}
+          disabled={pending}
         />
       }
       footer={
         <V3ModalFooter cli={`aidlc step reject ${runId} --target ${targetIdx}`}>
-          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
-          <Btn label="Reject" variant="danger" onClick={submit} pad="9px 16px" fs={12.5} />
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} disabled={pending} />
+          <Btn
+            label="Reject"
+            variant="danger"
+            onClick={submit}
+            loading={pending}
+            loadingLabel="Rejecting…"
+            pad="9px 16px"
+            fs={12.5}
+          />
         </V3ModalFooter>
       }
     >
@@ -63,6 +77,7 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
           onChange={setReason}
           placeholder="ví dụ: PRD thiếu acceptance criteria về performance"
           autoFocus
+          disabled={pending}
         />
       </V3Field>
 
@@ -72,7 +87,7 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <RadioRow
               checked={targetIdx === currentStepIdx}
-              onSelect={() => setTargetIdx(currentStepIdx)}
+              onSelect={() => !pending && setTargetIdx(currentStepIdx)}
               label={`Ở lại step ${currentStepIdx + 1}`}
               detail={`Rerun tại chỗ — ${currentAgent}`}
               hint="Mặc định"
@@ -84,7 +99,7 @@ export function RejectModal({ runId, currentStepIdx, stepAgents, onClose }: Prop
                 <RadioRow
                   key={s.idx}
                   checked={targetIdx === s.idx}
-                  onSelect={() => setTargetIdx(s.idx)}
+                  onSelect={() => !pending && setTargetIdx(s.idx)}
                   label={`Gửi về step ${s.idx + 1}`}
                   detail={s.agent}
                   hint={`Reset ${s.idx + 2}–${currentStepIdx + 1} về pending`}

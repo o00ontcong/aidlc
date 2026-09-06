@@ -517,6 +517,30 @@ User có thể đưa một Change đã bắt đầu trực tiếp quay lại Dis
 phát hiện scope chưa rõ. Một Shape đã hoàn tất tạo đúng một Epic cho Change;
 nếu cần nhiều Epic, user split Change trước khi bắt đầu delivery.
 
+### Discover Context READY (CoFoFo delivery gate)
+
+Pipeline `cofofo-feature` / `cofofo-bugfix` chỉ scaffold khi Discover Context
+`inspect()` trả `ready`. **Publish Context** chốt một snapshot nội dung; Start
+Epic so sánh live content với snapshot đó.
+
+READY / stale dựa trên **content identity**, không dựa trên sidecar counter:
+
+| Tham gia identity (đổi → stale) | Không làm stale |
+| --- | --- |
+| Hash tài liệu Discover (Markdown) | `index.revision` bookkeeping |
+| Entities / rules đã biên dịch từ docs | Đổi `currentStep`, pin/flag item |
+| `sourceTreeHash` (git HEAD + diff ngoài `.aidlc`) | `reindexAll` khi không có doc đổi |
+| | File sinh ra dưới `.aidlc/` sau Publish (code-index, ECC bundle, …) |
+
+Hệ quả bắt buộc:
+
+- Publish xong rồi Reload Discover / chuyển bước UI **không** được làm Context
+  stale nếu docs và source không đổi.
+- Sửa requirement/feature Markdown hoặc source tracked ngoài `.aidlc` → phải
+  Publish lại trước Start Epic.
+- `scaffoldEpic` fail với “Discover changed after the last Publish Context” khi
+  content identity lệch; không dùng Legacy Foundation để mở khóa.
+
 ### D3. Sprint chỉ schedule Epic
 
 **Quyết định:** Chọn Option B.
@@ -962,12 +986,16 @@ Epic.
 - Tiến độ tour là state cá nhân của VS Code, không ghi vào repository, domain
   event hoặc Project Context. Restart chỉ reset tiến độ tour, không sửa hay xóa
   domain data.
-- Chế độ học mặc định chạy trong demo workspace do extension sở hữu và cách ly
-  khỏi repository thật. Reset demo chỉ được tác động đúng thư mục có ownership
-  marker hợp lệ; current-project mode không tự tạo hoặc mutate dữ liệu.
+- Menu Hướng dẫn giữ ba scenario cố định và một row **Dynamic tour** (thay demo
+  workspace riêng): popup hỏi mục tiêu, đối chiếu state project, lên plan các
+  bước còn thiếu. Không mở demo folder trong globalStorage.
 - Tour có thể đi nhánh, skip, resume sau reload và thích ứng với reject, stale,
   conflict, cancel, command failure hoặc entity bị teammate thay đổi. Không có
   step nào được biến thành dead-end.
+- Trên project dùng CoFoFo delivery (`cofofo-feature` / `cofofo-bugfix`), Product
+  Tour phải hướng dẫn Publish Discover Context tới trạng thái `ready` **trước**
+  Start Epic khi goal cần delivery. Scaffold fail vì Context stale/draft không
+  phải bug domain — đó là thiếu evidence của bước `lifecycle.discover-context-ready`.
 - UI phải dùng stable semantic target, hỗ trợ keyboard/screen reader, theme và
   reduced motion. Tour không tự click DOM hoặc dựa vào CSS selector tùy ý.
 

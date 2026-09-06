@@ -1,27 +1,34 @@
 import {
   AlertTriangle,
   ArrowRight,
+  Beaker,
   CheckCircle2,
   Circle,
-  CircleHelp,
-  FileText,
   FolderKanban,
   ListTodo,
+  Loader2,
   Plus,
-  X,
+  RefreshCw,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { PRODUCT_TOUR_VERSION } from '../../shared/productTour';
+import { useState, type ReactNode } from 'react';
 import type { ProjectChangeReadModel, WorkspaceState } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { postMessage } from '@/lib/bridge';
+import { useHostAction } from '@/hooks/useHostAction';
+import type { DiscoverLanguage } from '@/lib/discoverI18n';
+import { BugReportModal } from './BugReportModal';
+import { CancelChangeModal } from './CancelChangeModal';
+import { ProjectScanPanel } from './project/ProjectScanPanel';
 
 interface ProjectOverviewProps {
   state: WorkspaceState;
   onOpenTask: (taskId?: string) => void;
   onNewTask: () => void;
   onStartEpicForChange: (change: ProjectChangeReadModel) => void;
-  onOpenDiscover: () => void;
+  /** When set, only this Change's Start Epic control carries the tour spotlight id. */
+  tourBoundChangeId?: string;
+  /** Hide list Start Epic tour anchors while the composer modal owns the spotlight. */
+  hideStartEpicTourAnchor?: boolean;
 }
 
 /** Buckets a Change's derived display state into the four stat tiles — a superset reading of the same states `deriveProjectChangeState` produces (Master Rule §0.3: the tiles must not invent their own status vocabulary). */
@@ -43,82 +50,40 @@ function changeCounts(changes: ProjectChangeReadModel[]): { active: number; deli
   return { active, delivered, attention };
 }
 
-export function ProjectOverview({ state, onOpenTask, onNewTask, onStartEpicForChange, onOpenDiscover }: ProjectOverviewProps) {
-  const context = state.projectWorkspace;
+export function ProjectOverview({ state, onOpenTask, onNewTask, onStartEpicForChange, tourBoundChangeId, hideStartEpicTourAnchor }: ProjectOverviewProps) {
+  const [bugReportOpen, setBugReportOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<ProjectChangeReadModel | null>(null);
+  const { pending: doctorPending, run: runDoctor } = useHostAction();
   const counts = changeCounts(state.changes);
+  const vi = state.displayLanguage === 'vi';
   const activeChanges = [...state.changes]
-    .filter((rm) => changeBucket(rm) !== 'other')
     .sort((a, b) => {
-      const rank = (rm: ProjectChangeReadModel) => (changeBucket(rm) === 'attention' ? 0 : changeBucket(rm) === 'active' ? 1 : 2);
+      const rank = (rm: ProjectChangeReadModel) => {
+        const bucket = changeBucket(rm);
+        return bucket === 'attention' ? 0 : bucket === 'active' ? 1 : bucket === 'delivered' ? 2 : 3;
+      };
       return rank(a) - rank(b) || b.change.updatedAt.localeCompare(a.change.updatedAt);
     })
-    .slice(0, 6);
-
-  const tour = state.productTour;
-  const showTourCard = Boolean(tour)
-    && (tour.dismissedCardVersion ?? 0) < PRODUCT_TOUR_VERSION
-    && (tour.seenVersion ?? 0) < PRODUCT_TOUR_VERSION
-    && (!tour.active || tour.active.status === 'exited');
-  const vi = state.displayLanguage === 'vi';
+    .slice(0, 50);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {showTourCard && (
-        <section className="flex flex-col gap-3 rounded-xl border border-primary/35 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-              <CircleHelp className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-sm font-bold text-foreground">Product Tour</div>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                {vi
-                  ? 'Theo một Change thật từ yêu cầu, qua Epic, đến khi khép Context. Nút Hướng dẫn trên thanh trên luôn mở lại tour.'
-                  : 'Follow a real Change from requirement through Epic until Context is closed. The Guide button in the top bar always reopens the tour.'}
-              </p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => postMessage({ type: 'productTourStart', tourId: 'lifecycle-basics' })}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
-            >
-              {vi ? 'Bắt đầu Product Tour' : 'Start Product Tour'}
-            </button>
-            <button
-              type="button"
-              onClick={() => postMessage({ type: 'productTourDismissCard' })}
-              title={vi ? 'Để sau' : 'Dismiss'}
-              className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </section>
-      )}
       <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <FolderKanban className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Shared workspace</div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Project</div>
             <h1 className="mt-1 text-xl font-bold text-foreground">{state.workspaceName || 'Project overview'}</h1>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-              Shared context lives here. Each task has its own work area, while project status and decisions remain visible to every task.
+              {vi
+                ? 'Quét an toàn và Change inventory. Mỗi Change có không gian riêng; scan chỉ tạo proposal, không ghi thẳng Context.'
+                : 'Safe scan and Change inventory. Each Change has its own work area; scan stages proposals instead of writing Context.'}
             </p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onOpenDiscover}
-            className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/10"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Open Discover
-          </button>
           <button
             type="button"
             onClick={onNewTask}
@@ -128,14 +93,27 @@ export function ProjectOverview({ state, onOpenTask, onNewTask, onStartEpicForCh
             <Plus className="h-3.5 w-3.5" />
             New change
           </button>
-          <button
-            type="button"
-            onClick={() => onOpenTask()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            All tasks
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
+          {state.configExists && (
+            <>
+              <button
+                type="button"
+                onClick={() => setBugReportOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-accent"
+              >
+                <Beaker className="h-3.5 w-3.5" />
+                Báo lỗi CoFoFo
+              </button>
+              <button
+                type="button"
+                disabled={doctorPending}
+                onClick={() => runDoctor(() => postMessage({ type: 'cofofoDoctor' }))}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-70"
+              >
+                {doctorPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                {doctorPending ? 'Đang kiểm tra…' : 'Kiểm tra & sửa workspace'}
+              </button>
+            </>
+          )}
         </div>
       </section>
 
@@ -147,74 +125,12 @@ export function ProjectOverview({ state, onOpenTask, onNewTask, onStartEpicForCh
       </section>
 
       <div className="grid gap-5 lg:grid-cols-[1.08fr_0.92fr]">
-        <section className="rounded-xl border border-border bg-card">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <div>
-              <h2 className="text-sm font-bold text-foreground">Shared project context</h2>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Durable memory that survives across providers and task conversations.
-              </p>
-            </div>
-            {context && (
-              <span className={cn(
-                'rounded-full px-2 py-1 text-[10px] font-semibold',
-                context.initialized ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning',
-              )}>
-                {context.readyCount}/{context.totalCount} ready
-              </span>
-            )}
-          </div>
-
-          {!context?.initialized && (
-            <div className="m-4 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4">
-              <div className="text-xs font-semibold text-foreground">Initialize shared project memory</div>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                Creates only missing files: AGENTS.md, PROJECT.md, STATUS.md, and DECISIONS.md. Existing content is never overwritten.
-              </p>
-              <button
-                type="button"
-                onClick={() => postMessage({ type: 'initializeProjectWorkspace' })}
-                className="mt-3 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
-              >
-                Create missing files
-              </button>
-            </div>
-          )}
-
-          <div className="divide-y divide-border">
-            {(context?.documents ?? []).map((document) => (
-              <button
-                key={document.id}
-                type="button"
-                disabled={!document.exists}
-                onClick={() => document.exists && postMessage({ type: 'openPath', path: document.path })}
-                className="flex w-full items-start gap-3 px-5 py-3.5 text-left transition-colors enabled:hover:bg-accent/50 disabled:cursor-default"
-              >
-                <div className={cn(
-                  'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
-                  document.exists ? 'bg-primary/10 text-primary' : 'bg-secondary text-muted-foreground',
-                )}>
-                  <FileText className="h-3.5 w-3.5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-foreground">{document.label}</span>
-                    <code className="text-[10px] text-muted-foreground">{basename(document.path)}</code>
-                  </div>
-                  <p className="mt-0.5 text-[10.5px] leading-relaxed text-muted-foreground">
-                    {document.excerpt || document.description}
-                  </p>
-                </div>
-                <span className={cn(
-                  'mt-1 text-[9px] font-bold uppercase tracking-wide',
-                  document.exists ? 'text-success' : 'text-muted-foreground',
-                )}>
-                  {document.exists ? 'Ready' : 'Missing'}
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
+        <ProjectScanPanel
+          discover={state.discover}
+          proposals={state.contextProposals}
+          contextHead={state.contextHead}
+          language={(state.displayLanguage ?? 'en') as DiscoverLanguage}
+        />
 
         <section className="rounded-xl border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -241,13 +157,15 @@ export function ProjectOverview({ state, onOpenTask, onNewTask, onStartEpicForCh
               </button>
             </div>
           ) : (
-            <div className="divide-y divide-border">
+            <div className="max-h-[26rem] divide-y divide-border overflow-y-auto">
               {activeChanges.map((rm) => (
                 <ChangeRow
                   key={rm.change.id}
                   readModel={rm}
+                  tourAnchor={!hideStartEpicTourAnchor && (Boolean(tourBoundChangeId) ? rm.change.id === tourBoundChangeId : true)}
                   onOpen={rm.change.epicLink?.state === 'linked' ? () => onOpenTask(rm.change.epicLink!.epicId) : undefined}
                   onStartEpic={rm.change.epicLink ? undefined : rm.availableActions.some((action) => action.command === 'change.epic.start') ? () => onStartEpicForChange(rm) : undefined}
+                  onCancel={rm.availableActions.some((action) => action.command === 'change.cancel') ? () => setCancelTarget(rm) : undefined}
                 />
               ))}
             </div>
@@ -256,20 +174,35 @@ export function ProjectOverview({ state, onOpenTask, onNewTask, onStartEpicForCh
       </div>
 
       <section className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-sm font-bold text-foreground">How work moves through this workspace</h2>
+        <h2 className="text-sm font-bold text-foreground">{vi ? 'Cách làm việc trong workspace' : 'How work moves through this workspace'}</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <FlowStep number="1" title="Read shared context" detail="Every task starts from the same brief, status, decisions, and working agreement." />
-          <FlowStep number="2" title="Work in one task" detail="The task owns its scope, artifacts, code changes, and acceptance criteria." />
-          <FlowStep number="3" title="Review and verify" detail="Inspect the diff and artifacts, then run the relevant application and tests." />
-          <FlowStep number="4" title="Update shared state" detail="Record completed work, blockers, decisions, and the next priority before handoff." />
+          <FlowStep number="1" title={vi ? 'Quét an toàn' : 'Safe scan'} detail={vi ? 'Scan pin snapshot; kết quả vào Context Proposal, không ghi thẳng Context.' : 'Scan pins a snapshot; results become Context Proposals, not direct Context writes.'} />
+          <FlowStep number="2" title={vi ? 'Làm trong một Change' : 'Work in one Change'} detail={vi ? 'Change giữ requirement, Epic, artifact và quyết định Context.' : 'The Change owns requirement, Epic, artifacts, and Context decisions.'} />
+          <FlowStep number="3" title={vi ? 'Review và verify' : 'Review and verify'} detail={vi ? 'Duyệt diff/proposal, chạy app và test liên quan.' : 'Inspect diff/proposal, then run the relevant app and tests.'} />
+          <FlowStep number="4" title={vi ? 'Khép Context' : 'Close Context'} detail={vi ? 'Apply / discard / không cần cập nhật Context trước khi Done.' : 'Apply, discard, or mark Context not-required before Done.'} />
         </div>
       </section>
+      {bugReportOpen && (
+        <BugReportModal
+          onSubmit={(fields) => postMessage({ type: 'reportCofofoBug', fields })}
+          onClose={() => setBugReportOpen(false)}
+        />
+      )}
+      {cancelTarget && (
+        <CancelChangeModal
+          changeId={cancelTarget.change.id}
+          title={cancelTarget.change.title}
+          onConfirm={(reason) => postMessage({
+            type: 'cancelChange',
+            changeId: cancelTarget.change.id,
+            guard: { expectedRevision: cancelTarget.change.revision, expectedContentHash: cancelTarget.change.contentHash },
+            reason,
+          })}
+          onClose={() => setCancelTarget(null)}
+        />
+      )}
     </div>
   );
-}
-
-function basename(filePath: string): string {
-  return filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
 }
 
 function Stat({
@@ -300,13 +233,24 @@ function Stat({
   );
 }
 
-function ChangeRow({ readModel, onOpen, onStartEpic }: { readModel: ProjectChangeReadModel; onOpen?: () => void; onStartEpic?: () => void }) {
+function ChangeRow({
+  readModel, onOpen, onStartEpic, onCancel, tourAnchor = true,
+}: {
+  readModel: ProjectChangeReadModel;
+  onOpen?: () => void;
+  onStartEpic?: () => void;
+  onCancel?: () => void;
+  /** When false, omit tour spotlight id so querySelector targets the bound Change only. */
+  tourAnchor?: boolean;
+}) {
   const bucket = changeBucket(readModel);
   const statusClass = bucket === 'attention'
     ? 'bg-warning/10 text-warning'
     : bucket === 'delivered'
       ? 'bg-success/10 text-success'
-      : 'bg-primary/10 text-primary';
+      : bucket === 'other'
+        ? 'bg-secondary text-muted-foreground'
+        : 'bg-primary/10 text-primary';
   const content = (
     <>
       <div className="min-w-0 flex-1">
@@ -325,13 +269,25 @@ function ChangeRow({ readModel, onOpen, onStartEpic }: { readModel: ProjectChang
       {onOpen && <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />}
     </>
   );
-  if (onStartEpic) {
+  if (onStartEpic || onCancel) {
     return (
       <div className="flex w-full items-center gap-3 px-5 py-3.5">
         {content}
-        <button type="button" onClick={onStartEpic} data-tour-id="change-route-start-epic" className="shrink-0 rounded border border-primary/40 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/10">
-          Start Epic
-        </button>
+        {onStartEpic && (
+          <button
+            type="button"
+            onClick={onStartEpic}
+            data-tour-id={tourAnchor ? 'change-route-start-epic' : undefined}
+            className="shrink-0 rounded border border-primary/40 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/10"
+          >
+            Start Epic
+          </button>
+        )}
+        {onCancel && (
+          <button type="button" onClick={onCancel} className="shrink-0 rounded border border-destructive/40 px-2 py-1 text-[10px] font-semibold text-destructive hover:bg-destructive/10">
+            Cancel
+          </button>
+        )}
       </div>
     );
   }

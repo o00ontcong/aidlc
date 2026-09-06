@@ -101,6 +101,23 @@ export interface DiscoverHistoryDetail {
   after?: Pick<DiscoverContextEntity, 'title' | 'status' | 'fields'>;
 }
 
+/** One Publish Context revision — project-level immutable history entry. */
+export interface DiscoverPublishHistoryEntry {
+  discoverRevision: string;
+  parentRevision: string | null;
+  publishedAt: string;
+  /** Human-facing label for this publish. */
+  title: string;
+  description: string;
+  /** Legacy alias — description if present, else title. */
+  reason: string;
+  actor: DiscoverPublishedContext['actor'];
+  eventCount: number;
+  entityIds: string[];
+  sourceCommit: string | null;
+  isCurrent: boolean;
+}
+
 export interface DiscoverPublishedContext {
   schemaVersion: 1;
   generated: true;
@@ -122,6 +139,10 @@ export interface DiscoverPublishedContext {
   entities: DiscoverContextEntity[];
   stack: { kind: string; stackId?: string; confidence?: number; reason?: string };
   rules: Array<{ id: string; text: string; hash: string }>;
+  /** Human label for this publish; not part of content identity. */
+  title?: string;
+  /** Optional longer note for this publish; not part of content identity. */
+  description?: string;
 }
 
 export interface DiscoverContextPack {
@@ -188,6 +209,35 @@ export interface DiscoverContextInspection {
   context: DiscoverPublishedContext | null;
   issues: ValidationIssue[];
   nextAction: string;
+}
+
+/** Live vs last-publish delta — shown in Publish Context before the user commits. */
+export interface DiscoverPublishDiff {
+  hasPrevious: boolean;
+  previousRevision: string | null;
+  previousTitle: string | null;
+  /** True when content identity matches the last publish (noop republish). */
+  unchanged: boolean;
+  documents: Array<{ path: string; change: 'added' | 'updated' | 'removed' }>;
+  entities: Array<{
+    id: string;
+    kind: DiscoverEntityKind;
+    change: 'created' | 'updated' | 'removed' | 'deprecated' | 'relinked';
+    title: string;
+    beforeTitle?: string;
+    changedFields: string[];
+    status: DiscoverEntityStatus;
+    beforeStatus?: DiscoverEntityStatus;
+  }>;
+  rules: Array<{ id: string; change: 'added' | 'updated' | 'removed'; text?: string; beforeText?: string }>;
+  source: {
+    changed: boolean;
+    previousCommit: string | null;
+    currentCommit: string | null;
+    dirty: boolean;
+    /** Product-source paths that differ from HEAD (AIDLC/docs excluded). */
+    changedPaths: string[];
+  };
 }
 
 export class DiscoverContextPublishError extends Error {
@@ -269,26 +319,102 @@ function docContent(service: DiscoverService, docPath: string): string {
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
 }
 
-function sourceState(root: string): { sourceCommit: string | null; sourceTreeHash: string; dirty: boolean } {
+/**
+ * Paths that must NOT participate in Discover Context source identity.
+ *
+ * Publish Context itself rewrites provider command/skill stubs (embedding the
+ * new context hash). Those files live outside `.aidlc/`, so including them in
+ * `sourceTreeHash` immediately marks a just-published Context as stale even
+ * when docs/entities/rules are unchanged.
+ *
+ * Discover Markdown is already hashed via `documents[]`, so the docs root is
+ * also excluded — otherwise deleting `docs/epics/...` run workspaces (or any
+ * non-blueprint file under docs/) falsely invalidates Publish Context.
+ */
+function sourceIdentityPathspec(docsRoot: string): string[] {
+  const docs = docsRoot.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '') || 'docs';
+  return [
+    '--', '.',
+    ':(exclude).aidlc',
+    `:(exclude)${docs}`,
+    ':(exclude).claude/commands/cofofo-*',
+    ':(exclude).claude/commands/aidlc*',
+    ':(exclude).claude/commands/discover*',
+    ':(exclude).cursor/commands/cofofo-*',
+    ':(exclude).cursor/commands/aidlc*',
+    ':(exclude).cursor/commands/discover*',
+    ':(exclude).cursor/skills/cofofo-*',
+    ':(exclude).cursor/skills/aidlc*',
+    ':(exclude).cursor/skills/discover*',
+    ':(exclude).codex/skills/aidlc-*',
+    ':(exclude).opencode/commands/cofofo-*',
+    ':(exclude).opencode/commands/aidlc*',
+    ':(exclude).opencode/commands/discover*',
+  ];
+}
+
+function sourceState(root: string, docsRoot = 'docs'): {
+  sourceCommit: string | null;
+  sourceTreeHash: string;
+  dirty: boolean;
+  changedPaths: string[];
+} {
   let sourceCommit: string | null = null;
   let dirty = true;
+  let changedPaths: string[] = [];
   try {
     sourceCommit = childProcess.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
-    // Generated Context files are deliberately untracked. They must not make
-    // their own published revision immediately stale after `publish()`.
-    // Tracked source edits still participate in the dirty signal.
-    const sourcePathspec = ['--', '.', ':(exclude).aidlc'];
-    const status = childProcess.execFileSync('git', ['status', '--porcelain', '--untracked-files=no', ...sourcePathspec], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const sourcePathspec = sourceIdentityPathspec(docsRoot);
+    const statusRaw = childProcess.execFileSync('git', ['status', '--porcelain', '--untracked-files=no', ...sourcePathspec], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     const diff = childProcess.execFileSync('git', ['diff', '--no-ext-diff', '--binary', 'HEAD', ...sourcePathspec], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    dirty = status.length > 0;
-    // Do not collapse every dirty worktree into one value. A changed source
-    // file must make a published context stale even before a commit exists.
-    return { sourceCommit, sourceTreeHash: hashObject({ sourceCommit, diffHash: hashObject(diff) }), dirty };
+    // Do not trim the whole porcelain blob — a leading space is part of the
+    // XY status (` M path`); trimming turns ` M src/a.ts` into `M src/a.ts`
+    // and slice(3) then yields the corrupted `rc/a.ts`.
+    const statusLines = statusRaw.split(/\r?\n/).filter((line) => line.length >= 3);
+    dirty = statusLines.length > 0;
+    changedPaths = statusLines
+      .map((line) => {
+        let rest = line.slice(3);
+        const arrow = rest.lastIndexOf(' -> ');
+        if (arrow !== -1) { rest = rest.slice(arrow + 4); }
+        rest = rest.trim();
+        if (rest.startsWith('"') && rest.endsWith('"')) {
+          rest = rest.slice(1, -1).replace(/\\"/g, '"');
+        }
+        return rest;
+      })
+      .filter(Boolean)
+      .sort();
+    // Do not collapse every dirty worktree into one value. A changed product
+    // source file must make a published context stale even before a commit exists.
+    return { sourceCommit, sourceTreeHash: hashObject({ sourceCommit, diffHash: hashObject(diff) }), dirty, changedPaths };
   } catch {
     // A non-git workspace is allowed. The docs + evidence hashes still make
     // the published context deterministic.
   }
-  return { sourceCommit, sourceTreeHash: hashObject({ sourceCommit, dirty }), dirty };
+  return { sourceCommit, sourceTreeHash: hashObject({ sourceCommit, dirty }), dirty, changedPaths };
+}
+
+/**
+ * Content identity for Discover Context READY — docs, entities, rules and
+ * source tree only. Deliberately excludes Discover `index.revision`: that
+ * counter also bumps for bookkeeping (reindex no-op, step navigation, flags)
+ * and must not invalidate a just-published Context.
+ */
+function discoverContentIdentity(input: {
+  blueprint: { id: string; docsRoot: string };
+  documents: Array<{ path: string; hash: string }>;
+  entities: unknown;
+  rules: unknown;
+  sourceTreeHash: string;
+}): string {
+  return hashObject({
+    blueprint: { id: input.blueprint.id, docsRoot: input.blueprint.docsRoot },
+    documents: input.documents,
+    entities: input.entities,
+    rules: input.rules,
+    sourceTreeHash: input.sourceTreeHash,
+  });
 }
 
 function readText(file: string): string | undefined {
@@ -581,7 +707,7 @@ export class DiscoverContextPublisher {
       reason: input.reason?.trim() || 'Create a migration baseline; legacy sources were inventoried for review.',
       source: { command: 'Discover Context migration' },
     });
-    const state = sourceState(this.workspaceRoot);
+    const state = sourceState(this.workspaceRoot, this.service.exists() ? this.service.require().docsRoot : 'docs');
     writeJson(this.absolute(DISCOVER_MIGRATION_INVENTORY_PATH), {
       ...preview,
       discoverRevision: context.discoverRevision,
@@ -608,9 +734,32 @@ export class DiscoverContextPublisher {
       return { status: 'draft', context: null, issues, nextAction: 'Publish Context from Discover after resolving blocking validation.' };
     }
     const documents = allDocPaths().map((docPath) => ({ path: docPath, hash: hashObject(docContent(this.service, docPath)) }));
-    const state = sourceState(this.workspaceRoot);
-    const canonicalHash = hashObject({ blueprint: { id: index.id, revision: index.revision, docsRoot: index.docsRoot }, documents, entities: entitiesFrom(ctx), rules: parseRules(this.service), sourceTreeHash: state.sourceTreeHash });
-    if (canonicalHash !== context.canonicalHash) {
+    const state = sourceState(this.workspaceRoot, index.docsRoot);
+    const entities = entitiesFrom(ctx);
+    const rules = parseRules(this.service);
+    // Docs/entities/rules are the Discover handoff. Source identity is separate so
+    // legacy publishes that accidentally hashed AIDLC scaffolding can recover to READY
+    // when product source at HEAD is clean.
+    const liveCore = discoverContentIdentity({
+      blueprint: { id: index.id, docsRoot: index.docsRoot },
+      documents,
+      entities,
+      rules,
+      sourceTreeHash: '',
+    });
+    const publishedCore = discoverContentIdentity({
+      blueprint: { id: context.blueprint.id, docsRoot: context.blueprint.docsRoot },
+      documents: context.documents,
+      entities: context.entities,
+      rules: context.rules,
+      sourceTreeHash: '',
+    });
+    if (liveCore !== publishedCore) {
+      return { status: 'stale', context, issues, nextAction: 'Discover changed after the last Publish Context. Publish a new revision.' };
+    }
+    const sourceOk = state.sourceTreeHash === context.sourceTreeHash
+      || (state.sourceCommit === context.sourceCommit && !state.dirty);
+    if (!sourceOk) {
       return { status: 'stale', context, issues, nextAction: 'Discover changed after the last Publish Context. Publish a new revision.' };
     }
     const blockers = issues.filter((issue) => issue.level === 'error');
@@ -621,12 +770,20 @@ export class DiscoverContextPublisher {
 
   publish(input: {
     actor: ActorRef | { kind: 'migration'; id: string };
-    reason: string;
+    /** Human-facing publish label. Prefer this over legacy `reason`. */
+    title?: string;
+    /** Optional longer note shown in history. */
+    description?: string;
+    /** @deprecated Prefer `title` + `description`. Kept for callers/tests. */
+    reason?: string;
     source?: DiscoverHistoryEvent['source'];
     now?: string;
   }): DiscoverPublishedContext {
     if (!this.service.exists()) { throw new DiscoverNotInitializedError(); }
-    if (!input.reason.trim()) { throw new DiscoverContextPublishError('Publish Context requires a change reason.'); }
+    const title = (input.title ?? input.reason ?? '').trim();
+    const description = (input.description ?? '').trim();
+    if (!title) { throw new DiscoverContextPublishError('Publish Context requires a title.'); }
+    const changeReason = description || title;
     const index = this.service.require();
     const ctx = this.service.readBlueprint(index);
     const entities = entitiesFrom(ctx);
@@ -637,13 +794,26 @@ export class DiscoverContextPublisher {
     }
     const previous = this.loadPublished();
     const documents = allDocPaths().map((docPath) => ({ path: docPath, hash: hashObject(docContent(this.service, docPath)) }));
-    const source = sourceState(this.workspaceRoot);
+    const source = sourceState(this.workspaceRoot, index.docsRoot);
     const rules = parseRules(this.service);
     const codeIndexDraft = buildCodeIndexDraft(this.workspaceRoot, this.service, ctx, entities, source);
-    const canonicalHash = hashObject({
-      blueprint: { id: index.id, revision: index.revision, docsRoot: index.docsRoot }, documents, entities, rules, sourceTreeHash: source.sourceTreeHash,
+    const canonicalHash = discoverContentIdentity({
+      blueprint: { id: index.id, docsRoot: index.docsRoot },
+      documents,
+      entities,
+      rules,
+      sourceTreeHash: source.sourceTreeHash,
     });
-    if (previous?.canonicalHash === canonicalHash) { return previous; }
+    if (previous) {
+      const previousIdentity = discoverContentIdentity({
+        blueprint: { id: previous.blueprint.id, docsRoot: previous.blueprint.docsRoot },
+        documents: previous.documents,
+        entities: previous.entities,
+        rules: previous.rules,
+        sourceTreeHash: previous.sourceTreeHash,
+      });
+      if (previousIdentity === canonicalHash) { return previous; }
+    }
     const discoverRevision = `DREV-${canonicalHash.replace(/^sha256:/, '').slice(0, 12)}`;
     const publishedAt = input.now ?? new Date().toISOString();
     const draft = {
@@ -665,7 +835,14 @@ export class DiscoverContextPublisher {
       stack: safeStack(this.workspaceRoot),
       rules,
     };
-    const context: DiscoverPublishedContext = { ...draft, contextHash: hashObject(draft) };
+    // Title/description are publish metadata — hash the content draft first so
+    // renaming a publish cannot churn contextHash / epic pins.
+    const context: DiscoverPublishedContext = {
+      ...draft,
+      contextHash: hashObject(draft),
+      title,
+      ...(description ? { description } : {}),
+    };
     this.installEccBundle(context.contextHash);
     const before = new Map((previous?.entities ?? []).map((entity) => [entity.id, entity]));
     const events: DiscoverHistoryEvent[] = entities.flatMap((entity) => {
@@ -689,11 +866,11 @@ export class DiscoverContextPublisher {
         beforeHash: old?.contentHash ?? null,
         afterHash: entity.contentHash,
         summary: `${type} ${entity.id}`,
-        reason: input.reason.trim(),
+        reason: changeReason,
         breaking: old?.status === 'ready' && entity.status === 'deprecated',
       }];
     });
-    const revision = { ...context, events };
+    const revision = { ...context, changeReason, events };
     // Objects are immutable snapshots keyed by entity content hash. They make
     // history/recovery possible without another editable Markdown copy.
     for (const entity of entities) {
@@ -784,6 +961,13 @@ export class DiscoverContextPublisher {
     const byId = new Map(context.entities.map((entity) => [entity.id, entity]));
     const requested = new Set<string>(phase?.cites.map((cite) => cite.id) ?? []);
     if (input.bugScopeId) { requested.add(input.bugScopeId); }
+    // New change / Start Epic without a Discover phase still needs a pack.
+    // Include every non-deprecated entity; token compaction below keeps it bounded.
+    if (requested.size === 0 && !input.phaseId && !input.bugScopeId) {
+      for (const entity of context.entities) {
+        if (entity.status !== 'deprecated') { requested.add(entity.id); }
+      }
+    }
     const queue = [...requested];
     while (queue.length) {
       const id = queue.shift()!;
@@ -860,6 +1044,197 @@ export class DiscoverContextPublisher {
     if (!normalized.startsWith(`${DISCOVER_CONTEXT_PACKS_DIR}/`) || normalized.includes('..')) { return null; }
     const pack = readJson<DiscoverContextPack>(this.absolute(normalized));
     return pack?.schemaVersion === 1 ? pack : null;
+  }
+
+  /**
+   * What would change if the user Publishes now — docs, entities, rules and
+   * source tree vs the last published revision (or "everything new" on first publish).
+   */
+  previewPublishDiff(): DiscoverPublishDiff {
+    if (!this.service.exists()) {
+      return {
+        hasPrevious: false,
+        previousRevision: null,
+        previousTitle: null,
+        unchanged: true,
+        documents: [],
+        entities: [],
+        rules: [],
+        source: { changed: false, previousCommit: null, currentCommit: null, dirty: false, changedPaths: [] },
+      };
+    }
+    const index = this.service.require();
+    const ctx = this.service.readBlueprint(index);
+    const previous = this.loadPublished();
+    const documents = allDocPaths().map((docPath) => ({ path: docPath, hash: hashObject(docContent(this.service, docPath)) }));
+    const entities = entitiesFrom(ctx);
+    const rules = parseRules(this.service);
+    const source = sourceState(this.workspaceRoot, index.docsRoot);
+    const liveCore = discoverContentIdentity({
+      blueprint: { id: index.id, docsRoot: index.docsRoot },
+      documents,
+      entities,
+      rules,
+      sourceTreeHash: '',
+    });
+    const publishedCore = previous
+      ? discoverContentIdentity({
+        blueprint: { id: previous.blueprint.id, docsRoot: previous.blueprint.docsRoot },
+        documents: previous.documents,
+        entities: previous.entities,
+        rules: previous.rules,
+        sourceTreeHash: '',
+      })
+      : null;
+    if (!previous) {
+      return {
+        hasPrevious: false,
+        previousRevision: null,
+        previousTitle: null,
+        unchanged: false,
+        documents: documents.filter((doc) => docContent(this.service, doc.path).trim()).map((doc) => ({ path: doc.path, change: 'added' as const })),
+        entities: entities.map((entity) => ({
+          id: entity.id,
+          kind: entity.kind,
+          change: 'created' as const,
+          title: entity.title,
+          changedFields: ['*'],
+          status: entity.status,
+        })),
+        rules: rules.map((rule) => ({ id: rule.id, change: 'added' as const, text: rule.text })),
+        source: {
+          changed: true,
+          previousCommit: null,
+          currentCommit: source.sourceCommit,
+          dirty: source.dirty,
+          changedPaths: source.changedPaths,
+        },
+      };
+    }
+
+    const beforeDocs = new Map(previous.documents.map((doc) => [doc.path, doc.hash]));
+    const afterDocs = new Map(documents.map((doc) => [doc.path, doc.hash]));
+    const documentDiff: DiscoverPublishDiff['documents'] = [];
+    for (const docPath of [...new Set([...beforeDocs.keys(), ...afterDocs.keys()])].sort()) {
+      const before = beforeDocs.get(docPath);
+      const after = afterDocs.get(docPath);
+      if (before === after) { continue; }
+      if (!before) { documentDiff.push({ path: docPath, change: 'added' }); continue; }
+      if (!after) { documentDiff.push({ path: docPath, change: 'removed' }); continue; }
+      documentDiff.push({ path: docPath, change: 'updated' });
+    }
+
+    const beforeEntities = new Map(previous.entities.map((entity) => [entity.id, entity]));
+    const afterEntities = new Map(entities.map((entity) => [entity.id, entity]));
+    const entityDiff: DiscoverPublishDiff['entities'] = [];
+    for (const id of [...new Set([...beforeEntities.keys(), ...afterEntities.keys()])].sort()) {
+      const old = beforeEntities.get(id);
+      const next = afterEntities.get(id);
+      if (old && next && old.contentHash === next.contentHash) { continue; }
+      if (!old && next) {
+        entityDiff.push({
+          id: next.id,
+          kind: next.kind,
+          change: 'created',
+          title: next.title,
+          changedFields: ['*'],
+          status: next.status,
+        });
+        continue;
+      }
+      if (old && !next) {
+        entityDiff.push({
+          id: old.id,
+          kind: old.kind,
+          change: 'removed',
+          title: old.title,
+          beforeTitle: old.title,
+          changedFields: ['*'],
+          status: old.status,
+          beforeStatus: old.status,
+        });
+        continue;
+      }
+      if (old && next) {
+        const change: DiscoverPublishDiff['entities'][number]['change'] =
+          next.status === 'deprecated' ? 'deprecated'
+            : JSON.stringify(old.references) !== JSON.stringify(next.references) ? 'relinked'
+              : 'updated';
+        entityDiff.push({
+          id: next.id,
+          kind: next.kind,
+          change,
+          title: next.title,
+          beforeTitle: old.title,
+          changedFields: changedFields(old, next),
+          status: next.status,
+          beforeStatus: old.status,
+        });
+      }
+    }
+
+    const beforeRules = new Map(previous.rules.map((rule) => [rule.id, rule]));
+    const afterRules = new Map(rules.map((rule) => [rule.id, rule]));
+    const ruleDiff: DiscoverPublishDiff['rules'] = [];
+    for (const id of [...new Set([...beforeRules.keys(), ...afterRules.keys()])].sort()) {
+      const old = beforeRules.get(id);
+      const next = afterRules.get(id);
+      if (old && next && old.hash === next.hash) { continue; }
+      if (!old && next) { ruleDiff.push({ id, change: 'added', text: next.text }); continue; }
+      if (old && !next) { ruleDiff.push({ id, change: 'removed', beforeText: old.text }); continue; }
+      if (old && next) { ruleDiff.push({ id, change: 'updated', text: next.text, beforeText: old.text }); }
+    }
+
+    return {
+      hasPrevious: true,
+      previousRevision: previous.discoverRevision,
+      previousTitle: previous.title?.trim() || previous.discoverRevision,
+      unchanged: publishedCore === liveCore
+        && (previous.sourceTreeHash === source.sourceTreeHash
+          || (previous.sourceCommit === source.sourceCommit && !source.dirty)),
+      documents: documentDiff,
+      entities: entityDiff,
+      rules: ruleDiff,
+      source: {
+        changed: source.changedPaths.length > 0 || previous.sourceCommit !== source.sourceCommit,
+        previousCommit: previous.sourceCommit,
+        currentCommit: source.sourceCommit,
+        dirty: source.dirty,
+        changedPaths: source.changedPaths,
+      },
+    };
+  }
+
+  /** Append-only Publish Context revisions for the project, newest first. */
+  listPublishHistory(): DiscoverPublishHistoryEntry[] {
+    const index = readJson<{ revisions?: string[] }>(this.absolute(`${DISCOVER_HISTORY_DIR}/index.json`));
+    const current = this.loadPublished()?.discoverRevision;
+    const entries: DiscoverPublishHistoryEntry[] = [];
+    for (const revisionId of index?.revisions ?? []) {
+      const snapshot = readJson<DiscoverPublishedContext & {
+        changeReason?: string;
+        events?: DiscoverHistoryEvent[];
+      }>(this.revisionFile(revisionId));
+      if (!snapshot?.discoverRevision || !snapshot.publishedAt) { continue; }
+      const events = snapshot.events ?? [];
+      const legacyReason = snapshot.changeReason?.trim() || events[0]?.reason?.trim() || '';
+      const title = snapshot.title?.trim() || legacyReason || snapshot.discoverRevision;
+      const description = snapshot.description?.trim() || '';
+      entries.push({
+        discoverRevision: snapshot.discoverRevision,
+        parentRevision: snapshot.parentRevision ?? null,
+        publishedAt: snapshot.publishedAt,
+        title,
+        description,
+        reason: description || title,
+        actor: snapshot.actor,
+        eventCount: events.length,
+        entityIds: [...new Set(events.map((event) => event.entityId))],
+        sourceCommit: snapshot.sourceCommit ?? null,
+        isCurrent: snapshot.discoverRevision === current,
+      });
+    }
+    return entries;
   }
 
   /** Append-only history for one requirement or feature, newest first. */

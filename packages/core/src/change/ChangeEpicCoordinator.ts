@@ -100,6 +100,12 @@ export interface StartEpicInput {
   source: SourceSnapshot;
   context: { baseRevisionId: ContextRevisionId; baseRootHash: string; entityObjectHashes?: Record<string, string>; contextSliceHash: string };
   epicProfile?: EpicProfile;
+  /**
+   * Optional delivery id. Defaults to {@link epicIdFromChangeId}. When the
+   * New change composer leaves Task id empty, the host supplies the next
+   * sequenced `EPIC-NNN` instead of a fresh ULID suffix.
+   */
+  epicId?: EpicId;
 }
 
 export interface StartEpicOutput {
@@ -164,7 +170,7 @@ export class ChangeEpicCoordinator {
     }
     assertGuardMatches('change', `Change ${input.changeId}`, before, input.guard);
 
-    const epicId = epicIdFromChangeId(before.id);
+    const epicId = input.epicId ?? epicIdFromChangeId(before.id);
     const now = this.clock();
     const pending = this.changeStore.update(input.changeId, input.guard, (current) => {
       const epicLink: ChangeEpicLink = {

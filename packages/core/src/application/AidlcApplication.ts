@@ -612,6 +612,7 @@ export class AidlcApplication {
       source: SourceSnapshot;
       context: { baseRevisionId: ContextRevisionId; baseRootHash: string; entityObjectHashes?: Record<string, string>; contextSliceHash: string };
       epicProfile?: EpicProfile;
+      epicId?: string;
     }>('change.epic.start', (command) =>
       ok(
         command,
@@ -624,6 +625,7 @@ export class AidlcApplication {
           source: command.payload.source,
           context: command.payload.context,
           epicProfile: command.payload.epicProfile,
+          ...(command.payload.epicId ? { epicId: toEpicId(command.payload.epicId) } : {}),
         }),
       ));
 

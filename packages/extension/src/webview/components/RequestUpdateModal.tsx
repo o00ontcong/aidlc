@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useHostAction } from '@/hooks/useHostAction';
 import { Btn } from './epic-v3/primitives';
 import {
   V3Callout, V3Field, V3Modal, V3ModalFooter, V3ModalHeader, V3Textarea,
@@ -29,12 +30,12 @@ export function RequestUpdateModal({
   onClose,
 }: Props) {
   const [feedback, setFeedback] = useState('');
+  const { pending, run } = useHostAction({ onSettled: onClose });
 
   const trimmed = feedback.trim();
   const submit = () => {
-    if (!trimmed) { return; }
-    onSubmit(trimmed);
-    onClose();
+    if (!trimmed || pending) { return; }
+    run(() => onSubmit(trimmed));
   };
 
   return (
@@ -42,21 +43,25 @@ export function RequestUpdateModal({
       width={560}
       paddingTop={110}
       onClose={onClose}
+      busy={pending}
       header={
         <V3ModalHeader
           title={`Request update — step ${stepIdx + 1}`}
           sub={`${agent} · run ${runId}`}
           onClose={onClose}
+          disabled={pending}
         />
       }
       footer={
         <V3ModalFooter cli={`aidlc step request-update ${runId} --step ${stepIdx}`}>
-          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} disabled={pending} />
           <Btn
             label="Request update"
             variant="primary"
             onClick={submit}
             disabled={!trimmed}
+            loading={pending}
+            loadingLabel="Requesting…"
             title={trimmed ? undefined : 'Bắt buộc ghi rõ thay đổi'}
             pad="9px 16px"
             fs={12.5}
@@ -80,6 +85,7 @@ export function RequestUpdateModal({
           placeholder="ví dụ: PRD phải bổ sung rate-limit policy theo requirements doc mới"
           rows={4}
           autoFocus
+          disabled={pending}
         />
       </V3Field>
     </V3Modal>

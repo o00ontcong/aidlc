@@ -13,6 +13,7 @@
 
 import { useState } from 'react';
 import { postMessage } from '@/lib/bridge';
+import { useHostAction } from '@/hooks/useHostAction';
 import { Btn, Mono } from './primitives';
 import { V3Input, V3Modal, V3ModalFooter, V3ModalHeader } from './V3Modal';
 import { mock } from './mock';
@@ -35,23 +36,25 @@ export function GateModal({
   onClose: () => void;
 }) {
   const [reason, setReason] = useState('');
+  const { pending, run, isPending } = useHostAction({ onSettled: onClose });
   const canReject = reason.trim().length > 0;
 
   const approve = () => {
-    postMessage({ type: 'approveStep', runId, stepIdx });
-    onClose();
+    if (pending) { return; }
+    run(() => postMessage({ type: 'approveStep', runId, stepIdx }), 'approve');
   };
 
   const reject = () => {
-    if (!canReject) { return; }
-    postMessage({
-      type: 'rejectStepInline',
-      runId,
-      reason: reason.trim(),
-      targetIdx: stepIdx,
-      stepIdx,
-    });
-    onClose();
+    if (!canReject || pending) { return; }
+    run(() => {
+      postMessage({
+        type: 'rejectStepInline',
+        runId,
+        reason: reason.trim(),
+        targetIdx: stepIdx,
+        stepIdx,
+      });
+    }, 'reject');
   };
 
   return (
@@ -60,6 +63,7 @@ export function GateModal({
       danger
       onClose={onClose}
       paddingTop={90}
+      busy={pending}
       header={
         <V3ModalHeader
           icon="🔒"
@@ -67,21 +71,33 @@ export function GateModal({
           title={`Hard gate · ${gateName}`}
           sub="Không mode nào bỏ qua được, kể cả unattended"
           onClose={onClose}
+          disabled={pending}
         />
       }
       footer={
         <V3ModalFooter>
-          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} />
+          <Btn label="Huỷ" onClick={onClose} pad="9px 14px" fs={12.5} disabled={pending} />
           <Btn
             label="Reject"
             variant="danger"
             onClick={reject}
-            disabled={!canReject}
+            disabled={!canReject || pending}
+            loading={isPending('reject')}
+            loadingLabel="Rejecting…"
             title={canReject ? undefined : 'Nhập lý do trước khi reject'}
             pad="9px 14px"
             fs={12.5}
           />
-          <Btn label="Approve & tiếp tục" variant="primary" onClick={approve} pad="9px 16px" fs={12.5} />
+          <Btn
+            label="Approve & tiếp tục"
+            variant="primary"
+            onClick={approve}
+            loading={isPending('approve')}
+            loadingLabel="Approving…"
+            disabled={pending && !isPending('approve')}
+            pad="9px 16px"
+            fs={12.5}
+          />
         </V3ModalFooter>
       }
     >
@@ -119,7 +135,7 @@ export function GateModal({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ fontSize: 11.5, color: 'var(--txt2)' }}>Lý do (bắt buộc khi reject)</div>
-        <V3Input value={reason} onChange={setReason} placeholder="Ghi lại quyết định cho audit log…" />
+        <V3Input value={reason} onChange={setReason} placeholder="Ghi lại quyết định cho audit log…" disabled={pending} />
       </div>
 
       <div style={{ fontSize: 11.5, color: 'var(--err)', lineHeight: 1.5 }}>

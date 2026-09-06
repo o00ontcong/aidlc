@@ -29,6 +29,7 @@ import {
   Trash2,
   GripVertical,
   Star,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -49,6 +50,7 @@ import { RequestUpdateModal } from './RequestUpdateModal';
 import { DeleteEpicModal } from './DeleteEpicModal';
 import { DiffPane } from './DiffPane';
 import { postMessage } from '@/lib/bridge';
+import { useHostAction } from '@/hooks/useHostAction';
 
 function isCodeHumanReviewStep(step: EpicStepDetailFull | null): boolean {
   if (!step?.stepHasHumanReview) return false;
@@ -1176,6 +1178,7 @@ function RunGate({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rerunOpen, setRerunOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const { pending, run, isPending } = useHostAction();
   if (!epic.runId) { return null; }
   // DAG pipelines may have several active steps; instead of gating on a
   // single "current" cursor, accept any focused step that's in an actionable
@@ -1295,31 +1298,37 @@ function RunGate({
               return (
                 <GateButton
                   variant="approve"
-                  disabled={runDisabled}
+                  disabled={runDisabled || pending}
+                  loading={isPending('run')}
                   title={runDisabled ? runStepDisabledHint() : undefined}
                   onClick={() => {
-                    if (runDisabled) { return; }
+                    if (runDisabled || pending) { return; }
                     if (hasFeedback) {
                       setRunOpen(true);
                     } else {
-                      postMessage({
-                        type: 'runStepWithFeedback',
-                        runId: epic.runId!,
-                        slashCommand,
-                        feedback: '',
-                      });
+                      run(() => {
+                        postMessage({
+                          type: 'runStepWithFeedback',
+                          runId: epic.runId!,
+                          slashCommand,
+                          feedback: '',
+                        });
+                      }, 'run');
                     }
                   }}
                 >
-                  <Play className="h-3 w-3" />
+                  {isPending('run') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                   {runLabel}
                 </GateButton>
               );
             })()}
             <GateButton
               variant="primary"
-              onClick={() => postMessage({ type: 'markStepDone', runId: epic.runId!, stepIdx: focusedIdx })}
+              disabled={pending}
+              loading={isPending('done')}
+              onClick={() => run(() => postMessage({ type: 'markStepDone', runId: epic.runId!, stepIdx: focusedIdx }), 'done')}
             >
+              {isPending('done') && <Loader2 className="h-3 w-3 animate-spin" />}
               Mark step done
             </GateButton>
           </>
@@ -1327,8 +1336,11 @@ function RunGate({
         {status === 'awaiting_auto_review' && (
           <GateButton
             variant="primary"
-            onClick={() => postMessage({ type: 'runAutoReview', runId: epic.runId!, stepIdx: focusedIdx })}
+            disabled={pending}
+            loading={isPending('auto-review')}
+            onClick={() => run(() => postMessage({ type: 'runAutoReview', runId: epic.runId!, stepIdx: focusedIdx }), 'auto-review')}
           >
+            {isPending('auto-review') && <Loader2 className="h-3 w-3 animate-spin" />}
             Run auto-review
           </GateButton>
         )}
@@ -1336,12 +1348,16 @@ function RunGate({
           <>
             <GateButton
               variant="approve"
-              onClick={() => postMessage({ type: 'approveStep', runId: epic.runId!, stepIdx: focusedIdx })}
+              disabled={pending}
+              loading={isPending('approve')}
+              onClick={() => run(() => postMessage({ type: 'approveStep', runId: epic.runId!, stepIdx: focusedIdx }), 'approve')}
             >
-              <Check className="h-3 w-3" /> Approve
+              {isPending('approve') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              Approve
             </GateButton>
             <GateButton
               variant="reject"
+              disabled={pending}
               onClick={() => setRejectOpen(true)}
             >
               <X className="h-3 w-3" /> Reject
@@ -1353,18 +1369,21 @@ function RunGate({
             {slashCommand && (
               <GateButton
                 variant="approve"
-                onClick={() => postMessage({
+                disabled={pending}
+                loading={isPending('rerun')}
+                onClick={() => run(() => postMessage({
                   type: 'rerunAndRunWithClaude',
                   runId: epic.runId!,
                   stepIdx: focusedIdx,
                   slashCommand,
                   feedback: focused.rejectReason ?? '',
-                })}
+                }), 'rerun')}
               >
-                <Play className="h-3 w-3" /> Run again with Claude
+                {isPending('rerun') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                Run again with Claude
               </GateButton>
             )}
-            <GateButton variant="primary" onClick={() => setRerunOpen(true)}>
+            <GateButton variant="primary" disabled={pending} onClick={() => setRerunOpen(true)}>
               Edit feedback first
             </GateButton>
           </>
@@ -1416,23 +1435,26 @@ function GateButton({
   variant,
   onClick,
   disabled,
+  loading,
   title,
 }: {
   children: React.ReactNode;
   variant: 'primary' | 'approve' | 'reject';
   onClick: () => void;
   disabled?: boolean;
+  loading?: boolean;
   title?: string;
 }) {
   return (
     <button
       type="button"
       title={title}
-      disabled={disabled}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       onClick={onClick}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-semibold transition-colors',
-        disabled && 'cursor-not-allowed opacity-45',
+        (disabled || loading) && 'cursor-not-allowed opacity-45',
         variant === 'primary' &&
           'border-primary/40 bg-primary/15 text-primary hover:border-primary/60 hover:bg-primary/25',
         variant === 'approve' &&
@@ -1448,22 +1470,24 @@ function GateButton({
 
 function EpicActions({ epic, hasInputs }: { epic: EpicSummary; hasInputs: boolean }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const { pending, run } = useHostAction();
   return (
     <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
       {!epic.runId && epic.pipeline && (
         <button
           type="button"
+          disabled={pending}
           onClick={() =>
-            postMessage({
+            run(() => postMessage({
               type: 'startPipelineRunForEpic',
               epicId: epic.id,
               pipelineId: epic.pipeline,
-            })
+            }))
           }
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-primary-foreground hover:bg-primary/90"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
         >
-          <Play className="h-3 w-3" />
-          Start pipeline run
+          {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+          {pending ? 'Starting…' : 'Start pipeline run'}
         </button>
       )}
       {epic.statePath && (

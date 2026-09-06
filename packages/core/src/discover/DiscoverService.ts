@@ -511,15 +511,20 @@ export class DiscoverService {
    */
   reindexAll(actor: ActorRef, runId?: string): DiscoverIndex {
     let index = this.require();
+    let changed = false;
     for (const docPath of allDocPaths()) {
       const spec = getFileSpec(docPath)!;
       const file = this.docFile(docPath, index);
       if (!fs.existsSync(file)) { continue; }
-      const content = fs.readFileSync(file, 'utf8');
+      const raw = fs.readFileSync(file, 'utf8');
+      const content = `${raw.replace(/\r\n/g, '\n').replace(/\n+$/, '')}\n`;
       if (index.docs[docPath]?.hash === hashContent(content)) { continue; }
       index = this.reindexDoc(index, docPath, spec, content, { actor, runId });
+      changed = true;
     }
-    return this.save({ ...index, revision: index.revision + 1 });
+    // Bookkeeping-only reload must not bump revision — that counter used to
+    // invalidate a just-published Discover Context for Start Epic.
+    return changed ? this.save({ ...index, revision: index.revision + 1 }) : index;
   }
 
   setItemFlags(docPath: string, id: string, flags: { pinned?: boolean; flagged?: boolean }, expectedRevision?: number): DiscoverIndex {
