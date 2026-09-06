@@ -6,15 +6,37 @@ import {
   nowIso,
   parseArtifactPolicy,
   parseAidlcError,
+  toChangeId,
+  toContextGroupId,
+  toContextProposalId,
+  toEpicId,
   type ApplicationCommand,
   type AutonomyMode,
+  type ChangeOrigin,
+  type ChangePriority,
+  type ChangeRequirement,
+  type ChangeType,
   type CommandResult,
+  type ContextRevisionId,
+  type EpicProfile,
+  type ExternalReference,
   type GateDecision,
+  type ScopeAnalysis,
+  type SourceSnapshot,
   type StageId,
 } from '../contracts';
 import { ArtifactPolicyService } from '../artifacts';
 import { AutonomyController, AutonomyPolicyStore, AutonomyRunCoordinator, type GateEvaluation, type GateSubject } from '../autonomy';
 import { CapabilityPolicyStore, CapabilityRegistry } from '../capabilities';
+import {
+  ChangeEpicCoordinator,
+  ChangeService,
+  type ChangeShapeDraftInput,
+  type MergeChangesInput,
+  type ScopeFeedbackNextRoute,
+  type SplitChangeChildInput,
+} from '../change';
+import { ContextBootstrapService, ContextProposalService, type StartContextProposalInput } from '../context';
 import { EpicService, type CreateEpicInput } from '../epic';
 import { GuideService } from '../guide';
 import { createDefaultModelProviderRegistry, ModelProviderConfigStore, ModelProviderRegistry } from '../models';
@@ -22,6 +44,7 @@ import { lockWorkflowPack, resolveBuiltinWorkflowPack } from '../packs';
 import { ProjectIntelligenceService } from '../project';
 import { installClaudeAidlcCommand, ProjectLayoutMigrationService } from '../release';
 import { LegacyMigrationService } from '../migration';
+import type { VersionGuard } from '../storage';
 import { CompiledWorkflowStore, WorkflowRuntimeService, compileWorkflow, type CompiledWorkflow } from '../workflows';
 import { CommandBus } from './CommandBus';
 
@@ -66,6 +89,10 @@ export class AidlcApplication {
   readonly guide: GuideService;
   readonly layout: ProjectLayoutMigrationService;
   readonly migration: LegacyMigrationService;
+  readonly changes: ChangeService;
+  readonly changeEpics: ChangeEpicCoordinator;
+  readonly contextBootstrap: ContextBootstrapService;
+  readonly contextProposals: ContextProposalService;
   private readonly workspaceRoot: string;
 
   constructor(workspaceRoot: string, options: { models?: ModelProviderRegistry } = {}) {
@@ -87,6 +114,10 @@ export class AidlcApplication {
     this.workflows = this.runtime.workflows;
     this.layout = new ProjectLayoutMigrationService(workspaceRoot);
     this.migration = new LegacyMigrationService(workspaceRoot);
+    this.changes = new ChangeService(workspaceRoot);
+    this.changeEpics = new ChangeEpicCoordinator(workspaceRoot, { changeStore: this.changes.store, epics: this.epics });
+    this.contextBootstrap = new ContextBootstrapService(workspaceRoot);
+    this.contextProposals = new ContextProposalService(workspaceRoot);
     this.registerCommands();
   }
 
@@ -355,6 +386,381 @@ export class AidlcApplication {
       }
       return ok(command, { epic, requestedAction: command.payload.action, reason: command.payload.reason }, this.guide.nextOrFallback(epic), epicOutcome(epic.status));
     });
+
+    this.registerChangeCommands();
+    this.registerChangeEpicCommands();
+    this.registerContextCommands();
+  }
+
+  /**
+   * `change.*` commands (implementation plan §8, §18.6) — every command
+   * except the three saga steps that need `ChangeEpicCoordinator` (M3:
+   * `change.epic.start`, `change.epic.pending.resume/rollback`).
+   * `ChangeService`
+   * already enforces actor/state rules and throws typed errors shaped so
+   * `CommandBus`'s generic catch surfaces `.code`/`.recoveryActions`/
+   * `.metadata` — no per-command try/catch is needed here.
+   */
+  private registerChangeCommands(): void {
+    this.bus.register<{
+      title: string;
+      type: ChangeType;
+      priority?: ChangePriority;
+      requirement: ChangeRequirement;
+      origin: ChangeOrigin;
+      externalRefs?: ExternalReference[];
+    }>('change.create', (command) => ok(command, this.changes.create({ commandId: command.id, actor: command.actor, ...command.payload })));
+
+    this.bus.register<{
+      changeId: string;
+      guard: VersionGuard;
+      requirement: ChangeRequirement;
+      title?: string;
+      type?: ChangeType;
+      priority?: ChangePriority;
+    }>('change.requirement.update', (command) =>
+      ok(
+        command,
+        this.changes.updateRequirement({
+          commandId: command.id,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          guard: command.payload.guard,
+          requirement: command.payload.requirement,
+          title: command.payload.title,
+          type: command.payload.type,
+          priority: command.payload.priority,
+        }),
+      ));
+
+    this.bus.register<{
+      changeId: string;
+      guard: VersionGuard;
+      analysis: {
+        contextEntityKeys?: string[];
+        files?: ScopeAnalysis['files'];
+        symbols?: ScopeAnalysis['symbols'];
+        dependencies?: string[];
+        risks?: string[];
+        unknowns?: string[];
+        confidence: ScopeAnalysis['confidence'];
+        legacyImpactStatus?: ScopeAnalysis['legacyImpactStatus'];
+        contextRevisionId: ContextRevisionId;
+        contextRootHash: string;
+        sourceSnapshotHash: string;
+      };
+    }>('change.scope.propose', (command) =>
+      ok(
+        command,
+        this.changes.proposeScope({
+          commandId: command.id,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          guard: command.payload.guard,
+          ...command.payload.analysis,
+        }),
+      ));
+
+    this.bus.register<{ changeId: string; guard: VersionGuard; analysisId: string; feedback?: string; nextRoute: ScopeFeedbackNextRoute }>(
+      'change.scope.feedback',
+      (command) =>
+        ok(
+          command,
+          this.changes.recordScopeFeedback({
+            commandId: command.id,
+            actor: command.actor,
+            changeId: toChangeId(command.payload.changeId),
+            guard: command.payload.guard,
+            analysisId: command.payload.analysisId,
+            feedback: command.payload.feedback,
+            nextRoute: command.payload.nextRoute,
+          }),
+        ),
+    );
+
+    this.bus.register<{ changeId: string; guard: VersionGuard }>('change.explore.start', (command) =>
+      ok(command, this.changes.startExplore({ commandId: command.id, actor: command.actor, changeId: toChangeId(command.payload.changeId), guard: command.payload.guard })));
+
+    this.bus.register<{ changeId: string; changeGuard: VersionGuard; shapeGuard: VersionGuard; shapeDraft: ChangeShapeDraftInput }>(
+      'change.shape.update',
+      (command) =>
+        ok(
+          command,
+          this.changes.updateShape({
+            commandId: command.id,
+            actor: command.actor,
+            changeId: toChangeId(command.payload.changeId),
+            changeGuard: command.payload.changeGuard,
+            shapeGuard: command.payload.shapeGuard,
+            shapeDraft: command.payload.shapeDraft,
+          }),
+        ),
+    );
+
+    this.bus.register<{ changeId: string; changeGuard: VersionGuard; shapeGuard: VersionGuard }>('change.shape.ready', (command) => {
+      const result = this.changes.markShapeReady({
+        commandId: command.id,
+        actor: command.actor,
+        changeId: toChangeId(command.payload.changeId),
+        changeGuard: command.payload.changeGuard,
+        shapeGuard: command.payload.shapeGuard,
+      });
+      return ok(command, result, undefined, result.blockers.length > 0 ? 'blocked' : 'ok');
+    });
+
+    this.bus.register<{ changeId: string; changeGuard: VersionGuard; shapeGuard: VersionGuard }>('change.shape.accept', (command) =>
+      ok(
+        command,
+        this.changes.acceptShape({
+          commandId: command.id,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          changeGuard: command.payload.changeGuard,
+          shapeGuard: command.payload.shapeGuard,
+        }),
+      ));
+
+    this.bus.register<{ changeId: string; changeGuard: VersionGuard; shapeGuard: VersionGuard; reason: string }>('change.shape.reopen', (command) =>
+      ok(
+        command,
+        this.changes.reopenShape({
+          commandId: command.id,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          changeGuard: command.payload.changeGuard,
+          shapeGuard: command.payload.shapeGuard,
+          reason: command.payload.reason,
+        }),
+      ));
+
+    this.bus.register<{ changeId: string; guard: VersionGuard; reason?: string }>('change.shelve', (command) =>
+      ok(command, this.changes.shelve({ commandId: command.id, actor: command.actor, changeId: toChangeId(command.payload.changeId), guard: command.payload.guard, reason: command.payload.reason })));
+
+    this.bus.register<{ changeId: string; guard: VersionGuard; reason?: string }>('change.reopen', (command) =>
+      ok(command, this.changes.reopen({ commandId: command.id, actor: command.actor, changeId: toChangeId(command.payload.changeId), guard: command.payload.guard, reason: command.payload.reason })));
+
+    this.bus.register<{ changeId: string; guard: VersionGuard; reason?: string }>('change.cancel', (command) =>
+      ok(command, this.changes.cancel({ commandId: command.id, actor: command.actor, changeId: toChangeId(command.payload.changeId), guard: command.payload.guard, reason: command.payload.reason })));
+
+    this.bus.register<{ changeId: string; guard: VersionGuard; children: SplitChangeChildInput[]; reason: string }>('change.split', (command) =>
+      ok(
+        command,
+        this.changes.split({
+          commandId: command.id,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          guard: command.payload.guard,
+          children: command.payload.children,
+          reason: command.payload.reason,
+        }),
+      ));
+
+    this.bus.register<{ sourceIds: string[]; sourceGuards: VersionGuard[]; target: MergeChangesInput['target']; reason: string }>('change.merge', (command) =>
+      ok(
+        command,
+        this.changes.merge({
+          commandId: command.id,
+          actor: command.actor,
+          sourceIds: command.payload.sourceIds.map((id) => toChangeId(id)),
+          sourceGuards: command.payload.sourceGuards,
+          target: command.payload.target,
+          reason: command.payload.reason,
+        }),
+      ));
+
+    this.bus.register<{ changeId: string; guard: VersionGuard; epicId: string; reason: string }>('change.context.notrequired', (command) =>
+      ok(
+        command,
+        this.changes.markContextNotRequired({
+          commandId: command.id,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          guard: command.payload.guard,
+          epicId: toEpicId(command.payload.epicId),
+          reason: command.payload.reason,
+        }),
+      ));
+
+    // Delivery completion is emitted by an execution adapter, never directly
+    // from a human-facing screen. It records only the pending Context fact;
+    // `done` remains impossible until a subsequent human Context decision.
+    this.bus.register<{ changeId: string; guard: VersionGuard; epicId: string; completedAt?: string }>('change.delivery.complete', (command) =>
+      ok(
+        command,
+        this.changes.recordDeliveryCompleted({
+          commandId: command.id,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          guard: command.payload.guard,
+          epicId: toEpicId(command.payload.epicId),
+          completedAt: command.payload.completedAt,
+        }),
+      ));
+  }
+
+  /**
+   * `change.epic.start` / `change.epic.pending.resume` / `change.epic.pending.rollback`
+   * (plan §8, §9.2, §18.6, M3) — driven by `ChangeEpicCoordinator`, not
+   * `this.changes`, since these commands touch both the Change and Epic
+   * aggregates in one saga.
+   */
+  private registerChangeEpicCommands(): void {
+    this.bus.register<{
+      changeId: string;
+      guard: VersionGuard;
+      pipeline: { id: string; runMode: 'guided' | 'autonomous'; extraProjects?: string[] };
+      source: SourceSnapshot;
+      context: { baseRevisionId: ContextRevisionId; baseRootHash: string; entityObjectHashes?: Record<string, string>; contextSliceHash: string };
+      epicProfile?: EpicProfile;
+    }>('change.epic.start', (command) =>
+      ok(
+        command,
+        this.changeEpics.startEpic({
+          commandId: command.id,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          guard: command.payload.guard,
+          pipeline: command.payload.pipeline,
+          source: command.payload.source,
+          context: command.payload.context,
+          epicProfile: command.payload.epicProfile,
+        }),
+      ));
+
+    this.bus.register<{ changeId: string; guard: VersionGuard; pendingCommandId: string }>('change.epic.pending.resume', (command) =>
+      ok(
+        command,
+        this.changeEpics.resumePending({
+          commandId: command.payload.pendingCommandId,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          guard: command.payload.guard,
+        }),
+      ));
+
+    this.bus.register<{ changeId: string; guard: VersionGuard; pendingCommandId: string; reason: string }>('change.epic.pending.rollback', (command) =>
+      ok(
+        command,
+        this.changeEpics.rollbackPending({
+          commandId: command.payload.pendingCommandId,
+          actor: command.actor,
+          changeId: toChangeId(command.payload.changeId),
+          guard: command.payload.guard,
+          reason: command.payload.reason,
+        }),
+      ));
+  }
+
+  /**
+   * `context.bootstrap.*` / `context.proposal.*` (implementation plan §10,
+   * §18.2, §18.6, M4) — the canonical Project Context and the Git-like
+   * proposal review/apply flow around it.
+   */
+  private registerContextCommands(): void {
+    this.bus.register('context.bootstrap.preview', (command) => ok(command, this.contextBootstrap.preview()));
+
+    this.bus.register<{ previewId: string; sourceHashes: Record<string, string> }>('context.bootstrap.apply', (command) =>
+      ok(command, this.contextBootstrap.apply({ actor: command.actor, previewId: command.payload.previewId, sourceHashes: command.payload.sourceHashes })));
+
+    this.bus.register<Omit<StartContextProposalInput, 'commandId' | 'actor'> & { producedBy?: StartContextProposalInput['producedBy'] }>('context.proposal.start', (command) =>
+      ok(
+        command,
+        this.contextProposals.start({
+          commandId: command.id,
+          actor: command.actor,
+          producedBy: command.payload.producedBy,
+          origin: command.payload.origin,
+          originRef: command.payload.originRef,
+          contextGuard: command.payload.contextGuard,
+          sourceSnapshot: command.payload.sourceSnapshot,
+          operations: command.payload.operations,
+          groups: command.payload.groups,
+          newObjects: command.payload.newObjects,
+        }),
+      ));
+
+    this.bus.register<{ proposalId: string; guard: VersionGuard }>('context.proposal.finish', (command) =>
+      ok(command, this.contextProposals.finish({ commandId: command.id, actor: command.actor, proposalId: toContextProposalId(command.payload.proposalId), guard: command.payload.guard })));
+
+    this.bus.register<{ proposalId: string; guard: VersionGuard; groupIds: string[] }>('context.proposal.approve', (command) =>
+      ok(
+        command,
+        this.contextProposals.approve({
+          commandId: command.id,
+          actor: command.actor,
+          proposalId: toContextProposalId(command.payload.proposalId),
+          guard: command.payload.guard,
+          groupIds: command.payload.groupIds.map((id) => toContextGroupId(id)),
+        }),
+      ));
+
+    this.bus.register<{ proposalId: string; guard: VersionGuard; contextGuard: VersionGuard; groupIds: string[] }>('context.proposal.apply', (command) => {
+      const result = this.contextProposals.apply({
+          commandId: command.id,
+          actor: command.actor,
+          proposalId: toContextProposalId(command.payload.proposalId),
+          guard: command.payload.guard,
+          contextGuard: command.payload.contextGuard,
+          groupIds: command.payload.groupIds.map((id) => toContextGroupId(id)),
+      });
+      // A fully applied delivery proposal closes its owning Change as one
+      // follow-up fact. Partial application remains pending: remaining groups
+      // still need a human decision and must not falsely finish the Change.
+      if (result.proposal.status === 'applied'
+        && result.proposal.origin === 'delivery'
+        && result.proposal.originRef?.changeId
+        && result.proposal.originRef.epicId) {
+        const change = this.changes.require(result.proposal.originRef.changeId);
+        this.changes.markContextApplied({
+          commandId: `${command.id}:change-context-applied`,
+          actor: command.actor,
+          changeId: change.id,
+          guard: { expectedRevision: change.revision, expectedContentHash: change.contentHash },
+          epicId: result.proposal.originRef.epicId,
+          proposalIds: [result.proposal.id],
+          contextRevisionIds: [result.head.currentRevisionId],
+        });
+      }
+      return ok(command, result);
+    });
+
+    this.bus.register<{ proposalId: string; guard: VersionGuard; contextGuard: { expectedRevisionId: ContextRevisionId; expectedRootHash: string } }>('context.proposal.rebase', (command) =>
+      ok(
+        command,
+        this.contextProposals.rebase({
+          commandId: command.id,
+          actor: command.actor,
+          proposalId: toContextProposalId(command.payload.proposalId),
+          guard: command.payload.guard,
+          contextGuard: command.payload.contextGuard,
+        }),
+      ));
+
+    this.bus.register<{ proposalId: string; guard: VersionGuard; groupIds: string[]; feedback: string }>('context.proposal.changes.request', (command) =>
+      ok(
+        command,
+        this.contextProposals.requestChanges({
+          commandId: command.id,
+          actor: command.actor,
+          proposalId: toContextProposalId(command.payload.proposalId),
+          guard: command.payload.guard,
+          groupIds: command.payload.groupIds.map((id) => toContextGroupId(id)),
+          feedback: command.payload.feedback,
+        }),
+      ));
+
+    this.bus.register<{ proposalId: string; guard: VersionGuard; groupIds?: string[]; reason: string }>('context.proposal.discard', (command) =>
+      ok(
+        command,
+        this.contextProposals.discard({
+          commandId: command.id,
+          actor: command.actor,
+          proposalId: toContextProposalId(command.payload.proposalId),
+          guard: command.payload.guard,
+          groupIds: command.payload.groupIds?.map((id) => toContextGroupId(id)),
+          reason: command.payload.reason,
+        }),
+      ));
   }
 
   private compileAndSave(epic: ReturnType<EpicService['require']>, packId: string, version?: string, selectedCapabilities?: string[]): CompiledWorkflow {

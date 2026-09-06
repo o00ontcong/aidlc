@@ -36,6 +36,9 @@ const EXTERNAL_SOURCES: { id: ExternalSource; label: string; placeholder: string
   { id: 'url', label: 'URL', placeholder: 'https://… (spec / requirement page)' },
 ];
 
+/** What happens right after the owning Change is created (plan §12.1) — every submission creates a Change first, then takes exactly one of these. */
+export type ChangeComposerNextAction = 'start-epic' | 'explore' | 'save';
+
 export interface StartEpicDraft {
   target: { kind: EpicTargetKind; id: string };
   epicId: string;
@@ -46,6 +49,10 @@ export interface StartEpicDraft {
   /** Set only by an accepted Discovery Shape; host performs the atomic conversion. */
   sourceShapeId?: string;
   sourceShapeRevision?: number;
+  /** Present when the modal configures delivery for an already captured Change. */
+  existingChange?: { id: string; expectedRevision: number; expectedContentHash: string };
+  /** What to do once the owning Change exists — defaults to `start-epic` (today's one-click behavior). */
+  nextAction: ChangeComposerNextAction;
 }
 
 /**
@@ -60,6 +67,7 @@ export interface StartEpicPrefill {
   inputs?: Record<string, string>;
   sourceShapeId?: string;
   sourceShapeRevision?: number;
+  existingChange?: { id: string; expectedRevision: number; expectedContentHash: string };
 }
 
 interface Props {
@@ -97,6 +105,7 @@ export function StartEpicModal({
   onSubmit,
   onClose,
 }: Props) {
+  const existingChange = prefill?.existingChange;
   const [selected, setSelected] = useState<Selection>(() => defaultSelection(pipelines));
   // Start empty (nextEpicId is shown only as a placeholder). A pre-filled
   // "EPIC-100" looks like a Jira key and would trigger auto-analysis on open.
@@ -107,6 +116,7 @@ export function StartEpicModal({
   const [title, setTitle] = useState(prefill?.title ?? '');
   const [description, setDescription] = useState(prefill?.description ?? '');
   const [inputs, setInputs] = useState<Record<string, string>>(prefill?.inputs ?? {});
+  const [nextAction, setNextAction] = useState<ChangeComposerNextAction>('start-epic');
   const idInputRef = useRef<HTMLInputElement>(null);
   // Extra projects (GH-67)
   const [extraProjects, setExtraProjects] = useState<ExtraProject[]>([]);
@@ -375,20 +385,25 @@ export function StartEpicModal({
   // Empty field falls back to the suggested next id (shown as placeholder).
   const effectiveId = epicId.trim() || nextEpicId;
   const trimmedId = epicId.trim();
+  const startingEpicNow = Boolean(existingChange) || nextAction === 'start-epic';
   const idError = useMemo(() => {
+    if (!startingEpicNow) { return null; }
     if (!effectiveId) { return 'Epic id is required'; }
     if (!ID_PATTERN.test(effectiveId)) {
       return 'Uppercase letters / digits / dashes only — must start with a letter';
     }
     if (existingEpicIds.includes(effectiveId)) { return `Epic "${effectiveId}" already exists`; }
     return null;
-  }, [effectiveId, existingEpicIds]);
+  }, [startingEpicNow, effectiveId, existingEpicIds]);
 
-  const targetError = !selected.id ? 'Pick a pipeline' : null;
-  const projectError = !hasFolder && extraProjects.length === 0
+  const targetError = startingEpicNow && !selected.id ? 'Pick a pipeline' : null;
+  const projectError = startingEpicNow && !hasFolder && extraProjects.length === 0
     ? 'Add at least one project to create a task'
     : null;
-  const error = idError || targetError || projectError;
+  const requirementError = !startingEpicNow && !title.trim() && !description.trim()
+    ? 'Add a title or description'
+    : null;
+  const error = idError || targetError || projectError || requirementError;
 
   const submit = () => {
     if (error) { return; }
@@ -403,9 +418,11 @@ export function StartEpicModal({
       title: title.trim(),
       description: description.trim(),
       inputs: cleanInputs,
+      nextAction,
       extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
       sourceShapeId: prefill?.sourceShapeId,
       sourceShapeRevision: prefill?.sourceShapeRevision,
+      existingChange,
     });
     onClose();
   };
@@ -413,7 +430,7 @@ export function StartEpicModal({
   const [localEpicsDir, setLocalEpicsDir] = useState(epicsDir);
 
   return (
-    <Modal title="New task" maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit} closeOnBackdrop={false}>
+    <Modal title={existingChange ? `Start Epic · ${existingChange.id}` : 'New task'} maxWidth="max-w-2xl" onClose={onClose} onSubmit={submit} closeOnBackdrop={false}>
       <div className="space-y-4">
         {isFirstEpic && hasFolder && (
           <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
@@ -626,7 +643,7 @@ export function StartEpicModal({
               onChange={(e) => setEpicId(e.target.value)}
               placeholder={nextEpicId || 'EPIC-001'}
               spellCheck={false}
-              disabled={!hasWorkflows}
+              disabled={!hasWorkflows || Boolean(existingChange)}
               className="w-full rounded-md border border-border bg-input/50 px-2.5 py-2 font-mono text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
             />
             {idError && trimmedId && (
@@ -635,14 +652,14 @@ export function StartEpicModal({
           </div>
           <div>
             <label className="mb-1 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-              Title <span className="font-normal normal-case tracking-normal text-muted-foreground/80">(optional)</span>
+              {existingChange ? 'Change title' : <>Title <span className="font-normal normal-case tracking-normal text-muted-foreground/80">(optional)</span></>}
             </label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder='e.g. "Add user profile page"'
-              disabled={!hasWorkflows}
+              disabled={!hasWorkflows || Boolean(existingChange)}
               className="w-full rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
             />
           </div>
@@ -652,9 +669,9 @@ export function StartEpicModal({
           <div className="mb-1 flex items-baseline justify-between gap-2">
             <label className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
               Description / requirement{' '}
-              <span className="font-normal normal-case tracking-normal text-muted-foreground/80">(optional)</span>
+              <span className="font-normal normal-case tracking-normal text-muted-foreground/80">{existingChange ? '(pinned from Change)' : '(optional)'}</span>
             </label>
-            <div className="flex items-center gap-1">
+            {!existingChange && <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={onLoadDescriptionFromFile}
@@ -686,7 +703,7 @@ export function StartEpicModal({
                   <span>{s.label}</span>
                 </button>
               ))}
-            </div>
+            </div>}
           </div>
           {loadSource && (
             <div className="mb-1.5 flex items-center gap-1.5">
@@ -738,7 +755,7 @@ export function StartEpicModal({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Paste a requirement / PRD, or load it from a file. The text is snapshotted into the epic at submit time."
             rows={5}
-            disabled={!hasWorkflows}
+            disabled={!hasWorkflows || Boolean(existingChange)}
             className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
           />
           {descLoadInfo && (
@@ -787,11 +804,44 @@ export function StartEpicModal({
             </div>
           </div>
         )}
+
+        {!existingChange && <div>
+          <label className="mb-1.5 block text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+            What next
+          </label>
+          <div className="grid grid-cols-3 gap-1.5">
+            {(
+              [
+                { id: 'start-epic' as const, label: 'Start Epic', detail: 'Run a pipeline now' },
+                { id: 'explore' as const, label: 'Explore in Discover', detail: 'Shape it before committing' },
+                { id: 'save' as const, label: 'Save for later', detail: 'Just capture it' },
+              ]
+            ).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setNextAction(option.id)}
+                data-tour-id={option.id === 'start-epic' ? 'change-route-start-epic' : option.id === 'explore' ? 'change-route-explore' : undefined}
+                className={cn(
+                  'rounded-md border px-2.5 py-2 text-left transition-colors',
+                  nextAction === option.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent/50',
+                )}
+              >
+                <div className="text-[11px] font-semibold text-foreground">{option.label}</div>
+                <div className="text-[10px] text-muted-foreground">{option.detail}</div>
+              </button>
+            ))}
+          </div>
+        </div>}
       </div>
 
       <ModalFooter>
         <ModalCancelButton onClick={onClose} />
-        <ModalConfirmButton onClick={submit} label="Create task" disabled={!!error} />
+        <ModalConfirmButton
+          onClick={submit}
+          label={existingChange ? 'Start linked Epic' : nextAction === 'start-epic' ? 'Create & start' : nextAction === 'explore' ? 'Create & explore' : 'Save change'}
+          disabled={!!error}
+        />
       </ModalFooter>
     </Modal>
   );

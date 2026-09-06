@@ -2,7 +2,18 @@
  * Webview-side type definitions mirroring the host's @aidlc/core shapes.
  * Copied (not imported) because @aidlc/core targets Node and is bundled
  * into the host. The types are stable enough to keep in sync manually.
+ *
+ * `ProjectChangeReadModel` (below) is the one exception: it is imported
+ * type-only from `@aidlc/core` rather than hand-copied. A type-only import
+ * is erased entirely by both `tsc` (isolatedModules) and the Vite/esbuild
+ * bundle here, so it carries none of the "targets Node" risk the header
+ * above warns about — and the whole point of this DTO (Master Rule §0.3:
+ * "mọi view render từ đúng MỘT record") is that every view reads the exact
+ * same shape the core layer computes, not a hand-copied approximation of it.
  */
+import type { ContextProposal, ProjectChangeReadModel, ProjectContextHead } from '@aidlc/core';
+import type { ProductTourUiState } from '../../shared/productTour';
+export type { ContextProposal, ProjectChangeReadModel, ProjectContextHead };
 
 export type ProjectMode = 'reference' | 'workspace' | 'clone';
 
@@ -1078,6 +1089,14 @@ export interface WorkspaceState {
   projectWorkspace?: ProjectWorkspaceSummary;
   /** The Discover blueprint, when this workspace has one. */
   discover?: DiscoverSummary;
+  /** Every Project Change in this workspace — the shared record Project/Discover/Sprint/Epic all project from (Master Rule §0.3). */
+  changes: ProjectChangeReadModel[];
+  /** Every Context Proposal in this workspace (M4/M6) — the review queue Discover's Context surface reads from. */
+  contextProposals: ContextProposal[];
+  /** Personal Product Tour state, persisted by the extension host rather than the repository. */
+  productTour: ProductTourUiState;
+  /** The canonical Project Context's current pointer, when this workspace has been bootstrapped. */
+  contextHead?: ProjectContextHead;
   agents: AgentSummary[];
   skills: SkillSummary[];
   pipelines: PipelineSummary[];

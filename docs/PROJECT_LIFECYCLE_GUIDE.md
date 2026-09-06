@@ -58,8 +58,10 @@ Project Context là nguồn sự thật chung mô tả project hiện tại:
 - Technical decision, project rule và test strategy.
 - Stable ID, provenance, source evidence, revision và hash.
 
-12 tài liệu Discover là các **projection để con người đọc và review** Project
-Context. Chúng không phải 12 form hoặc 12 bước bắt buộc cho mỗi thay đổi.
+12 bước Discover hiện chiếu ra **14 file Markdown được quản lý** (bước
+Architecture sở hữu `ARCHITECTURE.md`, `MODULES.md` và `DATA_FLOW.md`). Các file
+này là projection để con người đọc và review Project Context; chúng không phải
+12 form hoặc 12 gate bắt buộc cho mỗi thay đổi.
 
 ### 2.2 Project Change
 
@@ -188,20 +190,73 @@ lưu và sửa thủ công trên Change.
 User có thể tạo một thay đổi từ bất kỳ bề mặt phù hợp nào. Tất cả entry path
 phải hội tụ về cùng một Change và cùng context resolver.
 
-```text
-User mô tả vấn đề
-        ↓
-AIDLC tìm context, hiển thị recommendation và cảnh báo
-        ↓
-User chọn action phù hợp
-        ├─ Đã thuộc Epic đang chạy       → feedback/rework Epic đó
-        ├─ Bug của feature đã ship       → bugfix Epic mới, link Epic gốc
-        ├─ Thay đổi nhỏ và đã rõ         → Ready, có thể tạo Epic trực tiếp
-        ├─ Feature lớn hoặc chưa rõ      → Shape trong Discover
-        ├─ Context/docs bị lệch          → Context Proposal
-        ├─ Trùng công việc hiện có       → mở hoặc merge với Change hiện có
-        ├─ Chưa muốn làm                 → shelve
-        └─ Không cần làm                 → close/cancel kèm evidence
+```mermaid
+flowchart TD
+    A["Tôi mở project"] --> B{"Tôi muốn làm gì?"}
+
+    B --> D["Hiểu project hoặc thêm requirement<br/>Discover"]
+    B --> S["Sắp xếp công việc<br/>Sprint"]
+    B --> E["Tiếp tục hoặc review delivery<br/>Epic"]
+    B --> N["+ New Change"]
+
+    D --> D1["Add requirement"]
+    S --> S1["Create from external ticket"]
+    E --> E1{"Vấn đề thuộc Epic đang chạy?"}
+    E1 -->|Có| RW["Rework Epic hiện tại"]
+    E1 -->|Không hoặc follow-up| E2["Create follow-up Change"]
+
+    D1 --> C["Change Composer dùng chung"]
+    S1 --> C
+    E2 --> C
+    N --> C
+
+    C --> R["Tôi mô tả vấn đề và outcome<br/>AIDLC tìm context, cảnh báo và recommendation"]
+    R --> X{"Tôi quyết định"}
+
+    X -->|Trùng việc| EXIST["Mở hoặc merge với Change hiện có"]
+    X -->|Để sau| SHELF["Lưu Change ở trạng thái shelved"]
+    X -->|Không làm| CANCEL["Cancel kèm lý do"]
+    X -->|Cần tìm hiểu| EXP["Explore in Discover"]
+    X -->|Đã đủ rõ| START["Start Epic"]
+
+    EXP --> CH["Tạo một Project Change"]
+    CH --> SHAPE["Shape: options, trade-offs,<br/>scope và decision"]
+    SHAPE --> READY{"Tôi thấy đã đủ rõ?"}
+    READY -->|Chưa| SHAPE
+    READY -->|Rồi| CE["Tạo Epic duy nhất cho Change"]
+
+    START --> DIRECT["Lưu Project Change"]
+    DIRECT --> CE
+    CE --> PLAN{"Có cần schedule?"}
+    PLAN -->|Có| SP["Đưa Epic vào backlog hoặc Sprint"]
+    PLAN -->|Làm ngay| DEL
+    SP --> DEL["Thực hiện trong Epic"]
+
+    DEL --> IMP{"Delivery có vượt scope đã pin?"}
+    IMP -->|Không| REVIEW["Test và delivery review"]
+    IMP -->|Có| DECIDE{"Tôi quyết định"}
+    DECIDE -->|Chấp nhận scope mới| UPDATE["Cập nhật Change rồi rebase Epic"]
+    DECIDE -->|Tách phần phát sinh| SPLIT["Tạo Change mới"]
+    DECIDE -->|Không chấp nhận| RW2["Rework theo scope cũ"]
+    DECIDE -->|Dừng| STOP["Cancel Epic"]
+    UPDATE --> DEL
+    SPLIT --> C
+    SPLIT --> DEL
+    RW2 --> DEL
+    RW --> DEL
+
+    REVIEW -->|Cần sửa| DEL
+    REVIEW -->|Đạt| DONEEPIC["Epic done<br/>Change delivered"]
+
+    DONEEPIC --> CP["AIDLC tạo Context Proposal<br/>từ code và kết quả thực tế"]
+    CP --> CPR{"Tôi review context delta"}
+    CPR -->|Apply| APPLY["Cập nhật Project Context"]
+    CPR -->|Không có thay đổi bền vững| NR["Mark not-required kèm lý do"]
+    CPR -->|Proposal sai| FIX["Request changes hoặc rebase"]
+    CPR -->|Implementation sai| DEL
+    FIX --> CP
+    APPLY --> DONE["Change done"]
+    NR --> DONE
 ```
 
 User mô tả **cái gì sai hoặc kết quả mong muốn**, không bị bắt chọn module,
@@ -267,27 +322,37 @@ không bị chạm tới.
 Scan là một cách tạo Context Proposal, không phải quyền ghi thẳng vào canonical
 Project Context.
 
-```text
-Source snapshot
-    ↓
-Scan trong vùng cô lập
-    ↓
-Context Proposal
-    ↓
-Item-level diff
-    ↓
-Review
-    ├─ Apply toàn bộ
-    ├─ Apply một phần
-    ├─ Request changes
-    ├─ Rebase
-    ├─ Resolve conflict
-    └─ Discard
+```mermaid
+flowchart TD
+    A["Tôi chọn Scan trong Discover"] --> B{"Scan nguồn nào?"}
+    B -->|Mặc định| H["Committed HEAD"]
+    B -->|Tôi chủ động chọn| W["Working tree<br/>đánh dấu local/WIP"]
+
+    H --> S["Scan trong vùng cách ly"]
+    W --> S
+    S --> P["Tạo Context Proposal<br/>không sửa tài liệu canonical"]
+    P --> D["Tôi xem semantic diff<br/>theo atomic group"]
+    D --> R{"Tôi quyết định"}
+
+    R -->|Apply toàn bộ| A1["Validate rồi cập nhật Context"]
+    R -->|Apply một phần| A2["Apply nhóm an toàn<br/>rebase phần còn lại"]
+    R -->|Phân tích sai| A3["Request changes"]
+    R -->|Context đã đổi| A4["Rebase proposal"]
+    R -->|Không cần| A5["Discard kèm lý do"]
+    R -->|Phát hiện việc cần làm| A6["Tạo Project Change"]
+
+    A3 --> P
+    A4 --> P
+    A2 --> P
+    A6 --> C["Đi vào flow Change chung"]
+
+    A1 --> G["Commit, PR và Git review"]
+    G --> M["Merge thành shared Project Context"]
 ```
 
 Các invariant:
 
-- Scan không sửa trực tiếp 12 tài liệu canonical.
+- Scan không sửa trực tiếp 14 Markdown projection do 12 bước Discover quản lý.
 - Mặc định có thể scan `HEAD` dù working tree đang bẩn.
 - Scan working tree là lựa chọn tường minh; proposal phải pin tree hash và được
   đánh dấu local/WIP.
@@ -386,7 +451,7 @@ branch. Dùng UUID/ULID hoặc external stable key để tránh collision khi me
 7. Stale và conflict phải hiển thị rõ; không silent overwrite.
 8. Scan và delivery chỉ đề xuất context delta; canonical context đổi qua apply.
 9. Một Change có tối đa một Epic nhưng có thể giữ nhiều external reference.
-10. 12 tài liệu là projection, không phải workflow checklist.
+10. 12 bước/14 Markdown file là projection, không phải workflow checklist.
 
 ## 11. Những anti-pattern đã loại bỏ
 
@@ -870,16 +935,56 @@ adapter và migration tường minh.
 Migration phải idempotent, giữ original ID/path trong provenance và có test
 fixture cho retry, conflict và interrupted write.
 
+### D20. Product Tour là lớp hướng dẫn và verification, không phải workflow mới
+
+**Quyết định:** Product Tour chỉ giúp user hiểu, tìm và kiểm chứng các action của
+lifecycle hiện có. Nó không tạo tab, entity, source of truth, permission hoặc
+transition song song với Project Change, Project Context, Discover, Sprint và
+Epic.
+
+- Extension giữ đúng một VS Code Walkthrough chính và cập nhật nó cho lifecycle
+  mới; không tạo nhiều walkthrough cạnh tranh nhau.
+- `WorkspaceShell` luôn có entry point `Hướng dẫn` để Start, Resume, chọn
+  scenario và Restart Product Tour không giới hạn. Command Palette là entry
+  point dự phòng; card onboarding trong Project chỉ là gợi ý có thể dismiss.
+- Product Tour mặc định là non-modal trên project thật: coach và highlight chỉ
+  gợi ý next action, không khóa các lựa chọn nghiệp vụ khác.
+- Spotlight có thể dim khoảng 45–55% và blur nhẹ `1–2px` khi user bấm
+  `Chỉ cho tôi vị trí`, hoặc trong demo sandbox. Spotlight chỉ chặn pointer bên
+  ngoài target trong thời gian focus và luôn có `Bỏ qua`, `Thoát` và `Esc`.
+- Modal khóa chỉ dùng để lấy lựa chọn bắt buộc trước khi bắt đầu, ví dụ
+  `Demo an toàn` hay `Project hiện tại`, hoặc confirmation nguy hiểm vốn đã
+  thuộc domain flow. Tour không được dùng blur/modal để ép user Accept impact,
+  Start Epic, Apply Context hoặc chọn một route duy nhất.
+- Hoàn thành step được suy ra từ command result và shared lifecycle read model
+  trên đúng Change/Epic/Proposal đã bind; click hoặc mở tab không tự được tính
+  là thành công.
+- Tiến độ tour là state cá nhân của VS Code, không ghi vào repository, domain
+  event hoặc Project Context. Restart chỉ reset tiến độ tour, không sửa hay xóa
+  domain data.
+- Chế độ học mặc định chạy trong demo workspace do extension sở hữu và cách ly
+  khỏi repository thật. Reset demo chỉ được tác động đúng thư mục có ownership
+  marker hợp lệ; current-project mode không tự tạo hoặc mutate dữ liệu.
+- Tour có thể đi nhánh, skip, resume sau reload và thích ứng với reject, stale,
+  conflict, cancel, command failure hoặc entity bị teammate thay đổi. Không có
+  step nào được biến thành dead-end.
+- UI phải dùng stable semantic target, hỗ trợ keyboard/screen reader, theme và
+  reduced motion. Tour không tự click DOM hoặc dựa vào CSS selector tùy ý.
+
+Product Tour có thể thu hẹp sự chú ý, nhưng không được che giấu hoặc vô hiệu hóa
+các lựa chọn nghiệp vụ hợp lệ. Mọi mutation vẫn đi qua command, validation,
+permission và recovery của lifecycle gốc.
+
 ## 13. Trạng thái quyết định
 
 Baseline kiến trúc hiện không còn câu hỏi mở cần user chọn. Các câu hỏi ban đầu
-và bốn chủ đề tiếp theo đã được chốt tại D1-D19 theo option user chọn hoặc
+và các chủ đề tiếp theo đã được chốt tại D1-D20 theo option user chọn hoặc
 phương án khuyến nghị.
 
 Chi tiết implementation phát sinh được quyết định theo thứ tự ưu tiên:
 
 1. Master rule.
-2. Product invariants và D1-D19.
+2. Product invariants và D1-D20.
 3. Data integrity, team safety và khả năng audit/recovery.
 4. UX đơn giản nhất không làm sai ba tầng trên.
 5. Implementation convenience và compatibility.
@@ -898,6 +1003,8 @@ Baseline này được chuyển thành implementation theo thứ tự:
 4. Shared Change Composer và Change detail.
 5. Projection vào Discover, Sprint và Epic.
 6. Compatibility adapter/migration; sau đó xoá model và UI legacy.
+7. Product Tour/Guided Verification bám vào vertical slice đã hoạt động; không
+   tạo fake action để che dependency lifecycle còn thiếu.
 
 Mỗi phase phải có contract/invariant tests trước khi nối UI. Acceptance cuối
 cùng không phải “tab chạy được”, mà là cùng một Change đi xuyên ba view, sống

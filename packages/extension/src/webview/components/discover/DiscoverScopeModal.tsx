@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react';
 import { FolderGit2, FolderOpen, FolderTree, Star } from 'lucide-react';
 
 import { pickChildRepoFolders } from '@/lib/pickFile';
-import type { DiscoverScopeDraft, DiscoverScopeModalOpen, RepoCandidateUi } from '@/lib/types';
+import type { DiscoverScopeDraft, DiscoverScopeModalOpen, DiscoverScopeSummary, RepoCandidateUi } from '@/lib/types';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 import { postMessage } from '@/lib/bridge';
 import { cn } from '@/lib/utils';
@@ -25,7 +25,7 @@ interface RepoPick {
 }
 
 function describeScope(
-  scope: Pick<DiscoverScopeDraft, 'layout' | 'parentPath' | 'repos'>,
+  scope: Pick<DiscoverScopeSummary, 'layout' | 'parentPath' | 'repos'>,
   copy: ReturnType<typeof discoverCopy>,
 ): string {
   const repos = scope.repos.map((r) => `${r.path} (${r.kind})`).join(', ');
@@ -111,7 +111,7 @@ export function DiscoverScopeModal({
     if (!picked?.length) { return; }
     setExtraRepos((prev) => {
       const seen = new Set(prev.map((p) => p.path));
-      return [...prev, ...picked.filter((p) => !seen.has(p.path))];
+      return [...prev, ...picked.filter((p) => !seen.has(p.path)).map((p) => ({ path: p.path, name: p.name, guess: 'app' }))];
     });
     setSelectedPaths((prev) => {
       const next = new Set(prev);
@@ -251,7 +251,11 @@ export function DiscoverScopeModal({
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                     {label}
-                    {suggested && <Star className="h-3 w-3 fill-warning text-warning" title={sm.suggested} />}
+                    {suggested && (
+                      <span title={sm.suggested}>
+                        <Star className="h-3 w-3 fill-warning text-warning" />
+                      </span>
+                    )}
                   </span>
                   <span className="mt-0.5 block text-[11px] text-muted-foreground">{detail}</span>
                 </span>

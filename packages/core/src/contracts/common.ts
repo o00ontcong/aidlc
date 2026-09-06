@@ -68,6 +68,27 @@ export function parseActorRefString(value: string): ActorRef {
   return { kind: match[1] as ActorKind, id: match[2] };
 }
 
+// ── Workspace-relative path ────────────────────────────────────────
+
+/**
+ * Every path in the Context/Context Proposal contracts is POSIX
+ * workspace-relative — no absolute path, no Windows drive letter, no `..`
+ * segment, no NUL byte (implementation plan §18.2: "cam absolute, .., NUL
+ * va symlink escape"). Symlink escape itself can only be checked once a
+ * real filesystem is involved, so that half of the rule is enforced by the
+ * reader/writer that resolves the path, not by this shape-only schema.
+ */
+export function isWorkspaceRelativePath(value: string): boolean {
+  if (!value || value.includes('\0')) return false;
+  if (value.startsWith('/') || value.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(value)) return false;
+  return value.split('/').every((segment) => segment !== '..' && segment !== '.' && segment !== '');
+}
+
+export const WorkspaceRelativePathSchema = z
+  .string()
+  .min(1)
+  .refine(isWorkspaceRelativePath, 'Must be a POSIX workspace-relative path (no absolute path, no "..", no NUL)');
+
 // ── EvidenceRef ────────────────────────────────────────────────────
 
 /** Well-known evidence kinds seen in the design doc's examples. Not a closed set — agents/validators may record any kind. */

@@ -47,6 +47,12 @@ describe('RecoveryAction — structured recovery, never a raw exception (design 
       'ask-user',
       'refresh-context',
       'escalate',
+      // Project Change / Context Proposal CAS conflicts (plan §18.6).
+      'reload',
+      'rebase',
+      'resume',
+      'rollback',
+      'open-item',
     ]);
   });
 
@@ -80,5 +86,23 @@ describe('AidlcError — backward compatibility (new optional field does not bre
     const parsed = AidlcErrorSchema.parse(legacy);
     expect(parsed.detail).toBeUndefined();
     expect(parsed.recoveryActions).toEqual([]);
+  });
+
+  it('parses an older payload with no metadata at all (metadata stays optional)', () => {
+    const legacy: Record<string, unknown> = { ...sampleError() };
+    delete legacy.metadata;
+    const parsed = AidlcErrorSchema.parse(legacy);
+    expect(parsed.metadata).toBeUndefined();
+  });
+});
+
+describe('AidlcError — metadata (plan §18.6: expected/actual revision/hash on a conflict)', () => {
+  it('accepts a metadata record of string/number/boolean/null values and round-trips it', () => {
+    const withMetadata = sampleError({
+      code: 'change.revision_conflict',
+      metadata: { expectedRevision: 2, actualRevision: 3, expectedContentHash: 'a'.repeat(64), retryable: true, note: null },
+    });
+    const parsed = AidlcErrorSchema.parse(JSON.parse(JSON.stringify(withMetadata)));
+    expect(parsed.metadata).toEqual(withMetadata.metadata);
   });
 });

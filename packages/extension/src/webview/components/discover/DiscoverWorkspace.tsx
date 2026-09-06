@@ -5,11 +5,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ExternalLink, PanelRight, Play, RefreshCw, Rocket, ScanSearch, Upload } from 'lucide-react';
-import type { DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary } from '@/lib/types';
+import type { ContextProposal, DiscoverEpicSuggestion, DiscoverStepId, DiscoverSummary, ProjectChangeReadModel, ProjectContextHead } from '@/lib/types';
 import { postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
 import { AgentPanel } from './AgentPanel';
 import { DiffView } from './DiffView';
+import { ContextProposalReview, reviewWorthyProposals } from './ContextProposalReview';
 import { DocsMode } from './DocsMode';
 import { MarkdownLite } from './MarkdownLite';
 import { RawMarkdownPane } from './RawMarkdownPane';
@@ -94,9 +95,12 @@ function ScanPassStepper({
 }
 
 export function DiscoverWorkspace({
-  discover, language, savedRailWidth, savedAgentPanelOpen,
+  discover, changes, contextProposals, contextHead, language, savedRailWidth, savedAgentPanelOpen,
 }: {
   discover: DiscoverSummary;
+  changes: ProjectChangeReadModel[];
+  contextProposals: ContextProposal[];
+  contextHead?: ProjectContextHead;
   language: DiscoverLanguage;
   savedRailWidth?: number;
   savedAgentPanelOpen?: boolean;
@@ -106,6 +110,8 @@ export function DiscoverWorkspace({
   const [viewing, setViewing] = useState<DiscoverStepId>(discover.currentStep);
   const [pane, setPane] = useState<StepPane>('preview');
   const [diffOpen, setDiffOpen] = useState(false);
+  const [proposalReviewOpen, setProposalReviewOpen] = useState(false);
+  const proposalsAwaitingReview = reviewWorthyProposals(contextProposals);
   const [agentPanelOpen, setAgentPanelOpen] = useState(savedAgentPanelOpen === true);
   const [railWidth, setRailWidth] = useState(() => {
     if (typeof savedRailWidth !== 'number' || !Number.isFinite(savedRailWidth)) {
@@ -223,9 +229,10 @@ export function DiscoverWorkspace({
             <ExternalLink className="h-3 w-3" />{copy.openInEditor}
           </button>
           <div className="inline-flex flex-col items-start gap-1">
-            <button
-              type="button"
-              onClick={() => postMessage({ type: 'scanDiscoverProject' })}
+          <button
+            type="button"
+            onClick={() => postMessage({ type: 'scanDiscoverProject' })}
+            data-tour-id="discover-scan"
               title={copy.hints.scanProject}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
             >
@@ -283,10 +290,21 @@ export function DiscoverWorkspace({
         </div>
       )}
 
+      {proposalsAwaitingReview.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-primary/40 bg-primary/5 px-4 py-1.5 text-[11px] text-primary">
+          <span className="font-semibold">
+            {proposalsAwaitingReview.length} context proposal{proposalsAwaitingReview.length === 1 ? '' : 's'} waiting for review
+          </span>
+          <button type="button" data-tour-id="context-proposal-review" onClick={() => setProposalReviewOpen(true)} className="ml-auto rounded border border-primary/50 px-2 py-0.5 hover:bg-primary/10">
+            Review
+          </button>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {mode === 'checks' && <ChecksView discover={discover} copy={copy} onBack={() => setMode('pipeline')} />}
         {mode === 'docs' && <DocsMode discover={discover} copy={copy} />}
-        {mode === 'work' && <WorkItemsPanel discover={discover} />}
+        {mode === 'work' && <WorkItemsPanel changes={changes} />}
         {mode === 'pipeline' && (
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <StepRail
@@ -321,6 +339,9 @@ export function DiscoverWorkspace({
       </div>
 
       {diffOpen && <DiffView discover={discover} copy={copy} onClose={() => setDiffOpen(false)} />}
+      {proposalReviewOpen && (
+        <ContextProposalReview proposals={contextProposals} contextHead={contextHead} onClose={() => setProposalReviewOpen(false)} />
+      )}
     </div>
   );
 }

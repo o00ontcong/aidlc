@@ -11,3 +11,4 @@ export * from './discoverFormat';
 export * from './DiscoverAgentCommand';
 export * from './DiscoverService';
 export * from './DiscoverContextPublisher';
+export * from './DiscoverScanProposalBridge';

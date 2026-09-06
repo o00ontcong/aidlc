@@ -84,6 +84,7 @@ import {
   deleteEpicCommand,
 } from './runCommands';
 import { resolveTechStackForRoot } from './techStackResolver';
+import { productTourService } from './productTour/ProductTourService';
 
 /**
  * Sentinel `workflowId` value that `aidlc.initWorkspace` accepts to mean
@@ -140,6 +141,14 @@ export function registerV2WorkspaceCommands(
   const openGettingStartedCmd = vscode.commands.registerCommand(
     'aidlc.openGettingStarted',
     () => openGettingStartedGuide(context),
+  );
+
+  const startProductTourCmd = vscode.commands.registerCommand(
+    'aidlc.startProductTour',
+    () => {
+      productTourService.start('lifecycle-basics');
+      WorkspaceWebview.openProductTour(context.extensionUri);
+    },
   );
 
   const askCmd = registerAskCommand(context);
@@ -598,6 +607,7 @@ export function registerV2WorkspaceCommands(
       showCmd,
       initCmd,
       openGettingStartedCmd,
+      startProductTourCmd,
       askCmd,
       addSkillCmd,
       addAgentCmd,

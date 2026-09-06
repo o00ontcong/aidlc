@@ -14,6 +14,10 @@ import { SprintView } from './SprintView';
 import { DiscoverView } from './DiscoverView';
 import { onHostMessage, postMessage } from '@/lib/bridge';
 import { discoverCopy, type DiscoverLanguage } from '@/lib/discoverI18n';
+import { ProductTourMenu } from './product-tour/ProductTourMenu';
+import { ProductTourCoach } from './product-tour/ProductTourCoach';
+import { ProductTourFocusLayer } from './product-tour/ProductTourFocusLayer';
+import type { ProductTourAnchor } from '../../shared/productTour';
 
 const VIEWS: WorkspaceView[] = [
   'project', 'discover', 'builder', 'architecture', 'epics', 'sprint', 'analyze', 'tests',
@@ -25,6 +29,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   const [startEpicOpen, setStartEpicOpen] = useState(false);
   const [epicPrefill, setEpicPrefill] = useState<StartEpicPrefill | undefined>();
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
+  const [tourSpotlight, setTourSpotlight] = useState<ProductTourAnchor | undefined>();
   const seededView = useRef(Boolean(state?.initialView));
   // Sprint data arrives on its own channel: the host fetches it asynchronously,
   // so it cannot ride along in the synchronous `state` push. The snapshot in
@@ -65,6 +70,12 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
     seededView.current = true;
   }, [state?.initialView]);
 
+  // A completed/advanced step returns the UI to normal coach mode. Spotlight
+  // remains explicitly user-triggered rather than following every refresh.
+  useEffect(() => {
+    setTourSpotlight(undefined);
+  }, [state?.productTour.active?.currentStepIndex, state?.productTour.active?.status]);
+
   const onView = (next: WorkspaceView) => {
     setView(next);
     seededView.current = true;
@@ -82,7 +93,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
   if (!state.hasFolder) {
     return (
       <div className="flex h-full flex-col">
-        <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} />
+        <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} tour={state.productTour ?? { version: 1 }} />
         {view === 'sprint' ? (
           // Jira needs credentials, not a workspace folder — so the Sprint tab
           // stays usable here. Starting a task from a ticket then surfaces the
@@ -130,23 +141,38 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
             workspaceName={state.workspaceName}
             hasFolder={state.hasFolder}
             prefill={epicPrefill}
-            onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
+            onSubmit={(draft) => postMessage({ type: 'submitChangeComposer', draft })}
             onClose={() => { setStartEpicOpen(false); setEpicPrefill(undefined); }}
           />
         )}
+        <ProductTourFocusLayer anchor={tourSpotlight} onDismiss={() => setTourSpotlight(undefined)} />
+        <ProductTourCoach active={state.productTour?.active} changes={state.changes} proposals={state.contextProposals} onFocus={setTourSpotlight} />
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} />
+      <TopBar view={view} onView={onView} workspaceName={state.workspaceName} language={state.displayLanguage} tour={state.productTour ?? { version: 1 }} />
       {view === 'project' ? (
         <main className="flex-1 overflow-y-auto p-6">
           <ProjectOverview
             state={state}
             onNewTask={() => setStartEpicOpen(true)}
             onOpenDiscover={() => onView('discover')}
+            onStartEpicForChange={(readModel) => {
+              setEpicPrefill({
+                epicId: `EPIC-${readModel.change.id.replace(/^CHG-/, '')}`,
+                title: readModel.change.title,
+                description: readModel.change.requirement.desiredOutcome,
+                existingChange: {
+                  id: readModel.change.id,
+                  expectedRevision: readModel.change.revision,
+                  expectedContentHash: readModel.change.contentHash,
+                },
+              });
+              setStartEpicOpen(true);
+            }}
             onOpenTask={(taskId) => {
               setSelectedTaskId(taskId);
               onView('epics');
@@ -190,7 +216,7 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
         // wrapped in the padded scroll box. The other views keep their exact
         // previous wrapper markup below — nothing about them changes.
         <main className="min-h-0 flex-1 overflow-hidden">
-          <EpicsView state={state} initialSelectedId={selectedTaskId} />
+          <EpicsView state={state} initialSelectedId={selectedTaskId} onNewEpic={() => setStartEpicOpen(true)} />
         </main>
       ) : (
         <main className="flex-1 overflow-y-auto">
@@ -220,11 +246,13 @@ export function WorkspaceShell({ state }: { state: WorkspaceState | null }) {
           prefill={epicPrefill}
           onSubmit={(draft) => {
             setStartEpicOpen(false);
-            postMessage({ type: 'startEpicInline', draft });
+            postMessage({ type: 'submitChangeComposer', draft });
           }}
           onClose={() => { setStartEpicOpen(false); setEpicPrefill(undefined); }}
         />
       )}
+      <ProductTourFocusLayer anchor={tourSpotlight} onDismiss={() => setTourSpotlight(undefined)} />
+      <ProductTourCoach active={state.productTour?.active} changes={state.changes} proposals={state.contextProposals} onFocus={setTourSpotlight} />
     </div>
   );
 }
@@ -234,48 +262,53 @@ function TopBar({
   onView,
   workspaceName,
   language,
+  tour,
 }: {
   view: WorkspaceView;
   onView: (v: WorkspaceView) => void;
   workspaceName: string;
   language: DiscoverLanguage;
+  tour: import('../../shared/productTour').ProductTourUiState;
 }) {
   const nav = language === 'vi'
     ? { project: 'Dự án', epics: 'Công việc', sprint: 'Sprint', builder: 'Thiết lập', architecture: 'Kiến trúc', analyze: 'Phân tích', tests: 'Kiểm thử', projectTag: 'DỰ ÁN' }
     : { project: 'Project', epics: 'Tasks', sprint: 'Sprint', builder: 'Builder', architecture: 'Architecture', analyze: 'Analyze', tests: 'Tests', projectTag: 'PROJECT' };
   const discover = discoverCopy(language);
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/80 px-6 py-2.5 backdrop-blur-sm">
-      <PillButton active={view === 'project'} onClick={() => onView('project')}>
-        {nav.project}
-      </PillButton>
-      <PillButton active={view === 'discover'} onClick={() => onView('discover')}>
-        {discover.tab}
-      </PillButton>
-      <PillButton active={view === 'epics'} onClick={() => onView('epics')}>
-        {nav.epics}
-      </PillButton>
-      <PillButton active={view === 'sprint'} onClick={() => onView('sprint')}>
-        {nav.sprint}
-      </PillButton>
-      <PillButton active={view === 'builder'} onClick={() => onView('builder')}>
-        {nav.builder}
-      </PillButton>
-      <PillButton active={view === 'architecture'} onClick={() => onView('architecture')}>
-        {nav.architecture}
-      </PillButton>
-      <PillButton active={view === 'analyze'} onClick={() => onView('analyze')}>
-        {nav.analyze}
-      </PillButton>
-      <PillButton active={view === 'tests'} onClick={() => onView('tests')}>
-        {nav.tests}
-      </PillButton>
-      <div className="ml-auto flex items-center gap-2">
+    <div className="sticky top-0 z-20 flex min-w-0 items-center gap-2 border-b border-border bg-background/80 px-3 py-2.5 backdrop-blur-sm sm:px-6">
+      <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <PillButton active={view === 'project'} onClick={() => onView('project')}>
+          {nav.project}
+        </PillButton>
+        <PillButton active={view === 'discover'} onClick={() => onView('discover')}>
+          {discover.tab}
+        </PillButton>
+        <PillButton active={view === 'epics'} onClick={() => onView('epics')}>
+          {nav.epics}
+        </PillButton>
+        <PillButton active={view === 'sprint'} onClick={() => onView('sprint')}>
+          {nav.sprint}
+        </PillButton>
+        <PillButton active={view === 'builder'} onClick={() => onView('builder')}>
+          {nav.builder}
+        </PillButton>
+        <PillButton active={view === 'architecture'} onClick={() => onView('architecture')}>
+          {nav.architecture}
+        </PillButton>
+        <PillButton active={view === 'analyze'} onClick={() => onView('analyze')}>
+          {nav.analyze}
+        </PillButton>
+        <PillButton active={view === 'tests'} onClick={() => onView('tests')}>
+          {nav.tests}
+        </PillButton>
+      </nav>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
         {workspaceName && (
-          <span className="rounded-md bg-secondary px-2.5 py-1 font-mono text-[10px] font-medium text-muted-foreground">
+          <span className="hidden max-w-[140px] truncate rounded-md bg-secondary px-2.5 py-1 font-mono text-[10px] font-medium text-muted-foreground lg:inline">
             {nav.projectTag} {workspaceName}
           </span>
         )}
+        <ProductTourMenu tour={tour} language={language} />
         <button
           type="button"
           onClick={() => postMessage({ type: 'openSettings' })}
@@ -358,7 +391,7 @@ function PillButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+        'shrink-0 rounded-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors',
         active
           ? 'bg-primary text-primary-foreground'
           : 'text-muted-foreground hover:bg-accent hover:text-foreground',

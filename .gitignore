@@ -19,6 +19,7 @@ packages/*/bin/
 !/docs/UNIFIED_SYSTEM_GUIDE.md
 !/docs/DISCOVERY_SHAPE_WORKFLOW.md
 !/docs/PROJECT_LIFECYCLE_GUIDE.md
+!/docs/PROJECT_LIFECYCLE_IMPLEMENTATION_PLAN.md
 .aidlc/
 
 # editor

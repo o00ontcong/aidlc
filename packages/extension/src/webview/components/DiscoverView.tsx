@@ -44,6 +44,9 @@ export function DiscoverView({ state }: { state: WorkspaceState }) {
       {state.discover
         ? <DiscoverWorkspace
             discover={state.discover}
+            changes={state.changes}
+            contextProposals={state.contextProposals}
+            contextHead={state.contextHead}
             language={language}
             savedRailWidth={state.discoverViewUi?.railWidth}
             savedAgentPanelOpen={state.discoverViewUi?.agentPanelOpen}

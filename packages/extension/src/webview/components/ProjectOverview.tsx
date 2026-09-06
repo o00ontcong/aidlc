@@ -3,13 +3,16 @@ import {
   ArrowRight,
   CheckCircle2,
   Circle,
+  CircleHelp,
   FileText,
   FolderKanban,
   ListTodo,
   Plus,
+  X,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { EpicSummary, WorkspaceState } from '@/lib/types';
+import { PRODUCT_TOUR_VERSION } from '../../shared/productTour';
+import type { ProjectChangeReadModel, WorkspaceState } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { postMessage } from '@/lib/bridge';
 
@@ -17,19 +20,83 @@ interface ProjectOverviewProps {
   state: WorkspaceState;
   onOpenTask: (taskId?: string) => void;
   onNewTask: () => void;
+  onStartEpicForChange: (change: ProjectChangeReadModel) => void;
   onOpenDiscover: () => void;
 }
 
-export function ProjectOverview({ state, onOpenTask, onNewTask, onOpenDiscover }: ProjectOverviewProps) {
+/** Buckets a Change's derived display state into the four stat tiles — a superset reading of the same states `deriveProjectChangeState` produces (Master Rule §0.3: the tiles must not invent their own status vocabulary). */
+function changeBucket(rm: ProjectChangeReadModel): 'active' | 'delivered' | 'attention' | 'other' {
+  if (rm.warnings.length > 0 || rm.derived.badges.length > 0) return 'attention';
+  if (rm.derived.state === 'done' || rm.derived.state === 'delivered') return 'delivered';
+  if (rm.derived.state === 'shelved' || rm.derived.state === 'cancelled' || rm.derived.state === 'superseded') return 'other';
+  return 'active';
+}
+
+function changeCounts(changes: ProjectChangeReadModel[]): { active: number; delivered: number; attention: number } {
+  let active = 0, delivered = 0, attention = 0;
+  for (const rm of changes) {
+    const bucket = changeBucket(rm);
+    if (bucket === 'attention') attention += 1;
+    else if (bucket === 'delivered') delivered += 1;
+    else if (bucket === 'active') active += 1;
+  }
+  return { active, delivered, attention };
+}
+
+export function ProjectOverview({ state, onOpenTask, onNewTask, onStartEpicForChange, onOpenDiscover }: ProjectOverviewProps) {
   const context = state.projectWorkspace;
-  const counts = taskCounts(state.epics);
-  const active = [...state.epics]
-    .filter((task) => task.status !== 'done')
-    .sort((a, b) => statusRank(a.status) - statusRank(b.status) || a.id.localeCompare(b.id))
+  const counts = changeCounts(state.changes);
+  const activeChanges = [...state.changes]
+    .filter((rm) => changeBucket(rm) !== 'other')
+    .sort((a, b) => {
+      const rank = (rm: ProjectChangeReadModel) => (changeBucket(rm) === 'attention' ? 0 : changeBucket(rm) === 'active' ? 1 : 2);
+      return rank(a) - rank(b) || b.change.updatedAt.localeCompare(a.change.updatedAt);
+    })
     .slice(0, 6);
+
+  const tour = state.productTour;
+  const showTourCard = Boolean(tour)
+    && (tour.dismissedCardVersion ?? 0) < PRODUCT_TOUR_VERSION
+    && (tour.seenVersion ?? 0) < PRODUCT_TOUR_VERSION
+    && (!tour.active || tour.active.status === 'exited');
+  const vi = state.displayLanguage === 'vi';
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      {showTourCard && (
+        <section className="flex flex-col gap-3 rounded-xl border border-primary/35 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <CircleHelp className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-foreground">Product Tour</div>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                {vi
+                  ? 'Theo một Change thật từ yêu cầu, qua Epic, đến khi khép Context. Nút Hướng dẫn trên thanh trên luôn mở lại tour.'
+                  : 'Follow a real Change from requirement through Epic until Context is closed. The Guide button in the top bar always reopens the tour.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'productTourStart', tourId: 'lifecycle-basics' })}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              {vi ? 'Bắt đầu Product Tour' : 'Start Product Tour'}
+            </button>
+            <button
+              type="button"
+              onClick={() => postMessage({ type: 'productTourDismissCard' })}
+              title={vi ? 'Để sau' : 'Dismiss'}
+              className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </section>
+      )}
       <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -55,10 +122,11 @@ export function ProjectOverview({ state, onOpenTask, onNewTask, onOpenDiscover }
           <button
             type="button"
             onClick={onNewTask}
+            data-tour-id="project-new-change"
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="h-3.5 w-3.5" />
-            New task
+            New change
           </button>
           <button
             type="button"
@@ -72,10 +140,10 @@ export function ProjectOverview({ state, onOpenTask, onNewTask, onOpenDiscover }
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Total tasks" value={state.epics.length} icon={<ListTodo className="h-4 w-4" />} />
-        <Stat label="In progress" value={counts.inProgress} tone="primary" icon={<Circle className="h-4 w-4 fill-current" />} />
-        <Stat label="Completed" value={counts.done} tone="success" icon={<CheckCircle2 className="h-4 w-4" />} />
-        <Stat label="Needs attention" value={counts.failed} tone="warning" icon={<AlertTriangle className="h-4 w-4" />} />
+        <Stat label="Total changes" value={state.changes.length} icon={<ListTodo className="h-4 w-4" />} />
+        <Stat label="Active" value={counts.active} tone="primary" icon={<Circle className="h-4 w-4 fill-current" />} />
+        <Stat label="Delivered" value={counts.delivered} tone="success" icon={<CheckCircle2 className="h-4 w-4" />} />
+        <Stat label="Needs attention" value={counts.attention} tone="warning" icon={<AlertTriangle className="h-4 w-4" />} />
       </section>
 
       <div className="grid gap-5 lg:grid-cols-[1.08fr_0.92fr]">
@@ -151,31 +219,36 @@ export function ProjectOverview({ state, onOpenTask, onNewTask, onOpenDiscover }
         <section className="rounded-xl border border-border bg-card">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>
-              <h2 className="text-sm font-bold text-foreground">Active tasks</h2>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">Open a task to see its work, artifacts, and verification state.</p>
+              <h2 className="text-sm font-bold text-foreground">Active work</h2>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Every Change and where it stands — captured, exploring, running, or needing a decision.</p>
             </div>
             <button type="button" onClick={() => onOpenTask()} className="text-[11px] font-semibold text-primary hover:underline">
-              View all
+              View all tasks
             </button>
           </div>
 
-          {active.length === 0 ? (
+          {activeChanges.length === 0 ? (
             <div className="flex min-h-52 flex-col items-center justify-center p-6 text-center">
               <ListTodo className="h-7 w-7 text-muted-foreground/60" />
               <div className="mt-3 text-xs font-semibold text-foreground">
-                {state.epics.length === 0 ? 'No tasks yet' : 'All tasks are complete'}
+                {state.changes.length === 0 ? 'No changes yet' : 'Everything active is delivered'}
               </div>
               <p className="mt-1 max-w-xs text-[11px] leading-relaxed text-muted-foreground">
-                Create a focused task with its own acceptance criteria and execution pipeline.
+                Capture a change with its own requirement, then explore it or start an Epic.
               </p>
               <button type="button" onClick={onNewTask} className="mt-3 text-[11px] font-semibold text-primary hover:underline">
-                Create the first task
+                New change
               </button>
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {active.map((task) => (
-                <TaskRow key={task.id} task={task} onOpen={() => onOpenTask(task.id)} />
+              {activeChanges.map((rm) => (
+                <ChangeRow
+                  key={rm.change.id}
+                  readModel={rm}
+                  onOpen={rm.change.epicLink?.state === 'linked' ? () => onOpenTask(rm.change.epicLink!.epicId) : undefined}
+                  onStartEpic={rm.change.epicLink ? undefined : rm.availableActions.some((action) => action.command === 'change.epic.start') ? () => onStartEpicForChange(rm) : undefined}
+                />
               ))}
             </div>
           )}
@@ -193,18 +266,6 @@ export function ProjectOverview({ state, onOpenTask, onNewTask, onOpenDiscover }
       </section>
     </div>
   );
-}
-
-function taskCounts(tasks: EpicSummary[]): { inProgress: number; done: number; failed: number } {
-  return {
-    inProgress: tasks.filter((task) => task.status === 'in_progress').length,
-    done: tasks.filter((task) => task.status === 'done').length,
-    failed: tasks.filter((task) => task.status === 'failed').length,
-  };
-}
-
-function statusRank(status: EpicSummary['status']): number {
-  return status === 'failed' ? 0 : status === 'in_progress' ? 1 : status === 'pending' ? 2 : 3;
 }
 
 function basename(filePath: string): string {
@@ -239,32 +300,47 @@ function Stat({
   );
 }
 
-function TaskRow({ task, onOpen }: { task: EpicSummary; onOpen: () => void }) {
-  const statusClass = task.status === 'failed'
-    ? 'bg-destructive/10 text-destructive'
-    : task.status === 'in_progress'
-      ? 'bg-primary/10 text-primary'
-      : 'bg-secondary text-muted-foreground';
-  const statusLabel = task.status === 'in_progress'
-    ? 'In progress'
-    : task.status === 'failed'
-      ? 'Needs attention'
-      : task.status;
-  return (
-    <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-accent/50">
+function ChangeRow({ readModel, onOpen, onStartEpic }: { readModel: ProjectChangeReadModel; onOpen?: () => void; onStartEpic?: () => void }) {
+  const bucket = changeBucket(readModel);
+  const statusClass = bucket === 'attention'
+    ? 'bg-warning/10 text-warning'
+    : bucket === 'delivered'
+      ? 'bg-success/10 text-success'
+      : 'bg-primary/10 text-primary';
+  const content = (
+    <>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <code className="text-[10px] font-semibold text-primary">{task.id}</code>
-          <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-semibold capitalize', statusClass)}>{statusLabel}</span>
+          <code className="text-[10px] font-semibold text-primary">{readModel.change.id}</code>
+          <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-semibold capitalize', statusClass)}>{readModel.derived.state.replace(/-/g, ' ')}</span>
         </div>
-        <div className="mt-1 truncate text-xs font-semibold text-foreground">{task.title || 'Untitled task'}</div>
-        <div className="mt-2 h-1 overflow-hidden rounded-full bg-secondary">
-          <div className="h-full rounded-full bg-primary" style={{ width: `${task.progress}%` }} />
-        </div>
+        <div className="mt-1 truncate text-xs font-semibold text-foreground">{readModel.change.title || 'Untitled change'}</div>
+        {readModel.warnings.length > 0 && (
+          <div className="mt-1 text-[10px] text-warning">{readModel.warnings[0].message}</div>
+        )}
       </div>
-      <div className="text-[10px] font-medium text-muted-foreground">{task.progress}%</div>
-      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+      <div className="text-[10px] font-medium text-muted-foreground">
+        {readModel.availableActions[0]?.label ?? ''}
+      </div>
+      {onOpen && <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />}
+    </>
+  );
+  if (onStartEpic) {
+    return (
+      <div className="flex w-full items-center gap-3 px-5 py-3.5">
+        {content}
+        <button type="button" onClick={onStartEpic} data-tour-id="change-route-start-epic" className="shrink-0 rounded border border-primary/40 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/10">
+          Start Epic
+        </button>
+      </div>
+    );
+  }
+  return onOpen ? (
+    <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 px-5 py-3.5 text-left hover:bg-accent/50">
+      {content}
     </button>
+  ) : (
+    <div className="flex w-full items-center gap-3 px-5 py-3.5">{content}</div>
   );
 }
 

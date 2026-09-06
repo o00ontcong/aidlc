@@ -140,6 +140,8 @@ export function EpicDetail({
       {/* User-entered brief captured at creation. */}
       <EpicRequestCard epic={epic} />
 
+      <EpicOwningChangeCard epic={epic} state={state} />
+
       <EpicVisualsCard epic={epic} />
 
       {/* ⑤ flow */}
@@ -317,6 +319,77 @@ function EpicRequestCard({ epic }: { epic: EpicSummary }) {
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * Owning Change (plan §12.6) — a canonical linked Epic exposes its pinned
+ * requirement and the separate delivery/Context close-out decision here.
+ * Direct legacy Epics remain readable but visibly unlinked during migration.
+ */
+function EpicOwningChangeCard({ epic, state }: { epic: EpicSummary; state: WorkspaceState }) {
+  const owning = state.changes.find((rm) => rm.change.epicLink?.state === 'linked' && rm.change.epicLink.epicId === epic.id);
+  const canMarkContextNotRequired = owning?.availableActions.some((action) => action.command === 'change.context.notrequired') ?? false;
+  const markContextNotRequired = () => {
+    if (!owning) return;
+    const reason = window.prompt('Vì sao delivery này không cần cập nhật Project Context?');
+    if (!reason?.trim()) return;
+    postMessage({
+      type: 'markChangeContextNotRequired',
+      changeId: owning.change.id,
+      epicId: epic.id,
+      guard: { expectedRevision: owning.change.revision, expectedContentHash: owning.change.contentHash },
+      reason: reason.trim(),
+    });
+  };
+
+  return (
+    <div data-tour-id="epic-context-closeout">
+    <Card>
+      <CardHeader>
+        <CardTitle>Owning change</CardTitle>
+        <Ellipsis style={{ fontSize: 11, color: 'var(--txt3)' }}>
+          {owning ? owning.change.title : 'Not linked to a Change yet'}
+        </Ellipsis>
+      </CardHeader>
+      <div data-tour-id="epic-delivery-review" style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {owning ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Mono style={{ fontSize: 11, color: 'var(--txt3)' }}>{owning.change.id}</Mono>
+              <Chip label={owning.derived.state.replace(/-/g, ' ')} mono />
+            </div>
+            <RequestField label="Requirement" value={owning.change.requirement.desiredOutcome} />
+            {owning.change.contextSync.status !== 'not-evaluated' && (
+              <RequestField
+                label="Context sync"
+                value={owning.change.contextSync.status === 'not-required'
+                  ? `Not required — ${owning.change.contextSync.reason}`
+                  : owning.change.contextSync.status === 'applied'
+                    ? `Applied to ${owning.change.contextSync.contextRevisionIds.join(', ')}`
+                    : owning.change.contextSync.status === 'proposed'
+                      ? `Proposal awaiting review: ${owning.change.contextSync.proposalIds.join(', ')}`
+                      : 'Delivery is complete. Decide whether Project Context needs an update.'}
+              />
+            )}
+            {canMarkContextNotRequired && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Btn label="Không cần cập nhật Context" variant="ghost" pad="5px 8px" fs={11} onClick={markContextNotRequired} />
+                <span style={{ fontSize: 10.5, color: 'var(--txt3)' }}>Cần nêu rõ lý do; không tự đánh dấu Done.</span>
+              </div>
+            )}
+            {owning.warnings.length > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--warn-txt, #b45309)' }}>{owning.warnings[0].message}</div>
+            )}
+          </>
+        ) : (
+          <div style={{ fontSize: 11.5, color: 'var(--txt3)' }}>
+            This Epic was started directly and has no linked Project Change yet.
+          </div>
+        )}
+      </div>
+    </Card>
+    </div>
   );
 }
 

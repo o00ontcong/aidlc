@@ -12,6 +12,22 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { generateUlid, type ContextRevisionId } from '../contracts/ids';
+import type { ContextProposal, SourceSnapshot } from '../contracts/contextProposal';
+import { ContextBootstrapService } from '../context/ContextBootstrapService';
+import { ContextProjectionRenderer } from '../context/ContextProjectionRenderer';
+import { ContextProposalService } from '../context/ContextProposalService';
+import { ProjectContextRepository } from '../context/ProjectContextRepository';
+import {
+  FilesystemSourceReader,
+  GitHeadSourceReader,
+  SourceReaderError,
+  WorkingTreeSourceReader,
+  type ProjectSourceReader,
+  type SourceReadResult,
+} from '../source';
+import { buildScanProposalInputs, type ScanProposalDocumentRejection } from './DiscoverScanProposalBridge';
+
 import type { ActorRef } from '../contracts/common';
 import { nowIso } from '../contracts/common';
 import {
@@ -81,6 +97,12 @@ const SNAPSHOTS_DIR = 'snapshots';
  */
 const SOURCE_FINGERPRINT_FILE = '_source-repos.json';
 const MAX_RUNS = 50;
+
+/** Isolated per-run staging for the Context-Proposal-based scan (M5) — never `docsRoot`, never `.aidlc/discover/snapshots`. */
+const SCAN_STAGING_DIR = 'scan-staging';
+const SCAN_MANIFEST_FILE = 'manifest.json';
+/** The fixed `producedBy`/`finish` actor for every scan-originated proposal — the human who started the scan is `requestedBy` instead (contracts/contextProposal.ts requires that split). */
+const SCAN_AGENT_ACTOR: ActorRef = { kind: 'agent', id: 'discover-scan' };
 
 export class DiscoverNotInitializedError extends Error {
   constructor() {
@@ -185,6 +207,41 @@ function titleFromSeed(seed: string): string {
   if (trimmed.length <= 72) { return trimmed; }
   return `${trimmed.slice(0, 69)}…`;
 }
+
+// ── Context-Proposal-based scan (M5) ────────────────────────────────────────
+
+interface ScanProposalRunManifest {
+  runId: string;
+  scanPass: ScanPassId;
+  /** The human who started this scan — becomes `ContextProposal.requestedBy`. */
+  requestedBy: ActorRef;
+  baseRevisionId: string;
+  baseRootHash: string;
+  sourceSnapshot: SourceSnapshot;
+  startedAt: string;
+}
+
+export interface StartScanProposalRunInput {
+  /** The human starting this scan. */
+  actor: ActorRef;
+  scanPass: ScanPassId;
+  /** Opt into `WorkingTreeSourceReader` (dirty files pinned by hash) instead of the default `GitHeadSourceReader`. Falls back to `FilesystemSourceReader` when the workspace isn't a Git repository either way. */
+  includeLocalWip?: boolean;
+}
+
+export interface StartScanProposalRunResult {
+  runId: string;
+  /** Absolute path — point the agent's docs root at this for the run, never the live `docsRoot`. */
+  stagingRoot: string;
+  documentPaths: string[];
+  sourceSnapshot: SourceSnapshot;
+  /** e.g. the non-Git-fallback notice — surface these to whoever started the scan. */
+  warnings: string[];
+}
+
+export type ScanProposalRunOutcome =
+  | { outcome: 'proposal-created'; proposal: ContextProposal; rejectedDocuments: ScanProposalDocumentRejection[] }
+  | { outcome: 'no-changes'; rejectedDocuments: ScanProposalDocumentRejection[] };
 
 export class DiscoverService {
   constructor(readonly workspaceRoot: string) {}
@@ -755,6 +812,168 @@ export class DiscoverService {
     const index = this.require();
     const { scanCampaign: _dropped, ...rest } = index;
     return this.save({ ...this.bump(rest) });
+  }
+
+  // ── Context-Proposal-based scan (M5, plan §11) ────────────────────────────
+  //
+  // A brand-new, self-contained lifecycle — it does not touch `index.runs`,
+  // `DiscoverRun`, or any of the Keep/Revert methods above. Every existing
+  // `kind: 'step' | 'scan' | 'edit'` run through `startRun`/`finishRun`/
+  // `keepRun`/`revertRun` keeps behaving exactly as before; those stay the
+  // only path for a legacy run during migration (plan §11.3). Once a caller
+  // (webview host handler, agent prompt) is ready to stop using them for new
+  // scans, it calls these two methods instead — nothing here requires that
+  // cutover to have already happened.
+  //
+  // Known gaps, deliberately out of this pass's scope: `index.scanCampaign`
+  // (the 3-pass stepper) is not updated by these methods — the "which pass
+  // unlocks next" question ties into the still-to-be-built review UI (M6),
+  // not the scan mechanics themselves. A crash between an agent run
+  // finishing and `finishScanProposalRun` completing has no dedicated replay
+  // journal (unlike `ContextApplyTransaction`'s Apply step) — a retry can, in
+  // the worst case, create two proposals from the same staged content; this
+  // mirrors every other host-orchestrated multi-step flow that doesn't yet
+  // have a journal, and is not a correctness gap in the proposal itself.
+
+  scanProposalStagingRoot(): string {
+    return path.join(this.discoverDir(), SCAN_STAGING_DIR);
+  }
+  scanProposalRunDir(runId: string): string {
+    return path.join(this.scanProposalStagingRoot(), runId);
+  }
+  scanProposalDocsDir(runId: string): string {
+    return path.join(this.scanProposalRunDir(runId), 'docs');
+  }
+  private scanProposalManifestFile(runId: string): string {
+    return path.join(this.scanProposalRunDir(runId), SCAN_MANIFEST_FILE);
+  }
+
+  private readScanProposalManifest(runId: string): ScanProposalRunManifest {
+    const file = this.scanProposalManifestFile(runId);
+    if (!fs.existsSync(file)) { throw new Error(`Unknown scan proposal run "${runId}" (no manifest at ${file}).`); }
+    return JSON.parse(fs.readFileSync(file, 'utf8')) as ScanProposalRunManifest;
+  }
+
+  /**
+   * Seed an isolated staging copy of this pass's managed docs (rendered from
+   * the current canonical Project Context — bootstrapping it first if this
+   * workspace has never been bootstrapped) and pin a source snapshot for it.
+   * The caller (a rewritten `DiscoverAgentCommand` prompt, once that cutover
+   * happens) points the agent at `stagingRoot` as its docs root for this run
+   * — never `docsRoot` itself.
+   */
+  startScanProposalRun(input: StartScanProposalRunInput): StartScanProposalRunResult {
+    const index = this.require();
+    const documentPaths = scanPassDocPaths(input.scanPass);
+    const repository = new ProjectContextRepository(this.workspaceRoot);
+
+    let head = repository.readHead();
+    if (!head) {
+      const bootstrap = new ContextBootstrapService(this.workspaceRoot, { docsRoot: index.docsRoot });
+      const preview = bootstrap.preview();
+      if (preview.blockers.length > 0) {
+        throw new Error(`Cannot start a scan proposal: the existing docs do not round-trip into the canonical Project Context yet (${preview.blockers.join(' | ')}).`);
+      }
+      ({ head } = bootstrap.apply({ actor: input.actor, previewId: preview.previewId, sourceHashes: preview.sourceHashes }));
+    }
+
+    let sourceResult: SourceReadResult;
+    const primary: ProjectSourceReader = input.includeLocalWip ? new WorkingTreeSourceReader(this.workspaceRoot) : new GitHeadSourceReader(this.workspaceRoot);
+    try {
+      sourceResult = primary.read();
+    } catch (error) {
+      if (!(error instanceof SourceReaderError)) { throw error; }
+      sourceResult = new FilesystemSourceReader(this.workspaceRoot).read();
+    }
+
+    const runId = `SCAN-${generateUlid()}`;
+    const currentRevision = repository.requireCurrentRevision();
+    const renderer = new ContextProjectionRenderer(repository, index.docsRoot);
+    for (const docPath of documentPaths) {
+      const content = renderer.renderManagedDocumentContent(currentRevision, docPath);
+      const file = path.join(this.scanProposalDocsDir(runId), docPath);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content, 'utf8');
+    }
+
+    const manifest: ScanProposalRunManifest = {
+      runId,
+      scanPass: input.scanPass,
+      requestedBy: input.actor,
+      baseRevisionId: head.currentRevisionId,
+      baseRootHash: head.rootHash,
+      sourceSnapshot: sourceResult.snapshot,
+      startedAt: nowIso(),
+    };
+    fs.mkdirSync(this.scanProposalRunDir(runId), { recursive: true });
+    writeFileAtomic(this.scanProposalManifestFile(runId), JSON.stringify(manifest, null, 2));
+
+    return {
+      runId,
+      stagingRoot: this.scanProposalDocsDir(runId),
+      documentPaths,
+      sourceSnapshot: sourceResult.snapshot,
+      warnings: sourceResult.snapshot.warnings,
+    };
+  }
+
+  /**
+   * Diff the staged docs against the canonical revision this run started
+   * from, and turn the result into a reviewable `ContextProposal` (already
+   * advanced to `review` — no separate agent-side "finish" call needed). A
+   * scan that produced no real change returns `{ outcome: 'no-changes' }`
+   * rather than an empty proposal nobody could usefully review or apply.
+   */
+  finishScanProposalRun(runId: string): ScanProposalRunOutcome {
+    const manifest = this.readScanProposalManifest(runId);
+    const index = this.require();
+    const repository = new ProjectContextRepository(this.workspaceRoot);
+    const baseRevision = repository.requireRevision(manifest.baseRevisionId as ContextRevisionId);
+    const documentPaths = scanPassDocPaths(manifest.scanPass);
+    const docsDir = this.scanProposalDocsDir(runId);
+
+    const built = buildScanProposalInputs({
+      documentPaths,
+      currentRevision: baseRevision,
+      repository,
+      docsRoot: index.docsRoot,
+      readStagedDocument: (docPath) => {
+        const file = path.join(docsDir, docPath);
+        return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : undefined;
+      },
+    });
+
+    if (built.groups.length === 0) {
+      fs.rmSync(this.scanProposalRunDir(runId), { recursive: true, force: true });
+      return { outcome: 'no-changes', rejectedDocuments: built.rejectedDocuments };
+    }
+
+    const proposals = new ContextProposalService(this.workspaceRoot, { repository });
+    const { proposal: draft } = proposals.start({
+      commandId: `discover-scan-start-${runId}`,
+      actor: manifest.requestedBy,
+      producedBy: SCAN_AGENT_ACTOR,
+      origin: 'scan',
+      contextGuard: { expectedRevisionId: manifest.baseRevisionId as ContextRevisionId, expectedRootHash: manifest.baseRootHash },
+      sourceSnapshot: manifest.sourceSnapshot,
+      operations: built.operations,
+      groups: built.groups,
+      newObjects: built.newObjects,
+    });
+    const { proposal } = proposals.finish({
+      commandId: `discover-scan-finish-${runId}`,
+      actor: SCAN_AGENT_ACTOR,
+      proposalId: draft.id,
+      guard: { expectedRevision: draft.revision, expectedContentHash: draft.contentHash },
+    });
+
+    fs.rmSync(this.scanProposalRunDir(runId), { recursive: true, force: true });
+    return { outcome: 'proposal-created', proposal, rejectedDocuments: built.rejectedDocuments };
+  }
+
+  /** Abandon a scan proposal run before (or instead of) finishing it — the staging copy is discarded, canonical state was never touched. */
+  discardScanProposalRun(runId: string): void {
+    fs.rmSync(this.scanProposalRunDir(runId), { recursive: true, force: true });
   }
 
   /**

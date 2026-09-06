@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
 import type { WorkspaceState, EpicSummary, EpicFilter } from '@/lib/types';
 import { EPIC_DND_MIME } from './EpicCard';
-import { StartEpicModal, type StartEpicDraft } from './StartEpicModal';
-import { postMessage, onHostMessage } from '@/lib/bridge';
+import { postMessage } from '@/lib/bridge';
 import '@/styles/v3-tokens.css';
 import { EpicListPanel, EPIC_LIST_DEFAULT_WIDTH, EPIC_LIST_MAX_WIDTH, EPIC_LIST_MIN_WIDTH } from './epic-v3/EpicListPanel';
 import { EpicDetail } from './epic-v3/EpicDetail';
@@ -49,7 +48,7 @@ function writeEpicsPersist(patch: PersistedEpicsView): void {
  * Selection / list-collapse / tools-open stay session-only; list width persists
  * in `epicsViewUi.listWidth`.
  */
-export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState; initialSelectedId?: string }) {
+export function EpicsView({ state, initialSelectedId, onNewEpic }: { state: WorkspaceState; initialSelectedId?: string; onNewEpic: () => void }) {
   const seed = state.epicsViewUi ?? {};
   const [filter, setFilter] = useState<EpicFilter>(seed.filter ?? 'all');
   const [search, setSearch] = useState(seed.search ?? '');
@@ -58,9 +57,6 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
   const [followedIds, setFollowedIds] = useState<Set<string>>(
     () => new Set(seed.followedIds ?? []),
   );
-  const [startEpicOpen, setStartEpicOpen] = useState(false);
-  const [startImplementOpen, setStartImplementOpen] = useState(false);
-  const [implementDraft, setImplementDraft] = useState<StartEpicDraft | null>(null);
   const [dragEpicId, setDragEpicId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<'follow' | 'no-follow' | null>(null);
 
@@ -73,14 +69,6 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
     return Math.max(EPIC_LIST_MIN_WIDTH, Math.min(EPIC_LIST_MAX_WIDTH, Math.round(saved)));
   });
   const [toolsOpen, setToolsOpen] = useState(false);
-
-  useEffect(() => {
-    return onHostMessage((msg) => {
-      if (msg.type === 'triggerStartEpic' || msg.type === 'openStartEpicModal') {
-        setStartEpicOpen(true);
-      }
-    });
-  }, []);
 
   useEffect(() => {
     if (initialSelectedId && state.epics.some((task) => task.id === initialSelectedId)) {
@@ -269,7 +257,7 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
           onResetFilters={() => { onFilterChange('all'); onSearchChange(''); }}
           onRefresh={() => postMessage({ type: 'refreshEpics' })}
           onMigrate={() => postMessage({ type: 'migrateEpics' })}
-          onNewEpic={() => setStartEpicOpen(true)}
+          onNewEpic={onNewEpic}
           onDragStart={setDragEpicId}
           onDragEnd={() => { setDragEpicId(null); setDropTarget(null); }}
           onSectionDragOver={onSectionDragOver}
@@ -301,20 +289,6 @@ export function EpicsView({ state, initialSelectedId }: { state: WorkspaceState;
           </div>
         )}
       </div>
-
-      {startEpicOpen && (
-        <StartEpicModal
-          pipelines={state.startPipelines ?? state.pipelines}
-          agentMeta={state.agentMeta}
-          nextEpicId={state.nextEpicId}
-          existingEpicIds={state.existingEpicIds}
-          epicsDir={state.epicsDir}
-          isFirstEpic={state.epics.length === 0}
-          workspaceName={state.workspaceName}
-          onSubmit={(draft) => postMessage({ type: 'startEpicInline', draft })}
-          onClose={() => setStartEpicOpen(false)}
-        />
-      )}
     </MockProvider>
   );
 }

@@ -51,6 +51,12 @@ export const RECOVERY_ACTION_KINDS = [
   'ask-user',
   'refresh-context',
   'escalate',
+  // Added for the Project Change / Context Proposal CAS conflicts (plan §18.6).
+  'reload',
+  'rebase',
+  'resume',
+  'rollback',
+  'open-item',
 ] as const;
 
 export const RecoveryActionSchema = z.object({
@@ -67,6 +73,15 @@ export type RecoveryAction = z.infer<typeof RecoveryActionSchema>;
 
 // ── AidlcError ─────────────────────────────────────────────────────
 
+/**
+ * Backward-compatible extension point (plan §18.6): conflict errors attach
+ * expected/actual revision/hash here rather than inventing a second error
+ * shape per aggregate. Path-traversal errors must never echo file content
+ * or secrets into it.
+ */
+export const AidlcErrorMetadataSchema = z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]));
+export type AidlcErrorMetadata = z.infer<typeof AidlcErrorMetadataSchema>;
+
 export const AidlcErrorSchema = z.object({
   code: ErrorCodeSchema,
   /** One-line, user-facing summary — never a raw exception message. */
@@ -74,6 +89,7 @@ export const AidlcErrorSchema = z.object({
   /** Longer explanation / raw diagnostic, shown only in "advanced details". */
   detail: z.string().optional(),
   recoveryActions: z.array(RecoveryActionSchema).default([]),
+  metadata: AidlcErrorMetadataSchema.optional(),
   at: IsoTimestampSchema,
 });
 export type AidlcError = z.infer<typeof AidlcErrorSchema>;
