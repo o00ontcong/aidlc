@@ -316,7 +316,11 @@ export function remedyFor(kind: JiraErrorKind): string {
  * for whatever agent reads this next.
  */
 export function buildTicketBrief(ticket: JiraTicket): string {
-  const parts: string[] = [];
+  const parts: string[] = [
+    [`**Jira:** ${ticket.key}`, ticket.url ? `**URL:** ${ticket.url}` : '']
+      .filter(Boolean)
+      .join('\n'),
+  ];
   const description = ticket.descriptionMd.trim();
   if (description) { parts.push(description); }
 
@@ -332,7 +336,9 @@ export function buildTicketBrief(ticket: JiraTicket): string {
   }
 
   // A ticket with neither description nor AC still deserves a usable brief.
-  if (parts.length === 0 && ticket.summary.trim()) { parts.push(ticket.summary.trim()); }
+  if (!description && ticket.acceptanceCriteria.length === 0 && ticket.summary.trim()) {
+    parts.push(ticket.summary.trim());
+  }
 
   return parts.join('\n\n');
 }

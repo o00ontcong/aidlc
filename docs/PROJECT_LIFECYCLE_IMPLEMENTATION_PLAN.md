@@ -1784,12 +1784,13 @@ Development Host nếu repo có script tương ứng.
 
 1. Mở `Hướng dẫn`, chọn demo và hoàn thành lifecycle basics; project thật không
    có file thay đổi và report chỉ Pass step có evidence.
-2. Trên current project có CoFoFo: nếu Context stale/draft, coach dừng ở
-   `Publish Discover Context` trước New change / Start Epic; Publish tới `ready`
-   rồi mới Create & start. Không được Pass bước này chỉ vì mở tab Discover.
-   READY so sánh content identity (docs/entities/rules/sourceTreeHash), không
-   gắn `index.revision` bookkeeping — Publish rồi Reload Discover không được
-   làm Context stale nếu nội dung không đổi.
+2. Trên current project có CoFoFo: nếu Context missing/draft, coach dừng ở
+   `Publish Discover Context` trước New change / Start Epic. Context `stale`
+   vẫn Start Epic được (dùng snapshot Publish gần nhất); Publish tới `ready`
+   là tuỳ chọn khi muốn pin Context mới. Không được Pass bước này chỉ vì mở
+   tab Discover. READY so sánh content identity (docs/entities/rules/sourceTreeHash),
+   không gắn `index.revision` bookkeeping — Publish rồi Reload Discover không
+   được làm Context stale nếu nội dung không đổi.
 3. Reload giữa một step, Resume đúng tour/step/subject; Restart chỉ reset tour
    progress, không sửa Change/Epic/Proposal.
 4. Mở lại Product Tour từ TopBar và Command Palette nhiều lần; chạy safe-scan và

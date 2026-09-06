@@ -18,6 +18,7 @@ import { DiffPane } from '../DiffPane';
 import { RequestUpdateModal } from '../RequestUpdateModal';
 import { RerunModal } from '../RerunModal';
 import { BugReportModal } from '../BugReportModal';
+import { splitComposedRequirement } from '../../../shared/splitComposedRequirement';
 import { RunWithFeedbackModal } from '../RunWithFeedbackModal';
 import { DeleteEpicModal } from '../DeleteEpicModal';
 import { GateModal } from './GateModal';
@@ -279,24 +280,27 @@ function AgentTimeline({
 
 function EpicRequestCard({ epic }: { epic: EpicSummary }) {
   const [expanded, setExpanded] = useState(false);
-  const description = (epic.description ?? '').trim();
+  const composed = (epic.description ?? '').trim();
+  const split = splitComposedRequirement(composed);
+  const userNote = String(epic.inputs?.user_note ?? '').trim() || split.userNote;
+  const sourceDescription = split.sourceDescription || (!split.userNote ? composed : '');
   const goals = String(epic.inputs?.selected_goals ?? '')
     .split(',')
     .map((goal) => goal.trim())
     .filter(Boolean);
   const scope = String(epic.inputs?.what_scope ?? '').trim();
   const constraints = String(epic.inputs?.feature_constraints ?? '').trim();
-  const summary = description.replace(/\s+/g, ' ').trim()
+  const summary = (userNote || sourceDescription).replace(/\s+/g, ' ').trim()
     || (goals.length > 0 ? `${goals.length} mục tiêu đã chọn` : 'Có phạm vi hoặc ràng buộc được lưu');
 
-  if (!description && goals.length === 0 && !scope && !constraints) { return null; }
+  if (!userNote && !sourceDescription && goals.length === 0 && !scope && !constraints) { return null; }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Yêu cầu khi tạo Epic</CardTitle>
         <Ellipsis style={{ fontSize: 11, color: 'var(--txt3)' }}>
-          {expanded ? 'Thông tin bạn đã nhập được lưu cùng epic.' : summary}
+          {expanded ? 'User note thắng description khi hai bên lệch.' : summary}
         </Ellipsis>
         <DisclosureBtn
           open={expanded}
@@ -308,7 +312,8 @@ function EpicRequestCard({ epic }: { epic: EpicSummary }) {
       </CardHeader>
       {expanded && (
         <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {description && <RequestField label="Mô tả" value={description} />}
+          {userNote && <RequestField label="User note (thắng description)" value={userNote} />}
+          {sourceDescription && <RequestField label="Mô tả / ticket" value={sourceDescription} />}
           {goals.length > 0 && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
               <div style={{ width: 96, flex: 'none', fontSize: 11.5, color: 'var(--txt3)' }}>Mục tiêu</div>
@@ -365,7 +370,18 @@ function EpicOwningChangeCard({ epic, state }: { epic: EpicSummary; state: Works
               <Mono style={{ fontSize: 11, color: 'var(--txt3)' }}>{owning.change.id}</Mono>
               <Chip label={owning.derived.state.replace(/-/g, ' ')} mono />
             </div>
-            <RequestField label="Requirement" value={owning.change.requirement.desiredOutcome} />
+            {(() => {
+              const req = splitComposedRequirement(owning.change.requirement.desiredOutcome);
+              if (req.userNote) {
+                return (
+                  <>
+                    <RequestField label="User note (thắng description)" value={req.userNote} />
+                    {req.sourceDescription ? <RequestField label="Source description" value={req.sourceDescription} /> : null}
+                  </>
+                );
+              }
+              return <RequestField label="Requirement" value={owning.change.requirement.desiredOutcome} />;
+            })()}
             {owning.change.contextSync.status !== 'not-evaluated' && (
               <RequestField
                 label="Context sync"
@@ -800,8 +816,10 @@ function StepActions({
             />
           )}
           <StepBtn
-            label="Đánh dấu step xong"
-            title="Bỏ qua agent — ghi step này là done trên disk. Không chạy code, không tạo artifact."
+            label={step.reviewMode === 'canvas' ? 'Đánh dấu xong & mở Canvas' : 'Đánh dấu step xong'}
+            title={step.reviewMode === 'canvas'
+              ? 'Xác nhận artifact rồi mở Canvas để review. Không chạy lại agent.'
+              : 'Bỏ qua agent — ghi step này là done trên disk. Không chạy code, không tạo artifact.'}
             disabled={pending}
             loading={isPending('done')}
             onClick={stop(() => run(() => postMessage({ type: 'markStepDone', runId, stepIdx }), 'done'))}
@@ -816,6 +834,16 @@ function StepActions({
             />
           )}
         </>
+      )}
+      {status === 'awaiting_review' && step.reviewMode === 'canvas' && (
+        <StepBtn
+          kind="primary"
+          label="Review in Canvas"
+          title="Mở bundle artifact trong Canvas để approve hoặc request changes."
+          disabled={pending}
+          loading={isPending('canvas')}
+          onClick={stop(() => run(() => postMessage({ type: 'reviewCanvasStep', runId, stepIdx }), 'canvas'))}
+        />
       )}
       {status === 'awaiting_auto_review' && (
         <StepBtn

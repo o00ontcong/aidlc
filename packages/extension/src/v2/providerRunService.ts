@@ -22,6 +22,7 @@ import {
   markdownOutputLanguageInstruction,
   resolveAidlcLanguage,
 } from './outputLanguage';
+import { prepareDeliveryRun } from './cofofoRunPrep';
 
 export {
   buildCodexRunPrompt,
@@ -260,7 +261,13 @@ export function runStepWithProvider(opts: {
 
   ensureCommandFilesForProvider(opts.root, opts.extensionPath, providerId);
 
-  const effectiveFb = (opts.feedback ?? '').trim();
+  const prep = prepareDeliveryRun(opts.root, opts.runId);
+  if (prep.rebased) {
+    void vscode.window.showInformationMessage(
+      'AIDLC: pipeline contract updated for this step. Re-running with the current gates.',
+    );
+  }
+  const effectiveFb = [prep.extraFeedback, (opts.feedback ?? '').trim()].filter(Boolean).join('\n\n');
 
   const taskPrompt = buildTaskPrompt(
     opts.slashCommand,
@@ -326,7 +333,20 @@ export function runProviderManagedInteractiveSession(opts: {
 
   ensureCommandFilesForProvider(opts.root, opts.extensionPath, providerId);
 
-  const taskPrompt = buildTaskPrompt(opts.slashCommand, opts.runId, '', providerId, opts.root);
+  const prep = prepareDeliveryRun(opts.root, opts.runId);
+  if (prep.rebased) {
+    void vscode.window.showInformationMessage(
+      'AIDLC: pipeline contract updated for this step. Re-running with the current gates.',
+    );
+  }
+  const managedFeedback = prep.extraFeedback;
+  const taskPrompt = buildTaskPrompt(
+    opts.slashCommand,
+    opts.runId,
+    managedFeedback,
+    providerId,
+    opts.root,
+  );
   const configured = vscode.workspace.getConfiguration('aidlc').get<string>('displayLanguage', 'auto');
   const language = resolveAidlcLanguage(configured, vscode.env.language);
   const prompt = providerId === 'opencode'

@@ -32,9 +32,23 @@ describe('Dynamic product tour planner', () => {
     ]);
   });
 
-  it('recommends publish-context when Context is stale', () => {
-    const offers = listGoalOffers({ ...empty, discoverContextStatus: 'stale' });
+  it('skips Discover Context when a published snapshot is stale', () => {
+    const plan = planProductTour('start-delivery', { ...empty, discoverContextStatus: 'stale' });
+    expect(plan.skipped.map((step) => step.id)).toContain('lifecycle.discover-context-ready');
+    expect(plan.steps.map((step) => step.id)).toEqual([
+      'lifecycle.bind-change',
+      'lifecycle.link-epic',
+    ]);
+  });
+
+  it('recommends publish-context when Context has never been published', () => {
+    const offers = listGoalOffers({ ...empty, discoverContextStatus: 'draft' });
     expect(offers.find((goal) => goal.id === 'publish-context')?.recommended).toBe(true);
+  });
+
+  it('does not require republish when Context is stale', () => {
+    const offers = listGoalOffers({ ...empty, discoverContextStatus: 'stale' });
+    expect(offers.find((goal) => goal.id === 'publish-context')?.recommended).toBe(false);
   });
 
   it('starts a dynamic goal with only remaining steps', () => {

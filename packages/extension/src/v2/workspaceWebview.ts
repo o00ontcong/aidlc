@@ -185,6 +185,7 @@ import {
   scaffoldEpic,
   DiscoverService,
   DiscoverContextPublisher,
+  hasPublishedDiscoverContext,
   DiscoverRevisionConflictError,
   DISCOVER_COMMAND_NAME,
   DISCOVER_PIPELINE_COMMAND_NAME,
@@ -219,6 +220,7 @@ import {
   ContextProposalService,
   epicIdFromChangeId,
   isEpicId,
+  isChangeId,
   generateExternalRefId,
   GitHeadSourceReader,
   FilesystemSourceReader,
@@ -227,6 +229,7 @@ import {
   type ChangeId,
   type ChangePriority,
   type ChangeRequirement,
+  composeRequirementWithUserNote,
   type ContextRevisionId,
   type SourceSnapshot,
   type ProjectChangeReadModel,
@@ -251,6 +254,7 @@ import { productTourService } from './productTour/ProductTourService';
 import type { ProductTourRuntimeSnapshot, ProductTourUiState } from '../shared/productTour';
 import { PRODUCT_TOUR_GOAL_IDS } from '../shared/productTour';
 import { buildTicketBrief, type EpicLinkSource, type SprintState } from './jiraSprintLogic';
+import { collectStartEpicInputs, resolveJiraTicketKey } from '../shared/startEpicInputs';
 import { SKILL_TEMPLATES } from './skillTemplates';
 import {
   loadBuiltinPreset,
@@ -5314,10 +5318,19 @@ export class WorkspaceWebview {
 
     const title = String(draft.title ?? '').trim();
     const description = String(draft.description ?? '').trim();
+    const userNote = String(draft.userNote ?? '').trim();
     const nextAction = draft.nextAction === 'explore' || draft.nextAction === 'save' ? draft.nextAction : 'start-epic';
-    const changeTitle = title || titleFromText(description);
+    const changeTitle = title || titleFromText(description || userNote);
     const inputsRaw = draft.inputs && typeof draft.inputs === 'object' ? draft.inputs as Record<string, unknown> : {};
-    const jiraKey = typeof inputsRaw.jira === 'string' ? inputsRaw.jira.trim() : '';
+    const stringInputs: Record<string, string> = {};
+    for (const [k, v] of Object.entries(inputsRaw)) {
+      if (typeof v === 'string' && v.trim()) { stringInputs[k] = v.trim(); }
+    }
+    const capturedInputs = collectStartEpicInputs(stringInputs, { epicId: String(draft.epicId ?? '') });
+    const jiraKey = resolveJiraTicketKey({
+      inputs: capturedInputs,
+      epicId: String(draft.epicId ?? ''),
+    });
 
     // A Sprint ticket already tied to a Change must not silently get a second
     // one — two Changes claiming the same external ticket is a typed conflict
@@ -5338,7 +5351,7 @@ export class WorkspaceWebview {
 
     const requirement: ChangeRequirement = {
       problem: '',
-      desiredOutcome: description || changeTitle,
+      desiredOutcome: composeRequirementWithUserNote(description || changeTitle, userNote) || changeTitle,
       acceptanceCriteria: [],
       inScope: [],
       outOfScope: [],
@@ -5398,7 +5411,7 @@ export class WorkspaceWebview {
     const candidate = normalizedDraft || sequencedId;
     const chosenEpicId = isEpicId(candidate) ? candidate : isEpicId(sequencedId) ? sequencedId : epicIdFromChangeId(change.id as ChangeId);
     await this.startEpicInline(
-      { ...draft, epicId: chosenEpicId },
+      { ...draft, epicId: chosenEpicId, inputs: capturedInputs },
       { changeId: change.id, guard: { expectedRevision: change.revision, expectedContentHash: change.contentHash } },
     );
   }
@@ -5574,7 +5587,9 @@ export class WorkspaceWebview {
     }
 
     const title = String(draft.title ?? '').trim();
-    const description = String(draft.description ?? '').trim();
+    const userNote = String(draft.userNote ?? '').trim();
+    const rawDescription = String(draft.description ?? '').trim();
+    const description = composeRequirementWithUserNote(rawDescription || title, userNote);
     const selectedGoals = Array.isArray(draft.selectedGoals)
       ? [...new Set(draft.selectedGoals
         .filter((goal): goal is string => typeof goal === 'string')
@@ -5589,6 +5604,16 @@ export class WorkspaceWebview {
     const inputs: Record<string, string> = {};
     for (const [k, v] of Object.entries(inputsRaw)) {
       if (typeof v === 'string' && v.trim()) { inputs[k] = v; }
+    }
+    const inferredJira = resolveJiraTicketKey({ inputs, epicId });
+    if (inferredJira) { inputs.jira = inferredJira; }
+    if (!inputs.jira && owner) {
+      const changeId = owner.changeId;
+      if (isChangeId(changeId)) {
+        const linked = new ChangeService(root).get(changeId);
+        const jiraRef = linked?.externalRefs.find((ref) => ref.provider === 'jira');
+        if (jiraRef?.key) { inputs.jira = jiraRef.key; }
+      }
     }
 
     // GH-67: extra projects attached to the epic.
@@ -5639,9 +5664,9 @@ export class WorkspaceWebview {
       try {
         const publisher = new DiscoverContextPublisher(root);
         const inspection = publisher.inspect();
-        if (inspection.status !== 'ready' || !inspection.context) {
+        if (!hasPublishedDiscoverContext(inspection)) {
           void vscode.window.showWarningMessage(
-            `AIDLC: ${targetId} cần Discover Context READY. ${inspection.nextAction}`,
+            `AIDLC: ${targetId} cần Discover Context đã Publish. ${inspection.nextAction}`,
           );
           return;
         }
@@ -5694,7 +5719,7 @@ export class WorkspaceWebview {
           .getConfiguration('aidlc')
           .get<boolean>('autopilot.enabled', false),
       };
-      scaffolded = scaffoldEpic({ workspaceRoot: root, epicId, title, description, ...scaffoldArgs });
+      scaffolded = scaffoldEpic({ workspaceRoot: root, epicId, title, description, userNote, ...scaffoldArgs });
     } catch (err) {
       if (err instanceof EpicScaffoldError) {
         void vscode.window.showWarningMessage(`AIDLC: ${err.message}`);
@@ -5704,8 +5729,10 @@ export class WorkspaceWebview {
       const issues = err instanceof Error && 'issues' in err && Array.isArray((err as { issues?: unknown }).issues)
         ? ((err as { issues: string[] }).issues)
         : [];
-      const short = message.includes('CoFoFo foundation is not ready') || message.includes('READY Discover Context')
-        ? 'Không tạo được epic CoFoFo: Discover Context chưa READY. Hãy Publish Context từ tab Discover rồi Start Epic lại (không cần tạo Change mới).'
+      const short = message.includes('CoFoFo foundation is not ready')
+        || message.includes('READY Discover Context')
+        || message.includes('published Discover Context')
+        ? 'Không tạo được epic CoFoFo: chưa có Publish Context. Hãy Publish Context từ tab Discover rồi Start Epic lại (không cần tạo Change mới).'
         : `Epic could not be scaffolded: ${message}`;
       const agentBrief = [
         'AIDLC scaffoldEpic failed',

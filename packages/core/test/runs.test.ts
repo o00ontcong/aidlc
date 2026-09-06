@@ -15,9 +15,9 @@ import {
   requestStepUpdate,
   submitAutoReviewVerdict,
   runAutoReview,
+  rebaseRunPipelineSnapshot,
   PipelineRunError,
   type PipelineConfig,
-  type RunState,
   type AutoReviewVerdict,
 } from '../src';
 
@@ -731,5 +731,168 @@ describe('gate-check follows the workspace\'s active epics directory', () => {
 
     const s = startRun({ runId: 'SPIKE-01', pipeline: PIPELINE, context: { epic: 'SPIKE-01' } });
     expect(() => markStepDone({ state: s, pipeline: PIPELINE, workspaceRoot: root })).toThrow(PipelineRunError);
+  });
+});
+
+describe('PipelineRunner — rebaseRunPipelineSnapshot + user note gate', () => {
+  let root: string;
+  beforeEach(() => { root = tmpRoot(); });
+
+  const oldAnalyze: PipelineConfig = {
+    id: 'cofofo-feature',
+    on_failure: 'stop',
+    steps: [
+      {
+        agent: 'cofofo-product-owner',
+        name: 'analyze',
+        requires: [],
+        produces: ['docs/epics/{epic}/artifacts/OPTIONS.md'],
+        human_review: true,
+        auto_review: false,
+        enabled: true,
+        review: { mode: 'canvas', artifacts: ['docs/epics/{epic}/artifacts/OPTIONS.md'] },
+      },
+      {
+        agent: 'cofofo-tech-lead',
+        name: 'create-plan',
+        requires: ['docs/epics/{epic}/artifacts/OPTIONS.md'],
+        produces: ['docs/epics/{epic}/artifacts/TASK-PLAN.md'],
+        depends_on: ['analyze'],
+        human_review: true,
+        auto_review: false,
+        enabled: true,
+      },
+    ],
+  };
+
+  const newAnalyze: PipelineConfig = {
+    id: 'cofofo-feature',
+    on_failure: 'stop',
+    steps: [
+      {
+        agent: 'cofofo-product-owner',
+        name: 'analyze',
+        requires: [],
+        produces: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'],
+        produces_contains: ['## 4. Screens (New / Update)'],
+        human_review: true,
+        auto_review: false,
+        enabled: true,
+        review: { mode: 'canvas', artifacts: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'] },
+      },
+      {
+        agent: 'cofofo-tech-lead',
+        name: 'create-plan',
+        requires: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'],
+        produces: ['docs/epics/{epic}/artifacts/TASK-PLAN.md'],
+        depends_on: ['analyze'],
+        human_review: true,
+        auto_review: false,
+        enabled: true,
+      },
+    ],
+  };
+
+  it('rewinds an in-flight analyze step onto REQUIREMENT.md and clears Canvas', () => {
+    let state = startRun({ runId: 'EPIC-1007', pipeline: oldAnalyze, context: { epic: 'EPIC-1007' } });
+    touch(root, 'docs/epics/EPIC-1007/artifacts/OPTIONS.md', '# Options\n');
+    state = markStepDone({ state, pipeline: oldAnalyze, workspaceRoot: root });
+    expect(state.steps[0].status).toBe('awaiting_review');
+    state.steps[0].canvasReview = {
+      verdict: 'request_changes',
+      reviewer: 'test',
+      at: new Date().toISOString(),
+      bundleHash: 'old',
+      reviewRevision: 1,
+    };
+
+    const next = rebaseRunPipelineSnapshot({ state, sourcePipeline: newAnalyze });
+    expect(next.pipelineSnapshot?.pipeline.steps[0]).toMatchObject({
+      produces: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'],
+    });
+    expect(next.steps[0].status).toBe('awaiting_work');
+    expect(next.steps[0].canvasReview).toBeUndefined();
+    expect(next.steps[0].revision).toBeGreaterThan(state.steps[0].revision);
+    expect(next.steps[1].status).toBe('pending');
+  });
+
+  it('is a no-op when the live pipeline hash matches the snapshot', () => {
+    const state = startRun({ runId: 'EPIC-1', pipeline: newAnalyze, context: { epic: 'EPIC-1' } });
+    const next = rebaseRunPipelineSnapshot({ state, sourcePipeline: newAnalyze });
+    expect(next.pipelineSnapshot?.hash).toBe(state.pipelineSnapshot?.hash);
+    expect(next.steps[0].status).toBe('awaiting_work');
+  });
+
+  it('markStepDone blocks REQUIREMENT.md that skipped the user note', () => {
+    const epicDir = path.join(root, 'docs/epics', 'EPIC-NOTE');
+    fs.mkdirSync(epicDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDir, 'inputs.json'),
+      JSON.stringify({
+        user_note: 'Figma: https://www.figma.com/design/abc123/recovery\nInput Recovery Email Screen must use the login input UI.',
+      }) + '\n',
+    );
+    const headings = [
+      '## 4. Screens (New / Update)',
+      '## 5. Screen Flow Diagram',
+      '## 6. APIs (New / Update)',
+      '## 6.1 API Flow Diagram',
+    ].join('\n\n');
+    touch(root, 'docs/epics/EPIC-NOTE/artifacts/REQUIREMENT.md', `# Req\n\n${headings}\n`);
+    const pipeline: PipelineConfig = {
+      id: 'req',
+      on_failure: 'stop',
+      steps: [{
+        agent: 'po',
+        requires: [],
+        produces: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'],
+        produces_contains: ['## 4. Screens (New / Update)'],
+        human_review: true,
+        auto_review: false,
+        enabled: true,
+      }],
+    };
+    const s = startRun({ runId: 'EPIC-NOTE', pipeline, context: { epic: 'EPIC-NOTE' } });
+    expect(() => markStepDone({ state: s, pipeline, workspaceRoot: root })).toThrow(/skipped the user's note/i);
+  });
+
+  it('markStepDone accepts REQUIREMENT.md that folded the user note', () => {
+    const epicDir = path.join(root, 'docs/epics', 'EPIC-NOTE');
+    fs.mkdirSync(epicDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(epicDir, 'inputs.json'),
+      JSON.stringify({
+        user_note: 'Figma: https://www.figma.com/design/abc123/recovery\nInput Recovery Email Screen must use the login input UI.',
+      }) + '\n',
+    );
+    const body = [
+      '# Req',
+      '## 4. Screens (New / Update)',
+      'Input Recovery Email Screen must use the login input UI.',
+      'Figma: https://www.figma.com/design/abc123/recovery',
+      '## 5. Screen Flow Diagram',
+      'N/A',
+      '## 6. APIs (New / Update)',
+      'N/A',
+      '## 6.1 API Flow Diagram',
+      'N/A',
+    ].join('\n');
+    touch(root, 'docs/epics/EPIC-NOTE/artifacts/REQUIREMENT.md', body);
+    const pipeline: PipelineConfig = {
+      id: 'req',
+      on_failure: 'stop',
+      steps: [{
+        agent: 'po',
+        requires: [],
+        produces: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'],
+        produces_contains: ['## 4. Screens (New / Update)'],
+        human_review: true,
+        auto_review: false,
+        enabled: true,
+      }],
+    };
+    const s = startRun({ runId: 'EPIC-NOTE', pipeline, context: { epic: 'EPIC-NOTE' } });
+    const next = markStepDone({ state: s, pipeline, workspaceRoot: root });
+    expect(next.steps[0].status).toBe('awaiting_review');
   });
 });

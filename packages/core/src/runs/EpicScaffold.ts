@@ -25,6 +25,7 @@ import { RunStateStore } from './RunStateStore';
 import { collectContext } from '../epics/ContextCollector';
 import { generatePlan, renderPlanMarkdown } from '../epics/PlanGenerator';
 import { formatCofofoBugReportFromEpic, pipelineIncludesDiagnose, writeCofofoBugReportFile } from '../cofofo/bugReport';
+import { writeEpicUserNoteFile } from '../change/epicUserNote';
 import type { FoundationSnapshot } from '../contracts/foundation';
 import type { DiscoverContextRef } from '../discover/DiscoverContextPublisher';
 
@@ -157,6 +158,12 @@ export interface ScaffoldEpicArgs {
   epicId: string;
   title: string;
   description: string;
+  /**
+   * Optional human correction/supplement captured at start. Persisted as
+   * `user_note` in `inputs.json` and `USER-NOTE.md`. It outranks `description`
+   * (ticket / Change requirement / state.json) when they conflict.
+   */
+  userNote?: string;
   /** `pipeline` runs a multi-step run; `agent` is a single-agent epic. */
   target: { kind: 'pipeline' | 'agent'; id: string };
   /** Resolved agent ids (pipeline step agents, or `[agentId]`). */
@@ -235,7 +242,7 @@ export interface ScaffoldEpicResult {
  */
 export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
   const {
-    workspaceRoot, doc, epicId, title, description, target, agents, inputs, extraProjects, pipeline,
+    workspaceRoot, doc, epicId, title, description, userNote, target, agents, inputs, extraProjects, pipeline,
     enableAutopilot = false,
     runMode = 'guided',
     relatesTo,
@@ -308,6 +315,10 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     'utf8',
   );
   const persistedInputs: Record<string, unknown> = { ...inputs };
+  const trimmedUserNote = userNote?.trim() ?? '';
+  if (trimmedUserNote) {
+    persistedInputs.user_note = trimmedUserNote;
+  }
   if (extraProjects && extraProjects.length > 0) {
     persistedInputs.extra_projects = extraProjects;
   }
@@ -346,6 +357,9 @@ export function scaffoldEpic(args: ScaffoldEpicArgs): ScaffoldEpicResult {
     JSON.stringify(persistedInputs, null, 2) + '\n',
     'utf8',
   );
+  if (trimmedUserNote) {
+    writeEpicUserNoteFile(epicDir, trimmedUserNote);
+  }
 
   // aidlc-autopilot (experimental — off by default, "coming soon"): collect
   // context and generate a plan. Gated so it stays dark until tested; when

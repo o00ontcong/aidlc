@@ -28,6 +28,7 @@ import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type {
   RunState,
   StepRecord,
+  StepStatus,
   AutoReviewVerdict,
   StepHistoryEntry,
   CanvasReviewRecord,
@@ -36,8 +37,10 @@ import { activeEpicsDir, resolveArtifactPath } from './RunState';
 import type { ReviewBundle } from './ArtifactReview';
 import { checkBundleCurrent } from './ArtifactReview';
 import { snapshotPipeline } from './PipelineSnapshot';
+import { resolveEpicUserNote } from '../change/epicUserNote';
+import { userNoteCoverageIssues } from '../change/composeRequirementWithUserNote';
 import { CofofoFoundationService } from '../cofofo/FoundationService';
-import { DiscoverContextPublisher, type DiscoverContextRef } from '../discover/DiscoverContextPublisher';
+import { DiscoverContextPublisher, hasPublishedDiscoverContext, type DiscoverContextRef } from '../discover/DiscoverContextPublisher';
 import { persistCofofoBugReportArtifact } from '../cofofo/bugReport';
 import { requireAcceptedEvidence } from '../cofofo/EvidenceLedger';
 import { ProjectRulesSchema, StackProfileSchema } from '../cofofo/contracts';
@@ -102,8 +105,8 @@ export function startRun(args: {
     const packPath = context.context_pack;
     const publisher = new DiscoverContextPublisher(args.workspaceRoot);
     const inspection = publisher.inspect();
-    if (inspection.status !== 'ready' || !inspection.context) {
-      throw new PipelineRunError(`Pipeline "${pipeline.id}" requires a READY Discover Context. ${inspection.nextAction}`, inspection.issues.map((issue) => issue.message));
+    if (!hasPublishedDiscoverContext(inspection)) {
+      throw new PipelineRunError(`Pipeline "${pipeline.id}" requires a published Discover Context. ${inspection.nextAction}`, inspection.issues.map((issue) => issue.message));
     }
     if (!packPath) {
       throw new PipelineRunError(`Pipeline "${pipeline.id}" requires a task-specific Discover context pack. Create the task from Discover or import it into a published Discover phase.`);
@@ -504,6 +507,30 @@ export function markStepDone(args: {
         `Step "${step.agent}" produced its files but they are missing required content.`,
         missingMarkers,
       );
+    }
+  }
+
+  const requirementRel = resolvedProduces.find((rel) => /REQUIREMENT\.md$/i.test(rel));
+  if (requirementRel) {
+    const abs = path.isAbsolute(requirementRel)
+      ? requirementRel
+      : path.join(workspaceRoot, requirementRel);
+    let requirementText = '';
+    try {
+      requirementText = fs.readFileSync(abs, 'utf8');
+    } catch {
+      requirementText = '';
+    }
+    const epicDir = path.join(workspaceRoot, epicsDir, state.runId);
+    const userNote = resolveEpicUserNote(epicDir);
+    if (userNote) {
+      const noteIssues = userNoteCoverageIssues(requirementText, userNote);
+      if (noteIssues.length > 0) {
+        throw new PipelineRunError(
+          `Step "${step.agent}" wrote REQUIREMENT.md but skipped the user's note (USER-NOTE.md / inputs.user_note). Fold every screen, Figma URL, and API instruction from the note into REQUIREMENT.md.`,
+          noteIssues,
+        );
+      }
     }
   }
 
@@ -1277,6 +1304,123 @@ export function rebaseRunToCurrentDiscoverContext(args: {
   }
   next.currentStepIdx = Math.max(0, next.steps.findIndex((step) => step.status === 'awaiting_work'));
   next.status = 'running';
+  return next;
+}
+
+/** Fields that change what the agent must produce or what Canvas reviews. */
+function stepGateFingerprint(step: PipelineConfig['steps'][number]): string {
+  const n = normalizeStep(step);
+  return JSON.stringify({
+    agent: n.agent,
+    name: n.name ?? null,
+    produces: n.produces,
+    produces_contains: n.produces_contains,
+    requires: n.requires,
+    review: n.review ?? null,
+    evidence: n.evidence ?? null,
+  });
+}
+
+function clearedStepRecord(record: StepRecord, agent: string, now: string, status: StepStatus): StepRecord {
+  return {
+    ...record,
+    agent,
+    revision: record.revision + 1,
+    status,
+    startedAt: status === 'awaiting_work' ? now : undefined,
+    finishedAt: undefined,
+    artifactsProduced: [],
+    autoReviewVerdict: undefined,
+    canvasReview: undefined,
+    reviewDisposition: undefined,
+    reviewBundleRevision: undefined,
+    rejectReason: undefined,
+    lastFailureId: undefined,
+  };
+}
+
+/**
+ * Refresh an in-flight run onto the live pipeline definition.
+ *
+ * Snapshots exist so a random preset tweak cannot silently change a run, but
+ * a contract change (analyze now gates on REQUIREMENT.md) must take
+ * effect when the user re-runs the epic — otherwise they keep gating on
+ * the old files forever.
+ *
+ * Approved steps whose gate fingerprint is unchanged stay approved. The first
+ * changed step and everything after it rewind to awaiting_work / pending.
+ */
+export function rebaseRunPipelineSnapshot(args: {
+  state: RunState;
+  sourcePipeline: PipelineConfig;
+}): RunState {
+  if (args.sourcePipeline.id !== args.state.pipelineId) {
+    return clone(args.state);
+  }
+  const nextSnapshot = snapshotPipeline(args.sourcePipeline);
+  if (args.state.pipelineSnapshot?.hash === nextSnapshot.hash) {
+    return clone(args.state);
+  }
+
+  const now = new Date().toISOString();
+  const next = clone(args.state);
+  const oldSteps = args.state.pipelineSnapshot?.pipeline.steps ?? [];
+  const sourceSteps = args.sourcePipeline.steps;
+
+  let firstDirty = sourceSteps.length;
+  for (let i = 0; i < sourceSteps.length; i++) {
+    const oldStep = oldSteps[i];
+    if (!oldStep || stepGateFingerprint(oldStep) !== stepGateFingerprint(sourceSteps[i]!)) {
+      firstDirty = i;
+      break;
+    }
+  }
+
+  const usesDag = sourceSteps.some((step) => normalizeStep(step).depends_on.length > 0);
+  const dagId = (i: number): string => {
+    const n = normalizeStep(sourceSteps[i]!);
+    return n.name ?? n.agent;
+  };
+  const keptApprovedIds = new Set(
+    next.steps
+      .filter((record) => record.stepIdx < firstDirty && record.status === 'approved')
+      .map((record) => dagId(record.stepIdx)),
+  );
+  const sequentialPredecessorApproved = firstDirty === 0
+    || next.steps[firstDirty - 1]?.status === 'approved';
+
+  const records: StepRecord[] = sourceSteps.map((step, idx) => {
+    const agent = normalizeStep(step).agent;
+    const existing = next.steps[idx];
+    if (idx < firstDirty && existing) {
+      return { ...existing, stepIdx: idx, agent };
+    }
+    const deps = normalizeStep(step).depends_on;
+    const open = usesDag
+      ? deps.every((dep) => keptApprovedIds.has(dep))
+      : idx === firstDirty && sequentialPredecessorApproved;
+    if (!existing) {
+      return {
+        stepIdx: idx,
+        agent,
+        revision: 1,
+        status: open ? 'awaiting_work' : 'pending',
+        startedAt: open ? now : undefined,
+        artifactsProduced: [],
+        isNew: true,
+      };
+    }
+    return clearedStepRecord(existing, agent, now, open ? 'awaiting_work' : 'pending');
+  });
+
+  next.pipelineSnapshot = nextSnapshot;
+  next.steps = records;
+  const firstOpen = records.findIndex(
+    (step) => step.status === 'awaiting_work' || step.status === 'awaiting_review' || step.status === 'awaiting_auto_review',
+  );
+  next.currentStepIdx = firstOpen >= 0 ? firstOpen : 0;
+  next.status = records.every((step) => step.status === 'approved') ? 'completed' : 'running';
+  next.updatedAt = now;
   return next;
 }
 

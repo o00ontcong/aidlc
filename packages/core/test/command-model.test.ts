@@ -193,6 +193,11 @@ describe('commandModel — command docs + writer', () => {
     expect(doc).toContain('state.json');
     expect(doc).toContain('artifacts/');
     expect(doc).toContain('Mark step done');
+    expect(doc).toContain('user_note');
+    expect(doc).toContain('USER-NOTE.md');
+    expect(doc).toContain('outranks');
+    expect(doc).toContain('jira');
+    expect(doc).toContain('Jira MCP');
   });
 
   it('shortcut doc fixes the phase and handles the missing-step case', () => {

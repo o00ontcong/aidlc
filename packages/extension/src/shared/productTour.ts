@@ -86,7 +86,7 @@ export interface ProductTourRuntimeSnapshot {
   changes: readonly ProductTourRuntimeChange[];
   scans: readonly ProductTourRuntimeScan[];
   proposals: readonly ProductTourRuntimeProposal[];
-  /** Gate for cofofo-feature / cofofo-bugfix Start Epic — never inferred from clicks. */
+  /** Gate for cofofo-feature / cofofo-bugfix Start Epic; stale still counts as published. */
   discoverContextStatus: ProductTourDiscoverContextStatus;
 }
 

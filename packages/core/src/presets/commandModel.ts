@@ -30,6 +30,7 @@ import * as path from 'path';
 import type { PipelineConfig, WorkspaceConfig } from '../schema/WorkspaceSchema';
 import { normalizeStep, stepDagId } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
+import { USER_NOTE_PRIORITY_RULE } from '../change/composeRequirementWithUserNote';
 
 // ── Canonical phase set (the fixed shortcut layer) ─────────────────
 
@@ -274,11 +275,14 @@ Claude — but still follow the structural contract below.
    any rejection reasons or \`bug_report\` rounds in this revision. Previously
    reported bugs remain in scope.
 2. Read \`${epicRoot}/<epic>/inputs.json\` for capability inputs.
+   Read \`${epicRoot}/<epic>/USER-NOTE.md\` FIRST when it exists (same as \`user_note\`).
+   If \`jira\` is set, that is the ticket key — the body is already in \`state.json\` description; do not wait for Jira MCP.
+   If \`user_note\` / USER-NOTE.md is present, it outranks \`state.json\` description. ${USER_NOTE_PRIORITY_RULE}
 3. Write your output to \`${epicRoot}/<epic>/artifacts/<FILE>\` where \`<FILE>\`
    is the step's declared artifact, or the phase's conventional file. The AIDLC
    validator checks this path when the step is marked done.
 4. Summarize what you produced and tell the user to click **"Mark step done"**
-   in the AIDLC panel to advance the pipeline.
+   in the AIDLC panel. Canvas-gated steps open the review canvas after that click.
 `;
 }
 

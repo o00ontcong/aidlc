@@ -10,6 +10,10 @@ import {
   detectStack,
   generatedCofofoWorkspace,
   installCatalog,
+  installCofofoPhaseSkills,
+  installCofofoProviderCommands,
+  COFOFO_REQUIREMENT_REQUIRED_HEADINGS,
+  COFOFO_PHASE_REQUIRED_HEADINGS,
   normalizeStep,
   previewCatalogInstall,
   resolveInside,
@@ -119,12 +123,63 @@ describe('CoFoFo stack detection and policy', () => {
     expect(bugfix.discover_context?.manifest).toBe('.aidlc/discover/published-context.json');
     expect(feature.steps.map((s) => normalizeStep(s).name)).toEqual(['analyze', 'create-plan', 'implement', 'test']);
     expect(bugfix.steps.map((s) => normalizeStep(s).name)).toEqual(['diagnose', 'reproduce', 'implement', 'test']);
-    const analyze = feature.steps.find((step) => normalizeStep(step).name === 'analyze') as { requires?: string[]; produces_contains?: string[] };
+    const analyze = normalizeStep(feature.steps.find((step) => normalizeStep(step).name === 'analyze')!);
     expect(analyze.requires).toContain('{context_pack}');
-    expect(analyze.produces_contains).toContain('## Scope');
+    expect(analyze.produces).toEqual(['docs/epics/{epic}/artifacts/REQUIREMENT.md']);
+    expect(analyze.produces_contains).toEqual([...COFOFO_REQUIREMENT_REQUIRED_HEADINGS]);
+    expect(analyze.review).toEqual({
+      mode: 'canvas',
+      artifacts: ['docs/epics/{epic}/artifacts/REQUIREMENT.md'],
+    });
+    expect(normalizeStep(feature.steps[1]!).requires).toContain('docs/epics/{epic}/artifacts/REQUIREMENT.md');
+    const po = workspace.agents.find((agent) => agent.id === 'cofofo-product-owner');
+    expect(po?.capabilities).toEqual(['files', 'jira']);
     const diagnose = bugfix.steps.find((step) => normalizeStep(step).name === 'diagnose') as { requires?: string[]; produces_contains?: string[] };
     expect(diagnose.requires).toEqual(expect.arrayContaining(['{context_pack}', 'docs/epics/{epic}/artifacts/BUG-REPORT.md']));
     expect(diagnose.produces_contains).toContain('## Resume From');
+  });
+
+  it('installs the analyze skill with mandatory screen and API requirement headings', () => {
+    const root = temporary();
+    installCofofoPhaseSkills(root);
+    const skill = fs.readFileSync(path.join(root, '.aidlc/cofofo/skills/analyze.md'), 'utf8');
+    for (const heading of COFOFO_REQUIREMENT_REQUIRED_HEADINGS) {
+      expect(skill).toContain(heading);
+    }
+    expect(skill).toContain('do not wait for Jira MCP');
+    expect(skill).toContain('REQUIREMENT.md');
+    expect(skill).toContain('USER-NOTE.md');
+    expect(skill).toContain('outranks');
+    expect(skill).toContain('## 9. Research / citations');
+    expect(skill).toContain('## 10. Options & task decisions');
+    expect(skill).toContain('leftover from a retired analyze split');
+    expect(skill).not.toContain('Do not delete them');
+    expect(skill).not.toContain('Do not write OPTIONS.md');
+    const plan = fs.readFileSync(path.join(root, '.aidlc/cofofo/skills/create-plan.md'), 'utf8');
+    expect(plan).toContain('Read REQUIREMENT.md only');
+    expect(plan).toContain('## RED / GREEN Contract');
+    expect(plan).not.toContain('do not delete them');
+    expect(plan).not.toContain('OPTIONS.md');
+  });
+
+  it('installs every phase skill and slash command with the headings its produces_contains gate requires', () => {
+    const root = temporary();
+    const workspace = generatedCofofoWorkspace({ version: '1.0', name: 'Demo' });
+    installCofofoPhaseSkills(root);
+    installCofofoProviderCommands(root, workspace);
+    for (const pipeline of workspace.pipelines.filter((item) => item.id.startsWith('cofofo-'))) {
+      for (const raw of pipeline.steps) {
+        const step = normalizeStep(raw);
+        const phase = step.name as keyof typeof COFOFO_PHASE_REQUIRED_HEADINGS;
+        expect(step.produces_contains).toEqual([...COFOFO_PHASE_REQUIRED_HEADINGS[phase]]);
+        const skill = fs.readFileSync(path.join(root, `.aidlc/cofofo/skills/${phase}.md`), 'utf8');
+        const command = fs.readFileSync(path.join(root, `.claude/commands/${pipeline.id}-${phase}.md`), 'utf8');
+        for (const marker of step.produces_contains) {
+          expect(skill).toContain(marker);
+          expect(command).toContain(marker);
+        }
+      }
+    }
   });
 
   it('previews installs without writing, detects drift, and restores a rollback backup', () => {

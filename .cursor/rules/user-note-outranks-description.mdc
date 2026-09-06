@@ -1,0 +1,31 @@
+---
+description: User note always outranks description in the AIDLC extension
+alwaysApply: true
+---
+
+# User note outranks description
+
+In this extension, a human **User note** (`inputs.user_note`, `USER-NOTE.md`) **outranks** **description** (`state.json` description, Change `requirement.desiredOutcome`, Jira / GitHub / Drive / URL ticket body).
+
+When they conflict, follow the user note. Fold both into the requirement artifact. Do not skip the note. Do not discard the source description.
+
+## Product surfaces
+
+- Start Epic / New Change: User note sits above description; copy must say it wins on conflict.
+- Epic detail / Owning change: show User note first, then source description — never dump only the composed blob as "Mô tả".
+- Agent skills, slash commands, provider-managed task, run feedback: include `USER_NOTE_PRIORITY_RULE` from `composeRequirementWithUserNote.ts`.
+- Mark-done on `REQUIREMENT.md` still gates on user-note coverage.
+
+## cofofo-feature analyze artifacts
+
+- Gated Canvas file: `docs/epics/{epic}/artifacts/REQUIREMENT.md` only.
+- Required headings include screens / screen flow / APIs / API flow plus `## 9. Research / citations` and `## 10. Options & task decisions`.
+- Discover `REQUIREMENTS.md` (product) is not the epic `REQUIREMENT.md` (task).
+- `OPTIONS.md` / `EVIDENCE.md` / `TASK-DECISIONS.md` are leftover from a retired analyze split. If they exist, fold into §§ 9–10. They are not pipeline artifacts. Do not write them as the requirement.
+
+## Do not
+
+- Treat `description` as the primary brief when a user note exists.
+- Tell the agent to wait for Jira MCP instead of reading `USER-NOTE.md` + `inputs.json`.
+- Gate analyze Canvas on `OPTIONS.md` / `EVIDENCE.md` / `TASK-DECISIONS.md`.
+- Treat leftover research files as sacred or as a second requirement source.

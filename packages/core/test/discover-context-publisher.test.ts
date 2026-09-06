@@ -205,6 +205,33 @@ describe('DiscoverContextPublisher', () => {
     expect(publisher.previewPublishDiff().source.changedPaths).toContain('src/app.ts');
   });
 
+  it('creates a context pack from the last publish even when inspect() is stale', () => {
+    const root = temporary();
+    write(root, 'src/app.ts', 'export const version = 1;\n');
+    seedBlueprint(root);
+    initGit(root);
+    const publisher = new DiscoverContextPublisher(root);
+    const published = publisher.publish({ actor: USER, title: 'Baseline' });
+    expect(publisher.inspect().status).toBe('ready');
+
+    write(root, 'src/app.ts', 'export const version = 2;\n');
+    const inspection = publisher.inspect();
+    expect(inspection.status).toBe('stale');
+    expect(inspection.context?.contextHash).toBe(published.contextHash);
+
+    const pack = publisher.createContextPack({ taskKind: 'feature' });
+    expect(pack.contextRef.contextHash).toBe(published.contextHash);
+    expect(pack.contextRef.discoverRevision).toBe(published.discoverRevision);
+  });
+
+  it('refuses a context pack when Discover has never been published', () => {
+    const root = temporary();
+    seedBlueprint(root);
+    const publisher = new DiscoverContextPublisher(root);
+    expect(publisher.inspect().status).toBe('draft');
+    expect(() => publisher.createContextPack({ taskKind: 'feature' })).toThrow(/has not been published/i);
+  });
+
   it('stores title and description on the publish revision and surfaces them in history', () => {
     const root = temporary();
     const service = seedBlueprint(root);

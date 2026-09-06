@@ -36,15 +36,18 @@ export interface ProductTourGoalDefinition {
 const acknowledged = (id: string) =>
   (_snapshot: ProductTourRuntimeSnapshot, _bound: unknown, values: ReadonlySet<string>) => values.has(id);
 
-const discoverContextReady = (snapshot: ProductTourRuntimeSnapshot) =>
-  snapshot.discoverContextStatus === 'ready' || snapshot.discoverContextStatus === 'not-required';
+const discoverContextPublished = (snapshot: ProductTourRuntimeSnapshot) =>
+  snapshot.discoverContextStatus === 'ready'
+  || snapshot.discoverContextStatus === 'stale'
+  || snapshot.discoverContextStatus === 'conflict'
+  || snapshot.discoverContextStatus === 'not-required';
 
 export const PRODUCT_TOUR_STEP_CATALOG: Record<string, ProductTourCatalogStep> = {
   'lifecycle.discover-context-ready': {
     id: 'lifecycle.discover-context-ready', title: 'Publish Discover Context',
-    body: 'Pipeline cofofo-feature / cofofo-bugfix chỉ chạy khi Context · ready. Nếu badge stale/draft/missing, mở Discover → Publish context trước khi Start Epic.',
+    body: 'Pipeline cofofo-feature / cofofo-bugfix cần một bản Publish Context. Stale vẫn Start Epic được (dùng snapshot cũ). Chỉ bắt buộc Publish khi badge missing/draft.',
     target: 'discover-publish-context', targetView: 'discover', requires: 'evidence',
-    complete: (snapshot) => discoverContextReady(snapshot),
+    complete: (snapshot) => discoverContextPublished(snapshot),
   },
   'lifecycle.bind-change': {
     id: 'lifecycle.bind-change', title: 'Chọn một Change',
@@ -131,22 +134,21 @@ export const PRODUCT_TOUR_GOALS: Record<ProductTourGoalId, ProductTourGoalDefini
   'publish-context': {
     id: 'publish-context',
     title: 'Publish Discover Context',
-    detail: 'Đưa Context về ready trước khi Start Epic CoFoFo.',
+    detail: 'Cần một bản Publish Context trước khi Start Epic CoFoFo. Stale vẫn dùng được.',
     stepIds: ['lifecycle.discover-context-ready'],
     recommend: (snapshot) => {
-      const status = snapshot.discoverContextStatus;
-      if (status === 'ready' || status === 'not-required') return { recommended: false };
-      return { recommended: true, reason: `Context · ${status}` };
+      if (discoverContextPublished(snapshot)) return { recommended: false };
+      return { recommended: true, reason: `Context · ${snapshot.discoverContextStatus}` };
     },
   },
   'start-delivery': {
     id: 'start-delivery',
     title: 'Bắt đầu giao việc (Change → Epic)',
-    detail: 'Publish Context nếu cần, tạo/chọn Change, rồi Start Epic.',
+    detail: 'Publish Context nếu chưa có, tạo/chọn Change, rồi Start Epic. Stale không chặn.',
     stepIds: ['lifecycle.discover-context-ready', 'lifecycle.bind-change', 'lifecycle.link-epic'],
     recommend: (snapshot) => {
-      if (!discoverContextReady(snapshot)) {
-        return { recommended: true, reason: 'Context chưa ready — sẽ gồm bước Publish' };
+      if (!discoverContextPublished(snapshot)) {
+        return { recommended: true, reason: 'Chưa có Publish Context — sẽ gồm bước Publish' };
       }
       const unbound = snapshot.changes.some((change) =>
         !change.epicLinked && !change.epicLinkPending && !['done', 'cancelled'].includes(change.derivedState));

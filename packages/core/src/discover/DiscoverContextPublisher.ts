@@ -211,6 +211,16 @@ export interface DiscoverContextInspection {
   nextAction: string;
 }
 
+/**
+ * Delivery may pin the last published snapshot when inspect() is `stale` or
+ * `conflict`. Only `missing` / `draft` (no published snapshot) block Start Epic.
+ */
+export function hasPublishedDiscoverContext(
+  inspection: DiscoverContextInspection,
+): inspection is DiscoverContextInspection & { context: DiscoverPublishedContext } {
+  return inspection.context != null;
+}
+
 /** Live vs last-publish delta — shown in Publish Context before the user commits. */
 export interface DiscoverPublishDiff {
   hasPrevious: boolean;
@@ -951,8 +961,8 @@ export class DiscoverContextPublisher {
     now?: string;
   }): DiscoverContextPack {
     const inspection = this.inspect();
-    if (inspection.status !== 'ready' || !inspection.context) {
-      throw new DiscoverContextPublishError('Discover Context is not READY. Publish Context before creating a delivery task.', inspection.issues);
+    if (!hasPublishedDiscoverContext(inspection)) {
+      throw new DiscoverContextPublishError('Discover Context has not been published. Publish Context before creating a delivery task.', inspection.issues);
     }
     const context = inspection.context;
     const ctx = this.service.readBlueprint();

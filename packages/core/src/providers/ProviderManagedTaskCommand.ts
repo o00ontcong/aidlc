@@ -13,8 +13,12 @@ a human answer. Work visibly in this session.
 
 ## Source of truth
 
-1. Read the epic \`state.json\`, \`inputs.json\`, and matching
+1. Read the epic \`state.json\`, \`inputs.json\`, \`USER-NOTE.md\` (when present), and matching
    \`.aidlc/runs/<epic-id>.json\`.
+   READ \`USER-NOTE.md\` FIRST. If it exists — or \`inputs.json\` has \`user_note\` —
+   it outranks \`state.json\` description and the source ticket (Jira / GitHub / Drive / URL).
+   When they conflict, follow the user note and fold every screen, Figma URL, and API
+   instruction into the requirement. Do not skip the note; the description may be outdated or wrong.
 2. Read \`.aidlc/workspace.yaml\`, resolve the epic's \`pipeline\`, and read
    the corresponding slash-command documents for every phase.
 3. Before starting **every** next phase, re-read epic \`state.json\`.
@@ -54,6 +58,10 @@ a human answer. Work visibly in this session.
      does not work either: core audits Canvas approvals against their verdict
      records and refuses to start the following step while one is unaccounted
      for. The run stops there until a human actually decides.
+     Tell the user to click **"Đánh dấu step xong"** in the AIDLC panel — that
+     validates the artifacts and opens Canvas. Do not claim Canvas is already
+     open, and do not wait for Jira MCP: the ticket key is in \`inputs.json\`
+     \`jira\` and the body is in \`state.json\` description.
 4. Do not pause merely for another configured human-review or merge gate, and
    never fabricate an approval, a merge, or a policy exception. When a
    checked-in policy requires a human-only action, ask one explicit question

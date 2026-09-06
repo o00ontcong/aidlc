@@ -49,6 +49,7 @@ import {
   AutoReviewerError,
   pipelineForRun,
   stepDagId,
+  normalizeStep,
   openReviewGate,
   applyTransportVerdict,
   AnnotronTransport,
@@ -59,6 +60,9 @@ import type { PipelineConfig, ReviewGate, RunState } from '@aidlc/core';
 
 import { readYaml } from './yamlIO';
 import { mirrorRunStateToEpic, epicsRoot } from './epicsList';
+import { prepareDeliveryRun } from './cofofoRunPrep';
+import { consolidateCanvasFeedback } from './canvasFeedback';
+export { consolidateCanvasFeedback };
 
 /**
  * Save the runtime RunState file AND mirror its display fields + per-step
@@ -274,7 +278,11 @@ export async function startPipelineRunCommand(pipelineIdArg?: string): Promise<v
 
 // ── markStepDone ─────────────────────────────────────────────────────────
 
-export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number): Promise<void> {
+export async function markStepDoneCommand(
+  extensionPath: string,
+  runIdArg?: string,
+  stepIdxArg?: number,
+): Promise<void> {
   const root = requireRoot('Mark Step Done');
   if (!root) { return; }
 
@@ -284,6 +292,13 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
     (s) => s.status === 'running' && currentStepStatus(s) === 'awaiting_work',
   );
   if (!runId) { return; }
+
+  const prep = prepareDeliveryRun(root, runId);
+  if (prep.rebased) {
+    void vscode.window.showInformationMessage(
+      'AIDLC: pipeline contract updated for this step.',
+    );
+  }
 
   const state = RunStateStore.load(root, runId);
   if (!state) { void vscode.window.showWarningMessage(`Run "${runId}" not found.`); return; }
@@ -317,6 +332,10 @@ export async function markStepDoneCommand(runIdArg?: string, stepIdxArg?: number
     const next = markStepDone({ state, pipeline, workspaceRoot: root, stepIdx, sourcePipeline });
     saveRun(root, next);
     notifyStepTransition(next, stepIdx);
+    const review = pipeline.steps[stepIdx] ? normalizeStep(pipeline.steps[stepIdx]!).review : undefined;
+    if (next.steps[stepIdx]?.status === 'awaiting_review' && review?.mode === 'canvas') {
+      await reviewCanvasStepCommand(extensionPath, runId, stepIdx);
+    }
   } catch (err) {
     if (await offerApplyContextReviewCorrections(root, state, pipeline, stepIdx, err)) {
       return;
@@ -456,17 +475,43 @@ export async function approveStepCommand(runIdArg?: string, stepIdxArg?: number)
 
 // ── Canvas review ────────────────────────────────────────────────────────────────
 
+const ANNOTRON_SERVER_REVISION = 'aidlc-canvas-terminal-feedback-v3';
+
 async function annotronHealthy(baseUrl: string): Promise<boolean> {
   try {
     const response = await fetch(`${baseUrl}/health`);
-    return response.ok;
+    if (!response.ok) { return false; }
+    const body = await response.json().catch(() => null) as { revision?: unknown } | null;
+    return body?.revision === ANNOTRON_SERVER_REVISION;
   } catch {
     return false;
   }
 }
 
+/** Stop only an older local server whose review protocol we cannot use safely. */
+async function stopOutdatedAnnotron(baseUrl: string): Promise<void> {
+  try {
+    const health = await fetch(`${baseUrl}/health`);
+    if (!health.ok) { return; }
+    const body = await health.json().catch(() => null) as { revision?: unknown } | null;
+    if (body?.revision === ANNOTRON_SERVER_REVISION) { return; }
+    await fetch(`${baseUrl}/stop`, { method: 'POST' });
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(`${baseUrl}/health`);
+        if (!response.ok) { return; }
+      } catch {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  } catch { /* no existing server to stop */ }
+}
+
 async function ensureAnnotron(extensionPath: string): Promise<void> {
   if (await annotronHealthy(ANNOTRON_DEFAULT_BASE)) { return; }
+  await stopOutdatedAnnotron(ANNOTRON_DEFAULT_BASE);
 
   const server = path.join(extensionPath, 'vendor', 'annotron', 'src', 'server.js');
   if (!fs.existsSync(server)) {
@@ -539,8 +584,15 @@ export async function reviewCanvasStepCommand(
   );
   if (!runId) { return; }
 
+  const prep = prepareDeliveryRun(root, runId);
   const state = RunStateStore.load(root, runId);
   if (!state) { return; }
+  if (prep.rebased && currentStepStatus(state) !== 'awaiting_review') {
+    void vscode.window.showInformationMessage(
+      'AIDLC: pipeline contract updated. Run the step again, then Mark step done to open Canvas.',
+    );
+    return;
+  }
   const pipeline = loadPipeline(root, state.pipelineId, state);
   if (!pipeline) {
     void vscode.window.showErrorMessage(`Pipeline "${state.pipelineId}" is unavailable.`);
@@ -611,13 +663,51 @@ export async function reviewCanvasStepCommand(
     if (verdict?.verdict === 'approve') {
       void vscode.window.showInformationMessage(`Canvas approved by ${verdict.reviewer}.`);
     } else {
-      void vscode.window.showWarningMessage(
-        `Canvas requested changes${verdict?.reviewer ? ` (${verdict.reviewer})` : ''}: ${verdict?.feedback ?? 'No feedback supplied.'}`,
-      );
+      await sendCanvasChangesToStepTerminal({
+        root,
+        state: next,
+        pipeline,
+        stepIdx,
+        feedback: verdict?.feedback ?? '',
+      });
     }
   } catch (error) {
     surfaceRunError(error);
   }
+}
+
+/**
+ * A Canvas gate is for a human decision, not a second long-running agent
+ * session. On request-changes, the browser has already gathered the human's
+ * annotations into the verdict feedback. Keep that feedback on the rerun and
+ * dispatch the owning step's extension slash command in a visible terminal.
+ */
+async function sendCanvasChangesToStepTerminal(args: {
+  root: string;
+  state: RunState;
+  pipeline: PipelineConfig;
+  stepIdx: number;
+  feedback: string;
+}): Promise<void> {
+  const step = args.state.steps[args.stepIdx];
+  if (!step) { throw new PipelineRunError(`No step at index ${args.stepIdx}`); }
+
+  const feedback = consolidateCanvasFeedback(args.feedback);
+  const rerun = rerunStep({ state: args.state, feedback, stepIdx: args.stepIdx });
+  saveRun(args.root, rerun);
+
+  const slash = resolveSlashForStep(args.root, args.pipeline, step.agent, args.stepIdx);
+  if (!slash) {
+    void vscode.window.showWarningMessage(
+      `Canvas feedback was saved for "${step.agent}", but AIDLC could not resolve its slash command. Run the step from the epic panel.`,
+    );
+    return;
+  }
+
+  await vscode.commands.executeCommand('aidlc.runStepWithProvider', slash, rerun.runId, feedback);
+  void vscode.window.showInformationMessage(
+    `Canvas feedback was consolidated and sent to ${slash} in the AIDLC terminal.`,
+  );
 }
 
 // ── rejectStep ───────────────────────────────────────────────────────────
@@ -1073,9 +1163,9 @@ function notifyStepTransition(next: RunState, prevIdx: number): void {
   }
   const step = next.steps[next.currentStepIdx];
   if (next.currentStepIdx === prevIdx) {
-    // Same step — must be awaiting_review
+    // Same step — awaiting_review (Canvas or legacy human gate).
     void vscode.window.showInformationMessage(
-      `Step "${step.agent}" produced its artifacts. Awaiting your review in the sidebar.`,
+      `Step "${step.agent}" produced its artifacts. Awaiting your review in Canvas.`,
     );
     return;
   }

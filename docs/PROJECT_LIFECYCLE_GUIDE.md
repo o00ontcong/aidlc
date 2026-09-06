@@ -517,11 +517,15 @@ User có thể đưa một Change đã bắt đầu trực tiếp quay lại Dis
 phát hiện scope chưa rõ. Một Shape đã hoàn tất tạo đúng một Epic cho Change;
 nếu cần nhiều Epic, user split Change trước khi bắt đầu delivery.
 
-### Discover Context READY (CoFoFo delivery gate)
+### Discover Context published (CoFoFo delivery gate)
 
-Pipeline `cofofo-feature` / `cofofo-bugfix` chỉ scaffold khi Discover Context
-`inspect()` trả `ready`. **Publish Context** chốt một snapshot nội dung; Start
-Epic so sánh live content với snapshot đó.
+Pipeline `cofofo-feature` / `cofofo-bugfix` scaffold khi Discover Context
+`inspect()` có **snapshot đã Publish** (`context != null`). Status `ready`,
+`stale` và `conflict` đều dùng được — delivery pin bản Publish gần nhất.
+Chỉ `missing` / `draft` (chưa Publish lần nào) chặn Start Epic.
+
+**Publish Context** chốt một snapshot nội dung. `stale` nghĩa là live content
+đã lệch snapshot, không phải là “không có context”.
 
 READY / stale dựa trên **content identity**, không dựa trên sidecar counter:
 
@@ -536,10 +540,11 @@ Hệ quả bắt buộc:
 
 - Publish xong rồi Reload Discover / chuyển bước UI **không** được làm Context
   stale nếu docs và source không đổi.
-- Sửa requirement/feature Markdown hoặc source tracked ngoài `.aidlc` → phải
-  Publish lại trước Start Epic.
-- `scaffoldEpic` fail với “Discover changed after the last Publish Context” khi
-  content identity lệch; không dùng Legacy Foundation để mở khóa.
+- Sửa requirement/feature Markdown hoặc source tracked ngoài `.aidlc` → Context
+  chuyển `stale`; user **vẫn Start Epic** bằng snapshot cũ. Publish lại chỉ khi
+  muốn delivery pin Context mới.
+- `scaffoldEpic` fail khi **chưa có** published snapshot (`missing` / `draft`);
+  không dùng Legacy Foundation để mở khóa.
 
 ### D3. Sprint chỉ schedule Epic
 
@@ -778,9 +783,23 @@ Agent chỉ được đề xuất action/transition, không được thực hi�
 Change là canonical editable source của problem, desired outcome, scope và
 acceptance criteria trước và trong delivery.
 
-Epic lưu Change ID, revision/hash và một immutable execution snapshot; agent
-không sửa requirement bằng cách ghi một bản `REQUIREMENT.md` độc lập trong
-Epic. Shape bổ sung option/trade-off/decision nhưng không trở thành nguồn
+Epic lưu Change ID, revision/hash và một immutable execution snapshot. Agent
+không được biến Epic thành nguồn requirement thứ hai bằng cách sửa Change
+requirement “ngầm” trong epic.
+
+**Delivery snapshot:** pipeline CoFoFo (`analyze`) và iOS (`requirement`) ghi
+`docs/epics/<epic>/artifacts/REQUIREMENT.md` như bản snapshot có cấu trúc
+(screens / APIs / AC / research / task decisions) để `create-plan` dùng. File
+này là execution snapshot, không phải editor thứ hai của Change. User note
+thắng description khi xung đột; fold cả hai vào snapshot. Discover
+`REQUIREMENTS.md` (product) khác epic `REQUIREMENT.md` (task).
+
+Analyze `cofofo-feature` chỉ gate Canvas trên `REQUIREMENT.md`.
+`OPTIONS.md` / `EVIDENCE.md` / `TASK-DECISIONS.md` là leftover của analyze
+split cũ — không phải pipeline artifact. Nếu còn từ run trước, fold vào
+§§ 9–10 của `REQUIREMENT.md`.
+
+Shape bổ sung option/trade-off/decision nhưng không trở thành nguồn
 requirement thứ hai.
 
 Project Context mô tả trạng thái bền vững hiện có của project sau khi Context
@@ -993,9 +1012,11 @@ Epic.
   conflict, cancel, command failure hoặc entity bị teammate thay đổi. Không có
   step nào được biến thành dead-end.
 - Trên project dùng CoFoFo delivery (`cofofo-feature` / `cofofo-bugfix`), Product
-  Tour phải hướng dẫn Publish Discover Context tới trạng thái `ready` **trước**
-  Start Epic khi goal cần delivery. Scaffold fail vì Context stale/draft không
-  phải bug domain — đó là thiếu evidence của bước `lifecycle.discover-context-ready`.
+  Tour phải hướng dẫn Publish Discover Context khi **chưa có** snapshot
+  (`missing` / `draft`) trước Start Epic. Context `stale` vẫn Start Epic được
+  (pin snapshot cũ); Publish lại là tuỳ chọn. Scaffold fail vì chưa Publish
+  không phải bug domain — đó là thiếu evidence của bước
+  `lifecycle.discover-context-ready`.
 - UI phải dùng stable semantic target, hỗ trợ keyboard/screen reader, theme và
   reduced motion. Tour không tự click DOM hoặc dựa vào CSS selector tùy ý.
 

@@ -7,6 +7,7 @@ import { pickAndReadFile, pickFolder } from '@/lib/pickFile';
 import { postMessage, onHostMessage } from '@/lib/bridge';
 import { useHostAction } from '@/hooks/useHostAction';
 import { pickDefaultPipelineId } from '../../defaultWorkflow';
+import { collectStartEpicInputs } from '../../shared/startEpicInputs';
 
 /** Bare digits (auto-sequence) or PREFIX-… style ids. */
 const ID_PATTERN = /^(?:\d+|[A-Z][A-Z0-9-]*)$/;
@@ -46,6 +47,11 @@ export interface StartEpicDraft {
   epicId: string;
   title: string;
   description: string;
+  /**
+   * Human correction/supplement. Agents follow this over the loaded ticket
+   * (Jira / GitHub / …) when they conflict — tickets are often stale.
+   */
+  userNote: string;
   inputs: Record<string, string>;
   extraProjects?: ExtraProject[];
   /** Set only by an accepted Discovery Shape; host performs the atomic conversion. */
@@ -66,6 +72,7 @@ export interface StartEpicPrefill {
   epicId?: string;
   title?: string;
   description?: string;
+  userNote?: string;
   inputs?: Record<string, string>;
   sourceShapeId?: string;
   sourceShapeRevision?: number;
@@ -83,7 +90,7 @@ interface Props {
   /** When false (no folder open), the user must add at least one project. */
   hasFolder?: boolean;
   prefill?: StartEpicPrefill;
-  /** Discover Context gate for cofofo delivery pipelines — blocks Create & start when not ready. */
+  /** Discover Context gate for cofofo delivery — blocks Create & start only when no published snapshot exists. */
   discoverContextStatus?: 'missing' | 'draft' | 'ready' | 'stale' | 'conflict';
   onSubmit: (draft: StartEpicDraft) => void;
   onClose: () => void;
@@ -114,12 +121,13 @@ export function StartEpicModal({
   const [selected, setSelected] = useState<Selection>(() => defaultSelection(pipelines));
   // Start empty (nextEpicId is shown only as a placeholder — digits only).
   // A pre-filled long id would crowd the Title field beside it.
-  // A real prefill from the Sprint tab is different: the key IS a Jira key, and
-  // the description is already the ticket's own text, so there is nothing to
-  // auto-fetch.
+  // A Sprint prefill puts the Jira key in the task id and `inputs.jira`. The
+  // host later rewrites PASS-123 → EPIC-123, so `inputs.jira` is the durable
+  // ticket key. Description already contains the snapshotted ticket body.
   const [epicId, setEpicId] = useState(prefill?.epicId ?? '');
   const [title, setTitle] = useState(prefill?.title ?? '');
   const [description, setDescription] = useState(prefill?.description ?? '');
+  const [userNote, setUserNote] = useState(prefill?.userNote ?? '');
   const [inputs, setInputs] = useState<Record<string, string>>(prefill?.inputs ?? {});
   const [nextAction, setNextAction] = useState<ChangeComposerNextAction>('start-epic');
   const idInputRef = useRef<HTMLInputElement>(null);
@@ -392,10 +400,14 @@ export function StartEpicModal({
   const trimmedId = epicId.trim();
   const startingEpicNow = Boolean(existingChange) || nextAction === 'start-epic';
   const selectedNeedsDiscoverContext = selected.id === 'cofofo-feature' || selected.id === 'cofofo-bugfix';
+  const noPublishedDiscoverContext = discoverContextStatus === 'missing' || discoverContextStatus === 'draft';
+  const stalePublishedDiscoverContext = discoverContextStatus === 'stale' || discoverContextStatus === 'conflict';
   const discoverContextBlocksStart = startingEpicNow
     && selectedNeedsDiscoverContext
-    && discoverContextStatus !== undefined
-    && discoverContextStatus !== 'ready';
+    && noPublishedDiscoverContext;
+  const discoverContextStaleNotice = startingEpicNow
+    && selectedNeedsDiscoverContext
+    && stalePublishedDiscoverContext;
   const idError = useMemo(() => {
     if (!startingEpicNow) { return null; }
     if (!effectiveId) { return 'Epic id is required'; }
@@ -413,8 +425,8 @@ export function StartEpicModal({
   const projectError = startingEpicNow && !hasFolder && extraProjects.length === 0
     ? 'Add at least one project to create a task'
     : null;
-  const requirementError = !startingEpicNow && !title.trim() && !description.trim()
-    ? 'Add a title or description'
+  const requirementError = !startingEpicNow && !title.trim() && !description.trim() && !userNote.trim()
+    ? 'Add a title, description, or user note'
     : null;
   const discoverError = discoverContextBlocksStart
     ? `Discover Context · ${discoverContextStatus}. Publish context in Discover before Start Epic with ${selected.id}.`
@@ -427,17 +439,17 @@ export function StartEpicModal({
 
   const submit = () => {
     if (error || submitting) { return; }
-    const cleanInputs: Record<string, string> = {};
-    for (const cap of capabilities) {
-      const v = (inputs[cap] ?? '').trim();
-      if (v) { cleanInputs[cap] = v; }
-    }
+    // Keep Sprint-prefilled `jira` even when the pipeline omitted that
+    // capability. The host then rewrites PASS-123 → EPIC-123, so the key
+    // must travel in inputs, not in the epic id.
+    const cleanInputs = collectStartEpicInputs(inputs, { epicId: effectiveId });
     runSubmit(() => {
       onSubmit({
         target: { kind: 'pipeline', id: selected.id },
         epicId: effectiveId,
         title: title.trim(),
         description: description.trim(),
+        userNote: userNote.trim(),
         inputs: cleanInputs,
         nextAction,
         extraProjects: extraProjects.length > 0 ? extraProjects : undefined,
@@ -453,9 +465,9 @@ export function StartEpicModal({
       <div className="space-y-4">
         {discoverContextBlocksStart && (
           <div className="rounded-md border border-warning/50 bg-warning/10 px-3 py-2.5 text-[11px] text-warning">
-            <div className="font-semibold text-foreground">Discover Context chưa READY ({discoverContextStatus})</div>
+            <div className="font-semibold text-foreground">Chưa có Publish Context ({discoverContextStatus})</div>
             <p className="mt-1 leading-relaxed text-muted-foreground">
-              Pipeline <code className="font-mono">{selected.id}</code> cần Publish context trước.
+              Pipeline <code className="font-mono">{selected.id}</code> cần ít nhất một bản Publish context.
               Mở tab Discover → Publish context, rồi quay lại Start Epic. Hoặc chọn Save for later / Explore để chỉ capture Change.
             </p>
             <button
@@ -464,6 +476,22 @@ export function StartEpicModal({
               className="mt-2 rounded border border-warning/60 px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-warning/20"
             >
               Mở Discover để Publish
+            </button>
+          </div>
+        )}
+        {discoverContextStaleNotice && (
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-[11px]">
+            <div className="font-semibold text-foreground">Discover Context {discoverContextStatus} — vẫn dùng bản Publish gần nhất</div>
+            <p className="mt-1 leading-relaxed text-muted-foreground">
+              Docs hoặc source đã đổi sau lần Publish. Start Epic sẽ pin snapshot cũ.
+              Publish lại chỉ khi muốn delivery dùng Context mới.
+            </p>
+            <button
+              type="button"
+              onClick={() => { postMessage({ type: 'setView', view: 'discover' }); onClose(); }}
+              className="mt-2 rounded border border-border px-2 py-1 text-[10px] font-semibold text-foreground hover:bg-accent"
+            >
+              Mở Discover để Publish lại
             </button>
           </div>
         )}
@@ -709,8 +737,28 @@ export function StartEpicModal({
         <div>
           <div className="mb-1 flex items-baseline justify-between gap-2">
             <label className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+              User note{' '}
+              <span className="font-normal normal-case tracking-normal text-muted-foreground/80">(optional)</span>
+            </label>
+            <span className="text-[10px] text-primary">
+              Wins over description if they conflict
+            </span>
+          </div>
+          <textarea
+            value={userNote}
+            onChange={(e) => setUserNote(e.target.value)}
+            placeholder="Corrections or extras the description/ticket is missing or got wrong. This note outranks description — agents must follow it."
+            rows={4}
+            disabled={!hasWorkflows}
+            className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
+          />
+        </div>
+
+        <div>
+          <div className="mb-1 flex items-baseline justify-between gap-2">
+            <label className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
               Description / requirement{' '}
-              <span className="font-normal normal-case tracking-normal text-muted-foreground/80">{existingChange ? '(pinned from Change)' : '(optional)'}</span>
+              <span className="font-normal normal-case tracking-normal text-muted-foreground/80">{existingChange ? '(pinned from Change)' : '(optional — source ticket)'}</span>
             </label>
             {!existingChange && <div className="flex items-center gap-1">
               <button
@@ -794,7 +842,7 @@ export function StartEpicModal({
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Paste a requirement / PRD, or load it from a file. The text is snapshotted into the epic at submit time."
+            placeholder="Paste a requirement / PRD, or load it from a file. Snapshotted as description; User note above outranks this text."
             rows={5}
             disabled={!hasWorkflows || Boolean(existingChange)}
             className="w-full resize-y rounded-md border border-border bg-input/50 px-2.5 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/70 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"

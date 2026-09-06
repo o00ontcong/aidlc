@@ -92,7 +92,7 @@ export function ProductTourCoach({
       )}
       <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
         {bindingInComposer
-          ? 'Điền title hoặc description, chọn Save for later / Explore / Start Epic, rồi bấm nút xác nhận. Tour sẽ gắn đúng Change vừa tạo — không cần chọn lại trong danh sách.'
+          ? 'Điền User note (thắng description) hoặc description, chọn Save for later / Explore / Start Epic, rồi bấm nút xác nhận. Tour sẽ gắn đúng Change vừa tạo — không cần chọn lại trong danh sách.'
           : step.body}
       </p>
       {active.skippedStepTitles && active.skippedStepTitles.length > 0 && active.currentStepIndex === 0 && step.state === 'current' && (

@@ -117,6 +117,47 @@ describe('scaffoldEpic — on-disk layout', () => {
     expect(inputs.extra_projects).toEqual(extras);
   });
 
+  it('persists user_note in inputs.json when provided', () => {
+    const root = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'NOTE-1',
+      title: 'Setup recovery email',
+      description: 'Jira body',
+      userNote: 'Ticket is stale — use recovery email, not SMS.',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po', 'developer'],
+      inputs: { jira: 'PASS-1087' },
+      pipeline: PIPELINE,
+    });
+    const inputsPath = path.join(root, 'docs/epics', 'NOTE-1', 'inputs.json');
+    const inputs = JSON.parse(fs.readFileSync(inputsPath, 'utf8'));
+    expect(inputs.jira).toBe('PASS-1087');
+    expect(inputs.user_note).toBe('Ticket is stale — use recovery email, not SMS.');
+    const noteFile = fs.readFileSync(path.join(root, 'docs/epics', 'NOTE-1', 'USER-NOTE.md'), 'utf8');
+    expect(noteFile).toContain('Ticket is stale — use recovery email, not SMS.');
+    expect(noteFile).toContain('## User note (authoritative)');
+  });
+
+  it('omits user_note from inputs.json when not provided', () => {
+    const root = tmpRoot();
+    scaffoldEpic({
+      workspaceRoot: root,
+      doc: null,
+      epicId: 'NOTE-2',
+      title: '',
+      description: '',
+      target: { kind: 'pipeline', id: PIPELINE.id },
+      agents: ['po'],
+      inputs: { jira: 'PASS-1' },
+      pipeline: PIPELINE,
+    });
+    const inputsPath = path.join(root, 'docs/epics', 'NOTE-2', 'inputs.json');
+    const inputs = JSON.parse(fs.readFileSync(inputsPath, 'utf8'));
+    expect(inputs).not.toHaveProperty('user_note');
+  });
+
   // GH-67-UT02: no extraProjects → no extra_projects key
   it('omits extra_projects from inputs.json when not provided', () => {
     const root = tmpRoot();

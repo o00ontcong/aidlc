@@ -390,6 +390,7 @@ export {
   lostCofofoGateSnapshotIssues,
   rebaseRunToCurrentFoundation,
   rebaseRunToCurrentDiscoverContext,
+  rebaseRunPipelineSnapshot,
   PipelineRunError,
 } from './runs/PipelineRunner';
 export type { CanvasVerdict, CanvasApprovalIssue } from './runs/PipelineRunner';

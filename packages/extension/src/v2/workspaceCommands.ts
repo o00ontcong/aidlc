@@ -533,7 +533,11 @@ export function registerV2WorkspaceCommands(
   const markStepDoneCmd = vscode.commands.registerCommand(
     'aidlc.markStepDone',
     (runId?: unknown, stepIdx?: unknown) =>
-      markStepDoneCommand(typeof runId === 'string' ? runId : undefined, toStepIdx(stepIdx)),
+      markStepDoneCommand(
+        context.extensionPath,
+        typeof runId === 'string' ? runId : undefined,
+        toStepIdx(stepIdx),
+      ),
   );
   const skipStepCmd = vscode.commands.registerCommand(
     'aidlc.skipStep',

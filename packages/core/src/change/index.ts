@@ -42,3 +42,19 @@ export {
 
 export { ChangeEpicCoordinator } from './ChangeEpicCoordinator';
 export type { StartEpicInput, StartEpicOutput, PendingEpicLinkInput } from './ChangeEpicCoordinator';
+
+export {
+  composeRequirementWithUserNote,
+  extractUserNoteFromComposedRequirement,
+  extractSourceRequirementFromComposed,
+  splitComposedRequirement,
+  formatUserNoteBlock,
+  userNoteCoverageIssues,
+  USER_NOTE_HEADING,
+  USER_NOTE_PREAMBLE,
+  USER_NOTE_PRIORITY_RULE,
+  USER_NOTE_FILENAME,
+  SOURCE_REQUIREMENT_HEADING,
+} from './composeRequirementWithUserNote';
+
+export { resolveEpicUserNote, writeEpicUserNoteFile } from './epicUserNote';

@@ -234,6 +234,7 @@
   .ann-author { font: 600 12.5px var(--ui); color: var(--ink); }
   .ann-time { font: 400 11px var(--ui); color: var(--dim-45); }
   .ann-badge-resolved { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(47,191,113,.12); color: var(--green-ink); font: 600 10.5px var(--ui); }
+  .ann-badge-open { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(39,65,241,.12); color: var(--accent); font: 600 10.5px var(--ui); }
   .ann-badge-failed { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(229,72,77,.12); color: #C1272D; font: 600 10.5px var(--ui); }
   /* Retry-all banner (shown above the list when comments failed to apply) */
   .retry-banner { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(229,72,77,.4); background: rgba(229,72,77,.07); animation: cfFade .15s ease-out; }
@@ -643,9 +644,9 @@
       <div id="attach-previews" class="attach-previews"></div>
       <input type="file" id="file-input" accept="image/*" multiple hidden>
       <div id="shortcut-hints">
-        <span class="hint">Comment only → apply change</span>
-        <span class="hint">+ Message → ask question</span>
-        <span class="hint"><kbd>↵</kbd> Send</span>
+        <span class="hint" id="hint-apply">Comment only → apply change</span>
+        <span class="hint" id="hint-ask">+ Message → ask question</span>
+        <span class="hint" id="hint-send"><kbd>↵</kbd> Send</span>
         <span class="hint"><kbd>Ctrl</kbd><kbd>Z</kbd> Undo</span>
         <span class="hint"><kbd>Esc</kbd> Off</span>
         <span class="hint" style="margin-left:auto"><kbd>?</kbd> Help</span>
@@ -657,8 +658,8 @@
 <div id="done-overlay">
   <div class="done-card">
     <div class="done-icon"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
-    <div class="done-title">Review complete</div>
-    <div class="done-sub">The annotron server has been stopped. You can safely close this tab.</div>
+    <div class="done-title" id="done-title">Review complete</div>
+    <div class="done-sub" id="done-sub">The annotron server has been stopped. You can safely close this tab.</div>
   </div>
 </div>
 
@@ -752,6 +753,11 @@ let undoStack = [];
 let undoTimer = null;
 let toastTimer = null;
 let agentWorking = false;
+let sessionDone = false;
+// A formal AIDLC Canvas gate collects reviewer notes but never runs
+// annotron's auto-apply agent. Send gộp mọi annotation/comment chưa giải quyết,
+// đóng Canvas, và để extension chạy slash command của step trong Terminal.
+let formalReviewMode = false;
 let selectedAnnotationId = null;
 let openReplyId = null;      // annotation id whose reply editor is open
 // Resolved annotations live in the History tab and are NOT highlighted in the
@@ -1235,7 +1241,9 @@ function addPending(item) {
   selectedAnnotationId = item.id;
   switchTab('annotations');
   renderAnnotations();
-  flashToast('Comment added — Send feedback to notify the agent');
+  flashToast(formalReviewMode
+    ? 'Comment added — Send gộp mọi mục chưa giải quyết và gửi sang Terminal'
+    : 'Comment added — Send feedback to notify the agent');
 }
 
 // ── Render annotations list ────────────────────────────────────────────────
@@ -1252,13 +1260,15 @@ function renderAnnotations() {
   if (total === 0) {
     annList.appendChild(buildEmptyState(
       'No open comments',
-      'Select any text in the document, then choose <b>Comment</b> from the popover or right-click menu. Resolved comments move to <b>History</b>.'
+      formalReviewMode
+        ? 'Select text, add a comment, then <b>Send</b> — Canvas đóng và gửi mọi mục <b>chưa giải quyết</b> sang Terminal. Resolve một comment để loại nó khỏi lần gửi tới.'
+        : 'Select any text in the document, then choose <b>Comment</b> from the popover or right-click menu. Resolved comments move to <b>History</b>.'
     ));
   }
 
   // Banner to retry every comment the agent couldn't apply.
   const failed = open.filter(a => a.applyFailed);
-  if (failed.length) annList.appendChild(buildRetryBanner(failed));
+  if (failed.length && !formalReviewMode) annList.appendChild(buildRetryBanner(failed));
 
   pendingNew.forEach(item => annList.appendChild(buildAnnotationCard(item, true)));
   open.forEach(ann => annList.appendChild(buildAnnotationCard(ann, false)));
@@ -1361,6 +1371,11 @@ function buildAnnotationCard(ann, isPending) {
     fb.innerHTML = ICON.retry + 'Not applied';
     head.appendChild(fb);
   } else {
+    const ob = document.createElement('span');
+    ob.className = 'ann-badge-open';
+    ob.textContent = isPending ? 'Open · pending' : 'Open';
+    ob.title = 'Chưa giải quyết — Send sẽ gửi comment này sang Terminal';
+    head.appendChild(ob);
     const kt = document.createElement('span');
     kt.className = 'ann-kind-tag';
     kt.textContent = ann.kind || 'note';
@@ -1433,7 +1448,7 @@ function buildAnnotationCard(ann, isPending) {
     reply.innerHTML = ICON.reply + 'Reply';
     reply.addEventListener('click', (e) => { e.stopPropagation(); openReplyId = (openReplyId === ann.id ? null : ann.id); renderAnnotations(); });
     actions.append(resolve, reply);
-    if (failed) {
+    if (failed && !formalReviewMode) {
       const retry = document.createElement('button');
       retry.className = 'ann-action retry';
       retry.innerHTML = ICON.retry + 'Retry';
@@ -1508,7 +1523,11 @@ async function sendAnnotationReply(ann, textarea) {
         message: '', images,
       }),
     });
-    setAgentWorking(true);
+    if (formalReviewMode) {
+      flashToast('Đã lưu reply — nhấn Send để gửi mọi comment chưa giải quyết sang Terminal');
+    } else {
+      setAgentWorking(true);
+    }
   } finally { textarea.disabled = false; }
 }
 
@@ -1801,23 +1820,146 @@ async function cancelAgent() {
 btnCancel.addEventListener('click', cancelAgent);
 
 // ── Send feedback ──────────────────────────────────────────────────────────
+function unresolvedAnnotations() {
+  return annotations.filter((item) => item.status !== 'resolved');
+}
+
+function serializePendingItems() {
+  return Promise.all(pendingNew.map(async (c) => ({
+    id: null, kind: c.kind, selector: c.selector || null, label: c.label || null, text: c.text || null,
+    textStart: c.textStart ?? null, textEnd: c.textEnd ?? null,
+    textPrefix: c.textPrefix || null, textSuffix: c.textSuffix || null,
+    note: c.note || null,
+    images: noteImgStore[c.id] ? await uploadImages(noteImgStore[c.id]) : [],
+  })));
+}
+
+function formatUnresolvedLine(id, status, quote, note) {
+  const text = String(note || '').trim();
+  if (!text) return '';
+  const loc = String(quote || '').replace(/\s+/g, ' ').trim();
+  const locBit = loc ? ` at "${loc}"` : '';
+  return `- id: ${id} | status: ${status || 'open'}${locBit}: ${text}`;
+}
+
+function formalVerdictFeedback(reason) {
+  const seen = new Set();
+  const lines = [];
+  const add = (id, status, quote, note) => {
+    const line = formatUnresolvedLine(id, status, quote, note);
+    if (!line) return;
+    const key = line.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    lines.push(line);
+  };
+  add('composer', 'open', '', reason);
+  for (const pending of pendingNew) {
+    add(pending.id || 'pending', 'open', pending.text || pending.label, pending.note);
+  }
+  for (const annotation of unresolvedAnnotations()) {
+    add(annotation.id, annotation.status || 'open', annotation.text || annotation.label, lastHumanNote(annotation));
+  }
+  return [
+    'Reviewer feedback collected in the Canvas.',
+    'Only comments with status other than resolved are included.',
+    'After applying a comment, set that annotation `status` to "resolved" and `resolvedAt` to an ISO timestamp in the sibling `.annotron.json` sidecar. Leave unapplied comments `open`.',
+    '',
+    ...lines,
+  ].join('\n');
+}
+
+function hasFormalFeedback() {
+  return !!freeText.value.trim()
+    || pendingNew.some((item) => String(item.note || '').trim())
+    || unresolvedAnnotations().some((annotation) => !!lastHumanNote(annotation));
+}
+
+function closeCanvasAfterDispatch() {
+  const title = document.getElementById('done-title');
+  const sub = document.getElementById('done-sub');
+  if (title) title.textContent = 'Đã gửi sang Terminal';
+  if (sub) {
+    sub.textContent = 'Canvas đã đóng. Mọi annotation/comment chưa giải quyết được gửi cho slash command của step trong terminal AIDLC. Resolve một comment trên sidecar sau khi agent làm xong.';
+  }
+  sessionDone = true;
+  doneOverlay.classList.add('show');
+  livePill.classList.remove('live');
+  livePill.textContent = 'Sent';
+  try { window.close(); } catch {}
+}
+
+async function persistPendingComments(message) {
+  const items = await serializePendingItems();
+  const images = await composerAttach.upload();
+  if (!items.length && !message && !images.length) return true;
+  const res = await fetch('/feedback', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, items, message, images, model: selectedModel || null, askMode: forceAskMode }),
+  });
+  if (!res.ok) return false;
+  pendingNew.forEach((c) => { delete noteImgStore[c.id]; });
+  pendingNew = [];
+  composerAttach.clear();
+  selectedAnnotationId = null;
+  undoStack = [];
+  hideUndoToast();
+  await loadAnnotations();
+  return true;
+}
+
+async function dispatchUnresolvedToTerminal(extraMessage) {
+  const message = (extraMessage ?? freeText.value).trim();
+  if (!hasFormalFeedback() && !message) {
+    flashToast('Không có annotation/comment chưa giải quyết để gửi');
+    return false;
+  }
+  btnSend.disabled = true;
+  btnRequestCh.disabled = true;
+  try {
+    flashToast('Gộp feedback chưa giải quyết và gửi sang Terminal…');
+    const persisted = await persistPendingComments(message);
+    if (!persisted) {
+      flashToast('Không lưu được comment — thử lại');
+      return false;
+    }
+    const ok = await postVerdict('request-changes', message);
+    if (ok) {
+      freeText.value = '';
+      closeCanvasAfterDispatch();
+    }
+    return ok;
+  } finally {
+    if (!sessionDone && !agentWorking) {
+      btnSend.disabled = false;
+      btnRequestCh.disabled = false;
+    }
+  }
+}
+
 async function sendFeedback() {
+  if (formalReviewMode) {
+    await dispatchUnresolvedToTerminal();
+    return;
+  }
   const message = freeText.value.trim();
   const composerImgCount = composerAttach.count();
   const noteImgCount = pendingNew.reduce((n, c) => n + (noteImgStore[c.id]?.length || 0), 0);
-  if (!pendingNew.length && !message && !composerImgCount && !noteImgCount) return;
+  const savedOpen = unresolvedAnnotations();
+  if (!pendingNew.length && !message && !composerImgCount && !noteImgCount && !savedOpen.length) return;
 
   btnSend.disabled = true;
   try {
-    const items = await Promise.all(pendingNew.map(async c => ({
-      id: null, kind: c.kind, selector: c.selector || null, label: c.label || null, text: c.text || null,
-      textStart: c.textStart ?? null, textEnd: c.textEnd ?? null,
-      textPrefix: c.textPrefix || null, textSuffix: c.textSuffix || null,
-      note: c.note || null,
-      images: noteImgStore[c.id] ? await uploadImages(noteImgStore[c.id]) : [],
-    })));
+    const pendingItems = await serializePendingItems();
+    const savedItems = savedOpen.map((a) => ({
+      id: a.id, kind: a.kind, selector: a.selector || null, label: a.label || null, text: a.text || null,
+      textStart: a.textStart ?? null, textEnd: a.textEnd ?? null,
+      textPrefix: a.textPrefix || null, textSuffix: a.textSuffix || null,
+      note: lastHumanNote(a), retry: true, images: [],
+    }));
+    const items = [...pendingItems, ...savedItems];
     const images = await composerAttach.upload();
-    const totalImgs = images.length + items.reduce((n, it) => n + it.images.length, 0);
+    const totalImgs = images.length + pendingItems.reduce((n, it) => n + it.images.length, 0);
     const res = await fetch('/feedback', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file, items, message, images, model: selectedModel || null, askMode: forceAskMode }),
@@ -1913,7 +2055,6 @@ btnFinalize.addEventListener('click', async () => {
 });
 
 // ── Done: finish the review and shut the server down ────────────────────────
-let sessionDone = false;
 btnDone.addEventListener('click', async () => {
   const warn = isMd && mdDirty
     ? 'You have unsaved Markdown changes. Save them, finish the review, and shut down the server?'
@@ -2087,11 +2228,12 @@ if (isMd) {
 
 // ── Formal review mode ──────────────────────────────────────────────────────
 //
-// The server already refuses the mutating routes for a formal session, so this
-// is not the enforcement — it is making the window honest about what it is.
-// Leaving Save / Finalize / Done on screen would offer the reviewer actions
-// that can only fail, and worse, imply that finishing is a thing you can do
-// without deciding. A gate has exactly two exits.
+// The server refuses source-changing routes for a formal session, so this is
+// not the enforcement — it is making the window honest about what it is.
+// Feedback is staged as human input for Request changes, never sent to an
+// in-canvas auto-apply agent. Leaving Save / Finalize / Done on screen would
+// offer the reviewer actions that can only fail, and worse, imply that
+// finishing is a thing you can do without deciding. A gate has exactly two exits.
 const gateBanner    = document.getElementById('gate-banner');
 const gateIdentity  = document.getElementById('gate-identity');
 const gateArtifacts = document.getElementById('gate-artifacts');
@@ -2138,6 +2280,9 @@ async function postVerdict(verdict, feedback) {
   // box — a field the decider fills in themselves is not an identity.
   const reviewer = who.detail ? `${who.name} <${who.detail}>` : (who.name || '');
 
+  const verdictFeedback = verdict === 'request-changes' && formalReviewMode
+    ? formalVerdictFeedback(feedback)
+    : feedback;
   const res = await fetch('/verdict', {
     method: 'POST',
     // The gate token comes from this page's own URL — the link is the
@@ -2146,7 +2291,7 @@ async function postVerdict(verdict, feedback) {
       'Content-Type': 'application/json',
       'X-Annotron-Gate-Token': new URLSearchParams(location.hash.slice(1)).get('token') || '',
     },
-    body: JSON.stringify({ file, gate: params.get('gate') || '', verdict, reviewer, feedback }),
+    body: JSON.stringify({ file, gate: params.get('gate') || '', verdict, reviewer, feedback: verdictFeedback }),
   });
   const body = await res.json().catch(() => ({}));
 
@@ -2163,9 +2308,10 @@ async function postVerdict(verdict, feedback) {
         gateArtifacts.appendChild(row);
       }
     }
-    return;
+    return false;
   }
   renderGate(currentReview, body.verdict);
+  return true;
 }
 
 async function loadFormalReview() {
@@ -2179,6 +2325,9 @@ async function loadFormalReview() {
   if (!payload || !payload.review) return;
 
   currentReview = payload.review;
+  formalReviewMode = true;
+  freeText.placeholder = 'Ghi chú thêm (tuỳ chọn). Send gộp mọi comment chưa giải quyết, đóng Canvas, gửi sang Terminal.';
+  btnSend.title = 'Gộp mọi annotation/comment chưa giải quyết, đóng Canvas, gửi slash command của step trong Terminal.';
 
   // Retire everything that could move the reviewed bytes or end the review
   // without deciding. The server 409s these too; hiding them keeps the window
@@ -2187,20 +2336,33 @@ async function loadFormalReview() {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   }
+  // Hide the in-canvas agent chrome — Send no longer talks to that agent.
+  for (const id of ['agent-info-bar', 'composer-status', 'agent-metrics', 'ask-mode-wrap', 'hint-apply', 'hint-ask']) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  }
+  const hintSend = document.getElementById('hint-send');
+  if (hintSend) hintSend.innerHTML = '<kbd>↵</kbd> Send → Terminal';
   // Remote tool approval is a different authority from approving an artifact.
   const remoteWrap = document.getElementById('remote-approve-wrap');
   if (remoteWrap) remoteWrap.style.display = 'none';
 
   btnApprove.style.display = '';
   btnRequestCh.style.display = '';
+  btnRequestCh.title = 'Giống Send: gộp comment chưa giải quyết, đóng Canvas, chạy lệnh step trong Terminal.';
   btnApprove.addEventListener('click', () => postVerdict('approve'));
-  btnRequestCh.addEventListener('click', () => {
+  btnRequestCh.addEventListener('click', async () => {
+    if (hasFormalFeedback()) {
+      await dispatchUnresolvedToTerminal();
+      return;
+    }
     const feedback = (window.prompt('What needs to change?') || '').trim();
     if (!feedback) return;        // the server requires it; do not send an empty round trip
-    postVerdict('request-changes', feedback);
+    await dispatchUnresolvedToTerminal(feedback);
   });
 
   renderGate(currentReview, payload.verdict);
+  renderAnnotations();
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────

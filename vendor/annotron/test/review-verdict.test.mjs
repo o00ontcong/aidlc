@@ -116,6 +116,12 @@ test('a freeform session keeps source writes and generic done', async () => {
   assert.equal((await verdictFor(abs, { verdict: 'approve', reviewer: 'X' })).status, 400);
 });
 
+test('health exposes the formal-review protocol revision', async () => {
+  const health = await call('GET', '/health');
+  assert.equal(health.status, 200);
+  assert.equal(health.json.revision, 'aidlc-canvas-terminal-feedback-v3');
+});
+
 test('approve is accepted and readable back', async () => {
   const abs = await register('approve.md', '# Approve me\n', {});
 
@@ -130,6 +136,22 @@ test('approve is accepted and readable back', async () => {
   assert.equal(read.json.verdict.verdict, 'approve');
   assert.equal(read.json.verdict.reviewer, 'Cong <cong@example.test>');
   assert.match(read.json.verdict.at, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('a formal review stages annotations without waking the auto-apply agent', async () => {
+  const abs = await register('staged-feedback.md', '# Review me\n', {});
+  const staged = await call('POST', '/feedback', {
+    file: abs,
+    message: 'Keep the API table; remove the unrelated references.',
+    items: [{ kind: 'text', text: '9. Research / citations', note: 'bỏ qua' }],
+  });
+
+  assert.equal(staged.status, 200, JSON.stringify(staged.json));
+  assert.equal(staged.json.formal, true);
+  assert.equal(staged.json.staged, true);
+  const sidecar = JSON.parse(fs.readFileSync(abs.replace(/\.md$/, '.annotron.json'), 'utf8'));
+  assert.equal(sidecar.annotations[0].thread[0].message, 'bỏ qua');
+  assert.equal(sidecar.annotations[0].status, 'open');
 });
 
 test('a queued verdict is persisted, not just held in memory', async () => {

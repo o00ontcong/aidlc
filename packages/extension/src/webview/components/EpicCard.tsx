@@ -51,6 +51,7 @@ import { DeleteEpicModal } from './DeleteEpicModal';
 import { DiffPane } from './DiffPane';
 import { postMessage } from '@/lib/bridge';
 import { useHostAction } from '@/hooks/useHostAction';
+import { splitComposedRequirement } from '../../shared/splitComposedRequirement';
 
 function isCodeHumanReviewStep(step: EpicStepDetailFull | null): boolean {
   if (!step?.stepHasHumanReview) return false;
@@ -383,10 +384,23 @@ function EpicDescription({ epic }: { epic: EpicSummary }) {
       </button>
     );
   }
-  const desc = (epic.description ?? '').trim();
-  if (!desc) { return null; }
+  const fromInputs = String(epic.inputs?.user_note ?? '').trim();
+  const split = splitComposedRequirement((epic.description ?? '').trim());
+  const userNote = fromInputs || split.userNote;
+  const source = split.sourceDescription || (!split.userNote ? (epic.description ?? '').trim() : '');
+  if (!userNote && !source) { return null; }
   return (
-    <p className="text-xs italic leading-relaxed text-muted-foreground">{desc}</p>
+    <div className="space-y-1">
+      {userNote && (
+        <p className="text-xs leading-relaxed text-foreground">
+          <span className="mr-1 font-semibold uppercase tracking-wide text-primary">Note</span>
+          {userNote}
+        </p>
+      )}
+      {source && (
+        <p className="text-xs italic leading-relaxed text-muted-foreground">{source}</p>
+      )}
+    </div>
   );
 }
 

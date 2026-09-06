@@ -53,6 +53,9 @@ function getIdentity(cwd) {
 
 const PORT = parseInt(process.env.ANNOTRON_PORT || '7321', 10);
 const HOST = process.env.ANNOTRON_HOST || '127.0.0.1';
+// Bump when the extension and Annotron formal-review protocol changes. The
+// extension uses this to replace a detached, older local server safely.
+const SERVER_REVISION = 'aidlc-canvas-terminal-feedback-v3';
 
 // --- State ---
 const sessions = new Map();   // filePath -> { hash, watchers, sseClients, pollWaiters, agentReplies }
@@ -129,7 +132,9 @@ function writeSidecar(file, data) {
 // freeform annotate-and-auto-apply loop. Two things follow, and both are
 // enforced here rather than in the browser, because the browser is only one of
 // the clients: the reviewed bytes must not move under the reviewer, and nothing
-// except a typed verdict may close the gate.
+// except a typed verdict may close the gate. Feedback annotations are allowed
+// only as staged human input for a later request-changes verdict; they never
+// wake annotron's auto-apply agent.
 const FORMAL_REFUSAL =
   'refused: this is a formal review session — the reviewed content is read-only '
   + 'and only a /verdict can close the gate';
@@ -374,7 +379,7 @@ async function handler(req, res) {
   if (method === 'OPTIONS') { res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST', 'Access-Control-Allow-Headers': 'Content-Type, X-Annotron-Gate-Token' }); res.end(); return; }
 
   if (pathname === '/health' && method === 'GET') {
-    return send(res, 200, { ok: true });
+    return send(res, 200, { ok: true, revision: SERVER_REVISION });
   }
 
   if (pathname === '/session' && method === 'POST') {
@@ -711,6 +716,13 @@ async function handler(req, res) {
         }
       }
       writeSidecar(abs, sidecar);
+    }
+    // A formal Canvas review may collect annotations, but it must never wake
+    // annotron's auto-apply agent. The extension consolidates those notes into
+    // the request-changes verdict and starts the owning AIDLC slash command in
+    // a visible terminal after the human decides.
+    if (formalReview(abs)) {
+      return send(res, 200, { ok: true, formal: true, staged: true });
     }
     const sess = getSession(abs);
     sess.pendingFeedback = body;

@@ -1,4 +1,5 @@
 import { rewriteEpicsRootPrefix } from '../runs/RunState';
+import { USER_NOTE_PRIORITY_RULE } from '../change/composeRequirementWithUserNote';
 
 /** Structural subset needed to render a command; kept independent of presets. */
 export interface StepCommandPhase {
@@ -45,8 +46,11 @@ The user invoked you with epic id \`$ARGUMENTS\`.
    - If the step has \`feedback\` from a prior rejection or bug report, address it explicitly in this revision.
    - Check \`history\` entries for rejection reasons, \`bug_report\` rounds, and context. Previously reported bugs remain in scope.
 2. Read \`${epicRoot}/$ARGUMENTS/inputs.json\` for capability inputs (Jira ticket, Figma URL, files glob, GitHub repo, etc.).
+   - Read \`${epicRoot}/$ARGUMENTS/USER-NOTE.md\` FIRST when it exists. Same text as \`inputs.json\` \`user_note\`.
+   - If \`jira\` is set, that is the ticket key (Sprint-started epics keep it even after the task id becomes EPIC-N). The ticket body is already in \`state.json\` description — do **not** wait for Jira MCP.
+   - If \`user_note\` / USER-NOTE.md is present, it outranks \`state.json\` description and the ticket. ${USER_NOTE_PRIORITY_RULE}
 ${artifactInstruction}
-4. When finished, summarize what you produced and tell the user to click **"Mark step done"** in the AIDLC panel to advance the pipeline.
+4. When finished, summarize what you produced and tell the user to click **"Đánh dấu step xong"** / **"Mark step done"** in the AIDLC panel. Canvas-gated steps open the review canvas after that click — do not claim Canvas is already open.
 `;
 }
 
