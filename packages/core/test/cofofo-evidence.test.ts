@@ -7,8 +7,10 @@ import {
   CofofoEvidenceError,
   captureEvidence,
   detectStack,
+  hashObject,
   readEvidenceLedger,
   requireAcceptedEvidence,
+  sha256,
   verifyEvidenceLedger,
 } from '../src';
 
@@ -101,5 +103,48 @@ describe('CoFoFo evidence ledger', () => {
       workspaceRoot: root, runId: 'FEATURE-STAGE', profile, stage: 'red' as never,
       commandId: 'swift.test', stepRevision: 1, stageRevisions: revisions(),
     })).toThrow(CofofoEvidenceError);
+  });
+
+  it('reads a legacy RED-waiver ledger and still accepts a new VERIFY record', () => {
+    const profile = detectStack(root);
+    const log = 'Production trace: race only on device.\n';
+    const logPath = '.aidlc/evidence/FEATURE-LEGACY/0001-red-waiver.log';
+    write(logPath, log);
+    const at = '2026-09-06T12:00:00.000Z';
+    const draft = {
+      schemaVersion: 2 as const,
+      id: 'FEATURE-LEGACY-1-red-waiver',
+      runId: 'FEATURE-LEGACY',
+      sequence: 1,
+      stage: 'red-waiver' as const,
+      stepRevision: 1,
+      args: [] as string[],
+      startedAt: at,
+      finishedAt: at,
+      exitStatus: null,
+      timedOut: false,
+      accepted: true,
+      waiver: {
+        reviewer: 'On-call',
+        reason: 'Hardware-only race',
+        alternativeEvidence: 'device trace',
+      },
+      outputPreview: log,
+      logPath,
+      logHash: sha256(log),
+    };
+    write('.aidlc/evidence/FEATURE-LEGACY/ledger.jsonl', `${JSON.stringify({ ...draft, recordHash: hashObject(draft) })}\n`);
+
+    expect(readEvidenceLedger(root, 'FEATURE-LEGACY')).toHaveLength(1);
+    expect(() => requireAcceptedEvidence(root, 'FEATURE-LEGACY', 'verify', 1)).toThrow(/verify/);
+
+    const verify = captureEvidence({
+      workspaceRoot: root, runId: 'FEATURE-LEGACY', profile, stage: 'verify',
+      commandId: 'swift.test', stepRevision: 1, stageRevisions: revisions(),
+    });
+    expect(verify.accepted).toBe(true);
+    requireAcceptedEvidence(root, 'FEATURE-LEGACY', 'verify', 1);
+    expect(readEvidenceLedger(root, 'FEATURE-LEGACY')).toHaveLength(2);
+    expect(verifyEvidenceLedger(root, 'FEATURE-LEGACY')).toEqual([]);
   });
 });

@@ -210,16 +210,22 @@ export const CofofoFoundationStateSchema = z.object({
 }).strict();
 export type CofofoFoundationState = z.infer<typeof CofofoFoundationStateSchema>;
 
+/** Stages a pipeline step may still declare as a machine-evidence gate. */
 export const COFOFO_EVIDENCE_STAGES = ['verify'] as const;
 export const CofofoEvidenceStageSchema = z.enum(COFOFO_EVIDENCE_STAGES);
 export type CofofoEvidenceStage = z.infer<typeof CofofoEvidenceStageSchema>;
+
+/** Stages that may appear on disk from older TDD ledgers. New captures are verify-only. */
+export const COFOFO_LEDGER_STAGES = ['red', 'red-waiver', 'green', 'refactor', 'verify'] as const;
+export const CofofoLedgerStageSchema = z.enum(COFOFO_LEDGER_STAGES);
+export type CofofoLedgerStage = z.infer<typeof CofofoLedgerStageSchema>;
 
 export const CofofoEvidenceRecordSchema = z.object({
   schemaVersion: z.literal(2),
   id: z.string().min(1),
   runId: z.string().min(1),
   sequence: z.number().int().positive(),
-  stage: CofofoEvidenceStageSchema,
+  stage: CofofoLedgerStageSchema,
   /** Revision of the workflow step that captured this record. */
   stepRevision: z.number().int().positive(),
   commandId: z.string().min(1).optional(),
@@ -229,6 +235,13 @@ export const CofofoEvidenceRecordSchema = z.object({
   exitStatus: z.number().int().nullable(),
   timedOut: z.boolean(),
   accepted: z.boolean(),
+  expectedFailure: z.string().min(1).optional(),
+  failureOracleMatched: z.boolean().optional(),
+  waiver: z.object({
+    reviewer: z.string().min(1),
+    reason: z.string().min(1),
+    alternativeEvidence: z.string().min(1),
+  }).strict().optional(),
   outputPreview: z.string(),
   logPath: RelativePathSchema,
   logHash: Sha256Schema,

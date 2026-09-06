@@ -105,14 +105,15 @@ export function readEvidenceLedger(workspaceRoot: string, runId: string): Cofofo
   return records;
 }
 
-/** Accepted stages whose evidence belongs to the currently-live step revision. */
+/** Accepted VERIFY records whose evidence belongs to the currently-live test revision. */
 export function acceptedStages(
   records: CofofoEvidenceRecord[],
   revisions: EvidenceStageRevisions,
 ): Set<CofofoEvidenceStage> {
-  return new Set(records
-    .filter((record) => record.accepted && record.stepRevision === revisions.verify)
-    .map((record) => record.stage));
+  if (records.some((record) => record.accepted && record.stage === 'verify' && record.stepRevision === revisions.verify)) {
+    return new Set(['verify']);
+  }
+  return new Set();
 }
 
 export function expectedNext(
