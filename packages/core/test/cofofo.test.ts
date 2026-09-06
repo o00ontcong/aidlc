@@ -122,7 +122,7 @@ describe('CoFoFo stack detection and policy', () => {
     expect(feature.discover_context?.manifest).toBe('.aidlc/discover/published-context.json');
     expect(bugfix.discover_context?.manifest).toBe('.aidlc/discover/published-context.json');
     expect(feature.steps.map((s) => normalizeStep(s).name)).toEqual(['analyze', 'create-plan', 'implement', 'test']);
-    expect(bugfix.steps.map((s) => normalizeStep(s).name)).toEqual(['diagnose', 'reproduce', 'implement', 'test']);
+    expect(bugfix.steps.map((s) => normalizeStep(s).name)).toEqual(['diagnose', 'implement', 'test']);
     const analyze = normalizeStep(feature.steps.find((step) => normalizeStep(step).name === 'analyze')!);
     expect(analyze.requires).toContain('{context_pack}');
     expect(analyze.produces).toEqual(['docs/epics/{epic}/artifacts/REQUIREMENT.md']);
@@ -157,7 +157,7 @@ describe('CoFoFo stack detection and policy', () => {
     expect(skill).not.toContain('Do not write OPTIONS.md');
     const plan = fs.readFileSync(path.join(root, '.aidlc/cofofo/skills/create-plan.md'), 'utf8');
     expect(plan).toContain('Read REQUIREMENT.md only');
-    expect(plan).toContain('## RED / GREEN Contract');
+    expect(plan).toContain('## Files and Tests');
     expect(plan).not.toContain('do not delete them');
     expect(plan).not.toContain('OPTIONS.md');
   });
@@ -334,7 +334,7 @@ describe('CoFoFo provider context rendering', () => {
     expect(rendered).toContain('## Installed skill registry');
     expect(rendered).toContain('## Command allow-list');
     expect(rendered).toContain('cofofo-developer');
-    expect(rendered).toContain('ecc-tdd-workflow');
+    expect(rendered).toContain('ecc-swift-protocol-di-testing');
     expect(rendered).toContain('swift.test');
   });
 

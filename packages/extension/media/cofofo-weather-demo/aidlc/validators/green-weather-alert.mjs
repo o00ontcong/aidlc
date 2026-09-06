@@ -13,15 +13,15 @@ export default async function validate(ctx) {
   const root = ctx.workspaceRoot ?? process.cwd();
   const epic = String(ctx.context?.epic ?? ctx.state.runId);
   const summaryPath = path.join(root, 'docs/epics', epic, 'artifacts/IMPLEMENT-SUMMARY.md');
-  if (!existsSync(summaryPath) || !readFileSync(summaryPath, 'utf8').includes('## Green Evidence')) {
-    return { decision: 'reject', reason: 'Thiếu IMPLEMENT-SUMMARY.md hoặc Green Evidence.' };
+  if (!existsSync(summaryPath) || !readFileSync(summaryPath, 'utf8').includes('## Scope')) {
+    return { decision: 'reject', reason: 'Thiếu IMPLEMENT-SUMMARY.md hoặc mục Scope.' };
   }
   const srcDir = path.join(root, 'src');
   const build = run(srcDir, ['build']);
-  if (!build.ok) return { decision: 'reject', reason: 'swift build thất bại ở GREEN gate.' };
+  if (!build.ok) return { decision: 'reject', reason: 'swift build thất bại.' };
   const targeted = run(srcDir, ['test', '--filter', TEST_NAME]);
   if (!targeted.ok) return { decision: 'reject', reason: `${TEST_NAME} chưa xanh.` };
   const full = run(srcDir, ['test']);
-  if (!full.ok) return { decision: 'reject', reason: 'Full swift test suite thất bại ở GREEN gate.' };
+  if (!full.ok) return { decision: 'reject', reason: 'Full swift test suite thất bại.' };
   return { decision: 'pass', reason: `swift build, ${TEST_NAME}, và full swift test đều xanh.` };
 }

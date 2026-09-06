@@ -14,7 +14,7 @@ import { resolveInside, writeAtomic } from './paths';
 import { normalizeStep, type PipelineConfig } from '../schema/WorkspaceSchema';
 import type { RunState } from '../runs/RunState';
 
-export type EvidenceStageRevisions = Record<'red' | 'green' | 'refactor' | 'verify', number>;
+export type EvidenceStageRevisions = Record<'verify', number>;
 
 function stepIndexByName(pipeline: PipelineConfig, name: string): number {
   return pipeline.steps.findIndex((raw) => normalizeStep(raw).name === name);
@@ -40,22 +40,14 @@ export function evidenceStageRevisionsForRun(
     if (stage && record) byDeclaredStage[stage] = record.revision;
   }
 
-  const reproduceIdx = stepIndexByName(pipeline, 'reproduce');
-  const implementIdx = stepIndexByName(pipeline, 'implement');
   const testIdx = stepIndexByName(pipeline, 'test');
-
-  const red = byDeclaredStage.red
-    ?? (reproduceIdx >= 0 ? stepRevisionAt(state, reproduceIdx) : implementIdx >= 0 ? stepRevisionAt(state, implementIdx) : undefined);
-  const green = byDeclaredStage.green
-    ?? (implementIdx >= 0 ? stepRevisionAt(state, implementIdx) : undefined);
-  const refactor = byDeclaredStage.refactor ?? green;
   const verify = byDeclaredStage.verify
     ?? (testIdx >= 0 ? stepRevisionAt(state, testIdx) : undefined);
 
-  if (!red || !green || !refactor || !verify) {
+  if (!verify) {
     throw new CofofoEvidenceError(`Run "${state.runId}" is missing an evidence-owning delivery phase.`);
   }
-  return { red, green, refactor, verify };
+  return { verify };
 }
 
 const PREVIEW_BYTES = 16 * 1024;
@@ -63,7 +55,6 @@ const FULL_LOG_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const TARGET = /^[A-Za-z0-9_./:\[\]-]{1,200}$/;
-const COMPILE_FAILURE = /(?:compile(?:r)? error|failed to build|no such module|cannot find (?:symbol|type)|syntax error|linker command failed)/i;
 
 export class CofofoEvidenceError extends Error {
   constructor(message: string) {
@@ -114,45 +105,30 @@ export function readEvidenceLedger(workspaceRoot: string, runId: string): Cofofo
   return records;
 }
 
-function revisionKey(stage: CofofoEvidenceStage): keyof EvidenceStageRevisions {
-  return stage === 'red-waiver' ? 'red' : stage;
-}
-
 /** Accepted stages whose evidence belongs to the currently-live step revision. */
 export function acceptedStages(
   records: CofofoEvidenceRecord[],
   revisions: EvidenceStageRevisions,
 ): Set<CofofoEvidenceStage> {
   return new Set(records
-    .filter((record) => record.accepted && record.stepRevision === revisions[revisionKey(record.stage)])
+    .filter((record) => record.accepted && record.stepRevision === revisions.verify)
     .map((record) => record.stage));
 }
 
 export function expectedNext(
-  records: CofofoEvidenceRecord[],
-  revisions: EvidenceStageRevisions,
+  _records: CofofoEvidenceRecord[],
+  _revisions: EvidenceStageRevisions,
 ): CofofoEvidenceStage {
-  const accepted = acceptedStages(records, revisions);
-  if (!accepted.has('red') && !accepted.has('red-waiver')) return 'red';
-  if (!accepted.has('green')) return 'green';
-  if (!accepted.has('refactor')) return 'refactor';
   return 'verify';
 }
 
 export function assertStageOrder(
-  records: CofofoEvidenceRecord[],
+  _records: CofofoEvidenceRecord[],
   stage: CofofoEvidenceStage,
-  revisions: EvidenceStageRevisions,
+  _revisions: EvidenceStageRevisions,
 ): void {
-  const expected = expectedNext(records, revisions);
-  if (stage === 'red-waiver') {
-    if (expected !== 'red') throw new CofofoEvidenceError('A RED waiver is only valid before GREEN evidence exists.');
-    return;
-  }
-  if (stage !== expected) {
-    // Re-running the currently incomplete stage is allowed; accepted stages
-    // cannot be overwritten or reordered.
-    throw new CofofoEvidenceError(`Evidence stage "${stage}" is out of order; next required stage is "${expected}".`);
+  if (stage !== 'verify') {
+    throw new CofofoEvidenceError(`Evidence stage "${stage}" is not a delivery evidence stage; next required stage is "verify".`);
   }
 }
 
@@ -173,22 +149,21 @@ export function captureEvidence(args: {
   workspaceRoot: string;
   runId: string;
   profile: StackProfile;
-  stage: Exclude<CofofoEvidenceStage, 'red-waiver'>;
+  stage: CofofoEvidenceStage;
   commandId: string;
   target?: string;
-  expectedFailure?: string;
+  timeoutMs?: number;
   /** Revision of the phase step currently receiving this evidence. */
   stepRevision: number;
   /** Current revisions of every evidence-owning phase in the run. */
   stageRevisions: EvidenceStageRevisions;
-  timeoutMs?: number;
   now?: () => string;
 }): CofofoEvidenceRecord {
   const root = fs.realpathSync(path.resolve(args.workspaceRoot));
   const selection = selectCatalog(args.profile);
   if (!selection) throw new CofofoEvidenceError('Command allow-list requires a single detected stack.');
   const records = readEvidenceLedger(root, args.runId);
-  if (args.stageRevisions[args.stage] !== args.stepRevision) {
+  if (args.stageRevisions.verify !== args.stepRevision) {
     throw new CofofoEvidenceError(`Evidence revision for stage "${args.stage}" does not match its live run step.`);
   }
   assertStageOrder(records, args.stage, args.stageRevisions);
@@ -199,9 +174,6 @@ export function captureEvidence(args: {
     commandArgs.push(args.target);
   } else if (args.target) {
     throw new CofofoEvidenceError(`CommandId "${spec.id}" does not accept a target.`);
-  }
-  if (args.stage === 'red' && !args.expectedFailure?.trim()) {
-    throw new CofofoEvidenceError('RED evidence requires an expected failure oracle.');
   }
 
   const clock = args.now ?? (() => new Date().toISOString());
@@ -215,19 +187,11 @@ export function captureEvidence(args: {
   });
   const finishedAt = clock();
   const combined = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-  // The oracle answers whether the command genuinely failed in the intended
-  // way. It must see the full, redacted output; the bounded form is storage
-  // hygiene only and may remove the relevant line from a large test suite.
   const screened = redact(combined);
   const redacted = bounded(screened, FULL_LOG_BYTES);
   const timedOut = result.error != null && (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';
   const exitStatus = result.status;
-  const oracleMatched = args.stage === 'red'
-    ? Boolean(args.expectedFailure && screened.toLowerCase().includes(args.expectedFailure.toLowerCase()) && !COMPILE_FAILURE.test(screened))
-    : undefined;
-  const accepted = args.stage === 'red'
-    ? exitStatus !== null && exitStatus !== 0 && !timedOut && oracleMatched === true
-    : exitStatus === 0 && !timedOut;
+  const accepted = exitStatus === 0 && !timedOut;
   const sequence = records.length + 1;
   const logPath = `.aidlc/evidence/${args.runId}/${String(sequence).padStart(4, '0')}-${args.stage}.log`;
   writeAtomic(resolveInside(root, logPath), redacted);
@@ -246,66 +210,10 @@ export function captureEvidence(args: {
     exitStatus,
     timedOut,
     accepted,
-    expectedFailure: args.expectedFailure,
-    failureOracleMatched: oracleMatched,
     outputPreview: bounded(redacted, PREVIEW_BYTES),
     logPath,
     logHash: hashFile(resolveInside(root, logPath, true)),
     previousHash,
-  };
-  return saveRecord(root, args.runId, records, draft);
-}
-
-export function recordRedWaiver(args: {
-  workspaceRoot: string;
-  runId: string;
-  reviewer: string;
-  reason: string;
-  alternativeEvidence: string;
-  /** Revision of the reproduce/implement step currently receiving the waiver. */
-  stepRevision: number;
-  /** Current revisions of every evidence-owning phase in the run. */
-  stageRevisions: EvidenceStageRevisions;
-  now?: string;
-}): CofofoEvidenceRecord {
-  const root = fs.realpathSync(path.resolve(args.workspaceRoot));
-  const records = readEvidenceLedger(root, args.runId);
-  if (args.stageRevisions.red !== args.stepRevision) {
-    throw new CofofoEvidenceError('RED waiver revision does not match the live reproduce/implement step.');
-  }
-  assertStageOrder(records, 'red-waiver', args.stageRevisions);
-  if (records.some((record) => record.accepted && record.stage === 'red' && record.stepRevision === args.stepRevision)) {
-    throw new CofofoEvidenceError('A RED waiver is not allowed after accepted RED evidence for this step revision.');
-  }
-  const reviewer = args.reviewer.trim();
-  const reason = args.reason.trim();
-  const alternativeEvidence = args.alternativeEvidence.trim();
-  if (!reviewer || !reason || !alternativeEvidence) {
-    throw new CofofoEvidenceError('A RED waiver requires reviewer identity, reason, and alternative evidence.');
-  }
-  const at = args.now ?? new Date().toISOString();
-  const screenedEvidence = redact(alternativeEvidence);
-  const sequence = records.length + 1;
-  const logPath = `.aidlc/evidence/${args.runId}/${String(sequence).padStart(4, '0')}-red-waiver.log`;
-  writeAtomic(resolveInside(root, logPath), screenedEvidence);
-  const draft: Omit<CofofoEvidenceRecord, 'recordHash'> = {
-    schemaVersion: 2,
-    id: `${args.runId}-${sequence}-red-waiver`,
-    runId: args.runId,
-    sequence,
-    stage: 'red-waiver',
-    stepRevision: args.stepRevision,
-    args: [],
-    startedAt: at,
-    finishedAt: at,
-    exitStatus: null,
-    timedOut: false,
-    accepted: true,
-    waiver: { reviewer, reason, alternativeEvidence: screenedEvidence },
-    outputPreview: screenedEvidence,
-    logPath,
-    logHash: hashFile(resolveInside(root, logPath, true)),
-    previousHash: records.at(-1)?.recordHash,
   };
   return saveRecord(root, args.runId, records, draft);
 }
@@ -338,12 +246,10 @@ export function verifyEvidenceLedger(
 export function requireAcceptedEvidence(
   workspaceRoot: string,
   runId: string,
-  stage: 'red' | 'green' | 'refactor' | 'verify',
+  stage: CofofoEvidenceStage,
   stepRevision: number,
 ): void {
   const records = readEvidenceLedger(workspaceRoot, runId);
-  const accepted = stage === 'red'
-    ? records.some((record) => record.accepted && record.stepRevision === stepRevision && (record.stage === 'red' || record.stage === 'red-waiver'))
-    : records.some((record) => record.accepted && record.stepRevision === stepRevision && record.stage === stage);
+  const accepted = records.some((record) => record.accepted && record.stepRevision === stepRevision && record.stage === stage);
   if (!accepted) throw new CofofoEvidenceError(`Run "${runId}" has no accepted machine evidence for stage "${stage}" at step revision ${stepRevision}.`);
 }

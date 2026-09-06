@@ -78,7 +78,7 @@ export function EpicDetail({
     epic.recipeId?.startsWith('cofofo-')
     ||
     epic.pipeline?.toUpperCase().includes('COFOFO')
-    || epic.stepDetails.some((step) => step.stepName === 'diagnose' || step.stepName === 'reproduce' || step.stepName === 'implement')
+    || epic.stepDetails.some((step) => step.stepName === 'diagnose' || step.stepName === 'implement')
   ));
   const workflowLabel = displayWorkflowLabel(epic);
 

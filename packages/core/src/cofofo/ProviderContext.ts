@@ -70,6 +70,6 @@ export function renderProviderContext(args: RenderProviderContextArgs): string {
     '',
     ...commandLines,
     '',
-    'Every plan cites applicable blocking ruleId values. Production mutation requires accepted RED evidence; delivery requires GREEN, REFACTOR, fresh review, and VERIFY.',
+    'Every plan cites applicable blocking ruleId values. Delivery close requires Canvas on the test bundle and accepted VERIFY evidence.',
   ].join('\n');
 }

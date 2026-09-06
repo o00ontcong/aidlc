@@ -258,7 +258,7 @@
       },
       {
         "command": "aidlc.captureCofofoEvidence",
-        "title": "CoFoFo: Capture Current RED/GREEN/REFACTOR/VERIFY Evidence",
+        "title": "CoFoFo: Capture Current VERIFY Evidence",
         "icon": "$(record-keys)",
         "category": "AIDLC"
       },

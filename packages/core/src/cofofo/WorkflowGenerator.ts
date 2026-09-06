@@ -22,14 +22,13 @@ export const COFOFO_REQUIREMENT_REQUIRED_HEADINGS = [
   '## 10. Options & task decisions',
 ] as const;
 
-export const COFOFO_PLAN_REQUIRED_HEADINGS = ['## RED / GREEN Contract'] as const;
-export const COFOFO_IMPLEMENT_REQUIRED_HEADINGS = ['## Green Evidence'] as const;
+export const COFOFO_PLAN_REQUIRED_HEADINGS = ['## Files and Tests'] as const;
+export const COFOFO_IMPLEMENT_REQUIRED_HEADINGS = ['## Scope'] as const;
 export const COFOFO_TEST_REQUIRED_HEADINGS = ['## Final Verification'] as const;
 export const COFOFO_DIAGNOSE_REQUIRED_HEADINGS = ['## Failure Oracle', '## Resume From'] as const;
-export const COFOFO_REPRODUCE_REQUIRED_HEADINGS = ['## Expected Failure'] as const;
 
 const PHASES = [
-  'analyze', 'diagnose', 'create-plan', 'reproduce', 'implement', 'test',
+  'analyze', 'diagnose', 'create-plan', 'implement', 'test',
 ] as const;
 
 type Phase = typeof PHASES[number];
@@ -39,7 +38,6 @@ export const COFOFO_PHASE_REQUIRED_HEADINGS: Record<Phase, readonly string[]> = 
   analyze: COFOFO_REQUIREMENT_REQUIRED_HEADINGS,
   diagnose: COFOFO_DIAGNOSE_REQUIRED_HEADINGS,
   'create-plan': COFOFO_PLAN_REQUIRED_HEADINGS,
-  reproduce: COFOFO_REPRODUCE_REQUIRED_HEADINGS,
   implement: COFOFO_IMPLEMENT_REQUIRED_HEADINGS,
   test: COFOFO_TEST_REQUIRED_HEADINGS,
 };
@@ -72,30 +70,24 @@ const PHASE_INSTRUCTIONS: Record<Phase, string> = {
     '- `## 10. Options & task decisions` — bounded alternatives plus task-local assumptions/decisions. Or `N/A`.',
     pipelineHeadingGate(COFOFO_REQUIREMENT_REQUIRED_HEADINGS),
     'Do not mutate production code. Do not report the step complete without the Screens/API headings and §§ 9–10.',
-    'If an older run left OPTIONS.md, EVIDENCE.md, or TASK-DECISIONS.md, fold that content into §§ 9–10. Those files are leftover from a retired analyze split — they are not pipeline artifacts. Do not write them as the requirement. RED-EVIDENCE.md is a later TDD file, not analyze EVIDENCE.md.',
+    'If an older run left OPTIONS.md, EVIDENCE.md, or TASK-DECISIONS.md, fold that content into §§ 9–10. Those files are leftover from a retired analyze split — they are not pipeline artifacts. Do not write them as the requirement.',
   ].join('\n'),
   diagnose: [
     'For a bug, find root cause before changing production code.',
     'Write ROOT-CAUSE.md with reproduction, causal chain, affected invariant, and failure oracle.',
+    '`## Resume From` must name the next delivery phase (`implement`).',
     pipelineHeadingGate(COFOFO_DIAGNOSE_REQUIRED_HEADINGS),
   ].join('\n'),
   'create-plan': [
     'Read REQUIREMENT.md only (screens, screen flow, APIs, API flow, AC, research, task decisions).',
     'Write TASK-PLAN.md.',
     pipelineHeadingGate(COFOFO_PLAN_REQUIRED_HEADINGS),
-    '`## RED / GREEN Contract` must name the exact RED test, expected assertion, and GREEN production change. Compile/import/syntax failures do not count as RED.',
-    'Map every acceptance criterion to files/tests, cite every applicable blocking ruleId, then obtain Canvas approval before production mutation.',
-  ].join('\n'),
-  reproduce: [
-    'Add the smallest behavior test first. Capture a real expected assertion failure with `aidlc cofofo evidence red`; compile/import/syntax failures do not count.',
-    'If a RED waiver is necessary, use `aidlc cofofo waive-red` so RED-EVIDENCE.md records the reason and alternative evidence.',
-    'The Canvas gate on RED-EVIDENCE.md must approve either path before production code changes.',
-    pipelineHeadingGate(COFOFO_REPRODUCE_REQUIRED_HEADINGS),
+    '`## Files and Tests` must map every acceptance criterion to files and tests, then cite every applicable blocking ruleId.',
+    'Obtain Canvas approval before production mutation.',
   ].join('\n'),
   implement: [
-    'On cofofo-feature (no reproduce step), write the RED test in this phase first, capture RED with `aidlc cofofo evidence red`, and write RED-EVIDENCE.md before any production mutation.',
-    'On cofofo-bugfix, RED already exists from reproduce.',
-    'Implement only enough production behavior to pass the RED test, capture GREEN with the allow-listed test command, refactor without changing behavior and capture REFACTOR, then write IMPLEMENT-SUMMARY.md.',
+    'Implement the approved plan. Do not expand scope past TASK-PLAN.md and REQUIREMENT.md.',
+    'Write IMPLEMENT-SUMMARY.md with what changed, files touched, and how to verify.',
     pipelineHeadingGate(COFOFO_IMPLEMENT_REQUIRED_HEADINGS),
     'Canvas reviews the implementation summary and scope.',
   ].join('\n'),
@@ -107,7 +99,7 @@ const PHASE_INSTRUCTIONS: Record<Phase, string> = {
 };
 
 const ROLE_BY_PHASE: Record<Phase, string> = {
-  analyze: 'product-owner', diagnose: 'diagnostician', 'create-plan': 'tech-lead', reproduce: 'developer',
+  analyze: 'product-owner', diagnose: 'diagnostician', 'create-plan': 'tech-lead',
   implement: 'developer', test: 'fresh-reviewer',
 };
 
@@ -226,7 +218,7 @@ export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): Wo
     steps: [
       step('analyze', { requires: ['{context_pack}'], produces: [REQUIREMENT], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.analyze], human_review: true, review: { mode: 'canvas', artifacts: [REQUIREMENT] } }),
       step('create-plan', { requires: [REQUIREMENT, `${DISCOVER_CONTEXT}/compiled-rules.json`], produces: [`${EPIC}/TASK-PLAN.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS['create-plan']], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/TASK-PLAN.md`] }, depends_on: ['analyze'] }),
-      step('implement', { produces: [`${EPIC}/RED-EVIDENCE.md`, `${EPIC}/IMPLEMENT-SUMMARY.md`, `${EPIC}/REFACTOR-EVIDENCE.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.implement], evidence: { stage: 'green' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/IMPLEMENT-SUMMARY.md`] }, depends_on: ['create-plan'] }),
+      step('implement', { produces: [`${EPIC}/IMPLEMENT-SUMMARY.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.implement], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/IMPLEMENT-SUMMARY.md`] }, depends_on: ['create-plan'] }),
       step('test', { requires: [`${EPIC}/IMPLEMENT-SUMMARY.md`], produces: [`${EPIC}/REVIEW.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/VERIFY.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.test], evidence: { stage: 'verify' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/VERIFY.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/REVIEW.md`] }, depends_on: ['implement'] }),
     ],
   };
@@ -236,8 +228,7 @@ export function generatedCofofoWorkspace(current?: Partial<WorkspaceConfig>): Wo
     discover_context: discoverContextGate,
     steps: [
       step('diagnose', { requires: ['{context_pack}', `${EPIC}/BUG-REPORT.md`], produces: [`${EPIC}/ROOT-CAUSE.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.diagnose], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/ROOT-CAUSE.md`] } }),
-      step('reproduce', { requires: [`${EPIC}/ROOT-CAUSE.md`], produces: [`${EPIC}/RED-EVIDENCE.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.reproduce], evidence: { stage: 'red' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/RED-EVIDENCE.md`] }, depends_on: ['diagnose'] }),
-      step('implement', { produces: [`${EPIC}/RED-EVIDENCE.md`, `${EPIC}/IMPLEMENT-SUMMARY.md`, `${EPIC}/REFACTOR-EVIDENCE.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.implement], evidence: { stage: 'green' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/IMPLEMENT-SUMMARY.md`] }, depends_on: ['reproduce'] }),
+      step('implement', { produces: [`${EPIC}/IMPLEMENT-SUMMARY.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.implement], human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/IMPLEMENT-SUMMARY.md`] }, depends_on: ['diagnose'] }),
       step('test', { requires: [`${EPIC}/IMPLEMENT-SUMMARY.md`], produces: [`${EPIC}/REVIEW.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/VERIFY.md`], produces_contains: [...COFOFO_PHASE_REQUIRED_HEADINGS.test], evidence: { stage: 'verify' }, human_review: true, review: { mode: 'canvas', artifacts: [`${EPIC}/VERIFY.md`, `${EPIC}/TEST-REPORT.md`, `${EPIC}/REVIEW.md`] }, depends_on: ['implement'] }),
     ],
   };

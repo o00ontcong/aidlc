@@ -155,23 +155,7 @@ export async function captureCofofoEvidenceCommand(): Promise<void> {
     const pipeline = pipelineFor(state);
     const norm = normalizeStep(pipeline.steps[state.currentStepIdx]!);
     const stage = norm.evidence?.stage;
-    if (!stage) throw new Error(`Current phase ${norm.name ?? norm.agent} does not declare a machine-evidence gate.`);
-    let target: string | undefined;
-    let expectedFailure: string | undefined;
-    if (stage === 'red') {
-      target = await vscode.window.showInputBox({
-        prompt: 'Targeted test identifier',
-        value: 'testHighTemperatureAlertRequiresThreshold',
-        ignoreFocusOut: true,
-      });
-      if (!target) return;
-      expectedFailure = await vscode.window.showInputBox({
-        prompt: 'Expected assertion text (compile/import errors never count as RED)',
-        value: 'heat alert missing',
-        ignoreFocusOut: true,
-      });
-      if (!expectedFailure) return;
-    }
+    if (stage !== 'verify') throw new Error(`Current phase ${norm.name ?? norm.agent} does not declare a VERIFY evidence gate.`);
     const stackJsonPath = path.join(root, 'docs/project/foundation/STACK-PROFILE.json');
     const profile = fs.existsSync(stackJsonPath)
       ? StackProfileSchema.parse(JSON.parse(fs.readFileSync(stackJsonPath, 'utf8')))
@@ -180,10 +164,8 @@ export async function captureCofofoEvidenceCommand(): Promise<void> {
       workspaceRoot: root,
       runId: state.runId,
       profile,
-      stage,
-      commandId: stage === 'red' ? 'swift.test-targeted' : 'swift.test',
-      target,
-      expectedFailure,
+      stage: 'verify',
+      commandId: 'swift.test',
       stepRevision: state.steps[state.currentStepIdx]!.revision,
       stageRevisions: evidenceStageRevisionsForRun(state, pipeline),
     });

@@ -4,7 +4,6 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import {
   CofofoFoundationService,
-  activeEpicsDir,
   RunStateStore,
   StackProfileSchema,
   WorkspaceLoader,
@@ -14,11 +13,8 @@ import {
   normalizeStep,
   readEvidenceLedger,
   rebaseRunToCurrentFoundation,
-  recordRedWaiver,
   rollbackCatalog,
-  resolveArtifactPath,
   verifyEvidenceLedger,
-  type CofofoEvidenceStage,
 } from '@aidlc/core';
 import { resolveWorkspaceRoot } from '../workspaceRoot';
 
@@ -99,75 +95,30 @@ export function registerCofofo(program: Command): void {
     });
 
   command.command('evidence <stage> <runId>')
-    .description('Run an allow-listed command and append tamper-evident RED/GREEN/REFACTOR/VERIFY evidence')
+    .description('Run an allow-listed command and append tamper-evident VERIFY evidence')
     .option('--command <id>', 'Allow-listed commandId')
     .option('--target <test>', 'Safe targeted test identifier (required by targeted commandIds)')
-    .option('--expected <text>', 'Expected assertion/failure oracle for RED')
     .option('--timeout <ms>', 'Timeout in milliseconds', '600000')
-    .action((stage: string, runId: string, opts: { command?: string; target?: string; expected?: string; timeout: string }, action: Command) => {
-      if (!['red', 'green', 'refactor', 'verify'].includes(stage)) fail(new Error(`Unknown evidence stage: ${stage}`));
+    .action((stage: string, runId: string, opts: { command?: string; target?: string; timeout: string }, action: Command) => {
+      if (stage !== 'verify') fail(new Error(`Unknown evidence stage: ${stage}`));
       const root = resolveWorkspaceRoot(action);
       try {
         const profilePath = path.join(root, 'docs/project/foundation/STACK-PROFILE.json');
         const profile = StackProfileSchema.parse(JSON.parse(fs.readFileSync(profilePath, 'utf8')));
-        const commandId = opts.command ?? (stage === 'red' ? 'swift.test-targeted' : 'swift.test');
+        const commandId = opts.command ?? 'swift.test';
         const state = RunStateStore.load(root, runId);
         if (!state) throw new Error(`Run "${runId}" does not exist.`);
         const pipeline = state.pipelineSnapshot?.pipeline ?? WorkspaceLoader.load(root).config.pipelines.find((item) => item.id === state.pipelineId);
         if (!pipeline) throw new Error(`Pipeline "${state.pipelineId}" does not exist.`);
         const stageRevisions = evidenceStageRevisionsForRun(state, pipeline);
         const record = captureEvidence({
-          workspaceRoot: root, runId, profile, stage: stage as Exclude<CofofoEvidenceStage, 'red-waiver'>,
-          commandId, target: opts.target, expectedFailure: opts.expected, timeoutMs: Number(opts.timeout),
-          stepRevision: stageRevisions[stage as 'red' | 'green' | 'refactor' | 'verify'], stageRevisions,
+          workspaceRoot: root, runId, profile, stage: 'verify',
+          commandId, target: opts.target, timeoutMs: Number(opts.timeout),
+          stepRevision: stageRevisions.verify, stageRevisions,
         });
         const icon = record.accepted ? chalk.green('✔') : chalk.red('✘');
-        console.log(`${icon} ${stage.toUpperCase()} evidence ${record.id}: exit ${record.exitStatus ?? 'none'}, log ${record.logHash.slice(0, 19)}…`);
+        console.log(`${icon} VERIFY evidence ${record.id}: exit ${record.exitStatus ?? 'none'}, log ${record.logHash.slice(0, 19)}…`);
         if (!record.accepted) process.exitCode = 2;
-      } catch (error) { fail(error); }
-    });
-
-  command.command('waive-red <runId>')
-    .description('Record a RED waiver, write RED-EVIDENCE.md, then require its Canvas approval')
-    .requiredOption('--reviewer <identity>', 'Human reviewer identity')
-    .requiredOption('--reason <text>', 'Why deterministic RED is not possible')
-    .requiredOption('--evidence <text>', 'Alternative log/trace/production evidence')
-    .action((runId: string, opts: { reviewer: string; reason: string; evidence: string }, action: Command) => {
-      try {
-        const root = resolveWorkspaceRoot(action);
-        const state = RunStateStore.load(root, runId);
-        if (!state) throw new Error(`Run "${runId}" does not exist.`);
-        const pipeline = state.pipelineSnapshot?.pipeline ?? WorkspaceLoader.load(root).config.pipelines.find((item) => item.id === state.pipelineId);
-        if (!pipeline) throw new Error(`Pipeline "${state.pipelineId}" does not exist.`);
-        const stageRevisions = evidenceStageRevisionsForRun(state, pipeline);
-        const redIdx = pipeline.steps.findIndex((step) => {
-          const norm = normalizeStep(step);
-          return norm.evidence?.stage === 'red' || norm.name === 'reproduce' || norm.name === 'implement';
-        });
-        if (redIdx < 0 || state.currentStepIdx !== redIdx || state.steps[redIdx]?.status !== 'awaiting_work') {
-          throw new Error('A RED waiver may only be recorded while the current reproduce/implement step is awaiting work.');
-        }
-        const record = recordRedWaiver({ workspaceRoot: root, runId, reviewer: opts.reviewer, reason: opts.reason, alternativeEvidence: opts.evidence, stepRevision: stageRevisions.red, stageRevisions });
-        const outputs = pipeline.steps[redIdx] && typeof pipeline.steps[redIdx] === 'object'
-          ? (pipeline.steps[redIdx] as { produces?: string[] }).produces ?? []
-          : [];
-        const evidencePath = outputs.find((item) => /RED-EVIDENCE\.md$/i.test(item));
-        if (!evidencePath) throw new Error('reproduce/implement does not declare RED-EVIDENCE.md.');
-        const relative = resolveArtifactPath(evidencePath, state.context, activeEpicsDir(root));
-        const absolute = path.isAbsolute(relative) ? relative : path.join(root, relative);
-        fs.mkdirSync(path.dirname(absolute), { recursive: true });
-        fs.writeFileSync(absolute, [
-          '# RED Evidence', '',
-          '## Expected Failure', '', 'RED assertion is waived for this step revision; see the reviewed waiver below.', '',
-          '## RED Waiver', '',
-          `- Reviewer: ${record.waiver!.reviewer}`,
-          `- Reason: ${record.waiver!.reason}`,
-          `- Alternative evidence: ${record.waiver!.alternativeEvidence}`,
-          `- Ledger record: ${record.id}`,
-          '',
-        ].join('\n'), 'utf8');
-        console.log(chalk.green('✔') + ` Recorded RED waiver ${record.id} and wrote ${relative}.`);
-        console.log(chalk.dim(`  Next: aidlc run mark-done ${runId}  # opens the Canvas gate`));
       } catch (error) { fail(error); }
     });
 
@@ -206,15 +157,13 @@ export function registerCofofo(program: Command): void {
             try {
               const ledger = readEvidenceLedger(root, run.runId);
               const revisions = evidenceStageRevisionsForRun(run, pipeline);
-              for (const stage of ['red', 'green', 'refactor', 'verify'] as const) {
-                const accepted = ledger.some((record) => record.accepted
-                  && record.stepRevision === revisions[stage]
-                  && (record.stage === stage || (stage === 'red' && record.stage === 'red-waiver')));
-                stages[stage] = { revision: revisions[stage], accepted };
-                const idx = pipeline.steps.findIndex((step) => normalizeStep(step).evidence?.stage === stage);
-                if (idx >= 0 && run.steps[idx]?.status === 'approved' && !accepted) {
-                  issues.push(`${stage.toUpperCase()} evidence at current revision ${revisions[stage]} is missing.`);
-                }
+              const accepted = ledger.some((record) => record.accepted
+                && record.stepRevision === revisions.verify
+                && record.stage === 'verify');
+              stages.verify = { revision: revisions.verify, accepted };
+              const idx = pipeline.steps.findIndex((step) => normalizeStep(step).evidence?.stage === 'verify');
+              if (idx >= 0 && run.steps[idx]?.status === 'approved' && !accepted) {
+                issues.push(`VERIFY evidence at current revision ${revisions.verify} is missing.`);
               }
             } catch (error) {
               issues.push(error instanceof Error ? error.message : String(error));

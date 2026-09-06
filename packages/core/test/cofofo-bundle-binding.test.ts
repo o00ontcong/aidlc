@@ -39,7 +39,7 @@ function installedSwift(root: string, revision = 1) {
 }
 
 describe('CoFoFo bundle binding (C0 — compose fails until C2)', () => {
-  it('composeWorkspaceFromBundle merges ecc-tdd-workflow onto cofofo-developer', () => {
+  it('composeWorkspaceFromBundle merges ecc-swift-protocol-di-testing onto cofofo-developer', () => {
     const root = swiftFixture();
     const profile = detectStack(root);
     const selection = selectCatalog(profile)!;
@@ -48,7 +48,8 @@ describe('CoFoFo bundle binding (C0 — compose fails until C2)', () => {
     const skeleton = generatedCofofoWorkspace({ version: '1.0', name: 'Demo' });
     const composed = composeWorkspaceFromBundle({ workspaceRoot: root, skeleton, binding, installed });
     const developer = composed.agents.find((agent) => agent.id === 'cofofo-developer');
-    expect(developer?.skills).toContain('ecc-tdd-workflow');
+    expect(developer?.skills).toContain('ecc-swift-protocol-di-testing');
+    expect(developer?.skills).not.toContain('ecc-tdd-workflow');
   });
 
   it('composeWorkspaceFromBundle sets implement step skills from binding phases', () => {
@@ -63,7 +64,6 @@ describe('CoFoFo bundle binding (C0 — compose fails until C2)', () => {
     const implement = delivery.steps.find((step) => normalizeStep(step).name === 'implement')!;
     expect(normalizeStep(implement).skills).toEqual([
       'cofofo-implement',
-      'ecc-tdd-workflow',
       'ecc-swift-protocol-di-testing',
     ]);
   });
@@ -74,14 +74,14 @@ describe('CoFoFo bundle binding (C0 — compose fails until C2)', () => {
     const full = selectCatalog(profile)!;
     const minimalSelection: CofofoCatalogSelection = {
       ...full,
-      assets: full.assets.filter((asset) => asset.id === 'ecc-tdd-workflow'),
+      assets: full.assets.filter((asset) => asset.id === 'ecc-security-review'),
     };
     const installed = installedSwift(root);
     const binding = buildBundleBinding({
       selection: minimalSelection,
       installed: {
         ...installed,
-        assets: installed.assets.filter((asset) => asset.id === 'ecc-tdd-workflow'),
+        assets: installed.assets.filter((asset) => asset.id === 'ecc-security-review'),
       },
       foundationRevision: 1,
     });
@@ -92,7 +92,7 @@ describe('CoFoFo bundle binding (C0 — compose fails until C2)', () => {
       binding,
       installed: {
         ...installed,
-        assets: installed.assets.filter((asset) => asset.id === 'ecc-tdd-workflow'),
+        assets: installed.assets.filter((asset) => asset.id === 'ecc-security-review'),
       },
     });
     const developer = composed.agents.find((agent) => agent.id === 'cofofo-developer');
@@ -107,13 +107,13 @@ describe('CoFoFo bundle binding (C1 — schema + catalog map)', () => {
     const full = selectCatalog(profile)!;
     const minimal: CofofoCatalogSelection = {
       ...full,
-      assets: full.assets.filter((asset) => asset.id === 'ecc-tdd-workflow'),
+      assets: full.assets.filter((asset) => asset.id === 'ecc-security-review'),
     };
     const binding = bindingForSelection(minimal);
-    expect(binding.phases.implement).toEqual(['ecc-tdd-workflow']);
-    expect(binding.phases.test ?? []).toEqual([]);
-    expect(binding.roles.developer ?? []).toEqual(['ecc-tdd-workflow']);
-    expect(binding.roles.developer ?? []).not.toContain('ecc-swift-protocol-di-testing');
+    expect(binding.phases.implement ?? []).toEqual([]);
+    expect(binding.phases.test).toEqual(['ecc-security-review']);
+    expect(binding.roles.developer ?? []).toEqual([]);
+    expect(binding.roles['fresh-reviewer']).toEqual(['ecc-security-review']);
   });
 
   it('buildBundleBinding produces registry entries aligned with INSTALLED-ASSETS', () => {
@@ -130,7 +130,8 @@ describe('CoFoFo bundle binding (C1 — schema + catalog map)', () => {
       expect(entry.path).toBe(asset!.installedPath);
       expect(entry.sha256).toBe(asset!.sha256);
     }
-    expect(binding.phases.implement).toContain('ecc-tdd-workflow');
+    expect(binding.phases.implement).toContain('ecc-swift-protocol-di-testing');
+    expect(binding.phases.implement ?? []).not.toContain('ecc-tdd-workflow');
     expect(binding.roles['fresh-reviewer']).toContain('ecc-security-review');
   });
 
@@ -146,16 +147,17 @@ describe('CoFoFo bundle binding (C1 — schema + catalog map)', () => {
     })).toThrow(/missing catalog id/);
   });
 
-  it('bindingForSelection uses shared TDD skills for Python without Swift extras', () => {
+  it('bindingForSelection uses shared reviewer skills for Python without Swift extras', () => {
     const root = temporary();
     write(root, 'pyproject.toml', '[project]\nname = "demo"\nrequires-python = ">=3.11"\n');
     const profile = detectStack(root);
     const selection = selectCatalog(profile)!;
     expect(selection.stackId).toBe('python');
     const binding = bindingForSelection(selection);
-    expect(binding.roles.developer).toEqual(['ecc-tdd-workflow', 'ecc-tdd-guide']);
-    expect(binding.phases.implement).toEqual(['ecc-tdd-workflow']);
+    expect(binding.roles.developer ?? []).toEqual([]);
+    expect(binding.phases.implement ?? []).toEqual([]);
     expect(binding.roles['fresh-reviewer']).toEqual(['ecc-security-review']);
     expect(JSON.stringify(binding)).not.toContain('ecc-swift');
+    expect(JSON.stringify(binding)).not.toContain('ecc-tdd');
   });
 });

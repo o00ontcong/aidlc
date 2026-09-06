@@ -127,8 +127,8 @@ const DEMO_EPICS: DemoEpicSpec[] = [
   },
   {
     id: 'COFOFO-WEATHER-003-RED',
-    title: 'CoFoFo: implement — RED trước production mutation',
-    description: 'Tạo test `testHighTemperatureAlertRequiresThreshold`, capture RED trong phase implement, rồi để validator xác nhận test thật sự đỏ trước khi sửa production code.',
+    title: 'CoFoFo: implement đang chờ làm',
+    description: 'Kế hoạch đã duyệt. Phase implement đang awaiting_work — viết code theo TASK-PLAN rồi ghi IMPLEMENT-SUMMARY.md.',
     pipeline: FEATURE_RECIPE,
     currentStepIdx: 2,
     currentStatus: 'awaiting_work',
@@ -162,9 +162,9 @@ const DEMO_EPICS: DemoEpicSpec[] = [
   {
     id: 'COFOFO-WEATHER-006-BUGFIX-COMPLETED',
     title: 'CoFoFo: bugfix đã hoàn tất sau rework',
-    description: 'Bug production về forecast cũ sau khi đổi timezone đã được chẩn đoán, tái hiện, sửa và verify. Step implement từng bị Request changes vì thiếu regression test; audit history vẫn giữ nguyên sau rerun.',
+    description: 'Bug production về forecast cũ sau khi đổi timezone đã được chẩn đoán, sửa và verify. Step implement từng bị Request changes vì thiếu regression test; audit history vẫn giữ nguyên sau rerun.',
     pipeline: BUGFIX_RECIPE,
-    currentStepIdx: 3,
+    currentStepIdx: 2,
     currentStatus: 'approved',
     completed: true,
     createdHoursAgo: 96,
@@ -175,9 +175,9 @@ const DEMO_EPICS: DemoEpicSpec[] = [
         { kind: 'canvas_verdict', revision: 1, verdict: 'approve', reviewer: 'Demo Reviewer', bundleHash: 'demo-bug-root-cause-v1' },
         { kind: 'approve', revision: 1 },
       ],
-      2: [
-        { kind: 'auto_review', revision: 1, decision: 'pass', reason: 'GREEN test pass nhưng chưa có regression coverage cho cache key.', runner: '.aidlc/validators/green-weather-alert.mjs' },
-        { kind: 'reject', revision: 1, reason: 'Bổ sung regression test cho cache key theo timezone.', sentBackToIdx: 2 },
+      1: [
+        { kind: 'auto_review', revision: 1, decision: 'pass', reason: 'Tests pass nhưng chưa có regression coverage cho cache key.', runner: '.aidlc/validators/green-weather-alert.mjs' },
+        { kind: 'reject', revision: 1, reason: 'Bổ sung regression test cho cache key theo timezone.', sentBackToIdx: 1 },
         { kind: 'rerun', revision: 2, feedback: 'Đã thêm test đổi timezone và cache invalidation.' },
         { kind: 'auto_review', revision: 2, decision: 'pass', reason: 'Regression test pass; output nằm đúng layer Data.', runner: '.aidlc/validators/green-weather-alert.mjs' },
         { kind: 'canvas_verdict', revision: 2, verdict: 'approve', reviewer: 'Demo Reviewer', bundleHash: 'demo-bug-green-v2' },
@@ -188,7 +188,7 @@ const DEMO_EPICS: DemoEpicSpec[] = [
   {
     id: 'COFOFO-WEATHER-007-PROD-DIAGNOSIS',
     title: 'CoFoFo: incident production chờ duyệt nguyên nhân',
-    description: 'Bug chỉ xảy ra trên thiết bị thật khi API trả 429. ROOT-CAUSE.md đã ghi causal chain và failure oracle; phải duyệt Canvas diagnosis trước khi được viết test hoặc chạm production code.',
+    description: 'Bug chỉ xảy ra trên thiết bị thật khi API trả 429. ROOT-CAUSE.md đã ghi causal chain và failure oracle; phải duyệt Canvas diagnosis trước khi chạm production code.',
     pipeline: BUGFIX_RECIPE,
     currentStepIdx: 0,
     currentStatus: 'awaiting_review',
@@ -197,11 +197,11 @@ const DEMO_EPICS: DemoEpicSpec[] = [
   },
   {
     id: 'COFOFO-WEATHER-008-RED-WAIVER',
-    title: 'CoFoFo: RED waiver cho lỗi không ổn định',
-    description: 'Race condition chỉ tái hiện trên production nên simulator không tạo được RED assertion ổn định. Đây là điểm demo đường miễn trừ có reviewer, lý do, evidence thay thế và secret screening — không phải một ô tick tự động.',
+    title: 'CoFoFo: implement sau diagnosis production-only',
+    description: 'Race condition chỉ tái hiện trên production. Diagnosis đã duyệt; implement đang awaiting_work — không còn RED waiver, chỉ còn sửa theo ROOT-CAUSE rồi VERIFY lúc test.',
     pipeline: BUGFIX_RECIPE,
     currentStepIdx: 1,
-    currentStatus: 'awaiting_review',
+    currentStatus: 'awaiting_work',
     createdHoursAgo: 42,
     inputs: { brief: 'Đôi lúc refresh đồng thời làm mất trạng thái loading và hiển thị dữ liệu nửa cũ nửa mới.' },
   },
@@ -677,23 +677,15 @@ function demoArtifact(
     // phase name. These bugs are diagnosed before any code was written, so the
     // run resumes at the next phase rather than rewinding.
     case 'diagnose':
-      return `${common}# Root Cause — ${spec.id}\n\n## Reproduction\nExercise the deterministic fixture with a timezone/API-response transition.\n\n## Causal Chain\nInput transition → stale state ownership → presentation reads an old snapshot.\n\n## Failure Oracle\nThe next refresh must expose the current city/timezone state instead of the stale snapshot.\n\n## Resume From\nreproduce\n`;
+      return `${common}# Root Cause — ${spec.id}\n\n## Reproduction\nExercise the deterministic fixture with a timezone/API-response transition.\n\n## Causal Chain\nInput transition → stale state ownership → presentation reads an old snapshot.\n\n## Failure Oracle\nThe next refresh must expose the current city/timezone state instead of the stale snapshot.\n\n## Resume From\nimplement\n`;
     // Every currently-blocking ruleId must appear verbatim, or `markStepDone`
     // refuses the phase. The list is passed in from the rules this seed wrote
     // rather than hard-coded, so adding a blocking rule cannot silently strand
     // the demo's rerun scenario again.
     case 'create-plan':
-      return `${common}# Task Plan — ${spec.id}\n\n## RED / GREEN Contract\nRED asserts the missing weather behavior before production mutation; GREEN changes the smallest Data/Presentation seam; VERIFY runs build, targeted tests, and the full SwiftPM suite.\n\n## Rule Bindings\n${blockingRuleIds.map((ruleId) => `- ${ruleId}: honored by keeping the change inside the SwiftPM targets, out of Domain→SwiftUI imports, and green under the pinned build/test commands.`).join('\n')}\n\n## Files and Tests\n- Sources/SkyCast/Data/ForecastStore.swift\n- Sources/SkyCast/Presentation/WeatherDashboardView.swift\n- Tests/SkyCastTests/ForecastStoreTests.swift\n`;
-    case 'reproduce':
-      return `${common}# RED Evidence — ${spec.id}\n\n## Expected Failure\nThe targeted assertion reports the missing behavior for this scenario (for example: 'heat alert missing' or 'stale snapshot after timezone change').\n\nCommand: 'swift test --filter SkyCastTests'\nOracle: failure is behavioral, not a compile/import/syntax error.\n`;
+      return `${common}# Task Plan — ${spec.id}\n\n## Files and Tests\n- Sources/SkyCast/Data/ForecastStore.swift\n- Sources/SkyCast/Presentation/WeatherDashboardView.swift\n- Tests/SkyCastTests/ForecastStoreTests.swift\n\n## Rule Bindings\n${blockingRuleIds.map((ruleId) => `- ${ruleId}: honored by keeping the change inside the SwiftPM targets, out of Domain→SwiftUI imports, and green under the pinned build/test commands.`).join('\n')}\n`;
     case 'implement':
-      if (filename === 'RED-EVIDENCE.md') {
-        return `${common}# RED Evidence — ${spec.id}\n\n## Expected Failure\nThe targeted assertion reports the missing behavior for this scenario.\n\nCommand: 'swift test --filter SkyCastTests'\nOracle: failure is behavioral, not a compile/import/syntax error.\n`;
-      }
-      if (filename === 'REFACTOR-EVIDENCE.md') {
-        return `${common}# Refactor Evidence — ${spec.id}\n\n## Refactor Evidence\nNames and ownership were clarified without changing observable behavior.\n`;
-      }
-      return `${common}# Implementation Summary — ${spec.id}\n\n## Green Evidence\nThe smallest production change satisfies the RED assertion while preserving deterministic provider injection.\n\n## Scope\nOnly the weather domain/data/presentation seams named in the approved plan were changed.\n\n## Verification\n'swift build' and 'swift test' pass for the SwiftPM package.\n`;
+      return `${common}# Implementation Summary — ${spec.id}\n\n## Scope\nOnly the weather domain/data/presentation seams named in the approved plan were changed.\n\n## Verification\n'swift build' and 'swift test' pass for the SwiftPM package.\n`;
     case 'test':
       if (filename === 'REVIEW.md') {
         return `${common}# Fresh Review — ${spec.id}\n\n## Findings\n- P0: none.\n- P1: none.\n- P2: verify the regression test remains deterministic when the device timezone changes.\n\n## Decision\nThe implementation stays within the reviewed scope.\n`;
@@ -840,77 +832,45 @@ function foundationSnapshotFor(
 }
 
 /**
- * Keep the two completed delivery examples and the waiver example backed by
- * the same durable evidence format that a real CLI capture writes. The logs
- * are deterministic, secret-free fixtures; they are intentionally scoped to
- * delivery runs; their Foundation pin is stored separately in each run state.
+ * Keep completed delivery examples backed by the same durable VERIFY evidence
+ * format that a real CLI capture writes. The logs are deterministic,
+ * secret-free fixtures; they are intentionally scoped to delivery runs; their
+ * Foundation pin is stored separately in each run state.
  */
 function seedEvidenceLedger(root: string, spec: DemoEpicSpec, pipeline: PipelineConfig): void {
   const isCompletedDelivery = spec.completed === true && !isFoundationRecipe(spec);
-  const isWaiver = spec.id === 'COFOFO-WEATHER-008-RED-WAIVER';
-  if (!isCompletedDelivery && !isWaiver) return;
+  if (!isCompletedDelivery) return;
 
-  const stages = isWaiver ? (['red-waiver'] as const) : (['red', 'green', 'refactor', 'verify'] as const);
-  const records: Array<Record<string, unknown>> = [];
-  for (let index = 0; index < stages.length; index += 1) {
-    const stage = stages[index]!;
-    const evidenceStage = stage === 'red-waiver' ? 'red' : stage;
-    let phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).evidence?.stage === evidenceStage);
-    if (phaseIdx < 0 && evidenceStage === 'red') {
-      phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).name === 'reproduce');
-      if (phaseIdx < 0) {
-        phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).name === 'implement');
-      }
-    }
-    if (phaseIdx < 0 && (evidenceStage === 'green' || evidenceStage === 'refactor')) {
-      phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).name === 'implement');
-    }
-    if (phaseIdx < 0 && evidenceStage === 'verify') {
-      phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).name === 'test');
-    }
-    if (phaseIdx < 0) throw new Error(`Demo recipe "${pipeline.id}" has no ${evidenceStage} evidence phase.`);
-    const stepRevision = Math.max(1, ...(spec.history?.[phaseIdx] ?? []).map((event) => event.revision));
-    const sequence = index + 1;
-    const at = isoOffset(-spec.createdHoursAgo + sequence * 0.15);
-    const logPath = `.aidlc/evidence/${spec.id}/${String(sequence).padStart(4, '0')}-${stage}.log`;
-    const log = stage === 'red-waiver'
-      ? 'Production trace: concurrent refresh race reproduced on a real device.\nAlternative evidence: Instruments trace + deterministic state-transition log; no credentials included.\n'
-      : stage === 'red'
-        ? 'swift test --filter SkyCastTests\nXCTAssertTrue failed: heat alert missing (behavioral oracle).\n'
-        : `swift test\n${stage} evidence passed for the deterministic SkyCast fixture.\n`;
-    writeFile(path.join(root, logPath), log);
-    const draft: Record<string, unknown> = {
-      schemaVersion: 2,
-      id: `${spec.id}-${sequence}-${stage}`,
-      runId: spec.id,
-      sequence,
-      stage,
-      stepRevision,
-      args: stage === 'red-waiver' ? [] : stage === 'red' ? ['test', '--filter', 'SkyCastTests'] : ['test'],
-      ...(stage === 'red-waiver' ? {} : { commandId: stage === 'red' ? 'swift.test-targeted' : 'swift.test' }),
-      startedAt: at,
-      finishedAt: at,
-      exitStatus: stage === 'red' ? 1 : stage === 'red-waiver' ? null : 0,
-      timedOut: false,
-      accepted: true,
-      ...(stage === 'red' ? { expectedFailure: 'heat alert missing', failureOracleMatched: true } : {}),
-      ...(stage === 'red-waiver' ? {
-        waiver: {
-          reviewer: 'On-call Reviewer',
-          reason: 'Race condition only reproduces on production hardware and cannot yield a stable simulator assertion.',
-          alternativeEvidence: 'Instruments trace plus deterministic state-transition log; no credentials included.',
-        },
-      } : {}),
-      outputPreview: log,
-      logPath,
-      logHash: sha256(log),
-      ...(records.length > 0 ? { previousHash: records[records.length - 1]!.recordHash } : {}),
-    };
-    records.push({ ...draft, recordHash: hashObject(draft) });
-  }
+  const phaseIdx = pipeline.steps.findIndex((step) => normalizeStep(step).evidence?.stage === 'verify'
+    || normalizeStep(step).name === 'test');
+  if (phaseIdx < 0) throw new Error(`Demo recipe "${pipeline.id}" has no verify evidence phase.`);
+  const stepRevision = Math.max(1, ...(spec.history?.[phaseIdx] ?? []).map((event) => event.revision));
+  const at = isoOffset(-spec.createdHoursAgo + 0.15);
+  const logPath = `.aidlc/evidence/${spec.id}/0001-verify.log`;
+  const log = 'swift test\nverify evidence passed for the deterministic SkyCast fixture.\n';
+  writeFile(path.join(root, logPath), log);
+  const draft: Record<string, unknown> = {
+    schemaVersion: 2,
+    id: `${spec.id}-1-verify`,
+    runId: spec.id,
+    sequence: 1,
+    stage: 'verify',
+    stepRevision,
+    args: ['test'],
+    commandId: 'swift.test',
+    startedAt: at,
+    finishedAt: at,
+    exitStatus: 0,
+    timedOut: false,
+    accepted: true,
+    outputPreview: log,
+    logPath,
+    logHash: sha256(log),
+  };
+  const record = { ...draft, recordHash: hashObject(draft) };
   writeFile(
     path.join(root, '.aidlc', 'evidence', spec.id, 'ledger.jsonl'),
-    `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+    `${JSON.stringify(record)}\n`,
   );
 }
 

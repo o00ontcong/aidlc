@@ -575,7 +575,7 @@ export function markStepDone(args: {
 
   // CoFoFo's process rules are enforced by core rather than trusted to the
   // provider's Markdown. Planning must cite the canonical blocking rules;
-  // production/refactor/verify boundaries re-run structural policy; memory is
+      // production/verify boundaries re-run structural policy; memory is
   // bounded, secret-screened, and remains explicitly unreviewed.
   if (pipeline.foundation?.mode === 'cofofo') {
     try {

@@ -1,9 +1,14 @@
 # Task Plan — Heat alert (needs revision)
 
-## RED / GREEN Contract
+## Files and Tests
 
 Kế hoạch này bị reject để demo revision flow. Hãy sửa nó bằng feedback đang có
 trong task state, rồi submit Canvas round mới.
+
+| File | Role |
+|---|---|
+| `ForecastStore.swift` | Define alert ownership |
+| `ForecastStoreTests.swift` | Deterministic tests for the threshold |
 
 ## Tasks
 

@@ -1,15 +1,16 @@
 # Task Plan — Heat alert
 
-## RED / GREEN Contract
+## Files and Tests
 
-Thêm `testHighTemperatureAlertRequiresThreshold` trước. Test phải fail bằng
-`XCTAssert` vì `ForecastStore` chưa có alert. `red-weather-alert.mjs` sẽ reject
-nếu lỗi compile/import hoặc test đang xanh.
+- `src/Sources/SkyCast/Domain/WeatherAlert.swift`
+- `src/Sources/SkyCast/Data/ForecastStore.swift`
+- `src/Sources/SkyCast/Presentation/WeatherDashboardView.swift`
+- `src/Tests/SkyCastTests/ForecastStoreTests.swift` — `testHighTemperatureAlertRequiresThreshold`
 
 ## Tasks
 
-1. RED: test high temperature và threshold boundary.
-2. GREEN: model `WeatherAlert` và publish alert từ `ForecastStore`.
+1. Model `WeatherAlert` và publish alert từ `ForecastStore`.
+2. Tests cho high temperature và threshold boundary.
 3. Presentation: render output store, không lặp policy.
 4. Verify: `swift build` và full `swift test`.
 

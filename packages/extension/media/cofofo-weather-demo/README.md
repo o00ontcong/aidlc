@@ -36,10 +36,10 @@ cofofo-foundation (một lần / mỗi foundation revision)
                                       │
                                       ▼
 cofofo-feature recipe (materialized from provider-neutral cofofo-delivery, mỗi feature)
-  requirement → create-plan → implement → test
+  analyze → create-plan → implement → test
 
 cofofo-bugfix recipe (mỗi bug)
-  diagnose [Canvas] → reproduce → implement → test
+  diagnose [Canvas] → implement → test
 ```
 
 - Foundation tạo `STACK-PROFILE.json`, policy JSON + view có source hash,
@@ -50,9 +50,8 @@ cofofo-bugfix recipe (mỗi bug)
   đã audit; executable, hook và validator ngoài bị từ chối.
 - Canvas bundle gắn verdict với run, step revision, artifact path và SHA-256.
   Sửa nội dung sau duyệt làm approval hết hiệu lực.
-- Evidence ledger bắt buộc đúng thứ tự RED → GREEN → REFACTOR →
-  VERIFY, bind vào revision hiện tại của từng phase, ghi timestamp, exit
-  status, output đã redact, log hash và hash chain.
+- Evidence ledger bắt buộc VERIFY trên bước `test`: bind vào revision hiện
+  tại, ghi timestamp, exit status, output đã redact, log hash và hash chain.
 - Delivery run ghim foundation revision + manifest hash; foundation thay đổi
   thì run dừng và phải rebase/replay.
 
@@ -72,8 +71,8 @@ cofofo-bugfix recipe (mỗi bug)
 6. Mark các phase đã sinh xong; ở gate dùng `Review in Canvas`. Extension tự
    khởi động Annotron, mở mọi artifact trong bundle, chờ verdict và ghi
    run state sau khi core kiểm hash lại.
-   Tại các evidence phase, dùng
-   `AIDLC: CoFoFo: Capture Current RED/GREEN/REFACTOR/VERIFY Evidence`.
+   Tại bước test, dùng
+   `AIDLC: CoFoFo: Capture Current VERIFY Evidence`.
 
 Muốn trình diễn lifecycle thay đổi context, chạy `AIDLC: CoFoFo: Prepare
 Foundation` với route `Refresh context`, review/publish/activate revision mới,
@@ -89,16 +88,15 @@ Demo cố ý có cả task đang chạy, task hoàn tất và các đường ph�
 - `COFOFO-WEATHER-001-GATE`: delivery mới ghim active Foundation revision 2
   cùng exact manifest SHA-256 trước requirement work.
 - `COFOFO-WEATHER-002-CANVAS`: kế hoạch đang chờ content-addressed Canvas.
-- `COFOFO-WEATHER-003-RED`: trước khi có RED behavioral evidence.
+- `COFOFO-WEATHER-003-RED`: implement đang awaiting_work sau khi plan được duyệt.
 - `COFOFO-WEATHER-004-REJECTED`: Request changes và feedback phải được rework.
 - `COFOFO-WEATHER-005-COMPLETED`: feature hoàn tất đủ mọi phase và artifact.
 - `COFOFO-WEATHER-006-BUGFIX-COMPLETED`: bugfix đã ship sau reject/rerun và
-  có root-cause, regression, Canvas, evidence, memory, improvement history.
+  có root-cause, Canvas, VERIFY evidence, memory, improvement history.
 - `COFOFO-WEATHER-007-PROD-DIAGNOSIS`: incident production-only chờ duyệt
-  nguyên nhân trước khi viết test.
-- `COFOFO-WEATHER-008-RED-WAIVER`: race condition không ổn định, minh họa
-  waiver có reviewer/lý do/evidence thay thế, secret screening và Canvas gate
-  trên `RED-EVIDENCE.md`.
+  nguyên nhân trước khi chạm production code.
+- `COFOFO-WEATHER-008-RED-WAIVER`: race condition production-only, diagnosis
+  đã duyệt, implement đang awaiting_work.
 - `COFOFO-WEATHER-009-STALE-REBASE`: Foundation revision đổi giữa run, bắt
   buộc rebase/replay thay vì tiếp tục trên policy cũ.
 - `COFOFO-WEATHER-010-RULE-IMPROVEMENT`: improvement là

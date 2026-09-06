@@ -138,7 +138,7 @@ const StepReviewSchema = z.object({
 
 /** Machine evidence that must exist in the core-owned hash-chain ledger. */
 const StepEvidenceSchema = z.object({
-  stage: z.enum(['red', 'green', 'refactor', 'verify']),
+  stage: z.enum(COFOFO_EVIDENCE_STAGES),
 }).strict();
 
 const PipelineStepObjectSchema = z
@@ -381,7 +381,7 @@ export interface NormalizedStep {
    */
   review?: { mode: 'canvas'; artifacts: string[] };
   /** Core-owned machine evidence required before this step can complete. */
-  evidence?: { stage: 'red' | 'green' | 'refactor' | 'verify' };
+  evidence?: { stage: 'verify' };
 }
 
 /**
@@ -442,9 +442,8 @@ export function normalizeStep(step: PipelineStepConfig | { agent?: string; [k: s
         }
       : undefined;
   const evidenceCfg = obj.evidence as Record<string, unknown> | undefined;
-  const evidenceStages = COFOFO_EVIDENCE_STAGES.filter((stage) => stage !== 'red-waiver');
-  const evidence = evidenceCfg && evidenceStages.includes(evidenceCfg.stage as 'red' | 'green' | 'refactor' | 'verify')
-    ? { stage: evidenceCfg.stage as 'red' | 'green' | 'refactor' | 'verify' }
+  const evidence = evidenceCfg && evidenceCfg.stage === 'verify'
+    ? { stage: 'verify' as const }
     : undefined;
 
   return {

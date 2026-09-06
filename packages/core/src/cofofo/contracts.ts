@@ -210,7 +210,7 @@ export const CofofoFoundationStateSchema = z.object({
 }).strict();
 export type CofofoFoundationState = z.infer<typeof CofofoFoundationStateSchema>;
 
-export const COFOFO_EVIDENCE_STAGES = ['red', 'red-waiver', 'green', 'refactor', 'verify'] as const;
+export const COFOFO_EVIDENCE_STAGES = ['verify'] as const;
 export const CofofoEvidenceStageSchema = z.enum(COFOFO_EVIDENCE_STAGES);
 export type CofofoEvidenceStage = z.infer<typeof CofofoEvidenceStageSchema>;
 
@@ -229,13 +229,6 @@ export const CofofoEvidenceRecordSchema = z.object({
   exitStatus: z.number().int().nullable(),
   timedOut: z.boolean(),
   accepted: z.boolean(),
-  expectedFailure: z.string().min(1).optional(),
-  failureOracleMatched: z.boolean().optional(),
-  waiver: z.object({
-    reviewer: z.string().min(1),
-    reason: z.string().min(1),
-    alternativeEvidence: z.string().min(1),
-  }).strict().optional(),
   outputPreview: z.string(),
   logPath: RelativePathSchema,
   logHash: Sha256Schema,

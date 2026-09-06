@@ -22,7 +22,7 @@ const OPTIONS: Option[] = [
       'Evidence-first workflow with shared project context, explicit review gates, and project-local assets.',
     bullets: [
       'Two delivery pipelines: Feature and Bugfix; Discover owns Publish Context',
-      'Canvas review + RED / GREEN / VERIFY evidence gates',
+      'Canvas review + VERIFY evidence gate on the test step',
       'Ready automatically inside the project — no separate installation',
     ],
     icon: <Sparkles className="h-4 w-4" />,

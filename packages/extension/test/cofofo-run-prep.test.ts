@@ -15,7 +15,7 @@ describe('extraFeedbackForDeliveryStep', () => {
     });
     expect(text).toContain('This analyze step must write docs/epics/EPIC-1007/artifacts/REQUIREMENT.md');
     expect(text).toContain('## 4. Screens (New / Update)');
-    expect(text).not.toContain('## RED / GREEN Contract');
+    expect(text).not.toContain('## Files and Tests');
   });
 
   it('does not tell create-plan to rewrite REQUIREMENT.md', () => {
@@ -24,10 +24,10 @@ describe('extraFeedbackForDeliveryStep', () => {
       runId: 'EPIC-1007',
       pipelineId: 'cofofo-feature',
       phaseName: 'create-plan',
-      producesContains: ['## RED / GREEN Contract'],
+      producesContains: ['## Files and Tests'],
     });
     expect(text).toContain('This create-plan must include these exact headings');
-    expect(text).toContain('## RED / GREEN Contract');
+    expect(text).toContain('## Files and Tests');
     expect(text).not.toContain('This analyze step');
     expect(text).not.toContain('REQUIREMENT.md');
   });
@@ -49,7 +49,7 @@ describe('extraFeedbackForDeliveryStep', () => {
       userNote: 'Use the Figma recovery-email screen.',
       pipelineId: 'cofofo-feature',
       phaseName: 'create-plan',
-      producesContains: ['## RED / GREEN Contract'],
+      producesContains: ['## Files and Tests'],
     });
     expect(plan).toContain(USER_NOTE_PRIORITY_RULE);
     expect(plan).not.toContain('Fold every distinctive line');

@@ -181,12 +181,9 @@ export interface CofofoBindingTemplate {
 
 const SHARED_BINDING: CofofoBindingTemplate = {
   roles: {
-    developer: ['ecc-tdd-workflow', 'ecc-tdd-guide'],
     'fresh-reviewer': ['ecc-security-review'],
   },
   phases: {
-    reproduce: ['ecc-tdd-workflow'],
-    implement: ['ecc-tdd-workflow'],
     test: ['ecc-security-review'],
   },
 };

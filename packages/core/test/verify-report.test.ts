@@ -125,8 +125,8 @@ describe('verifyRun — post-run drift check', () => {
       id: 'cofofo-source', on_failure: 'stop',
       foundation: { mode: 'cofofo', manifest: 'docs/project/foundation/CONTEXT-MANIFEST.json', state: '.aidlc/cofofo/foundation.json' },
       steps: [{
-        name: 'test-red', agent: 'developer', requires: [], produces: ['RED.md'],
-        human_review: true, review: { mode: 'canvas', artifacts: ['RED.md'] }, evidence: { stage: 'red' },
+        name: 'test-verify', agent: 'developer', requires: [], produces: ['VERIFY.md'],
+        human_review: true, review: { mode: 'canvas', artifacts: ['VERIFY.md'] }, evidence: { stage: 'verify' },
       }],
     };
     // This test targets snapshot inspection, not Foundation setup. Build the
@@ -141,7 +141,7 @@ describe('verifyRun — post-run drift check', () => {
     expect(report.ok).toBe(false);
     expect(report.snapshotIssues).toEqual(expect.arrayContaining([
       expect.stringMatching(/Canvas review/i),
-      expect.stringMatching(/RED evidence/i),
+      expect.stringMatching(/VERIFY evidence/i),
     ]));
     expect(lostCofofoGateSnapshotIssues({ state: snapshot, sourcePipeline: source })).toHaveLength(2);
   });

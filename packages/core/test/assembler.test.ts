@@ -92,7 +92,7 @@ describe('assemblePipeline', () => {
     const source = ws.pipelines[0].steps[0] as Record<string, unknown>;
     Object.assign(source, {
       review: { mode: 'canvas', artifacts: ['{epicDir}/PRD.md'] },
-      evidence: { stage: 'red' },
+      evidence: { stage: 'verify' },
       produces_contains: ['# PRD'],
       skippable: true,
       auto_review_timeout_ms: 1234,
@@ -109,7 +109,7 @@ describe('assemblePipeline', () => {
       expect(step).toHaveProperty(key);
     }
     expect(step.review).toEqual({ mode: 'canvas', artifacts: ['{epicDir}/PRD.md'] });
-    expect(step.evidence).toEqual({ stage: 'red' });
+    expect(step.evidence).toEqual({ stage: 'verify' });
     expect(step.produces_contains).toEqual(['# PRD']);
     expect(step.skippable).toBe(true);
   });
